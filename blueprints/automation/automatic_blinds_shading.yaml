@@ -1,0 +1,1225 @@
+blueprint:
+  name: "New Shading - automatic driving for sun protection (hvorragend-fork)"
+  description: >-
+    **Version: 2024010201 (hvorragend)**
+
+    *Synced with version: 2024010201 (jmerifjKriwe)*
+
+    This is an largely complete automation for roller shutters.
+
+    Two major areas are covered: a) daily raising and lowering, b) shading against too much sunlight.
+    For more information open:
+    <details>
+    In order to have extensive flexibility here, different sensors are used. But there is also the possibility to define an occupant of the room, so that e.g. the roller shutter does not go up in the morning, although the occupant is still sleeping.
+    As a bonus, there is also an overwrite option for closing (aka Christmas mode). This can be used to prevent a roller shutter from going down during the Christmas season - for example, because you want to display the illuminated Christmas decorations for longer.
+
+
+    **NOTE**
+        - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until ALL criteria are met.
+        - It's NOT possible to execute this automation manually!
+        - TODO - wrong for me (hvorragend): The automation only moves the roller shutter if it is positioned at one of the defined positions (ventilate position, shading position, open position or closed position). Otherwise, the roller shutter has been moved manually. After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action. To automate the movement of the roller shutter again, it must be moved to one of the defined positions beforehand.
+
+    This was a fork of Eimeel's blueprint and is largely based on the programming of him.
+    Original-source: https://gist.github.com/jmerifjKriwe/bffbc7424dd04f4a31d6a71f7012cd1f
+    </details>
+
+  # Notizen
+  # siehe auch TODOs im Code
+  # auto_shading_blocking_entity-Trigger wird nicht funktionieren. Stattdessen trigger_variables nutzen?
+  # Target-Position nur anfahren, wenn unterhalb der Shading-Position und Shading aktuell an oder an gewesen? Prüfen, ob vollständig.
+  # External Shading State Sensor in mehr Conditions?
+  # Hotdaycheck: Vorhersage und nicht nur aktuelle Temperatur
+  # VERWORFEN Current_position Abfragen konsolidieren
+  # Shading out deaktivierbar machen / oder geht das mit Shading-Out-Lux?
+  # ERLEDIGT - ABER PRÜFEN OB AND/OR Sun-Feature
+  # ERLEDIGT brightness_option und sun_option derzeit ohne Funktion
+  # ERLEDIGT Redundanz default_sun_sensor und sun_sensor / Abgrenzng default_sun_sensor und default_sun_sensor
+  # ERLEDIGT default_brightness_sensor nun default - vorher optional
+
+  source_url: https://gist.github.com/hvorragend/07f164cdf711fe0c686a6b7e40f1382b
+  domain: automation
+  homeassistant:
+    min_version: "2023.9.0"
+  input:
+    blind:
+      name: "Blind"
+      description: "🏠 Which roller shutter should be automated?"
+      selector:
+        entity:
+          filter:
+            - domain:
+                - cover
+    auto_global_blocking_entity:
+      name: "⛔ Auto Global Blocking - Entity"
+      description: "Externally override the entire automation? If this entity's state is set to blocking entity state (defined below), it will prevent the execution of this <ins>entire</ins> automation.\n\nExample: input_boolean.party_mode\n\n`Optional`"
+      default:
+      selector:
+        entity:
+          filter:
+            - domain:
+                - input_boolean
+                - binary_sensor
+    auto_global_blocking_entity_state:
+      name: "⛔ Auto Global Blocking - Entity State"
+      description: "If blocking entity's state is of this state, it will prevent theexecution of this automation.\n\nExample: on\n\n`Optional`"
+      default:
+      selector:
+        text: {}
+
+    auto_up_option:
+      name: "🔼 Auto Up - Automation to open the blind"
+      description: "Basic automation for opening the blind. Select enable or disable."
+      default: auto_up_enabled
+      selector:
+        select:
+          options:
+            - label: Enable the blind open option
+              value: "auto_up_enabled"
+            - label: Disable the blind open option
+              value: "auto_up_disabled"
+    open_position:
+      name: "🔼 Open Position"
+      description: "To which position should the shutter be moved to be open?"
+      default: 100
+      selector:
+        number:
+          min: 0.0
+          max: 100.0
+          unit_of_measurement: "%"
+    auto_up_blocking_entity:
+      name: "🔼 Auto Up Blocking - Entity"
+      description: "Externally override the automation for opening the blind. If this entity's state is set to blocking entity state (defined below), it will prevent the automation from <ins>opening</ins> the blind.\n\nExample: input_boolean.deactivate_blinds_up\n\n`Optional`"
+      default:
+      selector:
+        entity:
+          filter:
+            - domain:
+                - input_boolean
+                - binary_sensor
+    auto_up_blocking_entity_state:
+      name: "🔼 Auto Up Blocking - Entity State"
+      description: "If blocking entity's state is of this state, it will prevent the automation from <ins>opening</ins> the blind.\n\nExample: on\n\n`Optional`"
+      default:
+      selector:
+        text: {}
+    resident_sensor:
+      name: "🔼 Overwrite mode for opening - aka Resident mode"
+      description:
+        "This switch can be used to override the automatic opening of the blind. If this Boolean input is set to true, the blind will not open automatically.
+        This can be used e.g. to define a resident (input_boolean or binary_sensor) for the room. In this case, the blind only opens when the occupant is no longer asleep.
+        For this it is necessary to use a Boolean sensor that returns true for sleeping and false for non-sleeping.\n\n`Optional`"
+      default: []
+      selector:
+        entity:
+          domain:
+            - input_boolean
+            - binary_sensor
+    time_up_early:
+      name: "🔼 Time for drive up - early"
+      description: "The earliest time at which the blind may be opened. The blind will be opened if AFTER this time the defined brightness value is high enough. (**NOTE**: If an occupant is defined, he must also be awake)."
+      default: "06:00:00"
+      selector:
+        time: {}
+    time_up_early_non_workday:
+      name: "🔼 Time for drive up - early on non-workdays"
+      description: "As directly above, but for non-workdays."
+      default: "07:00:00"
+      selector:
+        time: {}
+    time_up_late:
+      name: "🔼 Time for drive up - late"
+      description:
+        "The latest time at which the blind should be opened. If the required brightness value has NOT yet been reached by this time, the blind will still be opened.
+        (**NOTE**: If an occupant is defined and he is still asleep, the blind will NOT be opened. It will only be opened when the occupant has woken up)."
+      default: "08:00:00"
+      selector:
+        time: {}
+
+    auto_down_option:
+      name: "🔻 Auto Down - Automation to close the blind"
+      description: "Basic automation for closing the blind. Select enable or disable."
+      default: auto_down_enabled
+      selector:
+        select:
+          options:
+            - label: Enable the blind close option
+              value: "auto_down_enabled"
+            - label: Disable the blind close option
+              value: "auto_down_disabled"
+    closed_position:
+      name: "🔻 Closed Position"
+      description: "To which position should the shutter be moved to be closed?"
+      default: 0
+      selector:
+        number:
+          min: 0.0
+          max: 100.0
+          unit_of_measurement: "%"
+    auto_down_blocking_entity:
+      name: "🔻 Auto Down Blocking - Entity"
+      description: "Externally override the automation for closing the blind. If this entity's state is set to blocking entity state (defined below), it will prevent the automation from <ins>closing</ins> the blind. \n\nExample: input_boolean.deactivate_blinds_down\n\n`Optional`"
+      default:
+      selector:
+        entity:
+          filter:
+            - domain:
+                - input_boolean
+                - binary_sensor
+    auto_down_blocking_entity_state:
+      name: "🔻 Auto Down Blocking - Entity State"
+      description: "If blocking entity's state is of this state, it will prevent the automation from <ins>closing</ins> the blind.\n\nExample: on\n\n`Optional`"
+      default:
+      selector:
+        text: {}
+    time_down_early:
+      name: "🔻 Time for drive down - early"
+      description: "The earliest time at which the blind may be closed. The blind will be closed if AFTER this time the defined brightness value is low enough."
+      default: "16:00:00"
+      selector:
+        time: {}
+    time_down_late:
+      name: "🔻 Time for drive down - late"
+      description: "The latest time at which the blind should be closed. If the required brightness value has NOT yet been reached by this time, the blind will still be closed."
+      default: "22:00:00"
+      selector:
+        time: {}
+
+    door_sensor:
+      name: "🚪 Door or window"
+      description: "Does the blind belong to a window (FALSE) or a door (TRUE)? In the case of a door, an attempt is made to prevent the blind from being lowered when the door is open in order to prevent it from being locked out. (without guarantee!)\n\n`Optional`"
+      default: "false"
+      selector:
+        select:
+          options:
+            - label: Window
+              value: "false"
+            - label: Door
+              value: "true"
+    workday_sensor:
+      name: "💼 Sensor for workday/non-workday"
+      description: "It may be desired to open a blind at a different time on work days than on non-work days. The corresponding binary sensor can be defined here. If not set, the blind will open every time at time_up_early.\n\n`Optional`"
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - input_boolean
+                - binary_sensor
+
+    brightness_option:
+      name: "🔅 Use the brightness sensor"
+      description: "Select enable or disable.\n\n`Optional`"
+      default: brightness_option_enabled
+      selector:
+        select:
+          options:
+            - label: Enable the brightness option for up and down
+              value: "brightness_option_enabled"
+            - label: Disable the brightness option for up and down
+              value: "brightness_option_disabled"
+    default_brightness_sensor:
+      name: "🔅 Default brightness sensor for up and down"
+      description: "This default brightness sensor can be defined here, which is used for daily up and down.\n\n`Optional`"
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - sensor
+    brightness_up:
+      name: "🔼 Brightness up"
+      description: "The brightness value from which the blind should be opened.\n\n`Optional`"
+      default: 70
+      selector:
+        number:
+          min: 0.0
+          max: 1000.0
+          unit_of_measurement: lx
+          step: 10.0
+    brightness_down:
+      name: "🔻 Brightness down"
+      description: "The brightness value from which the blind should be closed. Must be lower then the brightness up value.\n\n`Optional`"
+      default: 10
+      selector:
+        number:
+          min: 0.0
+          max: 1000.0
+          unit_of_measurement: lx
+          step: 10.0
+
+    sun_option:
+      name: "☀️ Use the sun option"
+      description: "Select enable or disable.\n\n`Optional`"
+      default: sun_option_enabled
+      selector:
+        select:
+          options:
+            - label: Enable the sun option for up and down
+              value: "sun_option_enabled"
+            - label: Disable the sun option for up and down
+              value: "sun_option_disabled"
+    default_sun_sensor:
+      name: "☀️ Sun sensor for up and down"
+      description:
+        "Which sensors provides attributes with current azimuth and elevation of sun. I strongly suggest to use sun.sun.
+        <strong>Important: If you want to use automatic shading, the sensor must also be specified here. Regardless of whether the basic sun control is used.</strong>
+        \n\n`Optional`\n\n`Shading`"
+      default: "sun.sun"
+      selector:
+        entity:
+          filter:
+            - domain:
+                - sun
+    sun_elevation_up:
+      name: "🔼 Sun elevation to open the blind"
+      description: "The blind will be <ins>opened</ins> if the sun elevation is over this value. If left empty, this option will not be applied.\n\n`Optional`"
+      default:
+      selector:
+        number:
+          min: -90.0
+          max: 90.0
+          unit_of_measurement: °
+          step: 0.1
+          mode: slider
+    sun_elevation_down:
+      name: "🔻 Sun elevation to close the blind"
+      description: "The blind will be <ins>closed</ins> if the sun elevation is under this value. If left empty, this option will not be applied.\n\n`Optional`"
+      default:
+      selector:
+        number:
+          min: -90.0
+          max: 90.0
+          unit_of_measurement: °
+          step: 0.1
+          mode: slider
+
+    auto_ventilate_option:
+      name: "💨 Automation for ventilation"
+      description: "Blind-automation for ventilation? Select enable or disable."
+      default: auto_ventilate_disabled
+      selector:
+        select:
+          options:
+            - label: Enable the ventilate option
+              value: "auto_ventilate_enabled"
+            - label: Disable the ventilate option
+              value: "auto_ventilate_disabled"
+    window_sensor:
+      name: "🚪 Window or door sensor"
+      description:
+        "This can be used to define whether the blind belongs to a window or an (outer) door with a window opening sensor.
+        If this is the case, a Ventilate function can be used.
+        This means that the Ventilate position is approached when the window is opened/tilted.
+        This sensor can be defined here.\n\n`Optional`"
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - binary_sensor
+    ventilate_position:
+      name: "💨 Ventilate position"
+      description:
+        "What position should the blind move to when opening the window/door and the blind is closed to allow ventilation?
+        If closing is triggered and the window_sensor is 'on' the blind will move to this position instead of closing completly\n\nShould not be 100. In this case please use 99 \n\n`Optional`"
+      default: 30
+      selector:
+        number:
+          min: 0.0
+          max: 100.0
+          unit_of_measurement: "%"
+
+    drive_delay_fix:
+      name: "🕛 Fixed drive delay"
+      description: "Fixed drive delay in seconds to avoid radio interferences."
+      default: 0
+      selector:
+        number:
+          min: 0.0
+          max: 600.0
+          unit_of_measurement: s
+          step: 1.0
+          mode: slider
+    drive_delay_random:
+      name: "🕛 Random drive delay"
+      description: "Additional random delay. Value in seconds.\n\n`Optional`"
+      default: 5
+      selector:
+        number:
+          min: 0.0
+          max: 600.0
+          unit_of_measurement: s
+          step: 1.0
+          mode: slider
+    position_tolerance:
+      name: "Position Tolerance"
+      description: "〰️ Tolerance to be applied when comparing the current position with the to be position"
+      default: 0
+      selector:
+        number:
+          min: 0.0
+          max: 3.0
+          unit_of_measurement: "%"
+
+    auto_shading_option:
+      name: "🕶️ Auto Shading - Automatic shading of the blind"
+      description: "Use the shading feature. Select enable or disable.\n\n`Optional`\n\n`Shading`"
+      default: shading_enabled
+      selector:
+        select:
+          options:
+            - label: Enable the shading feature
+              value: "shading_enabled"
+            - label: Disable the shading feature
+              value: "shading_disabled"
+    auto_shading_blocking_entity:
+      name: "🕶️ Auto Shading Blocking - Entity"
+      description: "Externally override the shading-automation? If this entity's state is set to blocking entity state (defined below), it will prevent the shading-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\nExample: input_boolean.enable_blind_shading\n\n`Optional`\n\n`Shading`"
+      default:
+      selector:
+        entity:
+          filter:
+            - domain:
+                - binary_sensor
+    auto_shading_blocking_entity_state:
+      name: "🕶️ Auto Shading Blocking - Entity State"
+      description: "If blocking entity's state is of this state, it will prevent the execution of the shading-automation. \n\nExample: off\n\n`Optional`\n\n`Shading`"
+      default:
+      selector:
+        text: {}
+    shading_blinds_position:
+      name: "🕶️ Shading position"
+      description: "To which position should the blind be moved for shading?
+        \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
+      default: 25
+      selector:
+        number:
+          min: 0.0
+          max: 100.0
+          unit_of_measurement: "%"
+    shading_tilt_position:
+      name: "🕶️Shading tilt position"
+      description: "To which tilt position should the cover be moved for shading?\n\n`Shading`"
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    shading_azimuth_in:
+      name: "🕶️ Shading azimuth in"
+      description:
+        "What is the minimum azimuth at which the sun hits the window? (Shading will start)
+        \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
+      default: 95
+      selector:
+        number:
+          min: 0
+          max: 365
+          unit_of_measurement: "°"
+    shading_azimuth_out:
+      name: "🕶️ Shading azimuth out"
+      description:
+        "What is the maximum azimuth at which the sun hits the window? (Shading will stop)
+        \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
+      default: 265
+      selector:
+        number:
+          min: 0
+          max: 365
+          unit_of_measurement: "°"
+    shading_elevation_min:
+      name: "🕶️ Shading elevation min"
+      description: "Starting from which elevation of the sun should the window be shaded? (Here it makes sense to consider surrounding buildings, trees, etc.).\n\n`Shading`"
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 90
+          unit_of_measurement: "°"
+    shading_elevation_max:
+      name: "🕶️ Shading elevation max"
+      description: "What is the maximal elevation for elevation?
+        (In most cases, 90 degrees is probably the most reasonable value. However, this can also be different due to surrounding buildings, etc.)
+        \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
+      default: 90
+      selector:
+        number:
+          min: 0
+          max: 90
+          unit_of_measurement: "°"
+    shading_outdoor_temperatur_sensor:
+      name: "🕶️ Shading temperature sensor1"
+      description: "This is the main temperature sensor. (Here, for example, the current outdoor or indoor temperature can be used as a criterion). This sensor does not have to be defined if the shading is to take place independently of it.\n\n`Optional`\n\n`Shading`"
+      selector:
+        entity:
+          filter:
+            - domain:
+                - sensor
+      default: []
+    shading_min_temperatur:
+      name: "🕶️ Shading temperature sensor1 min"
+      description: "Minimum temperature for sensor 1 above which shading should occur.\n\n`Optional`\n\n`Shading`"
+      default: 18
+      selector:
+        number:
+          min: 0.0
+          max: 50.0
+          unit_of_measurement: "°C"
+    shading_outdoor_temperatur_sensor2:
+      name: "🕶️ Shading temperature sensor2"
+      description: "This is a secondary temperature sensor.
+        (Here, for example, a temperature difference sensor can be used as a criterion.
+        Or, if Sensor1 is outdoor temperature, you can use indoor temperature).
+        This sensor does not have to be defined.\n\n`Optional`\n\n`Shading`"
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - sensor
+    shading_min_temperatur2:
+      name: "🕶️ Shading temperature sensor2 min"
+      description: "Minimum temperature for sensor 1 above which shading should occur.\n\n`Optional`\n\n`Shading`"
+      default: 18
+      selector:
+        number:
+          min: 0.0
+          max: 50.0
+          unit_of_measurement: "°C"
+    shading_brightness_sensor:
+      name: "🕶️ Brightness sensor for shading"
+      description: "An additional brightness sensor can be defined here, which is only used for shading. (Leave free if the same as the default brightness sensor is to be used).\n\n`Optional`\n\n`Shading`"
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - sensor
+    shading_sun_brightness_in:
+      name: "🕶️ Shading brightness in"
+      description:
+        "The minimum brightness value from which shading should start.
+        (Must be above the value of brightness out!)\n\n`Optional`\n\n`Shading`"
+      default: 35000
+      selector:
+        number:
+          min: 0.0
+          max: 100000.0
+          unit_of_measurement: lx
+          step: 10.0
+    shading_sun_brightness_out:
+      name: "🕶️ Shading brightness out"
+      description:
+        "The brightness value from which shading is no longer necessary.
+        (Must be BELOW the value of brightness in!).\n\n`Optional`\n\n`Shading`"
+      default: 25000
+      selector:
+        number:
+          min: 0.0
+          max: 100000.0
+          unit_of_measurement: lx
+          step: 10.0
+    shading_forecast_sensor:
+      name: "🕶️ Forecast temperature sensor"
+      description:
+        "Another temperature sensor. In this case, however, explicitly for use with a forecast.
+        The idea is that it can happen, especially in spring, that the value for the temperature sensor1 is exceeded by
+        strong solar radiation and the shading would be started.
+        However, in spring you may not want shading, but the solar radiation as a welcome, free heating is desired.
+        So you can define via the forecast sensor that shading is only started at an expected daily maximum temperature.
+        **NOTE**: Sensor must support weather.get_forecasts which has been introduced with HA 2023.9\n\n`Optional`\n\n`Shading`"
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - weather
+    shading_forecast_temp:
+      name: "🕶️ Forecast temperatur value"
+      description:
+        "Minimum temperature for forecast sensor above which shading should occur.
+        **NOTE**: If temperature sensor1 is also defined and its temperature rises above the value defined here,
+        this condition is considered to be TRUE.\n\n`Optional`\n\n`Shading`"
+      default: 20
+      selector:
+        number:
+          min: 0.0
+          max: 50.0
+          unit_of_measurement: "°C"
+    shading_weather_conditions:
+      name: "🕶️ Weather conditions"
+      description:
+        "Check the following weather conditions when activating the shading.
+        **NOTE**: Forecast sensor needs to be defined\n\n`Optional`\n\n`Shading`"
+      default:
+        - sunny
+        - partlycloudy
+        - cloudy
+        - clear
+      selector:
+        select:
+          multiple: true
+          options:
+            - "clear-night"
+            - "clear"
+            - "cloudy"
+            - "fog"
+            - "hail"
+            - "lightning"
+            - "lightning-rainy"
+            - "partlycloudy"
+            - "pouring"
+            - "rainy"
+            - "snowy"
+            - "snowy-rainy"
+            - "sunny"
+            - "windy"
+            - "windy-variant"
+            - "exceptional"
+    shading_waitingtime:
+      name: "🕶️ Shading waiting time for shading IN (in seconds)"
+      description:
+        "To prevent excessive stress on the motor, a waiting time for starting shading can be defined here.
+        Shading then only STARTs when the conditions are fulfilled over the entire waiting time IN.\n\n`Shading`"
+      default: 300
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: s
+    shading_waitingtime_out:
+      name: "🕶️ Shading waiting time for shading OUT (in seconds)"
+      description:
+        "To prevent excessive stress on the motor, a waiting time can be defined here.
+        Shading then ENDs when ONE of the conditions is NOT fulfilled over the entire waiting time OUT.\n\n`Shading`"
+      default: 900
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: s
+    shading_state_sensor:
+      name: "🕶️ Shading state sensor"
+      description: "Saving the current shading-state into an input_boolean\n\n`Shading`"
+      default: []
+      selector:
+        entity:
+          domain: input_boolean
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  blind: !input blind
+  blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
+
+  # Modes
+  auto_up_option: !input auto_up_option
+  auto_down_option: !input auto_down_option
+  auto_ventilate_option: !input auto_ventilate_option
+  auto_shading_option: !input auto_shading_option
+
+  # Brightness
+  brightness_option: !input brightness_option
+  default_brightness_sensor: !input default_brightness_sensor
+  brightness_up: !input brightness_up
+  brightness_down: !input brightness_down
+
+  # Sun
+  sun_option: !input sun_option
+  default_sun_sensor: !input default_sun_sensor
+  sun_elevation_up: !input sun_elevation_up
+  sun_elevation_down: !input sun_elevation_down
+
+  # Times / Delays
+  time_up_early: !input time_up_early
+  time_up_late: !input time_up_late
+  time_up_early_non_workday: !input time_up_early_non_workday
+  time_down_early: !input time_down_early
+  time_down_late: !input time_down_late
+  workday_sensor: !input workday_sensor
+  drive_delay_fix: !input drive_delay_fix
+  drive_delay_random: !input drive_delay_random
+
+  # Positions
+  open_position: !input open_position
+  closed_position: !input closed_position
+  position_tolerance: !input position_tolerance
+  # current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
+  ventilate_position: !input ventilate_position
+
+  # Blocker / Overrides / Sensors
+  door_sensor: !input door_sensor
+  window_sensor: !input window_sensor
+  resident_sensor: !input resident_sensor
+  auto_global_blocking_entity: !input auto_global_blocking_entity
+  _auto_global_blocking_entity_state: !input auto_global_blocking_entity_state
+  auto_global_blocking_entity_state: "{{ (_auto_global_blocking_entity_state or '') | trim }}"
+  auto_up_blocking_entity: !input auto_up_blocking_entity
+  _auto_up_blocking_entity_state: !input auto_up_blocking_entity_state
+  auto_up_blocking_entity_state: "{{ (_auto_up_blocking_entity_state or '') | trim }}"
+  auto_down_blocking_entity: !input auto_down_blocking_entity
+  _auto_down_blocking_entity_state: !input auto_down_blocking_entity_state
+  auto_down_blocking_entity_state: "{{ (_auto_down_blocking_entity_state or '') | trim }}"
+  auto_shading_blocking_entity: !input auto_shading_blocking_entity
+  _auto_shading_blocking_entity_state: !input auto_shading_blocking_entity_state
+  auto_shading_blocking_entity_state: "{{ (_auto_shading_blocking_entity_state or '') | trim }}"
+
+  # Shading
+  shading_brightness_sensor: !input shading_brightness_sensor
+  shading_outdoor_temperatur_sensor: !input shading_outdoor_temperatur_sensor
+  shading_outdoor_temperatur_sensor2: !input shading_outdoor_temperatur_sensor2
+  shading_azimuth_in: !input shading_azimuth_in
+  shading_azimuth_out: !input shading_azimuth_out
+  shading_elevation_min: !input shading_elevation_min
+  shading_elevation_max: !input shading_elevation_max
+  shading_min_temperatur: !input shading_min_temperatur
+  shading_min_temperatur2: !input shading_min_temperatur2
+  shading_blinds_position: !input shading_blinds_position
+  shading_tilt_position: !input shading_tilt_position
+  shading_sun_brightness_in: !input shading_sun_brightness_in
+  shading_sun_brightness_out: !input shading_sun_brightness_out
+  shading_waitingtime: !input shading_waitingtime
+  shading_waitingtime_out: !input shading_waitingtime_out
+  shading_forecast_sensor: !input shading_forecast_sensor
+  shading_forecast_temp: !input shading_forecast_temp
+  shading_weather_conditions: !input shading_weather_conditions
+  shading_state_sensor: !input shading_state_sensor
+
+trigger:
+  # triggers for shading in
+  - platform: numeric_state
+    entity_id: !input shading_outdoor_temperatur_sensor
+    above: !input shading_min_temperatur
+    id: "t_si_1"
+  - platform: numeric_state
+    entity_id: !input shading_outdoor_temperatur_sensor2
+    above: !input shading_min_temperatur2
+    id: "t_si_2"
+  - platform: numeric_state
+    entity_id: !input shading_brightness_sensor
+    above: !input shading_sun_brightness_in
+    id: "t_si_3"
+  - platform: numeric_state
+    entity_id: !input default_sun_sensor
+    attribute: elevation
+    above: !input shading_elevation_min
+    id: "t_si_4"
+  - platform: numeric_state
+    entity_id: !input default_sun_sensor
+    attribute: azimuth
+    above: !input shading_azimuth_in
+    below: !input shading_azimuth_out
+    id: "t_si_5"
+  - platform: numeric_state
+    entity_id: !input shading_outdoor_temperatur_sensor
+    above: !input shading_forecast_temp
+    id: "t_si_6"
+  - platform: template
+    id: "t_si_7"
+    for: "00:00:05" # we need a small delay cause temporary_disable_shading also triggers shading out
+    value_template: "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
+
+  # triggers for shading out
+  - platform: numeric_state
+    entity_id: !input shading_outdoor_temperatur_sensor
+    below: !input shading_min_temperatur
+    id: "t_so_1"
+  - platform: numeric_state
+    entity_id: !input shading_outdoor_temperatur_sensor2
+    below: !input shading_min_temperatur2
+    id: "t_so_2"
+  - platform: numeric_state
+    entity_id: !input shading_brightness_sensor
+    below: !input shading_sun_brightness_out
+    id: "t_so_3"
+  - platform: numeric_state
+    entity_id: !input default_sun_sensor
+    attribute: elevation
+    above: !input shading_elevation_max
+    id: "t_so_4"
+  - platform: numeric_state
+    entity_id: !input default_sun_sensor
+    attribute: azimuth
+    above: !input shading_azimuth_out
+    id: "t_so_5"
+  - platform: numeric_state
+    entity_id: !input default_sun_sensor
+    attribute: elevation
+    below: !input shading_elevation_min
+    id: "t_so_6"
+  - platform: template
+    value_template: "{{ not auto_shading_blocking_entity or states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
+    for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
+    id: "t_so_7"
+
+  # trigger for opening blind
+  - platform: numeric_state
+    entity_id: !input default_brightness_sensor
+    above: !input brightness_up
+    for: "00:00:03"
+    id: "t_bo_1"
+  - platform: time
+    at: !input time_up_late
+    id: "t_bo_2"
+  - platform: time
+    at: !input time_up_early
+    id: "t_bo_3"
+  - platform: time
+    at: !input time_up_early_non_workday
+    id: "t_bo_4"
+  - platform: state
+    entity_id: !input resident_sensor
+    from: "on"
+    to: "off"
+    id: "t_bo_5"
+  - platform: numeric_state
+    entity_id: !input shading_brightness_sensor
+    above: !input brightness_up
+    for: "00:00:05"
+    id: "t_bo_6"
+  - platform: numeric_state
+    entity_id: !input default_sun_sensor
+    above: !input sun_elevation_up
+    attribute: elevation
+    for: "00:00:03"
+    id: "t_bo_7"
+
+  # trigger for closing blind
+  - platform: numeric_state
+    entity_id: !input default_brightness_sensor
+    below: !input brightness_down
+    id: "t_bc_1"
+  - platform: time
+    at: !input time_down_early
+    id: "t_bc_2"
+  - platform: time
+    at: !input time_down_late
+    id: "t_bc_3"
+  - platform: state
+    entity_id: !input window_sensor
+    from: "on"
+    to: "off"
+    id: "t_bc_4"
+  - platform: state
+    entity_id: !input resident_sensor
+    from: "off"
+    to: "on"
+    id: "t_bc_5"
+  - platform: numeric_state
+    entity_id: !input shading_brightness_sensor
+    below: !input brightness_down
+    id: "t_bc_6"
+  - platform: numeric_state
+    entity_id: !input default_sun_sensor
+    attribute: elevation
+    above: !input sun_elevation_down
+    for: "00:00:03"
+    id: "t_bc_7"
+
+  # trigger for ventilate
+  - platform: state
+    entity_id: !input window_sensor
+    from: "off"
+    to: "on"
+    id: "t_bv_1"
+
+condition:
+  - or:
+      - "{{ 'shading_enabled' in auto_shading_option }}"
+      - "{{ 'auto_up_enabled' in auto_up_option }}"
+      - "{{ 'auto_down_enabled' in auto_down_option }}"
+      - "{{ not auto_global_blocking_entity or not states(auto_global_blocking_entity) | regex_match('^('+auto_global_blocking_entity_state +')$', ignorecase=true) }}"
+
+action:
+  ## we have to call a service for forecast due to HA changes
+  - if:
+      - "{{ (shading_forecast_sensor != [] ) }}"
+    then:
+      - service: weather.get_forecasts
+        target:
+          entity_id: !input shading_forecast_sensor
+        data:
+          type: daily
+        response_variable: forecast
+
+  - choose:
+      - alias: "Check and perform shading in or blinds up"
+        conditions:
+          - or:
+              - "{{ 'shading_enabled' in auto_shading_option }}"
+              - "{{ 'auto_up_enabled' in auto_up_option }}"
+          - or:
+              # Check if we have a trigger for shading in
+              - condition: trigger
+                id: "t_si_1"
+              - condition: trigger
+                id: "t_si_2"
+              - condition: trigger
+                id: "t_si_3"
+              - condition: trigger
+                id: "t_si_4"
+              - condition: trigger
+                id: "t_si_5"
+              - condition: trigger
+                id: "t_si_6"
+              - condition: trigger
+                id: "t_si_7"
+              # Check if we have a trigger for blinds up
+              - condition: trigger # brightness_up - default_brightness_sensor
+                id: "t_bo_1"
+              - condition: trigger # time_up_late
+                id: "t_bo_2"
+              - condition: trigger # time_up_early
+                id: "t_bo_3"
+              - condition: trigger # time_up_early_non_workday
+                id: "t_bo_4"
+              - condition: trigger # resident
+                id: "t_bo_5"
+              - condition: trigger # brightness_up - shading_brightness_sensor
+                id: "t_bo_6"
+              - condition: trigger # sun elevation
+                id: "t_bo_7"
+        sequence:
+          - choose:
+              - alias: "Checking for shading in"
+                conditions:
+                  - and: # Check if we want to perform shading in
+                      - "{{ 'shading_enabled' in auto_shading_option }}"
+                      - "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
+                      - "{{ now() >= today_at(time_up_early) }}"
+                      - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
+                      - "{{ ( (shading_outdoor_temperatur_sensor == [] ) or (states(shading_outdoor_temperatur_sensor) | int(default=shading_min_temperatur) >= shading_min_temperatur) ) }}"
+                      - "{{ ( (shading_outdoor_temperatur_sensor2 == [] ) or (states(shading_outdoor_temperatur_sensor2) | int(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
+                      - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | int(default=shading_sun_brightness_in) >= shading_sun_brightness_in) ) }}"
+                      - "{{ state_attr(default_sun_sensor, 'azimuth') >= shading_azimuth_in and state_attr(default_sun_sensor, 'azimuth') <= shading_azimuth_out }}"
+                      - "{{ state_attr(default_sun_sensor, 'elevation') >= shading_elevation_min and state_attr(default_sun_sensor, 'elevation') <= shading_elevation_max }}"
+                      - "{{ state_attr(blind, 'current_position') | int(default=101) > shading_blinds_position }}"
+                      - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, 'off')) ) }}"
+                      - or:
+                          - "{{ ( shading_forecast_sensor == [] ) and (shading_outdoor_temperatur_sensor == [] ) }}"
+                          - "{{ ( shading_forecast_sensor != [] ) and ( forecast.forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
+                          - "{{ (shading_outdoor_temperatur_sensor != [] ) and (states(shading_outdoor_temperatur_sensor) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
+                      - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
+                sequence:
+                  # we are ready for shading in
+                  - if: # check if blind is higher than ventilate position. In this case we consider blind position like open and therefor we want to use the delay timer
+                      - "{{ state_attr(blind, 'current_position') | int(default=101) > ventilate_position }}"
+                      - not:
+                          - condition: trigger
+                            id: "t_si_7"
+                    then:
+                      - alias: "Wait the number of seconds set in shading_waitingtime"
+                        delay:
+                          seconds: !input shading_waitingtime
+                  - repeat:
+                      for_each: "{{ blind_entities|list }}"
+                      sequence:
+                        - alias: "Wait random seconds to prevent sending to many commands to blinds at same time"
+                          delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
+                        - alias: "Moving the blind to shading position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input shading_blinds_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                        - if:
+                            - "{{ state_attr(blind, 'current_tilt_position') != 'None' }}"
+                          then:
+                            - alias: "Moving the blind to tilt position"
+                              service: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: !input shading_tilt_position
+                              target:
+                                entity_id: !input blind
+                  - alias: "Storing the shading state"
+                    service: input_boolean.turn_on
+                    data: {}
+                    target:
+                      entity_id: !input shading_state_sensor
+                  - stop: "Stop the automation"
+
+              - alias: "Check for opening"
+                conditions:
+                  - "{{ 'auto_up_enabled' in auto_up_option }}"
+                  - or: # Check if the trigger is for normal blind opening
+                      - condition: trigger # brightness_up - default_brightness_sensor
+                        id: "t_bo_1"
+                      - condition: trigger # time_up_late
+                        id: "t_bo_2"
+                      - condition: trigger # time_up_early
+                        id: "t_bo_3"
+                      - condition: trigger # time_up_early_non_workday
+                        id: "t_bo_4"
+                      - condition: trigger # resident
+                        id: "t_bo_5"
+                      - condition: trigger # brightness_up - shading_brightness_sensor
+                        id: "t_bo_6"
+                      - condition: trigger # sun elevation
+                        id: "t_bo_7"
+                  - or:
+                      - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
+                      - "{{ (state_attr(blind, 'current_position') | int(default=110) <= closed_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= closed_position - position_tolerance)}}"
+                  - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, 'off')) ) }}"
+                  - "{{ not auto_up_blocking_entity or not states(auto_up_blocking_entity) | regex_match('^('+auto_up_blocking_entity_state +')$', ignorecase=true) }}"
+                  # Now we have to check different opening scenarios
+                  - condition: or
+                    conditions:
+                      - alias: "Blinds - opening - up late reached "
+                        and:
+                          - "{{ now() >= today_at(time_up_late) }}"
+                          - or:
+                              - "{{ now() <= today_at(time_down_early) + timedelta(seconds = 5) }}"
+                              - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
+                      - alias: "Blinds - opening - up early reached and brightness/sun above minimum"
+                        and:
+                          - or:
+                              - and:
+                                  - "{{ (workday_sensor == [] or (is_state(workday_sensor, 'on')) )  }}"
+                                  - "{{ now() >= today_at(time_up_early) }}"
+                              - and:
+                                  - "{{ (workday_sensor == [] ) or (is_state(workday_sensor, 'off')) }}"
+                                  - "{{ now() >= today_at(time_up_early_non_workday) }}"
+                          - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
+                          - or:
+                              - "{{ ( (shading_brightness_sensor == [] ) and ( default_brightness_sensor == [] ) ) }}"
+                              - "{{ ( (shading_brightness_sensor != [] ) and (states(shading_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
+                              - "{{ ( (shading_brightness_sensor == [] and default_brightness_sensor != []) and (states(default_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
+                          - or:
+                              - "{{ (default_sun_sensor == []) }}"
+                              - "{{ ( (default_sun_sensor != [] ) and (states(default_sun_sensor) | int(default=sun_elevation_up) >= sun_elevation_up) ) }}"
+                sequence:
+                  # ok, we can open the blind
+                  - repeat:
+                      for_each: "{{ blind_entities|list }}"
+                      sequence:
+                        - alias: "Wait random seconds to prevent sending to many commands to blinds at same time"
+                          delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
+                        - if:
+                            - "{{ open_position == 100 }}"
+                          then:
+                            - alias: "Moving the blind to open position"
+                              service: cover.open_cover
+                              data: {}
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                          else:
+                            - alias: "Moving the blind to open position"
+                              service: cover.set_cover_position
+                              data:
+                                position: !input open_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                  - stop: "Stop the automation"
+
+            default:
+              - stop: "Stop the automation"
+
+      - alias: "Check and perform shading out"
+        conditions:
+          - "{{ 'shading_enabled' in auto_shading_option }}"
+          - "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
+          - "{{ now() >= today_at(time_up_early) }}"
+          - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
+          - or:
+              - condition: trigger
+                id: "t_so_1"
+              - condition: trigger
+                id: "t_so_2"
+              - condition: trigger
+                id: "t_so_3"
+              - condition: trigger
+                id: "t_so_4"
+              - condition: trigger
+                id: "t_so_5"
+              - condition: trigger
+                id: "t_so_6"
+              - condition: trigger
+                id: "t_so_7"
+          - "{{ state_attr(blind, 'current_position') | int(default=101) == shading_blinds_position }}"
+        sequence:
+          - if:
+              # if sun is outside of shading window (azimuth or elevation) we immedately stop shading
+              - and:
+                  - "{{ state_attr(default_sun_sensor, 'azimuth') >= shading_azimuth_in and state_attr(default_sun_sensor, 'azimuth') <= shading_azimuth_out }}"
+                  - "{{ state_attr(default_sun_sensor, 'elevation') >= shading_elevation_min and state_attr(default_sun_sensor, 'elevation') <= shading_elevation_max }}"
+              - not:
+                  - condition: trigger
+                    id: "t_so_7"
+            then:
+              - alias: "Wait the number of seconds set in shading_waitingtime_out"
+                delay:
+                  seconds: !input shading_waitingtime_out
+          - if:
+              - "{{ ( (window_sensor != []) and (is_state(window_sensor, 'on') ) ) }}"
+              - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - alias: "Moving the blind to ventilate position"
+                      service: cover.set_cover_position
+                      data:
+                        position: !input ventilate_position
+                      target:
+                        entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
+            else:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
+                    - alias: "Moving the blind to open position"
+                      service: cover.set_cover_position
+                      data:
+                        position: !input open_position
+                      target:
+                        entity_id: "{{ repeat.item }}"
+          - alias: "Storing the shading state"
+            service: input_boolean.turn_off
+            data: {}
+            target:
+              entity_id: !input shading_state_sensor
+          - stop: "Stop the automation"
+
+      - alias: "Check for closing blind"
+        conditions:
+          - or:
+              - "{{ 'auto_down_enabled' in auto_down_option }}"
+              - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
+          - or:
+              - "{{ not auto_down_blocking_entity or not states(auto_down_blocking_entity) | regex_match('^('+auto_down_blocking_entity_state +')$', ignorecase=true) }}"
+              - condition: trigger # resident_sensor
+                id: "t_bc_5"
+          #TODO
+          - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" #TODO wirklich notwendig?
+          - or:
+              # Check if we have a trigger for blind down
+              - condition: trigger
+                id: "t_bc_1"
+              - condition: trigger
+                id: "t_bc_2"
+              - condition: trigger
+                id: "t_bc_3"
+              - condition: trigger
+                id: "t_bc_4"
+              - condition: trigger
+                id: "t_bc_5"
+              - condition: trigger
+                id: "t_bc_6"
+          # check to allow a window but a door only if window_sensor not open - we want protection
+          - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
+          - or:
+              - "{{ (state_attr(blind, 'current_position') | int(default=110) <= open_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= open_position - position_tolerance)}}"
+              - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
+          - or:
+              - alias: Blinds - closing - down late reached
+                and:
+                  - "{{ now() >= today_at(time_down_late) }}"
+                  - "{{ 'auto_down_enabled' in auto_down_option }}"
+
+              - alias: Blinds - closing - down early reached and brightness/sun below minimum
+                and:
+                  - "{{ 'auto_down_enabled' in auto_down_option }}"
+                  - "{{ now() >= today_at(time_down_early) }}"
+                  - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
+                  - or:
+                      - "{{ ( (default_brightness_sensor == [] ) and (shading_brightness_sensor == [] ) ) }}"
+                      - "{{ ( (default_brightness_sensor != [] ) and (states(default_brightness_sensor) | int(default=brightness_down) <= brightness_down) ) }}"
+                      - "{{ ( (shading_brightness_sensor != [] ) and (states(shading_brightness_sensor) | int(default=brightness_down) <= brightness_down) ) }}"
+                  - or:
+                      - "{{ (default_sun_sensor == []) }}"
+                      - "{{ ( (default_sun_sensor != [] ) and (states(default_sun_sensor) | int(default=sun_elevation_down) <= sun_elevation_down) ) }}"
+
+              - alias: Blinds - closing - due to resident goes sleeping
+                and:
+                  - "{{ 'auto_down_enabled' in auto_down_option }}"
+                  - "{{ ( (resident_sensor != [] ) and (is_state(resident_sensor, 'on')) ) }}"
+                  - condition: trigger
+                    id: t_bc_5
+
+              - alias: Blinds - closing after ventilate
+                and:
+                  - condition: trigger
+                    id: "t_bc_4"
+                  - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
+                  - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
+                  - "{{ (window_sensor != [] ) and (states(window_sensor) == 'off') }}"
+
+              - alias: Blinds - closing after shading
+                and:
+                  - "{{ 'shading_enabled' in auto_shading_option }}"
+                  - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" # wirklich notwendig
+                  - "{{ (shading_state_sensor != [] ) and (states(shading_state_sensor) == 'on') }}"
+        sequence:
+          - if:
+              - not:
+                  - condition: trigger
+                    id: "t_bc_4"
+            then:
+              - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
+          - if:
+              - "{{ ( (window_sensor != []) and (is_state(window_sensor, 'on') ) ) }}"
+              - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - alias: "Moving the blind to ventilate position"
+                      service: cover.set_cover_position
+                      data:
+                        position: !input ventilate_position
+                      target:
+                        entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
+
+            else:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - if:
+                        - "{{ closed_position == 0 }}"
+                      then:
+                        - alias: "Moving the blind to close position"
+                          service: cover.close_cover
+                          data: {}
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                      else:
+                        - alias: "Moving the blind to close position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input closed_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
+          - stop: "Stop the automation"
+
+      - alias: Window sensor - opened
+        conditions:
+          - condition: trigger
+            id: "t_bv_1"
+          - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
+          - "{{ (state_attr(blind, 'current_position') | int(default=110) <= closed_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= closed_position - position_tolerance)}}"
+          - "{{ ( (window_sensor != []) and (is_state(window_sensor, 'on')) ) }}"
+        sequence:
+          - repeat:
+              for_each: "{{ blind_entities|list }}"
+              sequence:
+                - alias: "Moving the blind to ventilate position"
+                  service: cover.set_cover_position
+                  data:
+                    position: !input ventilate_position
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+          - stop: "Stop the automation"
+
+    default:
+      - stop: "Stopping the automation - Reset"
