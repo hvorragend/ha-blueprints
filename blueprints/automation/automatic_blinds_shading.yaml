@@ -1,9 +1,9 @@
 blueprint:
   name: "New Shading - automatic driving for sun protection (hvorragend-fork)"
   description: >-
-    **Version: 2024010201 (hvorragend)**
+    **Version: 2024010301 (hvorragend)**
 
-    *Synced with version: 2024010201 (jmerifjKriwe)*
+    *Synced with version: 2024010301 (jmerifjKriwe)*
 
     This is an largely complete automation for roller shutters.
 
@@ -25,6 +25,8 @@ blueprint:
 
   # Unterschiede zu Eimeels blueprint
   # - Blocking Entity (Auto Global, Auto Up Blocking, Auto Down, Auto Shading Blocking)
+  # - temporary_disable_shading removed
+  # - adv_blind removed
   # - Andere Icons
   # - Andere Variablen
   # - GUI anders strukturiert
@@ -117,10 +119,11 @@ blueprint:
         text: {}
     resident_sensor:
       name: "🔼 Overwrite mode for opening - aka Resident mode"
-      description:
-        "This switch can be used to override the automatic opening of the blind. If this Boolean input is set to true, the blind will not open automatically.
-        This can be used e.g. to define a resident (input_boolean or binary_sensor) for the room. In this case, the blind only opens when the occupant is no longer asleep.
-        For this it is necessary to use a Boolean sensor that returns true for sleeping and false for non-sleeping.\n\n`Optional`"
+      description: #
+        "This switch can be used to override the automatic opening of the shutter. If this sensor (input_boolean or binary_sensor) is set to ON, the shutter will not open automatically.\n
+        This can be used e.g. to define a resident for the room. In this case, the roller shutter only opens when the occupant is no longer asleep.\nFor this it is necessary to use a
+        Boolean sensor that returns TRUE/ON for sleeping and FALSE for non-sleeping.
+        \nThe blind will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).  \n\n`Optional`"
       default: []
       selector:
         entity:
@@ -762,10 +765,10 @@ trigger:
     attribute: elevation
     below: !input shading_elevation_min
     id: "t_so_6"
-  - platform: template
+  - platform: template # we need a small delay cause temporary_disable_shading also triggers shading in
     value_template: "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
-    for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
-    id: "t_so_7"
+    for: "00:00:02"
+    id: "t_so_7" ## it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
 
   # trigger for opening blind
   - platform: numeric_state
@@ -909,7 +912,7 @@ action:
                       - "{{ state_attr(default_sun_sensor, 'azimuth') >= shading_azimuth_in and state_attr(default_sun_sensor, 'azimuth') <= shading_azimuth_out }}"
                       - "{{ state_attr(default_sun_sensor, 'elevation') >= shading_elevation_min and state_attr(default_sun_sensor, 'elevation') <= shading_elevation_max }}"
                       - "{{ state_attr(blind, 'current_position') | int(default=101) > shading_blinds_position }}"
-                      - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, 'off')) ) }}"
+                      - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_outdoor_temperatur_sensor == [] ) }}"
                           - "{{ ( shading_forecast_sensor != [] ) and ( forecast.forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
@@ -974,7 +977,7 @@ action:
                   - or:
                       - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
                       - "{{ (state_attr(blind, 'current_position') | int(default=110) <= closed_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= closed_position - position_tolerance)}}"
-                  - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, 'off')) ) }}" ## TODO Will ich das?
+                  - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}" ## TODO Will ich das?
                   - "{{ not auto_up_blocking_entity or not states(auto_up_blocking_entity) | regex_match('^('+auto_up_blocking_entity_state +')$', ignorecase=true) }}"
                   # Now we have to check different opening scenarios
                   - condition: or
