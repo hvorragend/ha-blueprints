@@ -23,33 +23,27 @@ blueprint:
     Original-source: https://gist.github.com/jmerifjKriwe/bffbc7424dd04f4a31d6a71f7012cd1f
     </details>
 
-  # Unterschiede zu Eimeels blueprint
-  # - Blocking Entity (Auto Global, Auto Up Blocking, Auto Down, Auto Shading Blocking)
-  # - temporary_disable_shading removed
-  # - adv_blind removed
-  # - Andere Icons
-  # - Andere Variablen
-  # - GUI anders strukturiert
-  # - Sun option: Sonnensteuerung für Up/Down ergänzt
+  # Differences to the Eimeel blueprint:
+  # - Blocking Entities:
+  #   Auto Global Blocking: Dynamic on/off switching of the entire  automation
+  #   Auto Up Blocking: new
+  #   Auto Down Blocking: replacing adv_blind
+  #   Auto Shading Blocking: replacing temporary_disable_shading
+  # - Icons-Update
+  # - Streamline variables
+  # - GUI-changes
+  # - Sun option: Sun control for up/down added (not yet completed)
   # - Fixed drive delay / Random drive delay
-  # - Shading state sensor (ungetestet - unelegant)
+  # - Shading state sensor. Will probably be removed again.
 
-  # Geplante Modifizierungen
-  # - Shading auch ausführen wenn Resident daheim ist
-  # - evtl. auch herunterfahren, wenn nicht in der richtigen Position
-
-  # Notizen
-  # siehe auch TODOs im Code
-  # auto_shading_blocking_entity-Trigger wird nicht funktionieren. Stattdessen trigger_variables nutzen?
-  # Target-Position nur anfahren, wenn unterhalb der Shading-Position und Shading aktuell an oder an gewesen? Prüfen, ob vollständig.
-  # External Shading State Sensor in mehr Conditions?
-  # Hotdaycheck: Vorhersage und nicht nur aktuelle Temperatur
-  # VERWORFEN Current_position Abfragen konsolidieren
-  # Shading out deaktivierbar machen / oder geht das mit Shading-Out-Lux?
-  # ERLEDIGT - ABER PRÜFEN OB AND/OR Sun-Feature
-  # ERLEDIGT brightness_option und sun_option derzeit ohne Funktion
-  # ERLEDIGT Redundanz default_sun_sensor und sun_sensor / Abgrenzng default_sun_sensor und default_sun_sensor
-  # ERLEDIGT default_brightness_sensor nun default - vorher optional
+  # Notes / Planned modifications:
+  # - see also TODOs in code
+  # - Also run shading when resident is at home
+  # - possibly also drive down if not in the correct position
+  # - Only move to the target position if it is below the shading position and the shading is currently on or has been on? Check whether complete.
+  # - Check external Shading State Sensor in more conditions?
+  # - Hotdaycheck: Forecast and not just current temperature
+  # - Make shading out deactivable / or is it possible with Shading-Out-Lux?
 
   source_url: https://gist.github.com/hvorragend/07f164cdf711fe0c686a6b7e40f1382b
   domain: automation
@@ -669,18 +663,26 @@ variables:
   door_sensor: !input door_sensor
   window_sensor: !input window_sensor
   resident_sensor: !input resident_sensor
+
   auto_global_blocking_entity: !input auto_global_blocking_entity
   _auto_global_blocking_entity_state: !input auto_global_blocking_entity_state
   auto_global_blocking_entity_state: "{{ (_auto_global_blocking_entity_state or '') | trim }}"
+  auto_global_blocking: "{{ (not auto_global_blocking_entity ) or (not states(auto_global_blocking_entity) | regex_match('^('+auto_global_blocking_entity_state +')$', ignorecase=true)) }}"
+
   auto_up_blocking_entity: !input auto_up_blocking_entity
   _auto_up_blocking_entity_state: !input auto_up_blocking_entity_state
   auto_up_blocking_entity_state: "{{ (_auto_up_blocking_entity_state or '') | trim }}"
+  auto_up_blocking: "{{ (not auto_up_blocking_entity ) or (not states(auto_up_blocking_entity) | regex_match('^('+auto_up_blocking_entity_state +')$', ignorecase=true)) }}"
+
   auto_down_blocking_entity: !input auto_down_blocking_entity
   _auto_down_blocking_entity_state: !input auto_down_blocking_entity_state
   auto_down_blocking_entity_state: "{{ (_auto_down_blocking_entity_state or '') | trim }}"
+  auto_down_blocking: "{{ (not auto_down_blocking_entity ) or (not states(auto_down_blocking_entity) | regex_match('^('+auto_down_blocking_entity_state +')$', ignorecase=true)) }}"
+
   auto_shading_blocking_entity: !input auto_shading_blocking_entity
   _auto_shading_blocking_entity_state: !input auto_shading_blocking_entity_state
   auto_shading_blocking_entity_state: "{{ (_auto_shading_blocking_entity_state or '') | trim }}"
+  auto_shading_blocking: "{{ (not auto_shading_blocking_entity ) or (not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true)) }}"
 
   # Shading
   shading_brightness_sensor: !input shading_brightness_sensor
@@ -732,10 +734,10 @@ trigger:
     entity_id: !input shading_outdoor_temperatur_sensor
     above: !input shading_forecast_temp
     id: "t_si_6"
-  - platform: template
+  - platform: state
+    entity_id: !input auto_shading_blocking_entity
     id: "t_si_7"
-    for: "00:00:05" # we need a small delay cause temporary_disable_shading also triggers shading out
-    value_template: "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
+    for: "00:00:05" # we need a small delay cause temporary_disable_shading also triggers shading in
 
   # triggers for shading out
   - platform: numeric_state
@@ -765,10 +767,10 @@ trigger:
     attribute: elevation
     below: !input shading_elevation_min
     id: "t_so_6"
-  - platform: template # we need a small delay cause temporary_disable_shading also triggers shading in
-    value_template: "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
-    for: "00:00:02"
+  - platform: state
+    entity_id: !input auto_shading_blocking_entity
     id: "t_so_7" ## it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
+    for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
 
   # trigger for opening blind
   - platform: numeric_state
@@ -846,7 +848,7 @@ condition:
       - "{{ 'shading_enabled' in auto_shading_option }}"
       - "{{ 'auto_up_enabled' in auto_up_option }}"
       - "{{ 'auto_down_enabled' in auto_down_option }}"
-      - "{{ not auto_global_blocking_entity or not states(auto_global_blocking_entity) | regex_match('^('+auto_global_blocking_entity_state +')$', ignorecase=true) }}"
+      - "{{ not auto_global_blocking }}"
 
 action:
   ## we have to call a service for forecast due to HA changes
@@ -903,7 +905,7 @@ action:
                 conditions:
                   - and: # Check if we want to perform shading in
                       - "{{ 'shading_enabled' in auto_shading_option }}"
-                      - "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
+                      - "{{ not auto_shading_blocking }}"
                       - "{{ now() >= today_at(time_up_early) }}"
                       - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
                       - "{{ ( (shading_outdoor_temperatur_sensor == [] ) or (states(shading_outdoor_temperatur_sensor) | int(default=shading_min_temperatur) >= shading_min_temperatur) ) }}"
@@ -977,8 +979,8 @@ action:
                   - or:
                       - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
                       - "{{ (state_attr(blind, 'current_position') | int(default=110) <= closed_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= closed_position - position_tolerance)}}"
-                  - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}" ## TODO Will ich das?
-                  - "{{ not auto_up_blocking_entity or not states(auto_up_blocking_entity) | regex_match('^('+auto_up_blocking_entity_state +')$', ignorecase=true) }}"
+                  - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}" ## TODO Do I want that?
+                  - "{{ not auto_up_blocking }}"
                   # Now we have to check different opening scenarios
                   - condition: or
                     conditions:
@@ -1035,7 +1037,7 @@ action:
       - alias: "Check and perform shading out"
         conditions:
           - "{{ 'shading_enabled' in auto_shading_option }}"
-          - "{{ not auto_shading_blocking_entity or not states(auto_shading_blocking_entity) | regex_match('^('+auto_shading_blocking_entity_state +')$', ignorecase=true) }}"
+          - "{{ not auto_shading_blocking }}"
           - "{{ now() >= today_at(time_up_early) }}"
           - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
           - or:
@@ -1107,11 +1109,11 @@ action:
               - "{{ 'auto_down_enabled' in auto_down_option }}"
               - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
           - or:
-              - "{{ not auto_down_blocking_entity or not states(auto_down_blocking_entity) | regex_match('^('+auto_down_blocking_entity_state +')$', ignorecase=true) }}"
+              - "{{ not auto_down_blocking }}"
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
           #TODO
-          - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" #TODO wirklich notwendig?
+          - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" #TODO really necessary?
           - or:
               # Check if we have a trigger for blind down
               - condition: trigger
@@ -1150,7 +1152,7 @@ action:
                       - "{{ (default_sun_sensor == []) }}"
                       - "{{ ( (default_sun_sensor != [] ) and (states(default_sun_sensor) | int(default=sun_elevation_down) <= sun_elevation_down) ) }}"
 
-              - alias: Blinds - closing - due to resident goes sleeping ##TODO Individualisieren
+              - alias: Blinds - closing - due to resident goes sleeping ##TODO Customize
                 and:
                   - "{{ 'auto_down_enabled' in auto_down_option }}"
                   - "{{ ((resident_sensor != [] ) and (is_state(resident_sensor, 'on')) ) }}"
@@ -1168,7 +1170,7 @@ action:
               - alias: Blinds - closing after shading
                 and:
                   - "{{ 'shading_enabled' in auto_shading_option }}"
-                  - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" # TODO will ich das so? Auch ShadingPos vergleichen?
+                  - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" # TODO Do I want that? Check ShadingPos, too?
                   - "{{ (shading_state_sensor != [] ) and (states(shading_state_sensor) == 'on') }}"
         sequence:
           - if:
