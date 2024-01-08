@@ -1,27 +1,39 @@
 blueprint:
-  name: "New Shading - automatic driving for sun protection (hvorragend-fork)"
+  name: "Blind Control Automation"
   description: >-
-    **Version: 2024010301 (hvorragend)**
+    # Blind Control Automation
 
-    *Synced with version: 2024010301 (jmerifjKriwe)*
+    **Version: 2024010301**
 
-    This is an largely complete automation for roller shutters.
+    This is a comprehensive blueprint that can be used for the following basic purposes:
+      - Opening and closing the roller shutters (depending on brightness, sun-elevation and within time windows)
+      - Extensive automatic sun shading
 
-    Two major areas are covered: a) daily raising and lowering, b) shading against too much sunlight.
-    For more information open:
+
     <details>
-    In order to have extensive flexibility here, different sensors are used. But there is also the possibility to define an occupant of the room, so that e.g. the roller shutter does not go up in the morning, although the occupant is still sleeping.
-    As a bonus, there is also an overwrite option for closing (aka Christmas mode). This can be used to prevent a roller shutter from going down during the Christmas season - for example, because you want to display the illuminated Christmas decorations for longer.
 
 
-    **NOTE**
-        - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until ALL criteria are met.
-        - It's NOT possible to execute this automation manually!
-        - TODO - wrong for me (hvorragend): The automation only moves the roller shutter if it is positioned at one of the defined positions (ventilate position, shading position, open position or closed position). Otherwise, the roller shutter has been moved manually. After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action. To automate the movement of the roller shutter again, it must be moved to one of the defined positions beforehand.
+    *This was a fork of Eimeel's blueprint [automatic_blinds_shading.yaml](https://gist.github.com/jmerifjKriwe/bffbc7424dd04f4a31d6a71f7012cd1f) and is largely based on his programming.*<br />
 
-    This was a fork of Eimeel's blueprint and is largely based on the programming of him.
-    Original-source: https://gist.github.com/jmerifjKriwe/bffbc7424dd04f4a31d6a71f7012cd1f
+    **NOTES**
+
+    - In order to have extensive flexibility here, different sensors are used. But there is also the possibility to define an occupant of the room,
+      so that e.g. the roller shutter does not go up in the morning, although the occupant is still sleeping.
+      *TODO This approach will probably be changed in my fork*
+    - As a bonus, there is also an overwrite option for closing (aka Christmas mode). This can be used to prevent a roller shutter from going down
+      during the Christmas season - for example, because you want to display the illuminated Christmas decorations for longer.
+    - It's NOT possible to execute this automation manually!
+    - The automation only moves the roller shutter if it is positioned at one of the defined positions
+      (ventilate position, shading position, open position or closed position). Otherwise, the roller shutter has been moved manually.
+      After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action.
+      To automate the movement of the roller shutter again, it must be moved to one of the defined positions beforehand.
+      *TODO This approach will probably be changed in my fork*
+
+    [Link for this blueprint](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/automatic_blinds_shading.yaml)
+
     </details>
+
+  #  Synced with version 2024010301 of the origin
 
   # Differences to the Eimeel blueprint:
   # - Blocking Entities:
@@ -38,7 +50,7 @@ blueprint:
 
   # Notes / Planned modifications:
   # - see also TODOs in code
-  # - Sun elevation changes should not trigger once. Each elevation change should trigger the automation.
+  # - ALREADY FITS: Sun elevation changes should not trigger once. Each elevation change should trigger the automation.
   # - Also run shading when resident is at home
   # - possibly also drive down if not in the correct position
   # - Only move to the target position if it is below the shading position and the shading is currently on or has been on? Check whether complete.
@@ -46,7 +58,7 @@ blueprint:
   # - Hotdaycheck: Forecast and not just current temperature
   # - Make shading out deactivable / or is it possible with Shading-Out-Lux?
 
-  source_url: https://gist.github.com/hvorragend/07f164cdf711fe0c686a6b7e40f1382b
+  source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/automatic_blinds_shading.yaml
   domain: automation
   homeassistant:
     min_version: "2023.9.0"
@@ -833,7 +845,7 @@ trigger:
   - platform: numeric_state
     entity_id: !input default_sun_sensor
     attribute: elevation
-    above: !input sun_elevation_down
+    below: !input sun_elevation_down
     for: "00:00:03"
     id: "t_bc_7"
 
@@ -871,20 +883,21 @@ action:
               - "{{ 'auto_up_enabled' in auto_up_option }}"
           - or:
               # Check if we have a trigger for shading in
-              - condition: trigger
+              - condition: trigger # shading_min_temperatur
                 id: "t_si_1"
-              - condition: trigger
+              - condition: trigger # shading_min_temperatur2
                 id: "t_si_2"
-              - condition: trigger
+              - condition: trigger # shading_sun_brightness_in
                 id: "t_si_3"
-              - condition: trigger
+              - condition: trigger # shading_elevation_min
                 id: "t_si_4"
-              - condition: trigger
+              - condition: trigger # shading_azimuth
                 id: "t_si_5"
-              - condition: trigger
+              - condition: trigger # shading_forecast_temp
                 id: "t_si_6"
-              - condition: trigger
+              - condition: trigger # auto_shading_blocking_entity
                 id: "t_si_7"
+
               # Check if we have a trigger for blinds up
               - condition: trigger # brightness_up - default_brightness_sensor
                 id: "t_bo_1"
@@ -898,7 +911,7 @@ action:
                 id: "t_bo_5"
               - condition: trigger # brightness_up - shading_brightness_sensor
                 id: "t_bo_6"
-              - condition: trigger # sun elevation
+              - condition: trigger # sun_elevation_up
                 id: "t_bo_7"
         sequence:
           - choose:
@@ -926,7 +939,7 @@ action:
                   - if: # check if blind is higher than ventilate position. In this case we consider blind position like open and therefor we want to use the delay timer
                       - "{{ state_attr(blind, 'current_position') | int(default=101) > ventilate_position }}"
                       - not:
-                          - condition: trigger
+                          - condition: trigger # auto_shading_blocking_entity
                             id: "t_si_7"
                     then:
                       - alias: "Wait the number of seconds set in shading_waitingtime"
@@ -976,7 +989,7 @@ action:
                         id: "t_bo_5"
                       - condition: trigger # brightness_up - shading_brightness_sensor
                         id: "t_bo_6"
-                      - condition: trigger # sun elevation
+                      - condition: trigger # sun_elevation_up
                         id: "t_bo_7"
                   - or:
                       - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
@@ -1003,9 +1016,9 @@ action:
                                   - "{{ now() >= today_at(time_up_early_non_workday) }}"
                           - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
                           - or:
-                              - "{{ ( (shading_brightness_sensor == [] ) and ( default_brightness_sensor == [] ) ) }}"
-                              - "{{ ( (shading_brightness_sensor != [] ) and (states(shading_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
-                              - "{{ ( (shading_brightness_sensor == [] and default_brightness_sensor != []) and (states(default_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
+                              - "{{ ( (default_brightness_sensor == [] ) and ( shading_brightness_sensor == [] ) ) }}"
+                              - "{{ ( (default_brightness_sensor != [] ) and (states(default_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
+                              - "{{ ( (default_brightness_sensor == [] and shading_brightness_sensor != []) and (states(shading_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
                           - or:
                               - "{{ (default_sun_sensor == []) }}"
                               - "{{ ((default_sun_sensor != [] ) and (states(default_sun_sensor) | int(default=sun_elevation_up) >= sun_elevation_up) ) }}"
@@ -1044,19 +1057,19 @@ action:
           - "{{ now() >= today_at(time_up_early) }}"
           - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
           - or:
-              - condition: trigger
+              - condition: trigger # shading_min_temperatur
                 id: "t_so_1"
-              - condition: trigger
+              - condition: trigger # shading_min_temperatur2
                 id: "t_so_2"
-              - condition: trigger
+              - condition: trigger # shading_sun_brightness_out
                 id: "t_so_3"
-              - condition: trigger
+              - condition: trigger # shading_elevation_max
                 id: "t_so_4"
-              - condition: trigger
+              - condition: trigger # shading_azimuth_out
                 id: "t_so_5"
-              - condition: trigger
+              - condition: trigger # shading_elevation_min
                 id: "t_so_6"
-              - condition: trigger
+              - condition: trigger # auto_shading_blocking_entity
                 id: "t_so_7"
           - "{{ state_attr(blind, 'current_position') | int(default=101) == shading_blinds_position }}"
         sequence:
@@ -1066,7 +1079,7 @@ action:
                   - "{{ state_attr(default_sun_sensor, 'azimuth') >= shading_azimuth_in and state_attr(default_sun_sensor, 'azimuth') <= shading_azimuth_out }}"
                   - "{{ state_attr(default_sun_sensor, 'elevation') >= shading_elevation_min and state_attr(default_sun_sensor, 'elevation') <= shading_elevation_max }}"
               - not:
-                  - condition: trigger
+                  - condition: trigger # auto_shading_blocking_entity
                     id: "t_so_7"
             then:
               - alias: "Wait the number of seconds set in shading_waitingtime_out"
@@ -1115,22 +1128,23 @@ action:
               - "{{ not auto_down_blocking }}"
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
-          #TODO
           - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" #TODO really necessary?
           - or:
               # Check if we have a trigger for blind down
-              - condition: trigger
+              - condition: trigger # brightness_down
                 id: "t_bc_1"
-              - condition: trigger
+              - condition: trigger # time_down_early
                 id: "t_bc_2"
-              - condition: trigger
+              - condition: trigger # time_down_late
                 id: "t_bc_3"
-              - condition: trigger
+              - condition: trigger # window_sensor
                 id: "t_bc_4"
-              - condition: trigger
+              - condition: trigger # resident_sensor
                 id: "t_bc_5"
-              - condition: trigger
+              - condition: trigger # brightness_down
                 id: "t_bc_6"
+              - condition: trigger # sun_elevation_down
+                id: "t_bc_7"
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
           - or:
@@ -1159,12 +1173,12 @@ action:
                 and:
                   - "{{ 'auto_down_enabled' in auto_down_option }}"
                   - "{{ ((resident_sensor != [] ) and (is_state(resident_sensor, 'on')) ) }}"
-                  - condition: trigger
+                  - condition: trigger #  resident_sensor
                     id: t_bc_5
 
               - alias: Blinds - closing after ventilate
                 and:
-                  - condition: trigger
+                  - condition: trigger # window_sensor
                     id: "t_bc_4"
                   - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
                   - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
@@ -1178,8 +1192,8 @@ action:
         sequence:
           - if:
               - not:
-                  - condition: trigger
-                    id: "t_bc_4" # Windows sensor
+                  - condition: trigger # Windows sensor
+                    id: "t_bc_4"
             then:
               - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
           - if:
@@ -1223,7 +1237,7 @@ action:
 
       - alias: Window sensor - opened
         conditions:
-          - condition: trigger
+          - condition: trigger # window_sensor
             id: "t_bv_1"
           - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
           - "{{ (state_attr(blind, 'current_position') | int(default=110) <= closed_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= closed_position - position_tolerance)}}"
