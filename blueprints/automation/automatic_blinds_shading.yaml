@@ -37,10 +37,10 @@ blueprint:
 
   # Differences to the Eimeel blueprint:
   # - Blocking Entities:
-  #   Auto Global Blocking: Dynamic on/off switching of the entire  automation
-  #   Auto Up Blocking: new
-  #   Auto Down Blocking: replacing adv_blind
-  #   Auto Shading Blocking: replacing temporary_disable_shading
+  #   Auto Global Blocking Condition: Dynamic on/off switching of the entire automation
+  #   Auto Up Blocking Condition: new
+  #   Auto Down Blocking Condition: replacing adv_blind
+  #   Auto Shading In+Out Blocking Conditiong: replacing temporary_disable_shading
   # - Icons-Update
   # - Streamline variables
   # - GUI-changes
@@ -57,7 +57,6 @@ blueprint:
   # - Only move to the target position if it is below the shading position and the shading is currently on or has been on? Check whether complete.
   # - Check external Shading State Sensor in more conditions?
   # - Hotdaycheck: Forecast and not just current temperature
-  # - Make shading out deactivable / or is it possible with Shading-Out-Lux?
 
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/automatic_blinds_shading.yaml
   domain: automation
@@ -413,9 +412,15 @@ blueprint:
               value: "shading_enabled"
             - label: Disable the shading feature
               value: "shading_disabled"
-    auto_shading_blocking:
-      name: "🕶️ Auto Shading Blocking"
-      description: "Externally override the entire automation? This condition it will prevent the shading-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\nExample: input_boolean.disable_blind_shading: on\n\n`Optional`\n\n`Shading`"
+    auto_shading_in_blocking:
+      name: "🕶️ Auto Shading In Blocking Condition"
+      description: "Externally override the entire automation? This condition it will prevent the shading-IN-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\nExample: input_boolean.disable_blind_shading: on\n\n`Optional`\n\n`Shading`"
+      default: []
+      selector:
+        condition:
+    auto_shading_out_blocking:
+      name: "🕶️ Auto Shading Out Blocking Condition"
+      description: "Externally override the entire automation? This condition it will prevent the shading-OUT-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\nExample: input_boolean.disable_blind_shading: on\n\n`Optional`\n\n`Shading`"
       default: []
       selector:
         condition:
@@ -701,11 +706,6 @@ variables:
   window_sensor: !input window_sensor
   resident_sensor: !input resident_sensor
 
-  # auto_global_blocking: !input auto_global_blocking
-  # auto_up_blocking: !input auto_up_blocking
-  # auto_down_blocking: !input auto_down_blocking
-  # auto_shading_blocking: !input auto_shading_blocking
-
   # auto_global_blocking_entity: !input auto_global_blocking_entity
   # _auto_global_blocking_entity_state: !input auto_global_blocking_entity_state
   # auto_global_blocking_entity_state: "{{ (_auto_global_blocking_entity_state or '') | trim }}"
@@ -781,8 +781,8 @@ trigger:
     entity_id: !input shading_outdoor_temperatur_sensor
     above: !input shading_forecast_temp
     id: "t_si_6"
-  # - platform: state
-  #   entity_id: !input auto_shading_blocking
+  # - platform: state #FIXME
+  #   entity_id: !input auto_shading_in_blocking
   #   id: "t_si_7"
   #   for: "00:00:05" # we need a small delay cause temporary_disable_shading also triggers shading in
 
@@ -814,8 +814,8 @@ trigger:
     attribute: elevation
     below: !input shading_elevation_min
     id: "t_so_6"
-  # - platform: state
-  #   entity_id: !input auto_shading_blocking
+  # - platform: state #FIXME
+  #   entity_id: !input auto_shading_in_blocking
   #   id: "t_so_7" ## it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
   #   for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
 
@@ -895,7 +895,6 @@ condition:
       - "{{ 'shading_enabled' in auto_shading_option }}"
       - "{{ 'auto_up_enabled' in auto_up_option }}"
       - "{{ 'auto_down_enabled' in auto_down_option }}"
-      # - "{{ not auto_global_blocking }}"
   - not:
       - condition: !input auto_global_blocking
 
@@ -956,8 +955,7 @@ action:
                   - and: # Check if we want to perform shading in
                       - "{{ 'shading_enabled' in auto_shading_option }}"
                       - not:
-                          - condition: !input auto_shading_blocking
-                      # - "{{ not auto_shading_blocking }}"
+                          - condition: !input auto_shading_in_blocking
                       - "{{ now() >= today_at(time_up_early) }}"
                       - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
                       - "{{ ( (shading_outdoor_temperatur_sensor == [] ) or (states(shading_outdoor_temperatur_sensor) | int(default=shading_min_temperatur) >= shading_min_temperatur) ) }}"
@@ -1035,7 +1033,6 @@ action:
                       - "{{ current_position | int(default=101) == ventilate_position }}"
                       - "{{ (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}" ## TODO Do I want that?
-                  # - "{{ not auto_up_blocking }}"
                   # Now we have to check different opening scenarios
                   - condition: or
                     conditions:
@@ -1094,7 +1091,8 @@ action:
       - alias: "Check and perform shading out"
         conditions:
           - "{{ 'shading_enabled' in auto_shading_option }}"
-          - "{{ not auto_shading_blocking }}"
+          - not:
+              - condition: !input auto_shading_out_blocking
           - "{{ now() >= today_at(time_up_early) }}"
           - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
           - or:
@@ -1166,7 +1164,6 @@ action:
               - "{{ 'auto_down_enabled' in auto_down_option }}"
               - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
           - or:
-              # - "{{ not auto_down_blocking }}"
               - not:
                   - condition: !input auto_down_blocking
               - condition: trigger # resident_sensor
