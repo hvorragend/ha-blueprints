@@ -50,6 +50,7 @@ blueprint:
 
   # Notes / Planned modifications:
   # - see also TODOs in code
+  # - Condition selector
   # - ALREADY FITS: Sun elevation changes should not trigger once. Each elevation change should trigger the automation.
   # - Also run shading when resident is at home
   # - possibly also drive down if not in the correct position
@@ -71,6 +72,14 @@ blueprint:
           filter:
             - domain:
                 - cover
+    auto_global_condition:
+      name: "⛔ Auto Global Condition"
+      description: "Externally override the entire automation? If this entity's state is set to blocking entity state (defined below), it will prevent the execution of this <ins>entire</ins> automation.\n\nExample: input_boolean.party_mode\n\n`Optional`"
+      default: []
+      selector:
+        condition:
+
+
     auto_global_blocking_entity:
       name: "⛔ Auto Global Blocking - Entity"
       description: "Externally override the entire automation? If this entity's state is set to blocking entity state (defined below), it will prevent the execution of this <ins>entire</ins> automation.\n\nExample: input_boolean.party_mode\n\n`Optional`"
@@ -669,7 +678,7 @@ variables:
   open_position: !input open_position
   closed_position: !input closed_position
   position_tolerance: !input position_tolerance
-  # current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
+
   ventilate_position: !input ventilate_position
 
   # Blocker / Overrides / Sensors
@@ -717,6 +726,11 @@ variables:
   shading_forecast_temp: !input shading_forecast_temp
   shading_weather_conditions: !input shading_weather_conditions
   shading_state_sensor: !input shading_state_sensor
+
+  # current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
+  current_position: "{{ state_attr(blind, 'current_position') }}"
+  current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
+  current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
 
 trigger:
   # triggers for shading in
@@ -925,9 +939,9 @@ action:
                       - "{{ ( (shading_outdoor_temperatur_sensor == [] ) or (states(shading_outdoor_temperatur_sensor) | int(default=shading_min_temperatur) >= shading_min_temperatur) ) }}"
                       - "{{ ( (shading_outdoor_temperatur_sensor2 == [] ) or (states(shading_outdoor_temperatur_sensor2) | int(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
                       - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | int(default=shading_sun_brightness_in) >= shading_sun_brightness_in) ) }}"
-                      - "{{ state_attr(default_sun_sensor, 'azimuth') >= shading_azimuth_in and state_attr(default_sun_sensor, 'azimuth') <= shading_azimuth_out }}"
-                      - "{{ state_attr(default_sun_sensor, 'elevation') >= shading_elevation_min and state_attr(default_sun_sensor, 'elevation') <= shading_elevation_max }}"
-                      - "{{ state_attr(blind, 'current_position') | int(default=101) > shading_blinds_position }}"
+                      - "{{ current_sun_azimuth >= shading_azimuth_in and current_sun_azimuth <= shading_azimuth_out }}"
+                      - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
+                      - "{{ current_position | int(default=101) > shading_blinds_position }}"
                       - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_outdoor_temperatur_sensor == [] ) }}"
@@ -937,7 +951,7 @@ action:
                 sequence:
                   # we are ready for shading in
                   - if: # check if blind is higher than ventilate position. In this case we consider blind position like open and therefor we want to use the delay timer
-                      - "{{ state_attr(blind, 'current_position') | int(default=101) > ventilate_position }}"
+                      - "{{ current_position | int(default=101) > ventilate_position }}"
                       - not:
                           - condition: trigger # auto_shading_blocking_entity
                             id: "t_si_7"
@@ -992,8 +1006,8 @@ action:
                       - condition: trigger # sun_elevation_up
                         id: "t_bo_7"
                   - or:
-                      - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
-                      - "{{ (state_attr(blind, 'current_position') | int(default=110) <= closed_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= closed_position - position_tolerance)}}"
+                      - "{{ current_position | int(default=101) == ventilate_position }}"
+                      - "{{ (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}" ## TODO Do I want that?
                   - "{{ not auto_up_blocking }}"
                   # Now we have to check different opening scenarios
@@ -1022,7 +1036,7 @@ action:
                                   - "{{ ( (default_brightness_sensor == [] and shading_brightness_sensor != []) and (states(shading_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
                               - or:
                                   - "{{ (default_sun_sensor == []) }}"
-                                  - "{{ ((default_sun_sensor != [] ) and (state_attr(default_sun_sensor, 'elevation') | int(default=sun_elevation_up) >= sun_elevation_up) ) }}"
+                                  - "{{ ((default_sun_sensor != [] ) and (current_sun_elevation | int(default=sun_elevation_up) >= sun_elevation_up) ) }}"
                 sequence:
                   # ok, we can open the blind
                   - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
@@ -1072,13 +1086,13 @@ action:
                 id: "t_so_6"
               - condition: trigger # auto_shading_blocking_entity
                 id: "t_so_7"
-          - "{{ state_attr(blind, 'current_position') | int(default=101) == shading_blinds_position }}"
+          - "{{ current_position | int(default=101) == shading_blinds_position }}"
         sequence:
           - if:
               # if sun is outside of shading window (azimuth or elevation) we immedately stop shading
               - and:
-                  - "{{ state_attr(default_sun_sensor, 'azimuth') >= shading_azimuth_in and state_attr(default_sun_sensor, 'azimuth') <= shading_azimuth_out }}"
-                  - "{{ state_attr(default_sun_sensor, 'elevation') >= shading_elevation_min and state_attr(default_sun_sensor, 'elevation') <= shading_elevation_max }}"
+                  - "{{ current_sun_azimuth >= shading_azimuth_in and current_sun_azimuth <= shading_azimuth_out }}"
+                  - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
               - not:
                   - condition: trigger # auto_shading_blocking_entity
                     id: "t_so_7"
@@ -1129,7 +1143,7 @@ action:
               - "{{ not auto_down_blocking }}"
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
-          - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" #TODO really necessary?
+          - "{{ current_position | int(default=110) > closed_position }}" #TODO really necessary?
           - or:
               # Check if we have a trigger for blind down
               - condition: trigger # brightness_down
@@ -1149,8 +1163,8 @@ action:
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
           - or:
-              - "{{ (state_attr(blind, 'current_position') | int(default=110) <= open_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= open_position - position_tolerance)}}"
-              - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
+              - "{{ (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
+              - "{{ current_position == ventilate_position }}"
           - or:
               - alias: Blinds - closing - down late reached
                 and:
@@ -1169,7 +1183,7 @@ action:
                           - "{{ ( (shading_brightness_sensor != [] ) and (states(shading_brightness_sensor) | int(default=brightness_down) <= brightness_down) ) }}"
                       - or:
                           - "{{ (default_sun_sensor == []) }}"
-                          - "{{ ( (default_sun_sensor != [] ) and (state_attr(default_sun_sensor, 'elevation') | int(default=sun_elevation_down) <= sun_elevation_down) ) }}"
+                          - "{{ ( (default_sun_sensor != [] ) and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) ) }}"
 
               - alias: Blinds - closing - due to resident goes sleeping ##TODO Customize
                 and:
@@ -1183,13 +1197,13 @@ action:
                   - condition: trigger # window_sensor
                     id: "t_bc_4"
                   - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
-                  - "{{ state_attr(blind, 'current_position') | int(default=101) == ventilate_position }}"
+                  - "{{ current_position | int(default=101) == ventilate_position }}"
                   - "{{ (window_sensor != [] ) and (states(window_sensor) == 'off') }}"
 
               - alias: Blinds - closing after shading
                 and:
                   - "{{ 'shading_enabled' in auto_shading_option }}"
-                  - "{{ state_attr(blind, 'current_position') | int(default=110) > closed_position }}" # TODO Do I want that? Check ShadingPos, too?
+                  - "{{ current_position | int(default=110) > closed_position }}" # TODO Do I want that? Check ShadingPos, too?
                   - "{{ (shading_state_sensor != [] ) and (states(shading_state_sensor) == 'on') }}"
         sequence:
           - if:
@@ -1242,7 +1256,7 @@ action:
           - condition: trigger # window_sensor
             id: "t_bv_1"
           - "{{ 'auto_ventilate_enabled' in auto_ventilate_option }}"
-          - "{{ (state_attr(blind, 'current_position') | int(default=110) <= closed_position + position_tolerance) and (state_attr(blind, 'current_position') | int(default=110) >= closed_position - position_tolerance)}}"
+          - "{{ (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
           - "{{ ( (window_sensor != []) and (is_state(window_sensor, 'on')) ) }}"
         sequence:
           - repeat:
