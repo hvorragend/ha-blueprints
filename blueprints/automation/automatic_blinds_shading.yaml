@@ -419,7 +419,7 @@ blueprint:
           max: 365
           unit_of_measurement: "°"
     shading_elevation_min:
-      name: "🕶️ Shading elevation min"
+      name: "🕶️ Shading elevation minimum"
       description: "Starting from which elevation of the sun should the window be shaded? (Here it makes sense to consider surrounding buildings, trees, etc.).\n\n`Shading`"
       default: 25
       selector:
@@ -428,7 +428,7 @@ blueprint:
           max: 90
           unit_of_measurement: "°"
     shading_elevation_max:
-      name: "🕶️ Shading elevation max"
+      name: "🕶️ Shading elevation maximum"
       description: "What is the maximal elevation for elevation?
         (In most cases, 90 degrees is probably the most reasonable value. However, this can also be different due to surrounding buildings, etc.)
         \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
@@ -438,8 +438,8 @@ blueprint:
           min: 0
           max: 90
           unit_of_measurement: "°"
-    shading_outdoor_temperatur_sensor:
-      name: "🕶️ Shading temperature sensor1"
+    shading_temperatur_sensor1:
+      name: "🕶️ Shading temperature sensor 1"
       description: "This is the main temperature sensor. (Here, for example, the current outdoor or indoor temperature can be used as a criterion). This sensor does not have to be defined if the shading is to take place independently of it.\n\n`Optional`\n\n`Shading`"
       selector:
         entity:
@@ -447,8 +447,8 @@ blueprint:
             - domain:
                 - sensor
       default: []
-    shading_min_temperatur:
-      name: "🕶️ Shading temperature sensor1 min"
+    shading_min_temperatur1:
+      name: "🕶️ Shading temperature sensor 1 mininum"
       description: "Minimum temperature for sensor 1 above which shading should occur.\n\n`Optional`\n\n`Shading`"
       default: 18
       selector:
@@ -456,8 +456,8 @@ blueprint:
           min: 0.0
           max: 50.0
           unit_of_measurement: "°C"
-    shading_outdoor_temperatur_sensor2:
-      name: "🕶️ Shading temperature sensor2"
+    shading_temperatur_sensor2:
+      name: "🕶️ Shading temperature sensor 2"
       description: "This is a secondary temperature sensor.
         (Here, for example, a temperature difference sensor can be used as a criterion.
         Or, if Sensor1 is outdoor temperature, you can use indoor temperature).
@@ -469,7 +469,7 @@ blueprint:
             - domain:
                 - sensor
     shading_min_temperatur2:
-      name: "🕶️ Shading temperature sensor2 min"
+      name: "🕶️ Shading temperature sensor2 mininum"
       description: "Minimum temperature for sensor 1 above which shading should occur.\n\n`Optional`\n\n`Shading`"
       default: 18
       selector:
@@ -646,14 +646,14 @@ variables:
 
   # Shading
   shading_brightness_sensor: !input shading_brightness_sensor
-  shading_outdoor_temperatur_sensor: !input shading_outdoor_temperatur_sensor
-  shading_outdoor_temperatur_sensor2: !input shading_outdoor_temperatur_sensor2
+  shading_temperatur_sensor1: !input shading_temperatur_sensor1
+  shading_temperatur_sensor2: !input shading_temperatur_sensor2
+  shading_min_temperatur1: !input shading_min_temperatur1
+  shading_min_temperatur2: !input shading_min_temperatur2
   shading_azimuth_in: !input shading_azimuth_in
   shading_azimuth_out: !input shading_azimuth_out
   shading_elevation_min: !input shading_elevation_min
   shading_elevation_max: !input shading_elevation_max
-  shading_min_temperatur: !input shading_min_temperatur
-  shading_min_temperatur2: !input shading_min_temperatur2
   shading_blinds_position: !input shading_blinds_position
   shading_tilt_position: !input shading_tilt_position
   shading_sun_brightness_in: !input shading_sun_brightness_in
@@ -672,11 +672,11 @@ variables:
 trigger:
   # triggers for shading in
   - platform: numeric_state
-    entity_id: !input shading_outdoor_temperatur_sensor
-    above: !input shading_min_temperatur
+    entity_id: !input shading_temperatur_sensor1
+    above: !input shading_min_temperatur1
     id: "t_si_1"
   - platform: numeric_state
-    entity_id: !input shading_outdoor_temperatur_sensor2
+    entity_id: !input shading_temperatur_sensor2
     above: !input shading_min_temperatur2
     id: "t_si_2"
   - platform: numeric_state
@@ -695,7 +695,7 @@ trigger:
     below: !input shading_azimuth_out
     id: "t_si_5"
   - platform: numeric_state
-    entity_id: !input shading_outdoor_temperatur_sensor
+    entity_id: !input shading_temperatur_sensor1
     above: !input shading_forecast_temp
     id: "t_si_6"
   # - platform: state #FIXME
@@ -705,11 +705,11 @@ trigger:
 
   # triggers for shading out
   - platform: numeric_state
-    entity_id: !input shading_outdoor_temperatur_sensor
-    below: !input shading_min_temperatur
+    entity_id: !input shading_temperatur_sensor1
+    below: !input shading_min_temperatur1
     id: "t_so_1"
   - platform: numeric_state
-    entity_id: !input shading_outdoor_temperatur_sensor2
+    entity_id: !input shading_temperatur_sensor2
     below: !input shading_min_temperatur2
     id: "t_so_2"
   - platform: numeric_state
@@ -835,7 +835,7 @@ action:
               - "{{ 'auto_up_enabled' in auto_up_option }}"
           - or:
               # Check if we have a trigger for shading in
-              - condition: trigger # shading_min_temperatur
+              - condition: trigger # shading_min_temperatur1
                 id: "t_si_1"
               - condition: trigger # shading_min_temperatur2
                 id: "t_si_2"
@@ -875,17 +875,17 @@ action:
                           - condition: !input auto_shading_in_blocking
                       - "{{ now() >= today_at(time_up_early) }}"
                       - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
-                      - "{{ ( (shading_outdoor_temperatur_sensor == [] ) or (states(shading_outdoor_temperatur_sensor) | int(default=shading_min_temperatur) >= shading_min_temperatur) ) }}"
-                      - "{{ ( (shading_outdoor_temperatur_sensor2 == [] ) or (states(shading_outdoor_temperatur_sensor2) | int(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
+                      - "{{ ( (shading_temperatur_sensor1 == [] ) or (states(shading_temperatur_sensor1) | int(default=shading_min_temperatur1) >= shading_min_temperatur1) ) }}"
+                      - "{{ ( (shading_temperatur_sensor2 == [] ) or (states(shading_temperatur_sensor2) | int(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
                       - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | int(default=shading_sun_brightness_in) >= shading_sun_brightness_in) ) }}"
                       - "{{ current_sun_azimuth >= shading_azimuth_in and current_sun_azimuth <= shading_azimuth_out }}"
                       - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
                       - "{{ current_position | int(default=101) > shading_blinds_position }}"
                       - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                       - or:
-                          - "{{ ( shading_forecast_sensor == [] ) and (shading_outdoor_temperatur_sensor == [] ) }}"
+                          - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
                           - "{{ ( shading_forecast_sensor != [] ) and ( forecast.forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
-                          - "{{ (shading_outdoor_temperatur_sensor != [] ) and (states(shading_outdoor_temperatur_sensor) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
+                          - "{{ (shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
                       - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
                 sequence:
                   # we are ready for shading in
@@ -1013,7 +1013,7 @@ action:
           - "{{ now() >= today_at(time_up_early) }}"
           - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
           - or:
-              - condition: trigger # shading_min_temperatur
+              - condition: trigger # shading_min_temperatur1
                 id: "t_so_1"
               - condition: trigger # shading_min_temperatur2
                 id: "t_so_2"
