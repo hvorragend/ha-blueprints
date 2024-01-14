@@ -3,7 +3,7 @@ blueprint:
   description: >-
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.14**
+    **Version: 2024.01.14** / hvorragend
 
     This is a comprehensive blueprint that can be used for the following basic purposes:
       - Opening and closing the roller shutters (depending on brightness, sun-elevation and within time windows)
@@ -25,7 +25,7 @@ blueprint:
       After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action.
       To automate the movement of the roller shutter again, it must be moved to one of the defined positions beforehand.
 
-    [Link for this blueprint](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/automatic_blinds_shading.yaml)
+    [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
     </details>
 
@@ -832,11 +832,11 @@ trigger:
     id: "t_bv_1"
 
 condition:
+  - condition: !input auto_global_condition
   - or:
       - "{{ 'auto_shading_enabled' in auto_shading_options }}"
       - "{{ 'auto_up_enabled' in auto_up_options }}"
       - "{{ 'auto_down_enabled' in auto_down_options }}"
-      - condition: !input auto_global_condition
 
 action:
   ## we have to call a service for forecast due to HA changes
@@ -975,16 +975,13 @@ action:
                           - "{{ (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                   # Now we have to check different opening scenarios
-                  - condition: or
-                    conditions:
-                      - alias: "Covers - opening - up late reached "
-                        and:
+                  - or:
+                      - and: # Covers - opening - up late reached
                           - "{{ now() >= today_at(time_up_late) }}"
                           - or:
                               - "{{ now() <= today_at(time_down_early) + timedelta(seconds = 5) }}"
                               - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
-                      - alias: "Covers - opening - up early reached and brightness/sun above minimum"
-                        and:
+                      - and: # Covers - opening - up early reached and brightness/sun above minimum
                           - or:
                               - and:
                                   - "{{ (workday_sensor == [] or (is_state(workday_sensor, 'on')) )  }}"
@@ -1247,17 +1244,17 @@ action:
           - stop: "Stop the automation"
 
     default:
-      - if:
-          - or:
-              - "{{ closed_position > ventilate_position }}"
-              - "{{ closed_position > shading_cover_position }}"
-              - "{{ open_position < closed_position }}"
-              - "{{ open_position < ventilate_position }}"
-              - "{{ open_position < shading_cover_position }}"
-        then:
-          - service: system_log.write
-            data:
-              level: "error"
-              message: "Cover Control Automation (CCA) - Incorrect position values in the blueprint. Please note the instructions in the blueprint."
-              logger: "blueprints.hvorragend.cover_control_automation"
+      # - if:
+      #     - or:
+      #         - "{{ closed_position > ventilate_position }}"
+      #         # - "{{ closed_position > shading_cover_position }}"
+      #         - "{{ open_position < closed_position }}"
+      #         - "{{ open_position < ventilate_position }}"
+      #         - "{{ open_position < shading_cover_position }}"
+      #   then:
+      #     - service: system_log.write
+      #       data:
+      #         level: "error"
+      #         message: "Cover Control Automation (CCA) - Incorrect position values in the blueprint. Please note the instructions in the blueprint."
+      #         logger: "blueprints.hvorragend.cover_control_automation"
       - stop: "Stopping the automation - Reset"
