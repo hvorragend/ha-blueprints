@@ -36,22 +36,17 @@ blueprint:
   #  Synced with version 2024010301 of the origin
 
   # Differences to the Eimeel blueprint:
-  # - Blocking Entities:
-  #   Auto Global Blocking Condition: Dynamic on/off switching of the entire automation
-  #   Auto Up Blocking Condition: new
-  #   Auto Down Blocking Condition: replacing adv_blind
-  #   Auto Shading In+Out Blocking Conditiong: replacing temporary_disable_shading
-  # - Icons-Update
+  # - Icons-Updates
   # - Streamline variables
-  # - GUI-changes
-  # - Sun option: Sun control for up/down added (not yet completed)
-  # - Fixed drive delay / Random drive delay
-  # - Shading state sensor. Will probably be removed again.
-  # - Condition selector
+  # - Some GUI-changes
+  # - Added sun elevation feature: Sun control for up/down
+  # - Added waiting time duration for sensors
+  # - Added fixed/random drive delays
+  # - Added external shading state sensor. Will probably be removed again.
+  # - Added several condition selectors: Useful to be able to check various conditions such as party mode or similar when opening, closing, shading, etc.
 
   # Notes / Planned modifications:
   # - see also TODOs in code
-  # - ALREADY FITS: Sun elevation changes should not trigger once. Each elevation change should trigger the automation.
   # - possibly also drive down if not in the correct position
   # - Only move to the target position if it is below the shading position and the shading is currently on or has been on? Check whether complete.
   # - Check external Shading State Sensor in more conditions?
@@ -70,7 +65,7 @@ blueprint:
           filter:
             - domain:
                 - cover
-    auto_global_blocking:
+    auto_global_condition:
       name: "⛔ Additional condition for the entire automation"
       description: "With this condition you can prevent the execution of the <ins>entire</ins> automation. For example, you could have a party mode checked here.\n\n`Optional`"
       default: []
@@ -88,7 +83,7 @@ blueprint:
               value: "auto_up_enabled"
             - label: Disable the blind open feature
               value: "auto_up_disabled"
-    auto_up_blocking:
+    auto_up_condition:
       name: "🔼 Additional Condition For Opening The Blind"
       description: "With this condition you can prevent the automation from <ins>opening</ins> the blind.\n\n`Optional`"
       default: []
@@ -148,7 +143,7 @@ blueprint:
               value: "auto_down_enabled"
             - label: Disable The Blind Close Feature
               value: "auto_down_disabled"
-    auto_down_blocking:
+    auto_down_condition:
       name: "🔻 Additional Condition For Closing The Blind"
       description: "With this condition you can prevent the automation from <ins>closing</ins> the blind. \n\n`Optional`"
       default: []
@@ -218,6 +213,15 @@ blueprint:
           filter:
             - domain:
                 - sensor
+    brightness_time_duration:
+      name: "🔅 Brightness Time Duration"
+      description: "Defines the time to given brightness sensor must be stay above/below the thresholds."
+      default:
+        hours: 0
+        minutes: 30
+        seconds: 0
+      selector:
+        duration:
     brightness_up:
       name: "🔼 Brightness Up Value"
       description: "The brightness value from which the blind should be opened.\n\n`Optional`"
@@ -262,6 +266,15 @@ blueprint:
           filter:
             - domain:
                 - sun
+    sun_time_duration:
+      name: "☀️ Sun Time Duration"
+      description: "Defines the time to given sun sensor must be stay above/below the thresholds."
+      default:
+        hours: 0
+        minutes: 30
+        seconds: 0
+      selector:
+        duration:
     sun_elevation_up:
       name: "🔼 Sun Elevation Value To Open The Blind"
       description: "The blind will be <ins>opened</ins> if the sun elevation is over this value. If left empty, this option will not be applied.\n\n`Optional`"
@@ -364,13 +377,13 @@ blueprint:
               value: "auto_shading_enabled"
             - label: Disable The Shading Feature
               value: "auto_shading_disabled"
-    auto_shading_in_blocking:
+    auto_shading_in_condition:
       name: "🕶️ Additional Condition For Activating Sun Shading"
       description: "Externally override the entire automation? This condition it will prevent the shading-IN-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\n`Optional`\n\n`Shading`"
       default: []
       selector:
         condition: {}
-    auto_shading_out_blocking:
+    auto_shading_out_condition:
       name: "🕶️ Additional Condition For Disabling Sun Shading"
       description: "Externally override the entire automation? This condition it will prevent the shading-OUT-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\n`Optional`\n\n`Shading`"
       default: []
@@ -485,6 +498,15 @@ blueprint:
           filter:
             - domain:
                 - sensor
+    shading_brightness_time_duration:
+      name: "🕶️ Shading Brightness Time Duration"
+      description: "Defines the time to given shading brightness sensor must be stay above/below the thresholds."
+      default:
+        hours: 0
+        minutes: 30
+        seconds: 0
+      selector:
+        duration:
     shading_sun_brightness_in:
       name: "🕶️ Shading Brightness In/Start Value"
       description:
@@ -608,15 +630,15 @@ variables:
   auto_down_options: !input auto_down_options
   auto_ventilate_options: !input auto_ventilate_options
   auto_shading_options: !input auto_shading_options
+  auto_brightness_options: !input auto_brightness_options
+  auto_sun_options: !input auto_sun_options
 
   # Brightness
-  auto_brightness_options: !input auto_brightness_options
   default_brightness_sensor: !input default_brightness_sensor
   brightness_up: !input brightness_up
   brightness_down: !input brightness_down
 
   # Sun
-  auto_sun_options: !input auto_sun_options
   default_sun_sensor: !input default_sun_sensor
   sun_elevation_up: !input sun_elevation_up
   sun_elevation_down: !input sun_elevation_down
@@ -635,10 +657,9 @@ variables:
   open_position: !input open_position
   closed_position: !input closed_position
   position_tolerance: !input position_tolerance
-
   ventilate_position: !input ventilate_position
 
-  # Blocker / Overrides / Sensors
+  # Overrides / Sensors
   door_sensor: !input door_sensor
   window_sensor: !input window_sensor
   resident_sensor: !input resident_sensor
@@ -681,6 +702,7 @@ trigger:
   - platform: numeric_state
     entity_id: !input shading_brightness_sensor
     above: !input shading_sun_brightness_in
+    for: !input shading_brightness_time_duration
     id: "t_si_3"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
@@ -698,7 +720,7 @@ trigger:
     above: !input shading_forecast_temp
     id: "t_si_6"
   # - platform: state #FIXME
-  #   entity_id: !input auto_shading_in_blocking
+  #   entity_id: !input auto_shading_in_condition
   #   id: "t_si_7"
   #   for: "00:00:05" # we need a small delay cause temporary_disable_shading also triggers shading in
 
@@ -714,6 +736,7 @@ trigger:
   - platform: numeric_state
     entity_id: !input shading_brightness_sensor
     below: !input shading_sun_brightness_out
+    for: !input shading_brightness_time_duration
     id: "t_so_3"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
@@ -731,7 +754,7 @@ trigger:
     below: !input shading_elevation_min
     id: "t_so_6"
   # - platform: state #FIXME
-  #   entity_id: !input auto_shading_in_blocking
+  #   entity_id: !input auto_shading_in_condition
   #   id: "t_so_7" ## it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
   #   for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
 
@@ -739,7 +762,7 @@ trigger:
   - platform: numeric_state
     entity_id: !input default_brightness_sensor
     above: !input brightness_up
-    for: "00:00:03"
+    for: !input brightness_time_duration
     id: "t_bo_1"
   - platform: time
     at: !input time_up_late
@@ -758,19 +781,20 @@ trigger:
   - platform: numeric_state
     entity_id: !input shading_brightness_sensor
     above: !input brightness_up
-    for: "00:00:05"
+    for: !input brightness_time_duration
     id: "t_bo_6"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
     above: !input sun_elevation_up
     attribute: elevation
-    for: "00:00:03"
+    for: !input sun_time_duration
     id: "t_bo_7"
 
   # trigger for closing blind
   - platform: numeric_state
     entity_id: !input default_brightness_sensor
     below: !input brightness_down
+    for: !input brightness_time_duration
     id: "t_bc_1"
   - platform: time
     at: !input time_down_early
@@ -791,12 +815,13 @@ trigger:
   - platform: numeric_state
     entity_id: !input shading_brightness_sensor
     below: !input brightness_down
+    for: !input brightness_time_duration
     id: "t_bc_6"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
     attribute: elevation
     below: !input sun_elevation_down
-    for: "00:00:03"
+    for: !input sun_time_duration
     id: "t_bc_7"
 
   # trigger for ventilate
@@ -811,7 +836,7 @@ condition:
       - "{{ 'auto_shading_enabled' in auto_shading_options }}"
       - "{{ 'auto_up_enabled' in auto_up_options }}"
       - "{{ 'auto_down_enabled' in auto_down_options }}"
-      - condition: !input auto_global_blocking
+      - condition: !input auto_global_condition
 
 action:
   ## we have to call a service for forecast due to HA changes
@@ -845,7 +870,7 @@ action:
                 id: "t_si_5"
               - condition: trigger # shading_forecast_temp
                 id: "t_si_6"
-              - condition: trigger # auto_shading_blocking_entity
+              - condition: trigger # auto_shading_in_condition
                 id: "t_si_7"
 
               # Check if we have a trigger for blinds up
@@ -869,7 +894,7 @@ action:
                 conditions:
                   - and: # Check if we want to perform shading in
                       - "{{ 'auto_shading_enabled' in auto_shading_options }}"
-                      - condition: !input auto_shading_in_blocking
+                      - condition: !input auto_shading_in_condition
                       - "{{ now() >= today_at(time_up_early) }}"
                       - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
                       - "{{ ( (shading_temperatur_sensor1 == [] ) or (states(shading_temperatur_sensor1) | int(default=shading_min_temperatur1) >= shading_min_temperatur1) ) }}"
@@ -889,7 +914,7 @@ action:
                   - if: # check if blind is higher than ventilate position. In this case we consider blind position like open and therefor we want to use the delay timer
                       - "{{ current_position | int(default=101) > ventilate_position }}"
                       - not:
-                          - condition: trigger # auto_shading_blocking_entity
+                          - condition: trigger # auto_shading_in_condition
                             id: "t_si_7"
                     then:
                       - alias: "Wait the number of seconds set in shading_waitingtime"
@@ -926,7 +951,7 @@ action:
               - alias: "Check for opening"
                 conditions:
                   - "{{ 'auto_up_enabled' in auto_up_options }}"
-                  - condition: !input auto_up_blocking
+                  - condition: !input auto_up_condition
                   - or: # Check if the trigger is for normal blind opening
                       - condition: trigger # brightness_up - default_brightness_sensor
                         id: "t_bo_1"
@@ -1008,7 +1033,7 @@ action:
       - alias: "Check and perform shading out"
         conditions:
           - "{{ 'auto_shading_enabled' in auto_shading_options }}"
-          - condition: !input auto_shading_out_blocking
+          - condition: !input auto_shading_out_condition
           - "{{ now() >= today_at(time_up_early) }}"
           - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
           - or:
@@ -1024,7 +1049,7 @@ action:
                 id: "t_so_5"
               - condition: trigger # shading_elevation_min
                 id: "t_so_6"
-              - condition: trigger # auto_shading_blocking_entity
+              - condition: trigger # auto_shading_in_condition
                 id: "t_so_7"
           - "{{ current_position | int(default=101) == shading_blinds_position }}"
         sequence:
@@ -1034,7 +1059,7 @@ action:
                   - "{{ current_sun_azimuth >= shading_azimuth_in and current_sun_azimuth <= shading_azimuth_out }}"
                   - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
               - not:
-                  - condition: trigger # auto_shading_blocking_entity
+                  - condition: trigger # auto_shading_in_condition
                     id: "t_so_7"
             then:
               - alias: "Wait the number of seconds set in shading_waitingtime_out"
@@ -1080,7 +1105,7 @@ action:
               - "{{ 'auto_down_enabled' in auto_down_options }}"
               - "{{ 'auto_ventilate_enabled' in auto_ventilate_options }}"
           - or:
-              - condition: !input auto_down_blocking
+              - condition: !input auto_down_condition
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
           - "{{ current_position | int(default=110) > closed_position }}" #TODO really necessary?
