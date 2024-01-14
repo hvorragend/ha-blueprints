@@ -1,7 +1,7 @@
 blueprint:
-  name: "Blind Control Automation"
+  name: "Extensive Cover Control Automation"
   description: >-
-    # Blind Control Automation
+    # Extensive Cover Control Automation
 
     **Version: 2024.01.14**
 
@@ -13,21 +13,17 @@ blueprint:
     <details>
 
 
-    *This was a fork of Eimeel's blueprint [automatic_blinds_shading.yaml](https://gist.github.com/jmerifjKriwe/bffbc7424dd04f4a31d6a71f7012cd1f) and is largely based on his programming.*<br />
+    *This was originally a fork of Eimeel's blueprint [automatic_blinds_shading.yaml](https://gist.github.com/jmerifjKriwe/bffbc7424dd04f4a31d6a71f7012cd1f) and is largely based on his programming.*<br />
 
     **NOTES**
 
+    - It is not possible to execute this automation manually!
     - In order to have extensive flexibility here, different sensors are used. But there is also the possibility to define an occupant of the room,
       so that e.g. the roller shutter does not go up in the morning, although the occupant is still sleeping.
-      *TODO This approach will probably be changed in my fork*
-    - As a bonus, there is also an overwrite option for closing (aka Christmas mode). This can be used to prevent a roller shutter from going down
-      during the Christmas season - for example, because you want to display the illuminated Christmas decorations for longer.
-    - It's NOT possible to execute this automation manually!
     - The automation only moves the roller shutter if it is positioned at one of the defined positions
       (ventilate position, shading position, open position or closed position). Otherwise, the roller shutter has been moved manually.
       After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action.
       To automate the movement of the roller shutter again, it must be moved to one of the defined positions beforehand.
-      *TODO This approach will probably be changed in my fork*
 
     [Link for this blueprint](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/automatic_blinds_shading.yaml)
 
@@ -51,6 +47,7 @@ blueprint:
   # - Only move to the target position if it is below the shading position and the shading is currently on or has been on? Check whether complete.
   # - Check external Shading State Sensor in more conditions?
   # - Hotdaycheck: Forecast and not just current temperature
+  # - Low priority: Check if cover  was moved manually. Should I correct the position after a longer wating time? Not sure.
 
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/automatic_blinds_shading.yaml
   domain: automation
@@ -58,34 +55,66 @@ blueprint:
     min_version: "2023.9.0"
   input:
     blind:
-      name: "Blind"
-      description: "🏠 Which roller shutter should be automated?"
+      name: "🏠 Cover"
+      description: "Which blind or roller shutter should be automated?"
       selector:
         entity:
           filter:
             - domain:
                 - cover
     auto_global_condition:
-      name: "⛔ Additional condition for the entire automation"
-      description: "With this condition you can prevent the execution of the <ins>entire</ins> automation. For example, you could have a party mode checked here.\n\n`Optional`"
+      name: "❓ Additional condition for the entire automation"
+      description: "With this condition you can prevent the execution of the <ins>entire</ins> automation. With this option you could enable a party mode.\n\n`Optional`"
       default: []
       selector:
         condition: {}
 
+    drive_delay_fix:
+      name: "🕛 Fixed Drive Delay"
+      description: "Fixed drive delay in seconds to avoid radio interferences."
+      default: 0
+      selector:
+        number:
+          min: 0.0
+          max: 600.0
+          unit_of_measurement: s
+          step: 1.0
+          mode: slider
+    drive_delay_random:
+      name: "🕛 Random Drive Delay"
+      description: "Additional random delay. Value in seconds.\n\n`Optional`"
+      default: 5
+      selector:
+        number:
+          min: 0.0
+          max: 600.0
+          unit_of_measurement: s
+          step: 1.0
+          mode: slider
+    position_tolerance:
+      name: "〰️ Position Tolerance"
+      description: "Tolerance to be applied when comparing the current position with the to be position"
+      default: 0
+      selector:
+        number:
+          min: 0.0
+          max: 9.0
+          unit_of_measurement: "%"
+
     auto_up_options:
-      name: "🔼 Automation For Opening The Blind"
-      description: "Basic automation for opening the blind. Select enable or disable."
+      name: "🔼 Open Automation"
+      description: "Basic automation for opening the cover. Please select one of the options."
       default: auto_up_enabled
       selector:
         select:
           options:
-            - label: Enable the blind open feature
+            - label: Enable the cover open feature
               value: "auto_up_enabled"
-            - label: Disable the blind open feature
+            - label: Disable the cover open feature
               value: "auto_up_disabled"
     auto_up_condition:
-      name: "🔼 Additional Condition For Opening The Blind"
-      description: "With this condition you can prevent the automation from <ins>opening</ins> the blind.\n\n`Optional`"
+      name: "🔼 Additional Condition For Opening The Cover"
+      description: "With this condition you can prevent the automation from <ins>opening</ins> the cover. You can use this, for example, if the covers normally don't open, but you really want to do it on vacation.\n\n`Optional`"
       default: []
       selector:
         condition: {}
@@ -104,7 +133,7 @@ blueprint:
         "This switch can be used to override the automatic opening of the shutter. If this sensor (input_boolean or binary_sensor) is set to ON, the shutter will not open automatically.\n
         This can be used e.g. to define a resident for the room. In this case, the roller shutter only opens when the resident is no longer asleep.\nFor this it is necessary to use a
         boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.
-        \nThe blind will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).  \n\n`Optional`"
+        \nThe cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).  \n\n`Optional`"
       default: []
       selector:
         entity:
@@ -113,7 +142,7 @@ blueprint:
             - binary_sensor
     time_up_early:
       name: "🔼 Time For Drive Up - Early On Workdays"
-      description: "The earliest time at which the blind may be opened. The blind will be opened if AFTER this time the defined brightness value is high enough. (**NOTE**: If an occupant is defined, he must also be awake)."
+      description: "The earliest time at which the cover may be opened. The cover will be opened if AFTER this time the defined brightness value is high enough. (**NOTE**: If an occupant is defined, he must also be awake)."
       default: "06:00:00"
       selector:
         time: {}
@@ -126,26 +155,26 @@ blueprint:
     time_up_late:
       name: "🔼 Time For Drive Up - Late"
       description:
-        "The latest time at which the blind should be opened. If the required brightness value has NOT yet been reached by this time, the blind will still be opened.
-        (**NOTE**: If an occupant is defined and he is still asleep, the blind will NOT be opened. It will only be opened when the occupant has woken up)."
+        "The latest time at which the cover should be opened. If the required brightness value has NOT yet been reached by this time, the cover will still be opened.
+        (**NOTE**: If an occupant is defined and he is still asleep, the cover will NOT be opened. It will only be opened when the occupant has woken up)."
       default: "08:00:00"
       selector:
         time: {}
 
     auto_down_options:
-      name: "🔻 Automation For Closing The Blind"
-      description: "Basic automation for closing the blind. Select enable or disable."
+      name: "🔻 Close Automation"
+      description: "Basic automation for closing the cover. Please select one of the options."
       default: auto_down_enabled
       selector:
         select:
           options:
-            - label: Enable The Blind Close Feature
+            - label: Enable The Cover Close Feature
               value: "auto_down_enabled"
-            - label: Disable The Blind Close Feature
+            - label: Disable The Cover Close Feature
               value: "auto_down_disabled"
     auto_down_condition:
-      name: "🔻 Additional Condition For Closing The Blind"
-      description: "With this condition you can prevent the automation from <ins>closing</ins> the blind. \n\n`Optional`"
+      name: "🔻 Additional Condition For Closing The Cover"
+      description: "With this condition you can prevent the automation from <ins>closing</ins> the cover. You can use this, for example, at Christmas time or if you want the covers to behave differently while on vacation.\n\n`Optional`"
       default: []
       selector:
         condition: {}
@@ -160,20 +189,20 @@ blueprint:
           unit_of_measurement: "%"
     time_down_early:
       name: "🔻 Time For Drive Down - Early"
-      description: "The earliest time at which the blind may be closed. The blind will be closed if AFTER this time the defined brightness value is low enough."
+      description: "The earliest time at which the cover may be closed. The cover will be closed if AFTER this time the defined brightness value is low enough."
       default: "16:00:00"
       selector:
         time: {}
     time_down_late:
       name: "🔻 Time For Drive Down - Late"
-      description: "The latest time at which the blind should be closed. If the required brightness value has NOT yet been reached by this time, the blind will still be closed."
+      description: "The latest time at which the cover should be closed. If the required brightness value has NOT yet been reached by this time, the cover will still be closed."
       default: "22:00:00"
       selector:
         time: {}
 
     door_sensor:
       name: "🚪 Door Or Window"
-      description: "Does the blind belong to a window (FALSE) or a door (TRUE)? In the case of a door, an attempt is made to prevent the blind from being lowered when the door is open in order to prevent it from being locked out. (without guarantee!)\n\n`Optional`"
+      description: "Does the cover belong to a window (FALSE) or a door (TRUE)? In the case of a door, an attempt is made to prevent the cover from being lowered when the door is open in order to prevent it from being locked out. (without guarantee!)\n\n`Optional`"
       default: "false"
       selector:
         select:
@@ -184,7 +213,7 @@ blueprint:
               value: "true"
     workday_sensor:
       name: "💼 Sensor For Workday/Non-Workday"
-      description: "It may be desired to open a blind at a different time on work days than on non-work days. The corresponding binary sensor can be defined here. If not set, the blind will open every time at time_up_early.\n\n`Optional`"
+      description: "It may be desired to open a cover at a different time on work days than on non-work days. The corresponding binary sensor can be defined here. If not set, the cover will open every time at time_up_early.\n\n`Optional`"
       default: []
       selector:
         entity:
@@ -194,8 +223,8 @@ blueprint:
                 - binary_sensor
 
     auto_brightness_options:
-      name: "🔅 Use The Brightness Sensor"
-      description: "Select Enable Or Disable.\n\n`Optional`"
+      name: "🔅 Brightness Sensor Automation"
+      description: "Please select one of the options.\n\n`Optional`"
       default: auto_brightness_enabled
       selector:
         select:
@@ -223,8 +252,8 @@ blueprint:
       selector:
         duration:
     brightness_up:
-      name: "🔼 Brightness Up Value"
-      description: "The brightness value from which the blind should be opened.\n\n`Optional`"
+      name: "🔼 Brightness Value For Opening The Cover"
+      description: "The brightness value from which the cover should be opened.\n\n`Optional`"
       default: 70
       selector:
         number:
@@ -233,8 +262,8 @@ blueprint:
           unit_of_measurement: lx
           step: 10.0
     brightness_down:
-      name: "🔻 Brightness Down Value"
-      description: "The brightness value from which the blind should be closed. Must be lower then the brightness up value.\n\n`Optional`"
+      name: "🔻 Brightness Value For Closing The Cover"
+      description: "The brightness value from which the cover should be closed. Must be lower then the brightness up value.\n\n`Optional`" ## TODO: Really be lower?
       default: 10
       selector:
         number:
@@ -244,8 +273,8 @@ blueprint:
           step: 10.0
 
     auto_sun_options:
-      name: "☀️ Use The Sun Option"
-      description: "Select Enable Or Disable.\n\n`Optional`"
+      name: "☀️ Sun Elevation Automation"
+      description: "Please select one of the options.\n\n`Optional`"
       default: auto_sun_enabled
       selector:
         select:
@@ -276,8 +305,8 @@ blueprint:
       selector:
         duration:
     sun_elevation_up:
-      name: "🔼 Sun Elevation Value To Open The Blind"
-      description: "The blind will be <ins>opened</ins> if the sun elevation is over this value. If left empty, this option will not be applied.\n\n`Optional`"
+      name: "🔼 Sun Elevation Value For Opening The Cover"
+      description: "The cover will be <ins>opened</ins> if the sun elevation is over this value. If left empty, this option will not be applied.\n\n`Optional`"
       default: []
       selector:
         number:
@@ -287,8 +316,8 @@ blueprint:
           step: 0.1
           mode: slider
     sun_elevation_down:
-      name: "🔻 Sun Elevation Value To Close The Blind"
-      description: "The blind will be <ins>closed</ins> if the sun elevation is under this value. If left empty, this option will not be applied.\n\n`Optional`"
+      name: "🔻 Sun Elevation Value For Closing The Cover"
+      description: "The cover will be <ins>closed</ins> if the sun elevation is under this value. If left empty, this option will not be applied.\n\n`Optional`"
       default: []
       selector:
         number:
@@ -299,8 +328,8 @@ blueprint:
           mode: slider
 
     auto_ventilate_options:
-      name: "💨 Automation For Ventilation"
-      description: "Blind-automation for ventilation? Select enable or disable."
+      name: "💨 Ventilation Automation"
+      description: "Automation for ventilation? Please select one of the options."
       default: auto_ventilate_disabled
       selector:
         select:
@@ -312,7 +341,7 @@ blueprint:
     window_sensor:
       name: "🚪 Window Or Door Sensor"
       description:
-        "This can be used to define whether the blind belongs to a window or an (outer) door with a window opening sensor.
+        "This can be used to define whether the cover belongs to a window or an (outer) door with a window opening sensor.
         If this is the case, a Ventilate function can be used.
         This means that the Ventilate position is approached when the window is opened/tilted.
         This sensor can be defined here.\n\n`Optional`"
@@ -325,8 +354,8 @@ blueprint:
     ventilate_position:
       name: "💨 Ventilate Position"
       description:
-        "What position should the blind move to when opening the window/door and the blind is closed to allow ventilation?
-        If closing is triggered and the window_sensor is 'on' the blind will move to this position instead of closing completly\n\nShould not be 100. In this case please use 99 \n\n`Optional`"
+        "What position should the cover move to when opening the window/door and the cover is closed to allow ventilation?
+        If closing is triggered and the window_sensor is 'on' the cover will move to this position instead of closing completly\n\nShould not be 100. In this case please use 99 \n\n`Optional`"
       default: 30
       selector:
         number:
@@ -334,41 +363,9 @@ blueprint:
           max: 100.0
           unit_of_measurement: "%"
 
-    drive_delay_fix:
-      name: "🕛 Fixed Drive Delay"
-      description: "Fixed drive delay in seconds to avoid radio interferences."
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 600.0
-          unit_of_measurement: s
-          step: 1.0
-          mode: slider
-    drive_delay_random:
-      name: "🕛 Random Drive Delay"
-      description: "Additional random delay. Value in seconds.\n\n`Optional`"
-      default: 5
-      selector:
-        number:
-          min: 0.0
-          max: 600.0
-          unit_of_measurement: s
-          step: 1.0
-          mode: slider
-    position_tolerance:
-      name: "Position Tolerance"
-      description: "〰️ Tolerance to be applied when comparing the current position with the to be position"
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 3.0
-          unit_of_measurement: "%"
-
     auto_shading_options:
-      name: "🕶️ Automatic Shading Of The Blind"
-      description: "Use the shading feature. Select enable or disable.\n\n`Optional`\n\n`Shading`"
+      name: "🕶️ Shading Automation"
+      description: "Use the shading feature. Please select one of the options.\n\n`Optional`\n\n`Shading`"
       default: auto_shading_enabled
       selector:
         select:
@@ -377,22 +374,21 @@ blueprint:
               value: "auto_shading_enabled"
             - label: Disable The Shading Feature
               value: "auto_shading_disabled"
-    auto_shading_in_condition:
+    auto_shading_start_condition:
       name: "🕶️ Additional Condition For Activating Sun Shading"
       description: "Externally override the entire automation? This condition it will prevent the shading-IN-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\n`Optional`\n\n`Shading`"
       default: []
       selector:
         condition: {}
-    auto_shading_out_condition:
+    auto_shading_end_condition:
       name: "🕶️ Additional Condition For Disabling Sun Shading"
       description: "Externally override the entire automation? This condition it will prevent the shading-OUT-automation. This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).\n\n`Optional`\n\n`Shading`"
       default: []
       selector:
         condition: {}
-    shading_blinds_position:
+    shading_cover_position:
       name: "🕶️ Shading Position"
-      description: "To which position should the blind be moved for shading?
-        \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
+      description: "To which position should the cover be moved for shading?\n\n`Shading`"
       default: 25
       selector:
         number:
@@ -408,19 +404,17 @@ blueprint:
           min: 0
           max: 100
           unit_of_measurement: "%"
-    shading_azimuth_in:
-      name: "🕶️ Shading Azimuth In/Start Value"
-      description:
-        "What is the minimum azimuth at which the sun hits the window? (Shading will start)
-        \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
+    shading_azimuth_start:
+      name: "🕶️ Shading Azimuth Start Value"
+      description: "What is the minimum azimuth at which the sun hits the window? (Shading will start)\n\n`Sun sensor needs to be configured above`\n\n`Shading`"
       default: 95
       selector:
         number:
           min: 0
           max: 365
           unit_of_measurement: "°"
-    shading_azimuth_out:
-      name: "🕶️ Shading Azimuth Out/End Value"
+    shading_azimuth_end:
+      name: "🕶️ Shading Azimuth End Value"
       description:
         "What is the maximum azimuth at which the sun hits the window? (Shading will stop)
         \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
@@ -431,8 +425,8 @@ blueprint:
           max: 365
           unit_of_measurement: "°"
     shading_elevation_min:
-      name: "🕶️ Shading Elevation Minimum/Start Value"
-      description: "Starting from which elevation of the sun should the window be shaded? (Here it makes sense to consider surrounding buildings, trees, etc.).\n\n`Shading`"
+      name: "🕶️ Shading Elevation Minimum Value"
+      description: "Starting from which elevation of the sun should the window be shaded? (Here it makes sense to consider surrounding buildings, trees, etc.).\n\n`Sun sensor needs to be configured above`\n\n`Shading`"
       default: 25
       selector:
         number:
@@ -440,7 +434,7 @@ blueprint:
           max: 90
           unit_of_measurement: "°"
     shading_elevation_max:
-      name: "🕶️ Shading Elevation Maximum/End Value"
+      name: "🕶️ Shading Elevation Maximum Value"
       description: "What is the maximal elevation for elevation?
         (In most cases, 90 degrees is probably the most reasonable value. However, this can also be different due to surrounding buildings, etc.)
         \n\n`Sun sensor needs to be configured above`\n\n`Shading`"
@@ -452,7 +446,7 @@ blueprint:
           unit_of_measurement: "°"
     shading_temperatur_sensor1:
       name: "🕶️ Shading Temperature Sensor 1"
-      description: "This is the main temperature sensor. (Here, for example, the current outdoor or indoor temperature can be used as a criterion). This sensor does not have to be defined if the shading is to take place independently of it.\n\n`Optional`\n\n`Shading`"
+      description: "This is the main temperature sensor. (Here, for example, the current outdoor or indoor temperature can be used as a condition). This sensor does not have to be defined if the shading is to take place independently of it.\n\n`Optional`\n\n`Shading`"
       selector:
         entity:
           filter:
@@ -498,17 +492,8 @@ blueprint:
           filter:
             - domain:
                 - sensor
-    shading_brightness_time_duration:
-      name: "🕶️ Shading Brightness Time Duration"
-      description: "Defines the time to given shading brightness sensor must be stay above/below the thresholds."
-      default:
-        hours: 0
-        minutes: 30
-        seconds: 0
-      selector:
-        duration:
-    shading_sun_brightness_in:
-      name: "🕶️ Shading Brightness In/Start Value"
+    shading_sun_brightness_start:
+      name: "🕶️ Shading Brightness Start Value"
       description:
         "The minimum brightness value from which shading should start.
         (Must be above the value of brightness out!)\n\n`Optional`\n\n`Shading`"
@@ -519,8 +504,8 @@ blueprint:
           max: 100000.0
           unit_of_measurement: lx
           step: 10.0
-    shading_sun_brightness_out:
-      name: "🕶️ Shading Brightness Out/End Value"
+    shading_sun_brightness_end:
+      name: "🕶️ Shading Brightness End Value"
       description:
         "The brightness value from which shading is no longer necessary.
         (Must be BELOW the value of brightness in!).\n\n`Optional`\n\n`Shading`"
@@ -588,8 +573,8 @@ blueprint:
             - "windy"
             - "windy-variant"
             - "exceptional"
-    shading_waitingtime:
-      name: "🕶️ Waiting Time For Shading In/Start (in seconds)"
+    shading_waitingtime_start:
+      name: "🕶️ Waiting Time For Shading Start (in seconds)"
       description:
         "To prevent excessive stress on the motor, a waiting time for starting shading can be defined here.
         Shading then only STARTs when the conditions are fulfilled over the entire waiting time IN.\n\n`Shading`"
@@ -599,8 +584,8 @@ blueprint:
           min: 0
           max: 3600
           unit_of_measurement: s
-    shading_waitingtime_out:
-      name: "🕶️ Waiting Time For Shading Out/End (in seconds)"
+    shading_waitingtime_end:
+      name: "🕶️ Waiting Time For Shading End (in seconds)"
       description:
         "To prevent excessive stress on the motor, a waiting time can be defined here.
         Shading then ENDs when ONE of the conditions is NOT fulfilled over the entire waiting time OUT.\n\n`Shading`"
@@ -670,16 +655,16 @@ variables:
   shading_temperatur_sensor2: !input shading_temperatur_sensor2
   shading_min_temperatur1: !input shading_min_temperatur1
   shading_min_temperatur2: !input shading_min_temperatur2
-  shading_azimuth_in: !input shading_azimuth_in
-  shading_azimuth_out: !input shading_azimuth_out
+  shading_azimuth_start: !input shading_azimuth_start
+  shading_azimuth_end: !input shading_azimuth_end
   shading_elevation_min: !input shading_elevation_min
   shading_elevation_max: !input shading_elevation_max
-  shading_blinds_position: !input shading_blinds_position
+  shading_cover_position: !input shading_cover_position
   shading_tilt_position: !input shading_tilt_position
-  shading_sun_brightness_in: !input shading_sun_brightness_in
-  shading_sun_brightness_out: !input shading_sun_brightness_out
-  shading_waitingtime: !input shading_waitingtime
-  shading_waitingtime_out: !input shading_waitingtime_out
+  shading_sun_brightness_start: !input shading_sun_brightness_start
+  shading_sun_brightness_end: !input shading_sun_brightness_end
+  shading_waitingtime_start: !input shading_waitingtime_start
+  shading_waitingtime_end: !input shading_waitingtime_end
   shading_forecast_sensor: !input shading_forecast_sensor
   shading_forecast_temp: !input shading_forecast_temp
   shading_weather_conditions: !input shading_weather_conditions
@@ -701,8 +686,7 @@ trigger:
     id: "t_si_2"
   - platform: numeric_state
     entity_id: !input shading_brightness_sensor
-    above: !input shading_sun_brightness_in
-    for: !input shading_brightness_time_duration
+    above: !input shading_sun_brightness_start
     id: "t_si_3"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
@@ -712,15 +696,15 @@ trigger:
   - platform: numeric_state
     entity_id: !input default_sun_sensor
     attribute: azimuth
-    above: !input shading_azimuth_in
-    below: !input shading_azimuth_out
+    above: !input shading_azimuth_start
+    below: !input shading_azimuth_end
     id: "t_si_5"
   - platform: numeric_state
     entity_id: !input shading_temperatur_sensor1
     above: !input shading_forecast_temp
     id: "t_si_6"
   # - platform: state #FIXME
-  #   entity_id: !input auto_shading_in_condition
+  #   entity_id: !input auto_shading_start_condition
   #   id: "t_si_7"
   #   for: "00:00:05" # we need a small delay cause temporary_disable_shading also triggers shading in
 
@@ -735,8 +719,7 @@ trigger:
     id: "t_so_2"
   - platform: numeric_state
     entity_id: !input shading_brightness_sensor
-    below: !input shading_sun_brightness_out
-    for: !input shading_brightness_time_duration
+    below: !input shading_sun_brightness_end
     id: "t_so_3"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
@@ -746,7 +729,7 @@ trigger:
   - platform: numeric_state
     entity_id: !input default_sun_sensor
     attribute: azimuth
-    above: !input shading_azimuth_out
+    above: !input shading_azimuth_end
     id: "t_so_5"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
@@ -754,11 +737,11 @@ trigger:
     below: !input shading_elevation_min
     id: "t_so_6"
   # - platform: state #FIXME
-  #   entity_id: !input auto_shading_in_condition
+  #   entity_id: !input auto_shading_start_condition
   #   id: "t_so_7" ## it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
   #   for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
 
-  # trigger for opening blind
+  # trigger for opening cover
   - platform: numeric_state
     entity_id: !input default_brightness_sensor
     above: !input brightness_up
@@ -790,7 +773,7 @@ trigger:
     for: !input sun_time_duration
     id: "t_bo_7"
 
-  # trigger for closing blind
+  # trigger for closing cover
   - platform: numeric_state
     entity_id: !input default_brightness_sensor
     below: !input brightness_down
@@ -851,7 +834,7 @@ action:
         response_variable: forecast
 
   - choose:
-      - alias: "Check and perform shading in or blinds up"
+      - alias: "Check and perform shading in or covers up"
         conditions:
           - or:
               - "{{ 'auto_shading_enabled' in auto_shading_options }}"
@@ -862,7 +845,7 @@ action:
                 id: "t_si_1"
               - condition: trigger # shading_min_temperatur2
                 id: "t_si_2"
-              - condition: trigger # shading_sun_brightness_in
+              - condition: trigger # shading_sun_brightness_start
                 id: "t_si_3"
               - condition: trigger # shading_elevation_min
                 id: "t_si_4"
@@ -870,10 +853,10 @@ action:
                 id: "t_si_5"
               - condition: trigger # shading_forecast_temp
                 id: "t_si_6"
-              - condition: trigger # auto_shading_in_condition
+              - condition: trigger # auto_shading_start_condition
                 id: "t_si_7"
 
-              # Check if we have a trigger for blinds up
+              # Check if we have a trigger for covers up
               - condition: trigger # brightness_up - default_brightness_sensor
                 id: "t_bo_1"
               - condition: trigger # time_up_late
@@ -894,15 +877,15 @@ action:
                 conditions:
                   - and: # Check if we want to perform shading in
                       - "{{ 'auto_shading_enabled' in auto_shading_options }}"
-                      - condition: !input auto_shading_in_condition
+                      - condition: !input auto_shading_start_condition
                       - "{{ now() >= today_at(time_up_early) }}"
                       - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
                       - "{{ ( (shading_temperatur_sensor1 == [] ) or (states(shading_temperatur_sensor1) | int(default=shading_min_temperatur1) >= shading_min_temperatur1) ) }}"
                       - "{{ ( (shading_temperatur_sensor2 == [] ) or (states(shading_temperatur_sensor2) | int(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
-                      - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | int(default=shading_sun_brightness_in) >= shading_sun_brightness_in) ) }}"
-                      - "{{ current_sun_azimuth >= shading_azimuth_in and current_sun_azimuth <= shading_azimuth_out }}"
+                      - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | int(default=shading_sun_brightness_start) >= shading_sun_brightness_start) ) }}"
+                      - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                       - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
-                      - "{{ current_position | int(default=101) > shading_blinds_position }}"
+                      - "{{ current_position | int(default=101) > shading_cover_position }}"
                       - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
@@ -911,31 +894,31 @@ action:
                       - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
                 sequence:
                   # we are ready for shading in
-                  - if: # check if blind is higher than ventilate position. In this case we consider blind position like open and therefor we want to use the delay timer
+                  - if: # check if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
                       - "{{ current_position | int(default=101) > ventilate_position }}"
                       - not:
-                          - condition: trigger # auto_shading_in_condition
+                          - condition: trigger # auto_shading_start_condition
                             id: "t_si_7"
                     then:
                       - alias: "Wait the number of seconds set in shading_waitingtime"
                         delay:
-                          seconds: !input shading_waitingtime
+                          seconds: !input shading_waitingtime_start
                   - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
                   - repeat:
                       for_each: "{{ blind_entities|list }}"
                       sequence:
-                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                           delay: "00:00:{{ (range(1, 3)|random|int) }}"
-                        - alias: "Moving the blind to shading position"
+                        - alias: "Moving the cover to shading position"
                           service: cover.set_cover_position
                           data:
-                            position: !input shading_blinds_position
+                            position: !input shading_cover_position
                           target:
                             entity_id: "{{ repeat.item }}"
                         - if:
                             - "{{ state_attr(blind, 'current_tilt_position') != 'None' }}"
                           then:
-                            - alias: "Moving the blind to tilt position"
+                            - alias: "Moving the cover to tilt position"
                               service: cover.set_cover_tilt_position
                               data:
                                 tilt_position: !input shading_tilt_position
@@ -952,7 +935,7 @@ action:
                 conditions:
                   - "{{ 'auto_up_enabled' in auto_up_options }}"
                   - condition: !input auto_up_condition
-                  - or: # Check if the trigger is for normal blind opening
+                  - or: # Check if the trigger is for normal cover opening
                       - condition: trigger # brightness_up - default_brightness_sensor
                         id: "t_bo_1"
                       - condition: trigger # time_up_late
@@ -974,13 +957,13 @@ action:
                   # Now we have to check different opening scenarios
                   - condition: or
                     conditions:
-                      - alias: "Blinds - opening - up late reached "
+                      - alias: "Covers - opening - up late reached "
                         and:
                           - "{{ now() >= today_at(time_up_late) }}"
                           - or:
                               - "{{ now() <= today_at(time_down_early) + timedelta(seconds = 5) }}"
                               - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
-                      - alias: "Blinds - opening - up early reached and brightness/sun above minimum"
+                      - alias: "Covers - opening - up early reached and brightness/sun above minimum"
                         and:
                           - or:
                               - and:
@@ -1003,23 +986,23 @@ action:
                                       - "{{ (default_sun_sensor == []) }}"
                                       - "{{ ((default_sun_sensor != [] ) and (current_sun_elevation | int(default=sun_elevation_up) >= sun_elevation_up) ) }}"
                 sequence:
-                  # ok, we can open the blind
+                  # ok, we can open the cover
                   - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
                   - repeat:
                       for_each: "{{ blind_entities|list }}"
                       sequence:
-                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                           delay: "00:00:{{ (range(1, 3)|random|int) }}"
                         - if:
                             - "{{ open_position == 100 }}"
                           then:
-                            - alias: "Moving the blind to open position"
+                            - alias: "Moving the cover to open position"
                               service: cover.open_cover
                               data: {}
                               target:
                                 entity_id: "{{ repeat.item }}"
                           else:
-                            - alias: "Moving the blind to open position"
+                            - alias: "Moving the cover to open position"
                               service: cover.set_cover_position
                               data:
                                 position: !input open_position
@@ -1033,7 +1016,7 @@ action:
       - alias: "Check and perform shading out"
         conditions:
           - "{{ 'auto_shading_enabled' in auto_shading_options }}"
-          - condition: !input auto_shading_out_condition
+          - condition: !input auto_shading_end_condition
           - "{{ now() >= today_at(time_up_early) }}"
           - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
           - or:
@@ -1041,30 +1024,30 @@ action:
                 id: "t_so_1"
               - condition: trigger # shading_min_temperatur2
                 id: "t_so_2"
-              - condition: trigger # shading_sun_brightness_out
+              - condition: trigger # shading_sun_brightness_end
                 id: "t_so_3"
               - condition: trigger # shading_elevation_max
                 id: "t_so_4"
-              - condition: trigger # shading_azimuth_out
+              - condition: trigger # shading_azimuth_end
                 id: "t_so_5"
               - condition: trigger # shading_elevation_min
                 id: "t_so_6"
-              - condition: trigger # auto_shading_in_condition
+              - condition: trigger # auto_shading_start_condition
                 id: "t_so_7"
-          - "{{ current_position | int(default=101) == shading_blinds_position }}"
+          - "{{ current_position | int(default=101) == shading_cover_position }}"
         sequence:
           - if:
               # if sun is outside of shading window (azimuth or elevation) we immedately stop shading
               - and:
-                  - "{{ current_sun_azimuth >= shading_azimuth_in and current_sun_azimuth <= shading_azimuth_out }}"
+                  - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                   - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
               - not:
-                  - condition: trigger # auto_shading_in_condition
+                  - condition: trigger # auto_shading_start_condition
                     id: "t_so_7"
             then:
-              - alias: "Wait the number of seconds set in shading_waitingtime_out"
+              - alias: "Wait the number of seconds set in shading_waitingtime_end"
                 delay:
-                  seconds: !input shading_waitingtime_out
+                  seconds: !input shading_waitingtime_end
           - if:
               - "{{ ( (window_sensor != []) and (is_state(window_sensor, 'on') ) ) }}"
               - "{{ 'auto_ventilate_enabled' in auto_ventilate_options }}"
@@ -1072,21 +1055,21 @@ action:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
                   sequence:
-                    - alias: "Moving the blind to ventilate position"
+                    - alias: "Moving the cover to ventilate position"
                       service: cover.set_cover_position
                       data:
                         position: !input ventilate_position
                       target:
                         entity_id: "{{ repeat.item }}"
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
             else:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
                   sequence:
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
-                    - alias: "Moving the blind to open position"
+                    - alias: "Moving the cover to open position"
                       service: cover.set_cover_position
                       data:
                         position: !input open_position
@@ -1099,7 +1082,7 @@ action:
               entity_id: !input shading_state_sensor
           - stop: "Stop the automation"
 
-      - alias: "Check for closing blind"
+      - alias: "Check for closing cover"
         conditions:
           - or:
               - "{{ 'auto_down_enabled' in auto_down_options }}"
@@ -1110,7 +1093,7 @@ action:
                 id: "t_bc_5"
           - "{{ current_position | int(default=110) > closed_position }}" #TODO really necessary?
           - or:
-              # Check if we have a trigger for blind down
+              # Check if we have a trigger for cover down
               - condition: trigger # brightness_down
                 id: "t_bc_1"
               - condition: trigger # time_down_early
@@ -1131,12 +1114,12 @@ action:
               - "{{ (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               - "{{ current_position == ventilate_position }}"
           - or:
-              - alias: Blinds - closing - down late reached
+              - alias: Covers - closing - down late reached
                 and:
                   - "{{ now() >= today_at(time_down_late) }}"
                   - "{{ 'auto_down_enabled' in auto_down_options }}"
 
-              - alias: Blinds - closing - down early reached and brightness/sun below minimum
+              - alias: Covers - closing - down early reached and brightness/sun below minimum
                 and:
                   - "{{ 'auto_down_enabled' in auto_down_options }}"
                   - "{{ now() >= today_at(time_down_early) }}"
@@ -1154,14 +1137,14 @@ action:
                               - "{{ (default_sun_sensor == []) }}"
                               - "{{ ( (default_sun_sensor != [] ) and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) ) }}"
 
-              - alias: Blinds - closing - due to resident goes sleeping
+              - alias: Covers - closing - due to resident goes sleeping
                 and:
                   - "{{ 'auto_down_enabled' in auto_down_options }}"
                   - "{{ ((resident_sensor != [] ) and (is_state(resident_sensor, 'on')) ) }}"
                   - condition: trigger #  resident_sensor
                     id: t_bc_5
 
-              - alias: Blinds - closing after ventilate
+              - alias: Covers - closing after ventilate
                 and:
                   - condition: trigger # window_sensor
                     id: "t_bc_4"
@@ -1169,7 +1152,7 @@ action:
                   - "{{ current_position | int(default=101) == ventilate_position }}"
                   - "{{ (window_sensor != [] ) and (states(window_sensor) == 'off') }}"
 
-              - alias: Blinds - closing after shading
+              - alias: Covers - closing after shading
                 and:
                   - "{{ 'auto_shading_enabled' in auto_shading_options }}"
                   - "{{ current_position | int(default=110) > closed_position }}" # TODO Do I want that? Check ShadingPos, too?
@@ -1188,13 +1171,13 @@ action:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
                   sequence:
-                    - alias: "Moving the blind to ventilate position"
+                    - alias: "Moving the cover to ventilate position"
                       service: cover.set_cover_position
                       data:
                         position: !input ventilate_position
                       target:
                         entity_id: "{{ repeat.item }}"
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
             else:
@@ -1204,19 +1187,19 @@ action:
                     - if:
                         - "{{ closed_position == 0 }}"
                       then:
-                        - alias: "Moving the blind to close position"
+                        - alias: "Moving the cover to close position"
                           service: cover.close_cover
                           data: {}
                           target:
                             entity_id: "{{ repeat.item }}"
                       else:
-                        - alias: "Moving the blind to close position"
+                        - alias: "Moving the cover to close position"
                           service: cover.set_cover_position
                           data:
                             position: !input closed_position
                           target:
                             entity_id: "{{ repeat.item }}"
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
           - stop: "Stop the automation"
 
@@ -1231,13 +1214,13 @@ action:
           - repeat:
               for_each: "{{ blind_entities|list }}"
               sequence:
-                - alias: "Moving the blind to ventilate position"
+                - alias: "Moving the cover to ventilate position"
                   service: cover.set_cover_position
                   data:
                     position: !input ventilate_position
                   target:
                     entity_id: "{{ repeat.item }}"
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to blinds at same time"
+                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                   delay: "00:00:{{ (range(1, 3)|random|int) }}"
           - stop: "Stop the automation"
 
