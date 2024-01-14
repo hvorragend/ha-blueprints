@@ -41,14 +41,20 @@ blueprint:
   # - Added external shading state sensor. Will probably be removed again.
   # - Added several condition selectors: Useful to be able to check various conditions such as party mode or similar when opening, closing, shading, etc.
   # - Closing after shading just when position is lower than before
+  # - Added the possibility that the previous position did not necessarily have to be controlled by the automation.
 
   # Notes / Planned modifications:
-  # - possibly also drive down if not in the correct position
   # - Checking external Shading State Sensor in more conditions?
   # - Hotdaycheck: Forecast and not just current temperature
   # - Low priority: Check if cover was moved manually. Should I correct the position after a longer wating time? Not sure.
+  # - Do I want to use the shading to open a completely closed blind?
 
-  source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/automatic_blinds_shading.yaml
+  # Validations - Unsure if this is necessary
+  # - brightness_down must be lower than brightness_up
+  # - closed_position must be lower than ventilate_position and shading_cover_position
+  # - open_position must be higher than closed_position and ventilate_position
+
+  source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml
   domain: automation
   homeassistant:
     min_version: "2023.9.0"
@@ -126,6 +132,12 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
+    auto_up_position_check:
+      name: "🔼 Check Position Before Opening"
+      description: "Only open if the previous position was controlled by the automation. If off, then it opens regardless of the current position."
+      default: true
+      selector:
+        boolean: {}
     resident_sensor:
       name: "🔼 Overwrite Mode For Opening And Unplannend Closing (aka Resident mode)"
       description: #
@@ -186,6 +198,12 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
+    auto_down_position_check:
+      name: "🔻 Check Position Before Closing"
+      description: "Only close if the previous position was controlled by the automation. If off, then it closes regardless of the current position."
+      default: true
+      selector:
+        boolean: {}
     time_down_early:
       name: "🔻 Time For Drive Down - Early"
       description: "The earliest time at which the cover may be closed. The cover will be closed if AFTER this time the defined brightness value is low enough."
@@ -949,9 +967,12 @@ action:
                         id: "t_bo_6"
                       - condition: trigger # sun_elevation_up
                         id: "t_bo_7"
-                  - or:
-                      - "{{ current_position | int(default=101) == ventilate_position }}"
-                      - "{{ (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
+                  - and:
+                      - "{{auto_up_position_check}}"
+                      - or:
+                          - "{{ current_position | int(default=101) == ventilate_position }}"
+                          # - "{{ current_position | int(default=101) == shading_cover_position }}" # TODO: NEW
+                          - "{{ (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                   # Now we have to check different opening scenarios
                   - condition: or
@@ -1109,9 +1130,11 @@ action:
                 id: "t_bc_7"
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
-          - or:
-              - "{{ (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
-              - "{{ current_position == ventilate_position }}"
+          - and:
+              - "{{auto_down_position_check}}"
+              - or:
+                  - "{{ (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}" # TODO
+                  - "{{ current_position == ventilate_position }}"
           - or:
               - alias: Covers - closing - down late reached
                 and:
@@ -1155,7 +1178,7 @@ action:
                 and:
                   - "{{ 'auto_shading_enabled' in auto_shading_options }}"
                   - "{{ current_position | int(default=110) > closed_position }}"
-                  - "{{ closed_position | int(default=110) < shading_cover_position | int(default=110) }}"
+                  - "{{ closed_position | int(default=110) < shading_cover_position | int(default=110) }}" # TODO: NEW - Could this result to a problem in the morning?
                   # - "{{ (shading_state_sensor != [] ) and (states(shading_state_sensor) == 'on') }}"
         sequence:
           - if:
