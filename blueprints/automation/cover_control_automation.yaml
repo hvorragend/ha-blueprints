@@ -303,7 +303,7 @@ blueprint:
     default_sun_sensor:
       name: "☀️ Sun Sensor For Up And Down"
       description:
-        "Which sensors provides attributes with current azimuth and elevation of sun. I strongly suggest to use sun.sun.
+        "Which sensors provides attributes with current azimuth and elevation of sun. I strongly suggest to use sun.sun. Please make sure that the integration is activated and provides the attributes.
         <strong>Important: If you want to use automatic shading, the sensor must also be specified here. Regardless of whether the basic sun control is used.</strong>
         \n\n`Optional`\n\n`Shading`"
       default: "sun.sun"
@@ -660,6 +660,8 @@ variables:
   closed_position: !input closed_position
   position_tolerance: !input position_tolerance
   ventilate_position: !input ventilate_position
+  auto_up_position_check: !input auto_up_position_check
+  auto_down_position_check: !input auto_down_position_check
 
   # Overrides / Sensors
   door_sensor: !input door_sensor
@@ -968,13 +970,10 @@ action:
                       - condition: trigger # sun_elevation_up
                         id: "t_bo_7"
                   - or:
-                      - "{{ not auto_up_position_check }}" # NEW
-                      - and:
-                          - "{{ auto_up_position_check }}"
-                          - or:
-                              - "{{ current_position | int(default=101) == ventilate_position }}"
-                              # - "{{ current_position | int(default=101) == shading_cover_position }}" # NEW
-                              - "{{ (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
+                      - "{{ not auto_up_position_check }}"
+                      - "{{ auto_up_position_check and (current_position | int(default=101) == ventilate_position) }}"
+                      - "{{ auto_up_position_check and (current_position | int(default=101) == shading_cover_position) }}" # NEW
+                      - "{{ auto_up_position_check and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                   # Now we have to check different opening scenarios
                   - or:
@@ -993,17 +992,14 @@ action:
                                   - "{{ now() >= today_at(time_up_early_non_workday) }}"
                           - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
                           - or:
-                              - and:
-                                  - "{{ 'auto_brightness_enabled' in auto_brightness_options }}"
-                                  - or:
-                                      - "{{ ( (default_brightness_sensor == [] ) and ( shading_brightness_sensor == [] ) ) }}"
-                                      - "{{ ( (default_brightness_sensor != [] ) and (states(default_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
-                                      - "{{ ( (default_brightness_sensor == [] and shading_brightness_sensor != []) and (states(shading_brightness_sensor) | int(default=brightness_up) >= brightness_up) ) }}"
-                              - and:
-                                  - "{{ 'auto_sun_enabled' in auto_sun_options }}"
-                                  - or:
-                                      - "{{ (default_sun_sensor == []) }}"
-                                      - "{{ ((default_sun_sensor != [] ) and (current_sun_elevation | int(default=sun_elevation_up) >= sun_elevation_up) ) }}"
+                              - or:
+                                  - "{{ 'auto_brightness_enabled' in auto_brightness_options and default_brightness_sensor == [] and shading_brightness_sensor == [] }}"
+                                  - "{{ 'auto_brightness_enabled' in auto_brightness_options and default_brightness_sensor != [] and (states(default_brightness_sensor) | int(default=brightness_up) >= brightness_up) }}"
+                                  - "{{ 'auto_brightness_enabled' in auto_brightness_options and default_brightness_sensor == [] and shading_brightness_sensor != [] and (states(shading_brightness_sensor) | int(default=brightness_up) >= brightness_up) }}"
+                              - or:
+                                  - "{{ 'auto_sun_enabled' in auto_sun_options and default_sun_sensor == [] }}"
+                                  - "{{ 'auto_sun_enabled' in auto_sun_options and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_up) >= sun_elevation_up) }}"
+
                 sequence:
                   # ok, we can open the cover
                   - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
@@ -1130,17 +1126,14 @@ action:
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
           - or:
-              - "{{ not auto_down_position_check }}" # NEW
-              - and:
-                  - "{{ auto_down_position_check }}"
-                  - or:
-                      - "{{ (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
-                      - "{{ current_position == ventilate_position }}"
+              - "{{ not auto_down_position_check }}"
+              - "{{ auto_down_position_check and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
+              - "{{ auto_down_position_check and (current_position == ventilate_position) }}"
           - or:
               - alias: Covers - closing - down late reached
                 and:
-                  - "{{ now() >= today_at(time_down_late) }}"
                   - "{{ 'auto_down_enabled' in auto_down_options }}"
+                  - "{{ now() >= today_at(time_down_late) }}"
 
               - alias: Covers - closing - down early reached and brightness/sun below minimum
                 and:
@@ -1148,17 +1141,13 @@ action:
                   - "{{ now() >= today_at(time_down_early) }}"
                   - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
                   - or:
-                      - and:
-                          - "{{ 'auto_brightness_enabled' in auto_brightness_options }}"
-                          - or:
-                              - "{{ ( (default_brightness_sensor == [] ) and (shading_brightness_sensor == [] ) ) }}"
-                              - "{{ ( (default_brightness_sensor != [] ) and (states(default_brightness_sensor) | int(default=brightness_down) <= brightness_down) ) }}"
-                              - "{{ ( (shading_brightness_sensor != [] ) and (states(shading_brightness_sensor) | int(default=brightness_down) <= brightness_down) ) }}"
-                      - and:
-                          - "{{ 'auto_sun_enabled' in auto_sun_options }}"
-                          - or:
-                              - "{{ (default_sun_sensor == []) }}"
-                              - "{{ ( (default_sun_sensor != [] ) and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) ) }}"
+                      - or:
+                          - "{{ 'auto_brightness_enabled' in auto_brightness_options and default_brightness_sensor == [] and shading_brightness_sensor == [] }}"
+                          - "{{ 'auto_brightness_enabled' in auto_brightness_options and default_brightness_sensor != [] and (states(default_brightness_sensor) | int(default=brightness_down) <= brightness_down) }}"
+                          - "{{ 'auto_brightness_enabled' in auto_brightness_options and shading_brightness_sensor != [] and (states(shading_brightness_sensor) | int(default=brightness_down) <= brightness_down) }}"
+                      - or:
+                          - "{{ 'auto_sun_enabled' in auto_sun_options and default_sun_sensor == [] }}"
+                          - "{{ 'auto_sun_enabled' in auto_sun_options and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) }}"
 
               - alias: Covers - closing - due to resident goes sleeping
                 and:
@@ -1175,12 +1164,12 @@ action:
                   - "{{ current_position | int(default=101) == ventilate_position }}"
                   - "{{ (window_sensor != [] ) and (states(window_sensor) == 'off') }}"
 
-              - alias: Covers - closing after shading
-                and:
-                  - "{{ 'auto_shading_enabled' in auto_shading_options }}"
-                  - "{{ current_position | int(default=110) > closed_position }}"
-                  - "{{ closed_position | int(default=110) < shading_cover_position | int(default=110) }}" # NEW
-                  # - "{{ (shading_state_sensor != [] ) and (states(shading_state_sensor) == 'on') }}"
+              # - alias: Covers - closing after shading # FIXME: BUG - This closes the cover regardless the time/brightness/sun-values
+              #   and:
+              #     - "{{ 'auto_shading_enabled' in auto_shading_options }}"
+              #     - "{{ current_position | int(default=110) > closed_position }}"
+              #     - "{{ closed_position | int(default=110) < shading_cover_position | int(default=110) }}"
+              #     - "{{ (shading_state_sensor != [] ) and (states(shading_state_sensor) == 'on') }}"
         sequence:
           - if:
               - not:
