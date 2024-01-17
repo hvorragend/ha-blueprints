@@ -44,6 +44,11 @@ blueprint:
   # - Added the possibility that the previous position did not necessarily have to be controlled by the automation.
 
   # Notes / Planned modifications:
+  # - Last Cover Helper / Position Check: What if a cover isn't opened by the automation? We need a state change in helper.
+  #   1) Position Trigger with current_position higher than shading => open: on
+  #   2) Position Trigger with current_position lower then ventilate/shading => close: on
+  #   3) Shading Overwrite? How to recognize it?
+  #   4) Ventilate was overridden? How to recognize it?
   # - Checking external Shading State Sensor in more conditions?
   # - Hotdaycheck: Forecast and not just current temperature
   # - Low priority: Check if cover was moved manually. Should I correct the position after a longer wating time? Not sure.
@@ -132,12 +137,6 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
-    # auto_up_position_check:
-    #   name: "🔼 Check Position Before Opening"
-    #   description: "Only open if the previous position was controlled by the automation. If off, then it opens regardless of the current position."
-    #   default: true
-    #   selector:
-    #     boolean: {}
     resident_sensor:
       name: "🔼 Overwrite Mode For Opening And Unplannend Closing (aka Resident mode)"
       description: #
@@ -198,12 +197,6 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
-    # auto_down_position_check:
-    #   name: "🔻 Check Position Before Closing"
-    #   description: "Only close if the previous position was controlled by the automation. If off, then it closes regardless of the current position."
-    #   default: true
-    #   selector:
-    #     boolean: {}
     time_down_early:
       name: "🔻 Time For Drive Down - Early"
       description: "The earliest time at which the cover may be closed. The cover will be closed if AFTER this time the defined brightness value is low enough."
@@ -628,7 +621,7 @@ blueprint:
     helper_last_cover_event:
       name: "🔤 Helper - Last Cover Event"
       description: "Input Text used to store the last event. You will need to manually create a text input entity for this."
-      default: ""
+      default: []
       selector:
         entity:
           domain: input_text
@@ -643,10 +636,11 @@ variables:
   # Last Cover Helper JSON Parsing
   helper_position_check_options: !input helper_position_check_options
   helper_last_cover_event: !input helper_last_cover_event
-  helper_last_cover_event_open: "{{ (states(helper_last_cover_event)|from_json).open | bool }}"
-  helper_last_cover_event_close: "{{ (states(helper_last_cover_event)|from_json).close | bool }}"
-  helper_last_cover_event_ventilate: "{{ (states(helper_last_cover_event)|from_json).ventilate | bool }}"
-  helper_last_cover_eventr_shading: "{{ (states(helper_last_cover_event)|from_json).shading | bool}}"
+  helper_last_cover_event_state: "{{ helper_last_cover_event != [] and  states(helper_last_cover_event) }}"
+  helper_last_cover_event_open: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).open | bool }}"
+  helper_last_cover_event_close: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).close | bool }}"
+  helper_last_cover_event_ventilate: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).ventilate | bool }}"
+  helper_last_cover_event_shading: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).shading | bool }}"
 
   # Modes
   auto_up_options: !input auto_up_options
@@ -681,8 +675,6 @@ variables:
   closed_position: !input closed_position
   position_tolerance: !input position_tolerance
   ventilate_position: !input ventilate_position
-  # auto_up_position_check: !input auto_up_position_check
-  # auto_down_position_check: !input auto_down_position_check
 
   # Overrides / Sensors
   door_sensor: !input door_sensor
@@ -872,6 +864,17 @@ action:
           type: daily
         response_variable: forecast
 
+  - if:
+      - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+      - '{{ not helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
+    then:
+      - service: input_text.set_value
+        data:
+          entity_id: !input helper_last_cover_event
+          value: |
+            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
+            {{ dictionary | to_json }}
+
   - choose:
       - alias: "Check and perform shading in or covers up"
         conditions:
@@ -959,13 +962,8 @@ action:
                         data:
                           entity_id: !input helper_last_cover_event
                           value: |
-                            {% set helper_last_cover_event_state = states(helper_last_cover_event) %}
-                            {% if helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")  %}
-                                {% set dictionary = helper_last_cover_event_state | from_json  %}
-                            {% else %}
-                                {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
-                            {% endif %}
-                            {% set result = dict(dictionary, **{'shading': "on", 't': as_timestamp(now())}) %}
+                            {% set dictionary = helper_last_cover_event_state | from_json  %}
+                            {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 't': as_timestamp(now())}) %}
                             {{ result | to_json }}
                   - stop: "Stop the automation"
 
@@ -984,11 +982,10 @@ action:
                           - "t_bo_6" # brightness_up - shading_brightness_sensor
                           - "t_bo_7" # sun_elevation_up
                   - or:
-                      # - "{{ not auto_up_position_check }}"
-                      - "{{ 'position_helper_enabled' in helper_position_check_options and not helper_last_cover_event_open }}"
-                      - "{{ 'position_helper_disabled' in helper_position_check_options and (current_position | int(default=101) == ventilate_position) }}"
-                      - "{{ 'position_helper_disabled' in helper_position_check_options and (current_position | int(default=101) == shading_cover_position) }}" # NEW
-                      - "{{ 'position_helper_disabled' in helper_position_check_options and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
+                      - "{{ ('position_helper_enabled' in helper_position_check_options and helper_last_cover_event != []) and not helper_last_cover_event_open }}"
+                      - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=101) == ventilate_position) }}"
+                      - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=101) == shading_cover_position) }}" # NEW
+                      - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                   # Now we have to check different opening scenarios
                   - or:
@@ -1045,13 +1042,8 @@ action:
                         data:
                           entity_id: !input helper_last_cover_event
                           value: |
-                            {% set helper_last_cover_event_state = states(helper_last_cover_event) %}
-                            {% if helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")  %}
-                                {% set dictionary = helper_last_cover_event_state | from_json  %}
-                            {% else %}
-                                {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
-                            {% endif %}
-                            {% set result = dict(dictionary, **{'open': "on", 't': as_timestamp(now())}) %}
+                            {% set dictionary = helper_last_cover_event_state | from_json  %}
+                            {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
                             {{ result | to_json }}
                   - stop: "Stop the automation"
 
@@ -1110,15 +1102,9 @@ action:
                     data:
                       entity_id: !input helper_last_cover_event
                       value: |
-                        {% set helper_last_cover_event_state = states(helper_last_cover_event) %}
-                        {% if helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")  %}
-                            {% set dictionary = helper_last_cover_event_state | from_json  %}
-                        {% else %}
-                            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
-                        {% endif %}
-                        {% set result = dict(dictionary, **{'open': "off", 'ventilate': "on", 'shading': "off", 't': as_timestamp(now())}) %}
+                        {% set dictionary = helper_last_cover_event_state | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
-
             else:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
@@ -1138,13 +1124,8 @@ action:
                     data:
                       entity_id: !input helper_last_cover_event
                       value: |
-                        {% set helper_last_cover_event_state = states(helper_last_cover_event) %}
-                        {% if helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")  %}
-                            {% set dictionary = helper_last_cover_event_state | from_json  %}
-                        {% else %}
-                            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
-                        {% endif %}
-                        {% set result = dict(dictionary, **{'open': "on", 'ventilate': "off", 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {% set dictionary = helper_last_cover_event_state | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
 
           - stop: "Stop the automation"
@@ -1173,10 +1154,9 @@ action:
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
           - or:
-              # - "{{ not auto_down_position_check }}"
-              - "{{ 'position_helper_enabled' in helper_position_check_options and not helper_last_cover_event_close }}"
-              - "{{ 'position_helper_disabled' in helper_position_check_options and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
-              - "{{ 'position_helper_disabled' in helper_position_check_options and (current_position == ventilate_position) }}"
+              - "{{ ('position_helper_enabled' in helper_position_check_options and helper_last_cover_event != []) and not helper_last_cover_event_close }}"
+              - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
+              - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position == ventilate_position) }}"
           - or:
               - alias: Covers - closing - down late reached
                 and:
@@ -1241,13 +1221,8 @@ action:
                     data:
                       entity_id: !input helper_last_cover_event
                       value: |
-                        {% set helper_last_cover_event_state = states(helper_last_cover_event) %}
-                        {% if helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")  %}
-                            {% set dictionary = helper_last_cover_event_state | from_json  %}
-                        {% else %}
-                            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
-                        {% endif %}
-                        {% set result = dict(dictionary, **{'open': "off", 'close': 'on', 'ventilate': "on", 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {% set dictionary = helper_last_cover_event_state | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
             else:
               - repeat:
@@ -1277,13 +1252,8 @@ action:
                     data:
                       entity_id: !input helper_last_cover_event
                       value: |
-                        {% set helper_last_cover_event_state = states(helper_last_cover_event) %}
-                        {% if helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")  %}
-                            {% set dictionary = helper_last_cover_event_state | from_json  %}
-                        {% else %}
-                            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
-                        {% endif %}
-                        {% set result = dict(dictionary, **{'open': "off", 'close': 'on', 'ventilate': "off", 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {% set dictionary = helper_last_cover_event_state | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
           - stop: "Stop the automation"
 
@@ -1313,15 +1283,9 @@ action:
                 data:
                   entity_id: !input helper_last_cover_event
                   value: |
-                    {% set helper_last_cover_event_state = states(helper_last_cover_event) %}
-                    {% if helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")  %}
-                        {% set dictionary = helper_last_cover_event_state | from_json  %}
-                    {% else %}
-                        {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
-                    {% endif %}
-                    {% set result = dict(dictionary, **{'open': "off", 'close': 'off', 'ventilate': "on", 'shading': 'off', 't': as_timestamp(now())}) %}
+                    {% set dictionary = helper_last_cover_event_state | from_json  %}
+                    {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
                     {{ result | to_json }}
-
           - stop: "Stop the automation"
 
     default:
