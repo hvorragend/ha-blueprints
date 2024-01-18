@@ -3,7 +3,7 @@ blueprint:
   description: >-
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.14** / hvorragend
+    **Version: 2024.01.16** / hvorragend
 
     This is a comprehensive blueprint that can be used for the following basic purposes:
       - Opening and closing the roller shutters (depending on brightness, sun-elevation and within time windows)
@@ -44,6 +44,11 @@ blueprint:
   # - Added the possibility that the previous position did not necessarily have to be controlled by the automation.
 
   # Notes / Planned modifications:
+  # - Last Cover Helper / Position Check: What if a cover isn't opened by the automation? We need a state change in helper.
+  #   1) Position Trigger with current_position higher than shading => open: on
+  #   2) Position Trigger with current_position lower then ventilate/shading => close: on
+  #   3) Shading Overwrite? How to recognize it?
+  #   4) Ventilate was overridden? How to recognize it?
   # - Checking external Shading State Sensor in more conditions?
   # - Hotdaycheck: Forecast and not just current temperature
   # - Low priority: Check if cover was moved manually. Should I correct the position after a longer wating time? Not sure.
@@ -113,9 +118,9 @@ blueprint:
       selector:
         select:
           options:
-            - label: Enable the cover open feature
+            - label: "Enable the cover open feature"
               value: "auto_up_enabled"
-            - label: Disable the cover open feature
+            - label: "Disable the cover open feature"
               value: "auto_up_disabled"
     auto_up_condition:
       name: "🔼 Additional Condition For Opening The Cover"
@@ -132,12 +137,6 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
-    auto_up_position_check:
-      name: "🔼 Check Position Before Opening"
-      description: "Only open if the previous position was controlled by the automation. If off, then it opens regardless of the current position."
-      default: true
-      selector:
-        boolean: {}
     resident_sensor:
       name: "🔼 Overwrite Mode For Opening And Unplannend Closing (aka Resident mode)"
       description: #
@@ -179,9 +178,9 @@ blueprint:
       selector:
         select:
           options:
-            - label: Enable The Cover Close Feature
+            - label: "Enable The Cover Close Feature"
               value: "auto_down_enabled"
-            - label: Disable The Cover Close Feature
+            - label: "Disable The Cover Close Feature"
               value: "auto_down_disabled"
     auto_down_condition:
       name: "🔻 Additional Condition For Closing The Cover"
@@ -198,12 +197,6 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
-    auto_down_position_check:
-      name: "🔻 Check Position Before Closing"
-      description: "Only close if the previous position was controlled by the automation. If off, then it closes regardless of the current position."
-      default: true
-      selector:
-        boolean: {}
     time_down_early:
       name: "🔻 Time For Drive Down - Early"
       description: "The earliest time at which the cover may be closed. The cover will be closed if AFTER this time the defined brightness value is low enough."
@@ -224,9 +217,9 @@ blueprint:
       selector:
         select:
           options:
-            - label: Window
+            - label: "Window"
               value: "false"
-            - label: Door
+            - label: "Door"
               value: "true"
     workday_sensor:
       name: "💼 Sensor For Workday/Non-Workday"
@@ -246,9 +239,9 @@ blueprint:
       selector:
         select:
           options:
-            - label: Enable The Brightness Feature For Up And Down
+            - label: "Enable The Brightness Feature For Up And Down"
               value: "auto_brightness_enabled"
-            - label: Disable The Brightness Feature For Up And Down
+            - label: "Disable The Brightness Feature For Up And Down"
               value: "auto_brightness_disabled"
     default_brightness_sensor:
       name: "🔅 Default Brightness Sensor For Up And Down"
@@ -296,9 +289,9 @@ blueprint:
       selector:
         select:
           options:
-            - label: Enable The Sun Feature For Up And Down
+            - label: "Enable The Sun Feature For Up And Down"
               value: "auto_sun_enabled"
-            - label: Disable The Sun Feature For Up And Down
+            - label: "Disable The Sun Feature For Up And Down"
               value: "auto_sun_disabled"
     default_sun_sensor:
       name: "☀️ Sun Sensor For Up And Down"
@@ -351,9 +344,9 @@ blueprint:
       selector:
         select:
           options:
-            - label: Enable The Ventilate Feature
+            - label: "Enable The Ventilate Feature"
               value: "auto_ventilate_enabled"
-            - label: Disable The Ventilate Feature
+            - label: "Disable The Ventilate Feature"
               value: "auto_ventilate_disabled"
     window_sensor:
       name: "🚪 Window Or Door Sensor"
@@ -387,9 +380,9 @@ blueprint:
       selector:
         select:
           options:
-            - label: Enable The Shading Feature
+            - label: "Enable The Shading Feature"
               value: "auto_shading_enabled"
-            - label: Disable The Shading Feature
+            - label: "Disable The Shading Feature"
               value: "auto_shading_disabled"
     auto_shading_start_condition:
       name: "🕶️ Additional Condition For Activating Sun Shading"
@@ -612,13 +605,26 @@ blueprint:
           min: 0
           max: 3600
           unit_of_measurement: s
-    # shading_state_sensor:
-    #   name: "🕶️ Shading State Sensor"
-    #   description: "Saving the current shading-state into an input_boolean\n\n`Shading`"
-    #   default: []
-    #   selector:
-    #     entity:
-    #       domain: input_boolean
+
+    helper_position_check_options:
+      name: "🔤 Use helper instead exact position checks"
+      description: "ATTENTION. BE CAREFUL. CREATE ADDITIONAL SENSOR. bla bla bla"
+      default: position_helper_enabled
+      selector:
+        select:
+          options:
+            - label: "The status of the blind movements should be saved in an external helper."
+              value: "position_helper_enabled"
+            - label: "The blinds should only be moved if they are in the correct position."
+              value: "position_helper_disabled"
+
+    helper_last_cover_event:
+      name: "🔤 Helper - Last Cover Event"
+      description: "Input Text used to store the last event. You will need to manually create a text input entity for this."
+      default: []
+      selector:
+        entity:
+          domain: input_text
 
 mode: restart
 max_exceeded: silent
@@ -626,6 +632,15 @@ max_exceeded: silent
 variables:
   blind: !input blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
+
+  # Last Cover Helper JSON Parsing
+  helper_position_check_options: !input helper_position_check_options
+  helper_last_cover_event: !input helper_last_cover_event
+  helper_last_cover_event_state: "{{ helper_last_cover_event != [] and  states(helper_last_cover_event) }}"
+  helper_last_cover_event_open: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).open | bool }}"
+  helper_last_cover_event_close: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).close | bool }}"
+  helper_last_cover_event_ventilate: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).ventilate | bool }}"
+  helper_last_cover_event_shading: "{{ 'position_helper_enabled' in helper_position_check_options and helper_last_cover_event != [] and (states(helper_last_cover_event)|from_json).shading | bool }}"
 
   # Modes
   auto_up_options: !input auto_up_options
@@ -660,8 +675,6 @@ variables:
   closed_position: !input closed_position
   position_tolerance: !input position_tolerance
   ventilate_position: !input ventilate_position
-  auto_up_position_check: !input auto_up_position_check
-  auto_down_position_check: !input auto_down_position_check
 
   # Overrides / Sensors
   door_sensor: !input door_sensor
@@ -687,7 +700,6 @@ variables:
   shading_forecast_sensor: !input shading_forecast_sensor
   shading_forecast_temp: !input shading_forecast_temp
   shading_weather_conditions: !input shading_weather_conditions
-  # shading_state_sensor: !input shading_state_sensor
 
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
@@ -852,6 +864,17 @@ action:
           type: daily
         response_variable: forecast
 
+  - if:
+      - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+      - '{{ not helper_last_cover_event_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
+    then:
+      - service: input_text.set_value
+        data:
+          entity_id: !input helper_last_cover_event
+          value: |
+            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
+            {{ dictionary | to_json }}
+
   - choose:
       - alias: "Check and perform shading in or covers up"
         conditions:
@@ -860,36 +883,25 @@ action:
               - "{{ 'auto_up_enabled' in auto_up_options }}"
           - or:
               # Check if we have a trigger for shading in
-              - condition: trigger # shading_min_temperatur1
-                id: "t_si_1"
-              - condition: trigger # shading_min_temperatur2
-                id: "t_si_2"
-              - condition: trigger # shading_sun_brightness_start
-                id: "t_si_3"
-              - condition: trigger # shading_elevation_min
-                id: "t_si_4"
-              - condition: trigger # shading_azimuth
-                id: "t_si_5"
-              - condition: trigger # shading_forecast_temp
-                id: "t_si_6"
-              - condition: trigger # auto_shading_start_condition
-                id: "t_si_7"
-
+              - condition: trigger
+                id:
+                  - "t_si_1" # shading_min_temperatur1
+                  - "t_si_2" # shading_min_temperatur2
+                  - "t_si_3" # shading_sun_brightness_start
+                  - "t_si_4" # shading_elevation_min
+                  - "t_si_5" # shading_azimuth
+                  - "t_si_6" # shading_forecast_temp
+                  - "t_si_7" # auto_shading_start_condition
               # Check if we have a trigger for covers up
-              - condition: trigger # brightness_up - default_brightness_sensor
-                id: "t_bo_1"
-              - condition: trigger # time_up_late
-                id: "t_bo_2"
-              - condition: trigger # time_up_early
-                id: "t_bo_3"
-              - condition: trigger # time_up_early_non_workday
-                id: "t_bo_4"
-              - condition: trigger # resident
-                id: "t_bo_5"
-              - condition: trigger # brightness_up - shading_brightness_sensor
-                id: "t_bo_6"
-              - condition: trigger # sun_elevation_up
-                id: "t_bo_7"
+              - condition: trigger
+                id:
+                  - "t_bo_1" # brightness_up - default_brightness_sensor
+                  - "t_bo_2" # time_up_late
+                  - "t_bo_3" # time_up_early
+                  - "t_bo_4" # time_up_early_non_workday
+                  - "t_bo_5" # resident
+                  - "t_bo_6" # brightness_up - shading_brightness_sensor
+                  - "t_bo_7" # sun_elevation_up
         sequence:
           - choose:
               - alias: "Checking for shading in"
@@ -943,11 +955,16 @@ action:
                                 tilt_position: !input shading_tilt_position
                               target:
                                 entity_id: !input blind
-                  # - alias: "Storing the shading state"
-                  #   service: input_boolean.turn_on
-                  #   data: {}
-                  #   target:
-                  #     entity_id: !input shading_state_sensor
+                  - if:
+                      - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input helper_last_cover_event
+                          value: |
+                            {% set dictionary = states(helper_last_cover_event) | from_json  %}
+                            {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 't': as_timestamp(now())}) %}
+                            {{ result | to_json }}
                   - stop: "Stop the automation"
 
               - alias: "Check for opening"
@@ -955,25 +972,20 @@ action:
                   - "{{ 'auto_up_enabled' in auto_up_options }}"
                   - condition: !input auto_up_condition
                   - or: # Check if the trigger is for normal cover opening
-                      - condition: trigger # brightness_up - default_brightness_sensor
-                        id: "t_bo_1"
-                      - condition: trigger # time_up_late
-                        id: "t_bo_2"
-                      - condition: trigger # time_up_early
-                        id: "t_bo_3"
-                      - condition: trigger # time_up_early_non_workday
-                        id: "t_bo_4"
-                      - condition: trigger # resident
-                        id: "t_bo_5"
-                      - condition: trigger # brightness_up - shading_brightness_sensor
-                        id: "t_bo_6"
-                      - condition: trigger # sun_elevation_up
-                        id: "t_bo_7"
+                      - condition: trigger
+                        id:
+                          - "t_bo_1" # brightness_up - default_brightness_sensor
+                          - "t_bo_2" # time_up_late
+                          - "t_bo_3" # time_up_early
+                          - "t_bo_4" # time_up_early_non_workday
+                          - "t_bo_5" # resident
+                          - "t_bo_6" # brightness_up - shading_brightness_sensor
+                          - "t_bo_7" # sun_elevation_up
                   - or:
-                      - "{{ not auto_up_position_check }}"
-                      - "{{ auto_up_position_check and (current_position | int(default=101) == ventilate_position) }}"
-                      - "{{ auto_up_position_check and (current_position | int(default=101) == shading_cover_position) }}" # NEW
-                      - "{{ auto_up_position_check and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
+                      - "{{ ('position_helper_enabled' in helper_position_check_options and helper_last_cover_event != []) and not helper_last_cover_event_open }}"
+                      - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=101) == ventilate_position) }}"
+                      - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=101) == shading_cover_position) }}" # NEW
+                      - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                   # Now we have to check different opening scenarios
                   - or:
@@ -1023,6 +1035,16 @@ action:
                                 position: !input open_position
                               target:
                                 entity_id: "{{ repeat.item }}"
+                  - if:
+                      - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input helper_last_cover_event
+                          value: |
+                            {% set dictionary = states(helper_last_cover_event) | from_json  %}
+                            {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
+                            {{ result | to_json }}
                   - stop: "Stop the automation"
 
             default:
@@ -1035,20 +1057,15 @@ action:
           - "{{ now() >= today_at(time_up_early) }}"
           - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
           - or:
-              - condition: trigger # shading_min_temperatur1
-                id: "t_so_1"
-              - condition: trigger # shading_min_temperatur2
-                id: "t_so_2"
-              - condition: trigger # shading_sun_brightness_end
-                id: "t_so_3"
-              - condition: trigger # shading_elevation_max
-                id: "t_so_4"
-              - condition: trigger # shading_azimuth_end
-                id: "t_so_5"
-              - condition: trigger # shading_elevation_min
-                id: "t_so_6"
-              - condition: trigger # auto_shading_start_condition
-                id: "t_so_7"
+              - condition: trigger
+                id:
+                  - "t_so_1" # shading_min_temperatur1
+                  - "t_so_2" # shading_min_temperatur2
+                  - "t_so_3" # shading_sun_brightness_end
+                  - "t_so_4" # shading_elevation_max
+                  - "t_so_5" # shading_azimuth_end
+                  - "t_so_6" # shading_elevation_min
+                  - "t_so_7" # auto_shading_start_condition
           - "{{ current_position | int(default=101) == shading_cover_position }}"
         sequence:
           - if:
@@ -1078,6 +1095,16 @@ action:
                         entity_id: "{{ repeat.item }}"
                     - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
+              - if:
+                  - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+                then:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input helper_last_cover_event
+                      value: |
+                        {% set dictionary = states(helper_last_cover_event) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
             else:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
@@ -1090,11 +1117,17 @@ action:
                         position: !input open_position
                       target:
                         entity_id: "{{ repeat.item }}"
-          # - alias: "Storing the shading state"
-          #   service: input_boolean.turn_off
-          #   data: {}
-          #   target:
-          #     entity_id: !input shading_state_sensor
+              - if:
+                  - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+                then:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input helper_last_cover_event
+                      value: |
+                        {% set dictionary = states(helper_last_cover_event) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
+
           - stop: "Stop the automation"
 
       - alias: "Check for closing cover"
@@ -1109,26 +1142,21 @@ action:
           - "{{ current_position | int(default=110) > closed_position }}"
           - or:
               # Check if we have a trigger for cover down
-              - condition: trigger # brightness_down
-                id: "t_bc_1"
-              - condition: trigger # time_down_early
-                id: "t_bc_2"
-              - condition: trigger # time_down_late
-                id: "t_bc_3"
-              - condition: trigger # window_sensor
-                id: "t_bc_4"
-              - condition: trigger # resident_sensor
-                id: "t_bc_5"
-              - condition: trigger # brightness_down
-                id: "t_bc_6"
-              - condition: trigger # sun_elevation_down
-                id: "t_bc_7"
+              - condition: trigger
+                id:
+                  - "t_bc_1" # brightness_down
+                  - "t_bc_2" # time_down_early
+                  - "t_bc_3" # time_down_late
+                  - "t_bc_4" # window_sensor
+                  - "t_bc_5" # resident_sensor
+                  - "t_bc_6" # brightness_down
+                  - "t_bc_7" # sun_elevation_down
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
           - or:
-              - "{{ not auto_down_position_check }}"
-              - "{{ auto_down_position_check and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
-              - "{{ auto_down_position_check and (current_position == ventilate_position) }}"
+              - "{{ ('position_helper_enabled' in helper_position_check_options and helper_last_cover_event != []) and not helper_last_cover_event_close }}"
+              - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
+              - "{{ ('position_helper_disabled' in helper_position_check_options or helper_last_cover_event == []) and (current_position == ventilate_position) }}"
           - or:
               - alias: Covers - closing - down late reached
                 and:
@@ -1164,12 +1192,6 @@ action:
                   - "{{ current_position | int(default=101) == ventilate_position }}"
                   - "{{ (window_sensor != [] ) and (states(window_sensor) == 'off') }}"
 
-              # - alias: Covers - closing after shading # FIXME: BUG - This closes the cover regardless the time/brightness/sun-values
-              #   and:
-              #     - "{{ 'auto_shading_enabled' in auto_shading_options }}"
-              #     - "{{ current_position | int(default=110) > closed_position }}"
-              #     - "{{ closed_position | int(default=110) < shading_cover_position | int(default=110) }}"
-              #     - "{{ (shading_state_sensor != [] ) and (states(shading_state_sensor) == 'on') }}"
         sequence:
           - if:
               - not:
@@ -1192,6 +1214,16 @@ action:
                         entity_id: "{{ repeat.item }}"
                     - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
+              - if:
+                  - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+                then:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input helper_last_cover_event
+                      value: |
+                        {% set dictionary = states(helper_last_cover_event) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
             else:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
@@ -1213,6 +1245,16 @@ action:
                             entity_id: "{{ repeat.item }}"
                     - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
+              - if:
+                  - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+                then:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input helper_last_cover_event
+                      value: |
+                        {% set dictionary = states(helper_last_cover_event) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
           - stop: "Stop the automation"
 
       - alias: Window sensor - opened
@@ -1234,6 +1276,16 @@ action:
                     entity_id: "{{ repeat.item }}"
                 - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                   delay: "00:00:{{ (range(1, 3)|random|int) }}"
+          - if:
+              - "{{ 'position_helper_enabled' in helper_position_check_options }}"
+            then:
+              - service: input_text.set_value
+                data:
+                  entity_id: !input helper_last_cover_event
+                  value: |
+                    {% set dictionary = states(helper_last_cover_event) | from_json  %}
+                    {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
+                    {{ result | to_json }}
           - stop: "Stop the automation"
 
     default:
