@@ -3,7 +3,7 @@ blueprint:
   description: >-
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.16** / hvorragend
+    **Version: 2024.01.21** / hvorragend
 
     This is a comprehensive blueprint that can be used for the following basic purposes:
       - Opening and closing the roller shutters (depending on brightness, sun-elevation and within time windows)
@@ -43,6 +43,7 @@ blueprint:
   # - Closing after shading just when position is lower than before
   # - Added the possibility that the previous position did not necessarily have to be controlled by the automation.
   # - Added optional Cover Status Helper
+  # - Try to recognize manual drives
 
   # Notes / Planned modifications:
   # - Cover Status Helper / Position Check: What if a cover isn't opened by the automation? We need a state change in helper.
@@ -51,11 +52,8 @@ blueprint:
   #   3) Shading Overwrite? How to recognize it?
   #   4) Ventilate was overridden? How to recognize it?
   # - Hotdaycheck: Forecast and not just current temperature
-  # - Low priority: Check if cover was moved manually. Should I correct the position after a longer wating time? Not sure.
   # - Do I want to use the shading to open a completely closed blind?
-
-  # - QUESTION Brightness Lower/Higher-Check?
-  # - QUESTION Allow shading out if cover is closed?
+  # - Allow shading out if cover is closed? Add another boolean for that?
 
   # Validations - Unsure if this is necessary
   # - brightness_down must be lower than brightness_up
@@ -859,7 +857,7 @@ trigger:
     entity_id: !input blind
     attribute: current_position
     id: "t_ma_1"
-    for: "00:02:00"
+    for: "00:01:00"
 
 condition:
   - condition: !input auto_global_condition
@@ -1160,7 +1158,7 @@ action:
               - condition: !input auto_down_condition
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
-          - "{{ current_position | int(default=110) > closed_position }}"
+          # - "{{ current_position | int(default=110) > closed_position }}" # Commented out because status change is required even if condition does not apply.
           - or:
               # Check if we have a trigger for cover down
               - condition: trigger
@@ -1175,7 +1173,7 @@ action:
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
           - or:
-              - "{{ cover_status_helper_enabled and not cover_status_close }}"
+              - "{{ cover_status_helper_enabled and not cover_status_close }}" # TODO: What if the blind is opened manually every day?
               - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               - "{{ cover_status_helper_disabled and (current_position == ventilate_position) }}"
           - or:
@@ -1313,25 +1311,67 @@ action:
                     {{ result | to_json }}
           - stop: "Stop the automation"
 
-      - alias: Blind Movements
+      - alias: "Blind Movement" # Checking for manual position changes
         conditions:
-          - condition: trigger # Check for manual position changes
+          - condition: trigger
             id: "t_ma_1"
           - "{{ cover_status_helper_enabled }}"
-          - not:
-              - "{{ ('auto_up_enabled' in auto_up_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
-              - "{{ ('auto_down_enabled' in auto_down_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
-              - "{{ ('auto_ventilate_enabled' in auto_ventilate_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
-              - "{{ ('auto_shading_enabled' in auto_shading_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
         sequence:
-          - service: input_text.set_value
-            data:
-              entity_id: !input cover_status_helper
-              value: |
-                {% set dictionary = states(cover_status_helper) | from_json  %}
-                {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
-                {{ result | to_json }}
-          - stop: "Stop the automation"
+          - choose:
+              - conditions:
+                  - not:
+                      - "{{ ('auto_up_enabled' in auto_up_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
+                      - "{{ ('auto_down_enabled' in auto_down_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+                      - "{{ ('auto_ventilate_enabled' in auto_ventilate_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
+                      - "{{ ('auto_shading_enabled' in auto_shading_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dictionary = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
+              - conditions:
+                  - "{{ ('auto_up_enabled' in auto_up_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dictionary = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
+              - conditions:
+                  - "{{ ('auto_down_enabled' in auto_down_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dictionary = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
+              - conditions:
+                  - "{{ ('auto_ventilate_enabled' in auto_ventilate_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dictionary = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
+              - conditions:
+                  - "{{ ('auto_shading_enabled' in auto_shading_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dictionary = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {{ result | to_json }}
 
     default:
       # - if:
