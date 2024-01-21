@@ -1,29 +1,26 @@
 blueprint:
   name: "Cover Control Automation (CCA)"
-  description: >-
+  description: |
     # Cover Control Automation (CCA)
 
     **Version: 2024.01.21** / hvorragend
 
     This is a comprehensive blueprint that can be used for the following basic purposes:
-      - Opening and closing the roller shutters (depending on brightness, sun-elevation and within time windows)
-      - Extensive automatic sun shading
-
+      - Opening and closing the roller shutters (depending on brightness, <u>sun-elevation</u> and within time windows)
+      - Extensive automatic sun shading with many different setting options
+      - Complete flexibility in almost all parameters (drive delays, waiting times, position tolerance)
+      - Each function can be suspended by an individual condition (several condition selectors)
+      - Added ability to save current state to a helper
 
     <details>
-
 
     *This was originally a fork of Eimeel's blueprint [automatic_blinds_shading.yaml](https://gist.github.com/jmerifjKriwe/bffbc7424dd04f4a31d6a71f7012cd1f) and is largely based on his programming.*<br />
 
     **NOTES**
 
     - It is not possible to execute this automation manually!
-    - In order to have extensive flexibility here, different sensors are used. But there is also the possibility to define an occupant of the room,
-      so that e.g. the roller shutter does not go up in the morning, although the occupant is still sleeping.
-    - The automation only moves the roller shutter if it is positioned at one of the defined positions
-      (ventilate position, shading position, open position or closed position). Otherwise, the roller shutter has been moved manually.
-      After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action.
-      To automate the movement of the roller shutter again, it must be moved to one of the defined positions beforehand.
+    - In order to have extensive flexibility here, different sensors are used. But there is also the possibility to define a resident of the room,
+      so that e.g. the cover does not go up in the morning, although the resident is still sleeping.
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -38,7 +35,6 @@ blueprint:
   # - Added sun elevation feature: Sun control for up/down
   # - Added waiting time duration for sensors
   # - Added fixed/random drive delays
-  # - Added external shading state sensor. Will probably be removed again.
   # - Added several condition selectors: Useful to be able to check various conditions such as party mode or similar when opening, closing, shading, etc.
   # - Closing after shading just when position is lower than before
   # - Added the possibility that the previous position did not necessarily have to be controlled by the automation.
@@ -46,7 +42,7 @@ blueprint:
   # - Try to recognize manual drives
 
   # Notes / Planned modifications:
-  # - Cover Status Helper / Position Check: What if a cover isn't opened by the automation? We need a state change in helper.
+  # - Cover Status Helper: What if a cover isn't opened by the automation? We need a state change in helper.
   #   1) Position Trigger with current_position higher than shading => open: on
   #   2) Position Trigger with current_position lower then ventilate/shading => close: on
   #   3) Shading Overwrite? How to recognize it?
@@ -82,7 +78,7 @@ blueprint:
 
     drive_delay_fix:
       name: "🕛 Fixed Drive Delay"
-      description: "Fixed drive delay in seconds to avoid radio interferences."
+      description: "Fixed drive delay to avoid radio interferences.\n\n`Optional`"
       default: 0
       selector:
         number:
@@ -93,7 +89,7 @@ blueprint:
           mode: slider
     drive_delay_random:
       name: "🕛 Random Drive Delay"
-      description: "Additional random delay. Value in seconds.\n\n`Optional`"
+      description: "Additional random delay."
       default: 5
       selector:
         number:
@@ -104,24 +100,53 @@ blueprint:
           mode: slider
     position_tolerance:
       name: "〰️ Position Tolerance"
-      description: "Tolerance to be applied when comparing the current position with the to be position"
+      description: "Tolerance to be applied when comparing the current position with the to be position.\n\n`Optional`"
       default: 0
       selector:
         number:
           min: 0.0
           max: 9.0
           unit_of_measurement: "%"
+    cover_status_options:
+      name: "🔤 Checking the current position or saving the cover status in a helper?"
+      description: |
+
+        - **CHECK THE CURRENT POSITION**
+        The automation only moves the cover if it is positioned at one of the defined positions (ventilate position, shading position, open position or closed position). Otherwise, the cover has been moved manually.
+        After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action.
+        To automate the movement of the cover again, it must be moved to one of the defined positions beforehand.
+        The advantage of this is that you don't have to create a helper in Home Assistant.
+
+        - **USE AN EXTERNAL HELPER**
+        If you want to be able to intervene manually and the automation should execute the next movement as usual, a helper is required.
+        *Without helper, the manual override would always be overwritten by the automation.*
+        This has the advantage that the roller blind does not necessarily have to be in a defined position.
+      default: cover_helper_disabled
+      selector:
+        select:
+          options:
+            - label: "Check the current position"
+              value: "cover_helper_disabled"
+            - label: "Use an external helper"
+              value: "cover_helper_enabled"
+    cover_status_helper:
+      name: "🔤 Cover Status Helper"
+      description: "Helper used to store the last cover event. *Attention:* You will need to manually create a text input entity for this.\n\n`Optional`"
+      default: []
+      selector:
+        entity:
+          domain: input_text
 
     auto_up_options:
-      name: "🔼 Open Automation"
-      description: "Basic automation for opening the cover. Please select one of the options."
+      name: "🔼 Opening Automation"
+      description: "Basic automation for opening the cover."
       default: auto_up_enabled
       selector:
         select:
           options:
-            - label: "Enable the cover open feature"
+            - label: "Enable Cover Opening-Automation"
               value: "auto_up_enabled"
-            - label: "Disable the cover open feature"
+            - label: "Disable Cover Opening-Automation"
               value: "auto_up_disabled"
     auto_up_condition:
       name: "🔼 Additional Condition For Opening The Cover"
@@ -131,7 +156,7 @@ blueprint:
         condition: {}
     open_position:
       name: "🔼 Open Position"
-      description: "To which position should the shutter be moved to be open?"
+      description: "What position should the cover be moved into when opening?"
       default: 100
       selector:
         number:
@@ -139,12 +164,12 @@ blueprint:
           max: 100.0
           unit_of_measurement: "%"
     resident_sensor:
-      name: "🔼 Overwrite Mode For Opening And Unplannend Closing (aka Resident mode)"
-      description: #
-        "This switch can be used to override the automatic opening of the shutter. If this sensor (input_boolean or binary_sensor) is set to ON, the shutter will not open automatically.\n
-        This can be used e.g. to define a resident for the room. In this case, the roller shutter only opens when the resident is no longer asleep.\nFor this it is necessary to use a
-        boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.
-        \nThe cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).  \n\n`Optional`"
+      name: "🛌 Resident Node"
+      description:
+        "**Overwrite Mode For Opening and Unplannend Closing**: This switch can be used to override the automatic opening of the cover. If this sensor (input_boolean or binary_sensor) is set to ON, the cover will not open automatically.\n
+        This can be used e.g. to define a resident for the room. In this case, the cover only opens when the resident is no longer asleep.\nFor this it is necessary to use a
+        boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.\n
+        The cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping). \n\n`Optional`"
       default: []
       selector:
         entity:
@@ -153,7 +178,7 @@ blueprint:
             - binary_sensor
     time_up_early:
       name: "🔼 Time For Drive Up - Early On Workdays"
-      description: "The earliest time at which the cover may be opened. The cover will be opened if AFTER this time the defined brightness value is high enough. (**NOTE**: If an occupant is defined, he must also be awake)."
+      description: "The earliest time at which the cover may be opened. The cover will be opened if <u>AFTER</u> this time the defined brightness or sun-elevation value is high enough. (**NOTE**: If a resident is defined, he must also be awake)."
       default: "06:00:00"
       selector:
         time: {}
@@ -166,22 +191,22 @@ blueprint:
     time_up_late:
       name: "🔼 Time For Drive Up - Late"
       description:
-        "The latest time at which the cover should be opened. If the required brightness value has NOT yet been reached by this time, the cover will still be opened.
-        (**NOTE**: If an occupant is defined and he is still asleep, the cover will NOT be opened. It will only be opened when the occupant has woken up)."
+        "The latest time at which the cover should be opened. If the required brightness or sun-elevation value has <u>NOT</u> yet been reached by this time, the cover will still be opened.
+        (**NOTE**: If a resident is defined and he is still asleep, the cover will <u>NOT</u> be opened. It will only be opened when the resident has woken up)."
       default: "08:00:00"
       selector:
         time: {}
 
     auto_down_options:
-      name: "🔻 Close Automation"
-      description: "Basic automation for closing the cover. Please select one of the options."
+      name: "🔻 Closing Automation"
+      description: "Basic automation for closing the cover"
       default: auto_down_enabled
       selector:
         select:
           options:
-            - label: "Enable The Cover Close Feature"
+            - label: "Enable Cover Closing-Automation"
               value: "auto_down_enabled"
-            - label: "Disable The Cover Close Feature"
+            - label: "Disable Cover Closing-Automation"
               value: "auto_down_disabled"
     auto_down_condition:
       name: "🔻 Additional Condition For Closing The Cover"
@@ -191,7 +216,7 @@ blueprint:
         condition: {}
     closed_position:
       name: "🔻 Closed Position"
-      description: "To which position should the shutter be moved to be closed?"
+      description: "What position should the cover be moved into when closing?"
       default: 0
       selector:
         number:
@@ -200,13 +225,13 @@ blueprint:
           unit_of_measurement: "%"
     time_down_early:
       name: "🔻 Time For Drive Down - Early"
-      description: "The earliest time at which the cover may be closed. The cover will be closed if AFTER this time the defined brightness value is low enough."
+      description: "The earliest time at which the cover may be closed. The cover will be closed if <u>AFTER</u> this time the defined brightness or sun-elevation value is low enough."
       default: "16:00:00"
       selector:
         time: {}
     time_down_late:
       name: "🔻 Time For Drive Down - Late"
-      description: "The latest time at which the cover should be closed. If the required brightness value has NOT yet been reached by this time, the cover will still be closed."
+      description: "The latest time at which the cover should be closed. If the required brightness or sun-elevation value has <u>NOT</u> yet been reached by this time, the cover will still be closed."
       default: "22:00:00"
       selector:
         time: {}
@@ -235,17 +260,17 @@ blueprint:
 
     auto_brightness_options:
       name: "🔅 Brightness Sensor Automation"
-      description: "Please select one of the options.\n\n`Optional`"
+      description: "Please select one of the brightness-options."
       default: auto_brightness_enabled
       selector:
         select:
           options:
-            - label: "Enable The Brightness Feature For Up And Down"
+            - label: "Enable Brightness Automation Feature"
               value: "auto_brightness_enabled"
-            - label: "Disable The Brightness Feature For Up And Down"
+            - label: "Disable Brightness Automation Feature"
               value: "auto_brightness_disabled"
     default_brightness_sensor:
-      name: "🔅 Default Brightness Sensor For Up And Down"
+      name: "🔅 Default Brightness Sensor"
       description: "This default brightness sensor can be defined here, which is used for daily up and down.\n\n`Optional`"
       default: []
       selector:
@@ -264,7 +289,7 @@ blueprint:
         duration:
     brightness_up:
       name: "🔼 Brightness Value For Opening The Cover"
-      description: "The brightness value from which the cover should be opened.\n\n`Optional`"
+      description: "At what brightness value should the cover be opened?.\n\n`Optional`"
       default: 70
       selector:
         number:
@@ -274,7 +299,7 @@ blueprint:
           step: 10.0
     brightness_down:
       name: "🔻 Brightness Value For Closing The Cover"
-      description: "The brightness value from which the cover should be closed. Must be lower then the brightness up value.\n\n`Optional`" ## TODO: Really be lower?
+      description: "At what brightness value should the cover be closed? Must be lower then the brightness up value.\n\n`Optional`" ## TODO: Really be lower?
       default: 10
       selector:
         number:
@@ -285,17 +310,17 @@ blueprint:
 
     auto_sun_options:
       name: "☀️ Sun Elevation Automation"
-      description: "Please select one of the options.\n\n`Optional`"
+      description: "Please select one of the sun-options."
       default: auto_sun_enabled
       selector:
         select:
           options:
-            - label: "Enable The Sun Feature For Up And Down"
+            - label: "Enable Sun Automation Feature"
               value: "auto_sun_enabled"
-            - label: "Disable The Sun Feature For Up And Down"
+            - label: "Disable Sun Automation Feature"
               value: "auto_sun_disabled"
     default_sun_sensor:
-      name: "☀️ Sun Sensor For Up And Down"
+      name: "☀️ Sun Sensor"
       description:
         "Which sensors provides attributes with current azimuth and elevation of sun. I strongly suggest to use sun.sun. Please make sure that the integration is activated and provides the attributes.
         <strong>Important: If you want to use automatic shading, the sensor must also be specified here. Regardless of whether the basic sun control is used.</strong>
@@ -340,14 +365,14 @@ blueprint:
 
     auto_ventilate_options:
       name: "💨 Ventilation Automation"
-      description: "Automation for ventilation? Please select one of the options."
+      description: "Automation for ventilation?"
       default: auto_ventilate_disabled
       selector:
         select:
           options:
-            - label: "Enable The Ventilate Feature"
+            - label: "Enable Ventilate Feature"
               value: "auto_ventilate_enabled"
-            - label: "Disable The Ventilate Feature"
+            - label: "Disable Ventilate Feature"
               value: "auto_ventilate_disabled"
     window_sensor:
       name: "🚪 Window Or Door Sensor"
@@ -376,14 +401,14 @@ blueprint:
 
     auto_shading_options:
       name: "🕶️ Shading Automation"
-      description: "Use the shading feature. Please select one of the options.\n\n`Optional`\n\n`Shading`"
+      description: "Use the shading feature.\n\n`Optional`\n\n`Shading`"
       default: auto_shading_enabled
       selector:
         select:
           options:
-            - label: "Enable The Shading Feature"
+            - label: "Enable Shading-Automation Feature"
               value: "auto_shading_enabled"
-            - label: "Disable The Shading Feature"
+            - label: "Disable Shading-Automation Feature"
               value: "auto_shading_disabled"
     auto_shading_start_condition:
       name: "🕶️ Additional Condition For Activating Sun Shading"
@@ -585,7 +610,7 @@ blueprint:
             - "windy-variant"
             - "exceptional"
     shading_waitingtime_start:
-      name: "🕶️ Waiting Time For Shading Start (in seconds)"
+      name: "🕶️ Waiting Time For Shading Start"
       description:
         "To prevent excessive stress on the motor, a waiting time for starting shading can be defined here.
         Shading then only STARTs when the conditions are fulfilled over the entire waiting time IN.\n\n`Shading`"
@@ -596,7 +621,7 @@ blueprint:
           max: 3600
           unit_of_measurement: s
     shading_waitingtime_end:
-      name: "🕶️ Waiting Time For Shading End (in seconds)"
+      name: "🕶️ Waiting Time For Shading End"
       description:
         "To prevent excessive stress on the motor, a waiting time can be defined here.
         Shading then ENDs when ONE of the conditions is NOT fulfilled over the entire waiting time OUT.\n\n`Shading`"
@@ -606,31 +631,6 @@ blueprint:
           min: 0
           max: 3600
           unit_of_measurement: s
-
-    cover_status_options:
-      name: "🔤 Checking the current position or saving the status in a helper?"
-      description:
-        "The blueprint only executes roller blind movements when the cover is in a position controlled by the automation.
-        If this is not the case, it is assumed that the last drive was manual initiated and the automation does nothing further.
-        The advantage of this is that you don't have to create a helper in Home Assistant.
-        But if you also want to be able to intervene manually and the automation carries out the next roller blind movements as normal, a helper is required.
-        Without helper, the manual override would always be overwritten by the automation.
-        However, the roller blind does not always have to be in an exact position."
-      default: cover_helper_disabled
-      selector:
-        select:
-          options:
-            - label: "The status of the cover should be saved in an external helper"
-              value: "cover_helper_enabled"
-            - label: "The cover should only be moved if they are in the correct position"
-              value: "cover_helper_enabled"
-    cover_status_helper:
-      name: "🔤 Helper - Last Cover Event"
-      description: "Input Text used to store the last cover event. *Attention:* You will need to manually create a text input entity for this."
-      default: []
-      selector:
-        entity:
-          domain: input_text
 
 mode: restart
 max_exceeded: silent
@@ -1340,7 +1340,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
               - conditions:
                   - "{{ ('auto_down_enabled' in auto_down_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
@@ -1350,7 +1350,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
               - conditions:
                   - "{{ ('auto_ventilate_enabled' in auto_ventilate_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
@@ -1360,7 +1360,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
               - conditions:
                   - "{{ ('auto_shading_enabled' in auto_shading_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
@@ -1370,7 +1370,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
 
     default:
