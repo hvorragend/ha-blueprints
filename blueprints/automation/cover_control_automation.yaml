@@ -50,7 +50,6 @@ blueprint:
   #   2) Position Trigger with current_position lower then ventilate/shading => close: on
   #   3) Shading Overwrite? How to recognize it?
   #   4) Ventilate was overridden? How to recognize it?
-  # - Checking external Shading State Sensor in more conditions?
   # - Hotdaycheck: Forecast and not just current temperature
   # - Low priority: Check if cover was moved manually. Should I correct the position after a longer wating time? Not sure.
   # - Do I want to use the shading to open a completely closed blind?
@@ -645,7 +644,7 @@ variables:
   # Cover Status Helper
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
-  cover_status_helper_enabled: "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) }}"
+  cover_status_helper_enabled: '{{ ("cover_helper_enabled" in cover_status_options and cover_status_helper != []) and states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
   cover_status_helper_disabled: "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) }}"
   cover_status_open: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).open | bool }}"
   cover_status_close: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).close | bool }}"
@@ -855,6 +854,13 @@ trigger:
     to: "on"
     id: "t_bv_1"
 
+  # trigger for manual blind movements
+  - platform: state
+    entity_id: !input blind
+    attribute: current_position
+    id: "t_ma_1"
+    for: "00:02:00"
+
 condition:
   - condition: !input auto_global_condition
   - or:
@@ -876,14 +882,14 @@ action:
 
   - if:
       - "{{ 'cover_helper_enabled' in cover_status_options }}"
-      - "{{ cover_status_helper != [] }}"
+      - "{{ cover_status_helper != [] }}" # Checking the entity - not the state!
       - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
     then:
       - service: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: |
-            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())} %}
+            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())} %}
             {{ dictionary | to_json }}
 
   - choose:
@@ -976,7 +982,7 @@ action:
                           entity_id: !input cover_status_helper
                           value: |
                             {% set dictionary = states(cover_status_helper) | from_json  %}
-                            {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 't': as_timestamp(now())}) %}
+                            {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'off', 't': as_timestamp(now())}) %}
                             {{ result | to_json }}
                   - stop: "Stop the automation"
 
@@ -1056,7 +1062,7 @@ action:
                           entity_id: !input cover_status_helper
                           value: |
                             {% set dictionary = states(cover_status_helper) | from_json  %}
-                            {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
+                            {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                             {{ result | to_json }}
                   - stop: "Stop the automation"
 
@@ -1118,7 +1124,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
             else:
               - repeat:
@@ -1140,7 +1146,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
 
           - stop: "Stop the automation"
@@ -1239,7 +1245,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
             else:
               - repeat:
@@ -1270,7 +1276,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
           - stop: "Stop the automation"
 
@@ -1303,8 +1309,28 @@ action:
                   entity_id: !input cover_status_helper
                   value: |
                     {% set dictionary = states(cover_status_helper) | from_json  %}
-                    {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 't': as_timestamp(now())}) %}
+                    {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                     {{ result | to_json }}
+          - stop: "Stop the automation"
+
+      - alias: Blind Movements
+        conditions:
+          - condition: trigger # Check for manual position changes
+            id: "t_ma_1"
+          - "{{ cover_status_helper_enabled }}"
+          - not:
+              - "{{ ('auto_up_enabled' in auto_up_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
+              - "{{ ('auto_down_enabled' in auto_down_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+              - "{{ ('auto_ventilate_enabled' in auto_ventilate_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
+              - "{{ ('auto_shading_enabled' in auto_shading_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
+        sequence:
+          - service: input_text.set_value
+            data:
+              entity_id: !input cover_status_helper
+              value: |
+                {% set dictionary = states(cover_status_helper) | from_json  %}
+                {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
+                {{ result | to_json }}
           - stop: "Stop the automation"
 
     default:
