@@ -626,7 +626,7 @@ blueprint:
             - label: "The status of the cover should be saved in an external helper"
               value: "cover_helper_enabled"
             - label: "The cover should only be moved if they are in the correct position"
-              value: "cover_helper_disabled"
+              value: "cover_helper_enabledd"
     cover_status_helper:
       name: "🔤 Helper - Last Cover Event"
       description: "Input Text used to store the last cover event. *Attention:* You will need to manually create a text input entity for this."
@@ -642,13 +642,15 @@ variables:
   blind: !input blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
 
-  # Last Cover Helper JSON Parsing
+  # Cover Status Helper
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
-  cover_status_open: "{{ 'cover_helper_enabled' in cover_status_options and cover_status_helper != [] and (states(cover_status_helper)|from_json).open | bool }}"
-  cover_status_close: "{{ 'cover_helper_enabled' in cover_status_options and cover_status_helper != [] and (states(cover_status_helper)|from_json).close | bool }}"
-  cover_status_ventilate: "{{ 'cover_helper_enabled' in cover_status_options and cover_status_helper != [] and (states(cover_status_helper)|from_json).ventilate | bool }}"
-  cover_status_shading: "{{ 'cover_helper_enabled' in cover_status_options and cover_status_helper != [] and (states(cover_status_helper)|from_json).shading | bool }}"
+  cover_status_helper_enabled: "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) }}"
+  cover_status_helper_disabled: "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) }}"
+  cover_status_open: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).open | bool }}"
+  cover_status_close: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).close | bool }}"
+  cover_status_ventilate: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).ventilate | bool }}"
+  cover_status_shading: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).shading | bool }}"
 
   # Modes
   auto_up_options: !input auto_up_options
@@ -930,14 +932,14 @@ action:
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
                           - "{{ ( shading_forecast_sensor != [] ) and ( forecast.forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
-                          - "{{ (shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
+                          - "{{ ( shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
                       - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
                 sequence:
                   # we are ready for shading in
                   - if: # check helper or if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
                       - or:
-                          - "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) and cover_status_open and not cover_status_shading }}"
-                          - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=101) > ventilate_position) }}"
+                          - "{{ cover_status_helper_enabled and cover_status_open and not cover_status_shading }}"
+                          - "{{ cover_status_helper_disabled and (current_position | int(default=101) > ventilate_position) }}"
                       - not:
                           - condition: trigger # auto_shading_start_condition
                             id: "t_si_7"
@@ -945,7 +947,7 @@ action:
                       - alias: "Wait the number of seconds set in shading_waitingtime"
                         delay:
                           seconds: !input shading_waitingtime_start
-                  - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
+                  - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - repeat:
                       for_each: "{{ blind_entities|list }}"
                       sequence:
@@ -993,10 +995,10 @@ action:
                           - "t_bo_6" # brightness_up - shading_brightness_sensor
                           - "t_bo_7" # sun_elevation_up
                   - or:
-                      - "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) and not cover_status_open and not cover_status_shading }}"
-                      - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=101) == ventilate_position) }}"
-                      # - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=101) == shading_cover_position) }}" # NEW
-                      - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
+                      - "{{ cover_status_helper_enabled and not cover_status_open and not cover_status_shading }}"
+                      - "{{ cover_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
+                      # - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_cover_position) }}" # NEW
+                      - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ ( (resident_sensor == [] ) or (is_state(resident_sensor, ['false', 'off'])) ) }}"
                   # Now we have to check different opening scenarios
                   - or:
@@ -1008,7 +1010,7 @@ action:
                       - and: # Covers - opening - up early reached and brightness/sun above minimum
                           - or:
                               - and:
-                                  - "{{ (workday_sensor == [] or (is_state(workday_sensor, 'on')) )  }}"
+                                  - "{{ (workday_sensor == [] or (is_state(workday_sensor, 'on')) ) }}"
                                   - "{{ now() >= today_at(time_up_early) }}"
                               - and:
                                   - "{{ (workday_sensor == [] ) or (is_state(workday_sensor, 'off')) }}"
@@ -1025,7 +1027,7 @@ action:
 
                 sequence:
                   # ok, we can open the cover
-                  - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
+                  - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - repeat:
                       for_each: "{{ blind_entities|list }}"
                       sequence:
@@ -1078,8 +1080,8 @@ action:
                   - "t_so_6" # shading_elevation_min
                   - "t_so_7" # auto_shading_start_condition
           - or:
-              - "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) and cover_status_shading }}"
-              - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=101) == shading_cover_position) }}"
+              - "{{ cover_status_helper_enabled and cover_status_shading }}"
+              - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_cover_position) }}"
         sequence:
           - if:
               # if sun is outside of shading window (azimuth or elevation) we immedately stop shading
@@ -1167,9 +1169,9 @@ action:
           # check to allow a window but a door only if window_sensor not open - we want protection
           - "{{ ( ( door_sensor == 'false' ) or ( (door_sensor == 'true') and (window_sensor == []) ) or ( (door_sensor == 'true') and (window_sensor != []) and (is_state(window_sensor, 'off') ) ) ) }}"
           - or:
-              - "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) and not cover_status_close }}"
-              - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
-              - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position == ventilate_position) }}"
+              - "{{ cover_status_helper_enabled and not cover_status_close }}"
+              - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
+              - "{{ cover_status_helper_disabled and (current_position == ventilate_position) }}"
           - or:
               - alias: Covers - closing - down late reached
                 and:
@@ -1194,18 +1196,18 @@ action:
                 and:
                   - "{{ 'auto_down_enabled' in auto_down_options }}"
                   - "{{ ((resident_sensor != [] ) and (is_state(resident_sensor, 'on')) ) }}"
-                  - condition: trigger #  resident_sensor
+                  - condition: trigger #  Resident_sensor
                     id: t_bc_5
 
               - alias: Covers - closing after ventilate
                 and:
-                  - condition: trigger # window_sensor
+                  - condition: trigger # Window_sensor
                     id: "t_bc_4"
                   - "{{ 'auto_ventilate_enabled' in auto_ventilate_options }}"
                   - "{{ (window_sensor != [] ) and (states(window_sensor) == 'off') }}"
                   - or:
-                      - "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) and cover_status_ventilate }}"
-                      - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=101) == ventilate_position) }}"
+                      - "{{ cover_status_helper_enabled and cover_status_ventilate }}"
+                      - "{{ cover_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
 
         sequence:
           - if:
@@ -1213,7 +1215,7 @@ action:
                   - condition: trigger # Windows sensor
                     id: "t_bc_4"
             then:
-              - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random  }}"
+              - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
           - if:
               - "{{ ( (window_sensor != []) and (is_state(window_sensor, 'on') ) ) }}"
               - "{{ 'auto_ventilate_enabled' in auto_ventilate_options }}"
@@ -1279,8 +1281,8 @@ action:
           - "{{ 'auto_ventilate_enabled' in auto_ventilate_options }}"
           - "{{ ( (window_sensor != []) and (is_state(window_sensor, 'on')) ) }}"
           - or:
-              - "{{ ('cover_helper_enabled' in cover_status_options and cover_status_helper != []) and cover_status_close }}"
-              - "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+              - "{{ cover_status_helper_enabled and cover_status_close }}"
+              - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
         sequence:
           - repeat:
               for_each: "{{ blind_entities|list }}"
