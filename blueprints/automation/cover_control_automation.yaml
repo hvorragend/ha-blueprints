@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.21** / hvorragend
+    **Version: 2024.01.24** / hvorragend
 
     This is a comprehensive blueprint that can be used for the following basic purposes:
       - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -193,7 +193,7 @@ blueprint:
         duration:
     brightness_up:
       name: "🔅🔼 Brightness Value For Opening The Cover"
-      description: "At what brightness value should the cover be opened?.\n\n`Optional`"
+      description: "At what brightness value should the cover be opened?"
       default: 0
       selector:
         number:
@@ -203,7 +203,7 @@ blueprint:
           step: 10.0
     brightness_down:
       name: "🔅🔻 Brightness Value For Closing The Cover"
-      description: "At what brightness value should the cover be closed? Must be lower then the brightness up value.\n\n`Optional`" ## TODO: Really be lower?
+      description: "At what brightness value should the cover be closed? Must be lower then the brightness up value." ## TODO: Really be lower?
       default: 0
       selector:
         number:
@@ -246,7 +246,7 @@ blueprint:
         duration:
     sun_elevation_up:
       name: "☀️🔼 Sun Elevation Value For Opening The Cover"
-      description: "The cover will be <ins>opened</ins> if the sun elevation is over this value. If left empty, this option will not be applied.\n\n`Optional`"
+      description: "The cover will be <ins>opened</ins> if the sun elevation is over this value"
       default: 0
       selector:
         number:
@@ -257,7 +257,7 @@ blueprint:
           mode: slider
     sun_elevation_down:
       name: "☀️🔻 Sun Elevation Value For Closing The Cover"
-      description: "The cover will be <ins>closed</ins> if the sun elevation is under this value. If left empty, this option will not be applied.\n\n`Optional`"
+      description: "The cover will be <ins>closed</ins> if the sun elevation is under this value"
       default: 0
       selector:
         number:
@@ -392,7 +392,7 @@ blueprint:
               value: "cover_helper_enabled"
     cover_status_helper:
       name: "🔤 Cover Status Helper"
-      description: "Helper used to store the last cover event. *Attention:* You will need to manually create a text input entity for this.\n\n`Optional`"
+      description: "Helper used to store the last cover event. *Attention:* You will need to manually create a input_text entity with a <ins>length of 254 chars</ins> for this.\n\n`Optional`"
       default: []
       selector:
         entity:
@@ -647,6 +647,7 @@ variables:
   cover_status_close: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).close | bool }}"
   cover_status_ventilate: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).ventilate | bool }}"
   cover_status_shading: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).shading | bool }}"
+  cover_status_time: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).t }}"
 
   # Modes
   auto_up_options: !input auto_up_options
@@ -1013,10 +1014,10 @@ action:
                       - and: # Covers - opening - up early reached and brightness/sun above minimum
                           - or:
                               - and:
-                                  - "{{ (workday_sensor == [] or (is_state(workday_sensor, 'on')) ) }}"
+                                  - "{{ workday_sensor == [] or (is_state(workday_sensor, 'on')) }}"
                                   - "{{ now() >= today_at(time_up_early) }}"
                               - and:
-                                  - "{{ (workday_sensor == [] ) or (is_state(workday_sensor, 'off')) }}"
+                                  - "{{ workday_sensor == [] or (is_state(workday_sensor, 'off')) }}"
                                   - "{{ now() >= today_at(time_up_early_non_workday) }}"
                           - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
                           - or:
@@ -1314,7 +1315,9 @@ action:
         conditions:
           - condition: trigger
             id: "t_ma_1"
-          - "{{ cover_status_helper_enabled }}"
+          - "{{ 'cover_helper_enabled' in cover_status_options }}" #Do not use 'cover_status_helper_enabled' with the embedded regex here, because it set the first time
+          - "{{ cover_status_helper != [] }}"
+          - "{{ as_timestamp(now()) - cover_status_time > 90 }}"
         sequence:
           - choose:
               - conditions:
