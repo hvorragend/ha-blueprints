@@ -26,7 +26,7 @@ This is a comprehensive and highly configurable blueprint that can be used for t
  - If, for example, your blinds on the upper floor only close automatically and are not opened via the automation, you can also enable the blinds to be opened during this time by activating a vacation mode boolean.
 - If you have visitors or a party, you may not want the blinds to close. This can be easily configured using a party mode boolean.
 - If, for any reason, you want to pause the activation of shading or the ending of shading, this can be controlled via a shading boolean.
-- - If you want to suspend the entire roller blind control for a short time, perhaps because maintenance work or window cleaning is being carried out, this is possible with just one boolean.
+- If you want to suspend the entire roller blind control for a short time, perhaps because maintenance work or window cleaning is being carried out, this is possible with just one boolean.
 - Are the roller blinds on side doors normally only opened by the automation system and never closed because you don't want to lock yourself out? But on vacation, the blinds should still be closed. This is how the conditions work.
 
 ## Shading features
