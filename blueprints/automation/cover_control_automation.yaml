@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.27** / hvorragend
+    **Version: 2024.01.28-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -51,6 +51,12 @@ blueprint:
     - `shading_cover_position` should be lower than `open_position`
     - `resident` is only allowed to be on/off/true/false
     - cover must have a `current_position` attribute
+    - After manual creation in the GUI, the helper is filled with standard content on the <ins>first trigger</ins>. In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself a few minutes later. The next day at the latest.
+
+    ** Changelog **
+    2024.01.28-01:
+      - Fixed one resident condition (thx to Eimeel)
+      - Added version number to json (thx to Eimeel)
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -70,10 +76,13 @@ blueprint:
   # - Try to recognize manual drives
 
   # Notes / Planned modifications:
-  # - Hotdaycheck: Forecast and not just current temperature
+  # - Hotdaycheck: Forecast and not just current temperature: The blinds should not be opened at all when it gets very hot.
+  # - Programming input validation or RTFM?
+  # - Does it make sense to integrate the values of the custom integration 'Adaptive Cover'? https://github.com/basbruss/adaptive-cover
   # - Shading activate before opening?
   # - Allow shading out if cover is closed? Add another boolean for that?
   # - For Manual detection: Do we need a variable for the drive time of the roller blinds?
+  # - Another way to set the initial values of the helper. Perhaps via default?
 
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml
   domain: automation
@@ -91,7 +100,7 @@ blueprint:
 
     auto_options:
       name: "👉 Automation options"
-      description: "Selection of different automation options"
+      description: "This <ins>basically</ins> determines whether the roller blinds are allowed to open or close. This can be extended by further conditions (see below). However, it is important that the options are still activated here. Otherwise the conditions will not take effect."
       default:
         [
           auto_up_enabled,
@@ -286,7 +295,6 @@ blueprint:
         entity:
           filter:
             - domain:
-                - input_boolean
                 - binary_sensor
     resident_sensor:
       name: "🛌 Resident Mode"
@@ -633,6 +641,7 @@ variables:
   cover_status_close: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).close | bool }}"
   cover_status_ventilate: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).ventilate | bool }}"
   cover_status_shading: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).shading | bool }}"
+  cover_status_manual: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).manual | bool }}"
   cover_status_time: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).t }}"
 
   # Modes
@@ -757,7 +766,7 @@ trigger:
     id: "t_so_6"
   # - platform: state #FIXME
   #   entity_id: !input auto_shading_start_condition
-  #   id: "t_so_7" ## it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
+  #   id: "t_so_7" # it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
   #   for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
 
   # trigger for opening cover
@@ -852,7 +861,7 @@ condition:
       - "{{ 'auto_down_enabled' in auto_options }}"
 
 action:
-  ## we have to call a service for forecast due to HA changes
+  # we have to call a service for forecast due to HA changes
   - if:
       - "{{ (shading_forecast_sensor != [] ) }}"
     then:
@@ -863,16 +872,17 @@ action:
           type: daily
         response_variable: forecast
 
+  # If the helper is empty, the initial values are set here once.
   - if:
       - "{{ 'cover_helper_enabled' in cover_status_options }}"
-      - "{{ cover_status_helper != [] }}" # Checking the entity - not the state!
+      - "{{ cover_status_helper != [] }}"
       - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
     then:
       - service: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: |
-            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())} %}
+            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': '1', 't': as_timestamp(now())} %}
             {{ dictionary | to_json }}
 
   - choose:
@@ -917,7 +927,7 @@ action:
                       - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                       - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
                       - "{{ current_position | int(default=101) > shading_cover_position }}"
-                      - "{{ resident_sensor == []  or is_state(resident_sensor, ['false', 'off']) }}"
+                      - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
                           - "{{ ( shading_forecast_sensor != [] ) and ( forecast.forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
@@ -985,6 +995,7 @@ action:
                           - "t_bo_7" # sun_elevation_up
                   - or:
                       - "{{ cover_status_helper_enabled and not cover_status_open and not cover_status_shading }}"
+                      - "{{ cover_status_helper_enabled and cover_status_ventilate }}"
                       - "{{ cover_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
                       # - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_cover_position) }}" # TODO
                       - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
@@ -1143,7 +1154,6 @@ action:
               - condition: !input auto_down_condition
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
-          # - "{{ current_position | int(default=110) > closed_position }}" # TODO Commented out because status change is required even if condition does not apply.
           - or:
               # Check if we have a trigger for cover down
               - condition: trigger
@@ -1156,19 +1166,24 @@ action:
                   - "t_bc_6" # brightness_down
                   - "t_bc_7" # sun_elevation_down
           # check to allow a window but a door only if contact_sensor not open - we want protection
-          - "{{ (contact_cover_place == 'window') or (contact_cover_place == 'door' and contact_sensor == []) or (contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, 'off')) }}"
           - or:
-              - "{{ cover_status_helper_enabled and not cover_status_close }}" # TODO: What if the blind is opened manually every day?
+              - "{{ contact_cover_place == 'window' }}"
+              - "{{ contact_cover_place == 'door' and contact_sensor == [] }}"
+              - "{{ contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, 'off') }}"
+          - or:
+              - "{{ cover_status_helper_enabled and cover_status_open }}"
+              - "{{ cover_status_helper_enabled and cover_status_ventilate }}"
+              # - "{{ cover_status_helper_enabled and not cover_status_close }}" # TODO: What if the blind is opened manually every day?
+              # - "{{ cover_status_helper_enabled and cover_status_shading and (closed_position < shading_cover_position) }}" # TODO
               - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               - "{{ cover_status_helper_disabled and (current_position == ventilate_position) }}"
           - or:
-              - alias: Covers - closing - down late reached
-                and:
+              # Covers - closing - down late reached
+              - and:
                   - "{{ 'auto_down_enabled' in auto_options }}"
                   - "{{ now() >= today_at(time_down_late) }}"
-
-              - alias: Covers - closing - down early reached and brightness/sun below minimum
-                and:
+              # Covers - closing - down early reached and brightness/sun below minimum
+              - and:
                   - "{{ 'auto_down_enabled' in auto_options }}"
                   - "{{ now() >= today_at(time_down_early) }}"
                   - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
@@ -1181,15 +1196,15 @@ action:
                           - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor == [] }}"
                           - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) }}"
 
-              - alias: Covers - closing - due to resident goes sleeping
-                and:
+              # Covers - closing - due to resident goes sleeping
+              - and:
                   - "{{ 'auto_down_enabled' in auto_options }}"
-                  - "{{ resident_sensor != [] and is_state(resident_sensor, 'on') }}"
+                  - "{{ resident_sensor != [] and is_state(resident_sensor, ['true', 'on']) }}"
                   - condition: trigger #  Resident_sensor
                     id: t_bc_5
 
-              - alias: Covers - closing after ventilate
-                and:
+              # Covers - closing after ventilate
+              - and:
                   - condition: trigger # contact_sensor
                     id: "t_bc_4"
                   - "{{ 'auto_ventilate_enabled' in auto_options }}"
