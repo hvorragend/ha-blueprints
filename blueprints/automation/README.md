@@ -12,10 +12,10 @@ This is a comprehensive and highly configurable blueprint that can be used for t
   - Waiting time duration for triggers
   - Position tolerance
 
-  - Complete flexibility in almost all parameters (drive delays, waiting times, position tolerance)
-  - Each feature can be activated or deactivated as required. Not only through a switch in the blueprint, but also through dynamic conditions outside the automation.
-  - Extensive automatic sun shading with many different setting options.
-  - Added the option to save the current status in a helper. This has the advantage that the roller blind can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
+* Complete flexibility in almost all parameters (drive delays, waiting times, position tolerance)
+* Each feature can be activated or deactivated as required. Not only through a switch in the blueprint, but also through dynamic conditions outside the automation.
+* Extensive automatic sun shading with many different setting options.
+* Added the option to save the current status in a helper. This has the advantage that the roller blind can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
 
 
 *This was originally a fork of Eimeel's blueprint [automatic_blinds_shading.yaml](https://community.home-assistant.io/t/extensive-roller-shutter-control-including-shading-brightness-sun-position-temperature-forecast/613715).*
