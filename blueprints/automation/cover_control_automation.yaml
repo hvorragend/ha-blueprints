@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.28-01** / hvorragend
+    **Version: 2024.01.28-02** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -49,14 +49,21 @@ blueprint:
     - `closed_position` should be lower than `ventilate_position`
     - `shading_cover_position` should be higher than `closed_position`
     - `shading_cover_position` should be lower than `open_position`
-    - `resident` is only allowed to be on/off/true/false
+    - `resident_sensor` is only allowed to be on/off/true/false
     - cover must have a `current_position` attribute
     - After manual creation in the GUI, the helper is filled with standard content on the <ins>first trigger</ins>. In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself a few minutes later. The next day at the latest.
 
-    ** Changelog **
+    **Changelog**
     2024.01.28-01:
+      - Updated hints
       - Fixed one resident condition (thx to Eimeel)
       - Added version number to json (thx to Eimeel)
+
+    2024.01.28-02:
+      - Added: Implemented configuration check to perform some basic checks (idea and code by Eimeel)
+      - Added: Cover Drive Time
+      - A few logic changes
+
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -76,13 +83,12 @@ blueprint:
   # - Try to recognize manual drives
 
   # Notes / Planned modifications:
-  # - Hotdaycheck: Forecast and not just current temperature: The blinds should not be opened at all when it gets very hot.
-  # - Programming input validation or RTFM?
   # - Does it make sense to integrate the values of the custom integration 'Adaptive Cover'? https://github.com/basbruss/adaptive-cover
-  # - Shading activate before opening?
-  # - Allow shading out if cover is closed? Add another boolean for that?
-  # - For Manual detection: Do we need a variable for the drive time of the roller blinds?
-  # - Another way to set the initial values of the helper. Perhaps via default?
+  # - Shading activation before opening?
+  # - Add checkbox options?
+  #   It is permitted to move to a lower position than the shading position when closing
+  #   Allow shading out if cover is closed? Add another boolean for that?
+  #   Hotdaycheck: Forecast and not just current temperature: The blinds should not be opened at all when it gets very hot.
 
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml
   domain: automation
@@ -376,6 +382,7 @@ blueprint:
           min: 0.0
           max: 9.0
           unit_of_measurement: "%"
+
     cover_status_options:
       name: "🦮 Checking the current position or saving the cover status in a helper?"
       description: |
@@ -405,6 +412,17 @@ blueprint:
       selector:
         entity:
           domain: input_text
+    drive_time:
+      name: "🦮 Cover Drive Time"
+      description: "Can be used to recognise manual control. Please round up a little and do not adjust too precisely."
+      default: 90
+      selector:
+        number:
+          min: 0.0
+          max: 180.0
+          unit_of_measurement: seconds
+          step: 1.0
+          mode: slider
 
     shading_cover_position:
       name: "🕶️ Shading Position"
@@ -625,6 +643,27 @@ blueprint:
       selector:
         condition: {}
 
+    check_config:
+      name: "✔️ Check configuration"
+      description: "With this boolean, you can enable or disable the basic plausibility check for the configuration."
+      default: false
+      selector:
+        boolean: {}
+    check_config_debuglevel:
+      name: "✔️ Check configuration - Debug level"
+      description: "Choose the debug level for Syslog messages in case of configuration issues\nPlease make sure that it suits your Home Assistant logger default level."
+      default: "info"
+      selector:
+        select:
+          multiple: false
+          mode: dropdown
+          options:
+            - "critical"
+            - "debug"
+            - "error"
+            - "info"
+            - "warning"
+
 mode: restart
 max_exceeded: silent
 
@@ -666,6 +705,7 @@ variables:
   workday_sensor: !input workday_sensor
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
+  drive_time: !input drive_time
 
   # Positions
   open_position: !input open_position
@@ -701,6 +741,9 @@ variables:
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
+
+  check_config: !input check_config
+  check_config_debuglevel: !input check_config_debuglevel
 
 trigger:
   # triggers for shading in
@@ -882,8 +925,21 @@ action:
         data:
           entity_id: !input cover_status_helper
           value: |
-            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': '1', 't': as_timestamp(now())} %}
+            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())} %}
             {{ dictionary | to_json }}
+
+  # # Add version number to json
+  # - if:
+  #     - "{{ 'cover_helper_enabled' in cover_status_options }}"
+  #     - '{{ not states(cover_status_helper) | regex_match("(version)") }}'
+  #   then:
+  #     - service: input_text.set_value
+  #       data:
+  #         entity_id: !input cover_status_helper
+  #         value: |
+  #           {% set dictionary = states(cover_status_helper) | from_json  %}
+  #           {% set result = dict(dictionary, **{'version': 1}) %}
+  #           {{ result | to_json }}
 
   - choose:
       - alias: "Check and perform shading in or covers up"
@@ -994,10 +1050,9 @@ action:
                           - "t_bo_6" # brightness_up - shading_brightness_sensor
                           - "t_bo_7" # sun_elevation_up
                   - or:
-                      - "{{ cover_status_helper_enabled and not cover_status_open and not cover_status_shading }}"
+                      - "{{ cover_status_helper_enabled and cover_status_close }}"
                       - "{{ cover_status_helper_enabled and cover_status_ventilate }}"
                       - "{{ cover_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
-                      # - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_cover_position) }}" # TODO
                       - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
                   - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                   # Now we have to check different opening scenarios
@@ -1056,7 +1111,7 @@ action:
                           entity_id: !input cover_status_helper
                           value: |
                             {% set dictionary = states(cover_status_helper) | from_json  %}
-                            {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                            {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())}) %}
                             {{ result | to_json }}
                   - stop: "Stop the automation"
 
@@ -1173,8 +1228,7 @@ action:
           - or:
               - "{{ cover_status_helper_enabled and cover_status_open }}"
               - "{{ cover_status_helper_enabled and cover_status_ventilate }}"
-              # - "{{ cover_status_helper_enabled and not cover_status_close }}" # TODO: What if the blind is opened manually every day?
-              # - "{{ cover_status_helper_enabled and cover_status_shading and (closed_position < shading_cover_position) }}" # TODO
+              - "{{ cover_status_helper_enabled and cover_status_shading and (closed_position < shading_cover_position) }}" # TODO: Keep this?
               - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               - "{{ cover_status_helper_disabled and (current_position == ventilate_position) }}"
           - or:
@@ -1274,7 +1328,7 @@ action:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
           - stop: "Stop the automation"
 
@@ -1317,10 +1371,10 @@ action:
             id: "t_ma_1"
           - "{{ 'cover_helper_enabled' in cover_status_options }}" #Do not use 'cover_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
           - "{{ cover_status_helper != [] }}"
-          - "{{ as_timestamp(now()) - cover_status_time > (90 + 60)}}" # General drive time + trigger waiting time
+          - "{{ as_timestamp(now()) - cover_status_time > (drive_time + 60)}}" # Drive time + trigger waiting time
         sequence:
           - choose:
-              - conditions:
+              - conditions: # Now defined positions can be assigned
                   - not:
                       - "{{ ('auto_up_enabled' in auto_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
                       - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
@@ -1334,8 +1388,10 @@ action:
                         {% set dictionary = states(cover_status_helper) | from_json  %}
                         {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
-              - conditions:
-                  - "{{ ('auto_up_enabled' in auto_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
+              - conditions: # Manually opened
+                  - or:
+                      - "{{ ('auto_up_enabled' in auto_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
+                      - "{{ ('auto_up_enabled' in auto_options) and (current_position | int(default=110) > ventilate_position) }}"
                 sequence:
                   - service: input_text.set_value
                     data:
@@ -1344,8 +1400,10 @@ action:
                         {% set dictionary = states(cover_status_helper) | from_json  %}
                         {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
-              - conditions:
-                  - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+              - conditions: # Manually closed
+                  - or:
+                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) < shading_cover_position) and (current_position | int(default=110) < ventilate_position) }}"
                 sequence:
                   - service: input_text.set_value
                     data:
@@ -1354,7 +1412,7 @@ action:
                         {% set dictionary = states(cover_status_helper) | from_json  %}
                         {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
-              - conditions:
+              - conditions: # Manually ventilated
                   - "{{ ('auto_ventilate_enabled' in auto_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
                 sequence:
                   - service: input_text.set_value
@@ -1364,7 +1422,7 @@ action:
                         {% set dictionary = states(cover_status_helper) | from_json  %}
                         {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
-              - conditions:
+              - conditions: # Manually shaded
                   - "{{ ('auto_shading_enabled' in auto_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
                 sequence:
                   - service: input_text.set_value
@@ -1377,16 +1435,116 @@ action:
 
     default:
       # TODO: I'm not sure whether I want to have this checked with every default run.
-      # - if:
-      #     - or:
-      #         - "{{ closed_position > ventilate_position }}"
-      #         - "{{ open_position < closed_position }}"
-      #         - "{{ open_position < ventilate_position }}"
-      #         - "{{ open_position < shading_cover_position }}"
-      #   then:
-      #     - service: system_log.write
-      #       data:
-      #         level: "error"
-      #         message: "Cover Control Automation (CCA) - Incorrect position values in the blueprint. Please note the instructions in the blueprint."
-      #         logger: "blueprints.hvorragend.cover_control_automation"
+      - if:
+          - "{{ check_config }}"
+        then:
+          ## checking time slots
+          - if:
+              - "{{ today(time_up_early) >= today(time_up_late) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: time_up_early should be earlier than time_up_late - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ today(time_up_early_non_workday) >= today(time_up_late) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: time_up_early_non_workday should be earlier than time_up_late - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ today(time_down_early) >= today(time_down_late) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: time_down_early should be earlier than time_down_late - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          ## checking shading
+          - if:
+              - "{{ shading_azimuth_start >= shading_azimuth_end }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: shading_azimuth_start should be lower than shading_azimuth_end - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ shading_elevation_min >= shading_elevation_max }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: shading_elevation_min should be lower than - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ shading_sun_brightness_start <= shading_sun_brightness_end }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: shading_sun_brightness_start should be higher than shading_sun_brightness_end - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          ## checking positions
+          - if:
+              - "{{ (open_position - position_tolerance) <= (closed_position + position_tolerance) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: open_position should be higher than closed_position - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: open_position should be higher than ventilate_position - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ (closed_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: closed_position should be lower than ventilate_position - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ (shading_cover_position - position_tolerance) <= (closed_position + position_tolerance)}}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: shading_cover_position should be higher than closed_position - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ (shading_cover_position + position_tolerance) >= (open_position - position_tolerance) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: shading_cover_position should be lower than open_position - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ ( (resident_sensor != [] ) and (not is_state(resident_sensor, ['false', 'off','true', 'on'])) ) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: resident_sensor is only allowed to be on/off/true/false - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          ## checking if sensors have the right attributes
+          - if:
+              - "{{ state_attr(blind, 'current_position') is none }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: blind is missing attribute current_position - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+
       - stop: "Stopping the automation - Reset"
