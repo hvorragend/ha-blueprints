@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.28-02** / hvorragend
+    **Version: 2024.01.28-03** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -64,6 +64,9 @@ blueprint:
       - Added: Cover Drive Time
       - A few logic changes
 
+    2024.01.28-03:
+      - Added config check for sun attributes
+      - Fixed: Wrong trigger condition while closing
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -1206,7 +1209,9 @@ action:
               - "{{ 'auto_down_enabled' in auto_options }}"
               - "{{ 'auto_ventilate_enabled' in auto_options }}"
           - or:
-              - condition: !input auto_down_condition
+              - and:
+                  - "{{ auto_down_condition != [] }}"
+                  - condition: !input auto_down_condition
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
           - or:
@@ -1545,6 +1550,22 @@ action:
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "New shading - config issue: blind is missing attribute current_position - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: sun sensor is missing attribute elevation - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          - if:
+              - "{{ state_attr(default_sun_sensor, 'azimuth') is none }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "New shading - config issue: sun sensor is missing attribute azimuth - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
 
       - stop: "Stopping the automation - Reset"
