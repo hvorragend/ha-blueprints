@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.29-05** / hvorragend
+    **Version: 2024.01.30-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -70,6 +70,10 @@ blueprint:
 
     2024.01.29-04/2024.01.29-05:
       - Updated descriptions
+
+    2024.01.30-01:
+      - Fixed and extended config check
+      - Fixed closing condition. Wrong fix yesterday
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -1224,7 +1228,9 @@ action:
               - "{{ 'auto_down_enabled' in auto_options }}"
               - "{{ 'auto_ventilate_enabled' in auto_options }}"
           - or:
-              - "{{ auto_down_condition != [] and auto_down_condition }}" # TODO: I don't know if this works
+              - and:
+                  - "{{ auto_down_condition != [] }}"
+                  - condition: !input auto_down_condition
               - condition: trigger # resident_sensor
                 id: "t_bc_5"
           - or:
@@ -1458,28 +1464,28 @@ action:
         then:
           ## checking time slots
           - if:
-              - "{{ today(time_up_early) >= today(time_up_late) }}"
+              - "{{ today_at(time_up_early) >= today_at(time_up_late) }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: time_up_early should be earlier than time_up_late - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: time_up_early should be earlier than time_up_late - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ today(time_up_early_non_workday) >= today(time_up_late) }}"
+              - "{{ today_at(time_up_early_non_workday) >= today_at(time_up_late) }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: time_up_early_non_workday should be earlier than time_up_late - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: time_up_early_non_workday should be earlier than time_up_late - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ today(time_down_early) >= today(time_down_late) }}"
+              - "{{ today_at(time_down_early) >= today_at(time_down_late) }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: time_down_early should be earlier than time_down_late - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: time_down_early should be earlier than time_down_late - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           ## checking shading
           - if:
@@ -1488,7 +1494,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: shading_azimuth_start should be lower than shading_azimuth_end - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: shading_azimuth_start should be lower than shading_azimuth_end - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ shading_elevation_min >= shading_elevation_max }}"
@@ -1496,7 +1502,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: shading_elevation_min should be lower than - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: shading_elevation_min should be lower than - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ shading_sun_brightness_start <= shading_sun_brightness_end }}"
@@ -1504,7 +1510,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: shading_sun_brightness_start should be higher than shading_sun_brightness_end - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: shading_sun_brightness_start should be higher than shading_sun_brightness_end - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           ## checking positions
           - if:
@@ -1513,7 +1519,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: open_position should be higher than closed_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: open_position should be higher than closed_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
@@ -1521,7 +1527,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: open_position should be higher than ventilate_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: open_position should be higher than ventilate_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ (closed_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
@@ -1529,7 +1535,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: closed_position should be lower than ventilate_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: closed_position should be lower than ventilate_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ (shading_cover_position - position_tolerance) <= (closed_position + position_tolerance)}}"
@@ -1537,7 +1543,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: shading_cover_position should be higher than closed_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: shading_cover_position should be higher than closed_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ (shading_cover_position + position_tolerance) >= (open_position - position_tolerance) }}"
@@ -1545,7 +1551,7 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: shading_cover_position should be lower than open_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: shading_cover_position should be lower than open_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ ( (resident_sensor != [] ) and (not is_state(resident_sensor, ['false', 'off','true', 'on'])) ) }}"
@@ -1553,24 +1559,25 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: resident_sensor is only allowed to be on/off/true/false - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: resident_sensor is only allowed to be on/off/true/false - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          ## checking if sensors have the right attributes
+          ## checking if blind entity has the right attributes
           - if:
               - "{{ state_attr(blind, 'current_position') is none }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: blind is missing attribute current_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: blind is missing attribute current_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
+          ## checking if sun sensor has the right attributes
           - if:
               - "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: sun sensor is missing attribute elevation - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: sun sensor is missing attribute elevation - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ state_attr(default_sun_sensor, 'azimuth') is none }}"
@@ -1578,7 +1585,28 @@ action:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "New shading - config issue: sun sensor is missing attribute azimuth - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: sun sensor is missing attribute azimuth - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
+          ## checking if brightness sensor is defined
+          - if:
+              - or:
+                  - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] }}"
+                  - "{{ 'auto_brightness_enabled' in auto_options and not is_number(states(default_brightness_sensor)) }}"
+            then:
+              - service: system_log.write
+                data:
+                  level: "{{ check_config_debuglevel }}"
+                  message: "Cover Control Automation (CCA): Config issue: brightness sensor not defined or state is not numeric - {{this.entity_id}}"
+                  logger: "blueprints.hvorragend.cover_control_automation"
+          # - if: # TODO: not needed, because you cannot save the automation with wrong values
+          #     - or:
+          #         - "{{ 'auto_brightness_enabled' in auto_options and not is_number(brightness_up) }}"
+          #         - "{{ 'auto_brightness_enabled' in auto_options and not is_number(brightness_down) }}"
+          #   then:
+          #     - service: system_log.write
+          #       data:
+          #         level: "{{ check_config_debuglevel }}"
+          #         message: "Cover Control Automation (CCA): Config issue: brightness_up or brightness_down values are not numeric - {{this.entity_id}}"
+          #         logger: "blueprints.hvorragend.cover_control_automation"
 
       - stop: "Stopping the automation - Reset"
