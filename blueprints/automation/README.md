@@ -63,23 +63,7 @@ This is a comprehensive and highly configurable blueprint that can be used for t
   - Fixed one resident condition (thx to Eimeel)
   - Added version number to json (thx to Eimeel)
 
-2024.01.29-02:
-  - Added: Implemented configuration check to perform some basic checks (idea and code by Eimeel)
-  - Added: Cover Drive Time
-  - A few logic changes
-
-2024.01.29-03:
-  - Added config check for sun attributes
-  - Fixed: Wrong trigger condition while closing
-
-2024.01.29-04/2024.01.29-05:
-  - Updated descriptions
-
-2024.01.30-01/2024.01.30-02:
-  - Fixed and extended config check
-  - Fixed closing condition. Wrong fix yesterday. Back to the origin. Will check this later.
-
-# Why did I fork the original or what are the differences to the Eimeel blueprint:
+# Why did I fork the original or what are the differences to the Eimeel blueprint?
 - Icons-Updates
 - Streamline variables
 - Complete GUI optimization
@@ -87,7 +71,8 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 - Added waiting time duration for sensors
 - Added fixed/random drive delays
 - Added several condition selectors: Useful to be able to check various conditions such as party mode or similar when opening, closing, shading, etc.
-- Closing after shading just when position is lower than before # TODO
+- Closing after shading just when position is lower than before
+- 
 - Added the possibility that the previous position did not necessarily have to be controlled by the automation.
 - Added optional Cover Status Helper
 - Try to recognize manual drives
