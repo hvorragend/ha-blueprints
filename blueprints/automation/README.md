@@ -56,13 +56,6 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 - cover must have a `current_position` attribute
 - After manual creation in the GUI, the helper is filled with standard content on the <ins>first trigger</ins>. In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself a few minutes later. The next day at the latest.
 
-# Changelog
-
-2024.01.29-01:
-  - Updated hints
-  - Fixed one resident condition (thx to Eimeel)
-  - Added version number to json (thx to Eimeel)
-
 # Why did I fork the original or what are the differences to the Eimeel blueprint?
 - Icons-Updates
 - Streamline variables
