@@ -65,7 +65,6 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 - Added fixed/random drive delays
 - Added several condition selectors: Useful to be able to check various conditions such as party mode or similar when opening, closing, shading, etc.
 - Closing after shading just when position is lower than before
-- 
 - Added the possibility that the previous position did not necessarily have to be controlled by the automation.
 - Added optional Cover Status Helper
 - Try to recognize manual drives
