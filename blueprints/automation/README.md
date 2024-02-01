@@ -78,3 +78,16 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 2024.01.30-01/2024.01.30-02:
   - Fixed and extended config check
   - Fixed closing condition. Wrong fix yesterday. Back to the origin. Will check this later.
+
+# Why did I fork the original or what are the differences to the Eimeel blueprint:
+- Icons-Updates
+- Streamline variables
+- Complete GUI optimization
+- Added sun elevation feature: Sun control for up/down
+- Added waiting time duration for sensors
+- Added fixed/random drive delays
+- Added several condition selectors: Useful to be able to check various conditions such as party mode or similar when opening, closing, shading, etc.
+- Closing after shading just when position is lower than before # TODO
+- Added the possibility that the previous position did not necessarily have to be controlled by the automation.
+- Added optional Cover Status Helper
+- Try to recognize manual drives
