@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.01.30-02** / hvorragend
+    **Version: 2024.02.01-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -51,7 +51,9 @@ blueprint:
     - `shading_cover_position` should be lower than `open_position`
     - `resident_sensor` is only allowed to be on/off/true/false
     - cover must have a `current_position` attribute
-    - After manual creation in the GUI, the helper is filled with standard content on the <ins>first trigger</ins>. In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself a few minutes later. The next day at the latest.
+    - After <ins>manual creation</ins> of the helper in the GUI, it will be filled with standard content on the <ins>first trigger</ins>.
+      In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself with the next trigger later.
+      Alternatively, the roller blinds must be moved shortly once so that the automation system knows what the current status is.
 
     **Changelog**
     2024.01.29-01:
@@ -75,11 +77,17 @@ blueprint:
       - Fixed and extended config check
       - Fixed closing condition. Wrong fix yesterday. Back to the origin. Will check this later.
 
+    2024.02.01-01:
+      - Minor Layout changes
+      - Removed commented out code
+      - Fixed closing-condition
+      - Fixed cover status helper initialisation and still make the first cover drive possible
+
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
     </details>
 
-  # Differences to the Eimeel blueprint:
+  # Why did I fork the original? Differences to the Eimeel blueprint:
   # - Icons-Updates
   # - Streamline variables
   # - Complete GUI optimization
@@ -93,10 +101,9 @@ blueprint:
   # - Try to recognize manual drives
 
   # Notes / Planned modifications:
-  # FAIL if auto_brightness_enabled and brightness_sensor isn't set
   # - Does it make sense to integrate the values of the custom integration 'Adaptive Cover'? https://github.com/basbruss/adaptive-cover
   # - Shading activation before opening?
-  # - Add checkbox options?
+  # - Add a checkbox with the following selection options?
   #   It is permitted to move to a lower position than the shading position when closing
   #   Allow shading out if cover is closed? Add another boolean for that?
   #   Hotdaycheck: Forecast and not just current temperature: The blinds should not be opened at all when it gets very hot.
@@ -459,6 +466,39 @@ blueprint:
           min: 0
           max: 100
           unit_of_measurement: "%"
+    shading_brightness_sensor:
+      name: "🕶️ Brightness Sensor For Shading"
+      description: "An additional brightness sensor can be defined here, which is only used for shading. (Leave free if the same as the default brightness sensor is to be used).\n\n`Optional`\n\n`Shading`"
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - sensor
+    shading_sun_brightness_start:
+      name: "🕶️ Shading Brightness Start Value"
+      description:
+        "The minimum brightness value from which shading should start.
+        (Must be above the value of brightness out!)\n\n`Optional`\n\n`Shading`"
+      default: 35000
+      selector:
+        number:
+          min: 0.0
+          max: 100000.0
+          unit_of_measurement: lx
+          step: 10.0
+    shading_sun_brightness_end:
+      name: "🕶️ Shading Brightness End Value"
+      description:
+        "The brightness value from which shading is no longer necessary.
+        (Must be BELOW the value of brightness in!).\n\n`Optional`\n\n`Shading`"
+      default: 25000
+      selector:
+        number:
+          min: 0.0
+          max: 100000.0
+          unit_of_measurement: lx
+          step: 10.0
     shading_azimuth_start:
       name: "🕶️ Shading Azimuth Start Value"
       description: "What is the minimum azimuth at which the sun hits the window? (Shading will start) \n\n`The attribute of default sun sensor (configured above) is used.`\n\n`Shading`"
@@ -535,39 +575,6 @@ blueprint:
           min: 0.0
           max: 50.0
           unit_of_measurement: "°C"
-    shading_brightness_sensor:
-      name: "🕶️ Brightness Sensor For Shading"
-      description: "An additional brightness sensor can be defined here, which is only used for shading. (Leave free if the same as the default brightness sensor is to be used).\n\n`Optional`\n\n`Shading`"
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - sensor
-    shading_sun_brightness_start:
-      name: "🕶️ Shading Brightness Start Value"
-      description:
-        "The minimum brightness value from which shading should start.
-        (Must be above the value of brightness out!)\n\n`Optional`\n\n`Shading`"
-      default: 35000
-      selector:
-        number:
-          min: 0.0
-          max: 100000.0
-          unit_of_measurement: lx
-          step: 10.0
-    shading_sun_brightness_end:
-      name: "🕶️ Shading Brightness End Value"
-      description:
-        "The brightness value from which shading is no longer necessary.
-        (Must be BELOW the value of brightness in!).\n\n`Optional`\n\n`Shading`"
-      default: 25000
-      selector:
-        number:
-          min: 0.0
-          max: 100000.0
-          unit_of_measurement: lx
-          step: 10.0
     shading_forecast_sensor:
       name: "🕶️ Forecast Temperature Sensor"
       description:
@@ -692,7 +699,7 @@ variables:
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
   cover_status_helper_enabled: '{{ ("cover_helper_enabled" in cover_status_options and cover_status_helper != []) and states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
-  cover_status_helper_disabled: "{{ ('cover_helper_disabled' in cover_status_options or cover_status_helper == []) }}"
+  cover_status_helper_disabled: '{{ ("cover_helper_disabled" in cover_status_options or cover_status_helper == [] or states(cover_status_helper) == [] or not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") or states(cover_status_helper) not in ["unavailable", "none", "unknown"] ) }}' # Fallback to disabled helper if a) helper doesn't exists, b) helper is empty, c) no json content, d) is unknown. Absolutely necessary for the first run if the helper is not yet set.
   cover_status_open: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).open | bool }}"
   cover_status_close: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).close | bool }}"
   cover_status_ventilate: "{{ cover_status_helper_enabled and (states(cover_status_helper)|from_json).ventilate | bool }}"
@@ -796,10 +803,6 @@ trigger:
     entity_id: !input shading_temperatur_sensor1
     above: !input shading_forecast_temp
     id: "t_si_6"
-  # - platform: state #FIXME
-  #   entity_id: !input auto_shading_start_condition
-  #   id: "t_si_7"
-  #   for: "00:00:05" # we need a small delay cause temporary_disable_shading also triggers shading in
 
   # triggers for shading out
   - platform: numeric_state
@@ -829,10 +832,6 @@ trigger:
     attribute: elevation
     below: !input shading_elevation_min
     id: "t_so_6"
-  # - platform: state #FIXME
-  #   entity_id: !input auto_shading_start_condition
-  #   id: "t_so_7" # it's a duplicate of t_si_7 but we need both as a kind of workaround as all other triggers for shading in/out could already have fired
-  #   for: "00:00:02" # we need a small delay cause temporary_disable_shading also triggers shading in
 
   # trigger for opening cover
   - platform: numeric_state
@@ -950,19 +949,6 @@ action:
             {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())} %}
             {{ dictionary | to_json }}
 
-  # # Add version number to json
-  # - if:
-  #     - "{{ 'cover_helper_enabled' in cover_status_options }}"
-  #     - '{{ not states(cover_status_helper) | regex_match("(version)") }}'
-  #   then:
-  #     - service: input_text.set_value
-  #       data:
-  #         entity_id: !input cover_status_helper
-  #         value: |
-  #           {% set dictionary = states(cover_status_helper) | from_json  %}
-  #           {% set result = dict(dictionary, **{'version': 1}) %}
-  #           {{ result | to_json }}
-
   - choose:
       - alias: "Check and perform shading in or covers up"
         conditions:
@@ -979,7 +965,6 @@ action:
                   - "t_si_4" # shading_elevation_min
                   - "t_si_5" # shading_azimuth
                   - "t_si_6" # shading_forecast_temp
-                  - "t_si_7" # auto_shading_start_condition
               # Check if we have a trigger for covers up
               - condition: trigger
                 id:
@@ -1017,9 +1002,6 @@ action:
                       - or:
                           - "{{ cover_status_helper_enabled and cover_status_open and not cover_status_shading }}"
                           - "{{ cover_status_helper_disabled and (current_position | int(default=101) > ventilate_position) }}"
-                      - not:
-                          - condition: trigger # auto_shading_start_condition
-                            id: "t_si_7"
                     then:
                       - alias: "Wait the number of seconds set in shading_waitingtime"
                         delay:
@@ -1155,7 +1137,6 @@ action:
                   - "t_so_4" # shading_elevation_max
                   - "t_so_5" # shading_azimuth_end
                   - "t_so_6" # shading_elevation_min
-                  - "t_so_7" # auto_shading_start_condition
           - or:
               - "{{ cover_status_helper_enabled and cover_status_shading }}"
               - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_cover_position) }}"
@@ -1165,9 +1146,6 @@ action:
               - and:
                   - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                   - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
-              - not:
-                  - condition: trigger # auto_shading_start_condition
-                    id: "t_so_7"
             then:
               - alias: "Wait the number of seconds set in shading_waitingtime_end"
                 delay:
@@ -1227,13 +1205,7 @@ action:
           - or:
               - "{{ 'auto_down_enabled' in auto_options }}"
               - "{{ 'auto_ventilate_enabled' in auto_options }}"
-          - or:
-              # - and:
-              #     - "{{ auto_down_condition != [] }}"
-              #     - condition: !input auto_down_condition
-              - condition: !input auto_down_condition
-              - condition: trigger # resident_sensor
-                id: "t_bc_5"
+          - condition: !input auto_down_condition
           - or:
               # Check if we have a trigger for cover down
               - condition: trigger
@@ -1599,15 +1571,5 @@ action:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: brightness sensor not defined or state is not numeric - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          # - if: # TODO: not needed, because you cannot save the automation with wrong values
-          #     - or:
-          #         - "{{ 'auto_brightness_enabled' in auto_options and not is_number(brightness_up) }}"
-          #         - "{{ 'auto_brightness_enabled' in auto_options and not is_number(brightness_down) }}"
-          #   then:
-          #     - service: system_log.write
-          #       data:
-          #         level: "{{ check_config_debuglevel }}"
-          #         message: "Cover Control Automation (CCA): Config issue: brightness_up or brightness_down values are not numeric - {{this.entity_id}}"
-          #         logger: "blueprints.hvorragend.cover_control_automation"
 
       - stop: "Stopping the automation - Reset"
