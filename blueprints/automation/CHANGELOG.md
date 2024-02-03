@@ -36,3 +36,6 @@
 2024.02.03-01:
   - Strict separation of the two brightness sensors. The previous problem was that the shading sensor used the same values to open or close the blinds as the normal sensor. Depending on the sensor (different edge, slope, median, filter, etc.), incorrect triggers occur.
     Important: If required, please register both brightness sensors.
+
+2024.02.03-02:
+  - Opening the blinds only until time_down_early. Otherwise, overlaps may occur if the brightness values are not set correctly. Avoid bouncing the blinds.
