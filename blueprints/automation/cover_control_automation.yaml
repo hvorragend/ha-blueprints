@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.02.02-01** / hvorragend
+    **Version: 2024.02.03-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -88,6 +88,10 @@ blueprint:
         Old: closed_position - New: close_position
         Old: shading_cover_position - New: shading_position
       - Added tilt positions for open, close and ventilation
+
+    2024.02.03-01:
+      - Strict separation of the two brightness sensors. The previous problem was that the shading sensor used the same values to open or close the blinds as the normal sensor. Depending on the sensor (different edge, slope, median, filter, etc.), incorrect triggers occur.
+        Important: If required, please register both brightness sensors.
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -501,7 +505,7 @@ blueprint:
           unit_of_measurement: "%"
     shading_brightness_sensor:
       name: "🕶️ Brightness Sensor For Shading"
-      description: "An additional brightness sensor can be defined here, which is only used for shading. (Leave free if the same as the default brightness sensor is to be used).\n\n`Optional`\n\n`Shading`"
+      description: "An additional brightness sensor can be defined here, which is only used for shading.\n\n`Optional`\n\n`Shading`"
       default: []
       selector:
         entity:
@@ -891,12 +895,6 @@ trigger:
     to: "off"
     id: "t_bo_5"
   - platform: numeric_state
-    entity_id: !input shading_brightness_sensor
-    above: !input brightness_up
-    for:
-      seconds: !input brightness_time_duration
-    id: "t_bo_6"
-  - platform: numeric_state
     entity_id: !input default_sun_sensor
     above: !input sun_elevation_up
     attribute: elevation
@@ -926,11 +924,6 @@ trigger:
     from: "off"
     to: "on"
     id: "t_bc_5"
-  - platform: numeric_state
-    entity_id: !input shading_brightness_sensor
-    below: !input brightness_down
-    for: !input brightness_time_duration
-    id: "t_bc_6"
   - platform: numeric_state
     entity_id: !input default_sun_sensor
     attribute: elevation
@@ -1009,7 +1002,6 @@ action:
                   - "t_bo_3" # time_up_early
                   - "t_bo_4" # time_up_early_non_workday
                   - "t_bo_5" # resident
-                  - "t_bo_6" # brightness_up - shading_brightness_sensor
                   - "t_bo_7" # sun_elevation_up
         sequence:
           - choose:
@@ -1087,7 +1079,6 @@ action:
                           - "t_bo_3" # time_up_early
                           - "t_bo_4" # time_up_early_non_workday
                           - "t_bo_5" # resident
-                          - "t_bo_6" # brightness_up - shading_brightness_sensor
                           - "t_bo_7" # sun_elevation_up
                   - or:
                       - "{{ cover_status_helper_enabled and cover_status_close }}"
@@ -1113,9 +1104,8 @@ action:
                           - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
                           - or:
                               - or:
-                                  - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] and shading_brightness_sensor == [] }}"
+                                  - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] }}"
                                   - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor != [] and (states(default_brightness_sensor) | int(default=brightness_up) >= brightness_up) }}"
-                                  - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] and shading_brightness_sensor != [] and (states(shading_brightness_sensor) | int(default=brightness_up) >= brightness_up) }}"
                               - or:
                                   - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor == [] }}"
                                   - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_up) >= sun_elevation_up) }}"
@@ -1288,7 +1278,6 @@ action:
                   - "t_bc_3" # time_down_late
                   - "t_bc_4" # contact_sensor
                   - "t_bc_5" # resident_sensor
-                  - "t_bc_6" # brightness_down
                   - "t_bc_7" # sun_elevation_down
           # check to allow a window but a door only if contact_sensor not open - we want protection
           - or:
@@ -1313,9 +1302,8 @@ action:
                   - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
                   - or:
                       - or:
-                          - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] and shading_brightness_sensor == [] }}"
+                          - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] }}"
                           - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor != [] and (states(default_brightness_sensor) | int(default=brightness_down) <= brightness_down) }}"
-                          - "{{ 'auto_brightness_enabled' in auto_options and shading_brightness_sensor != [] and (states(shading_brightness_sensor) | int(default=brightness_down) <= brightness_down) }}"
                       - or:
                           - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor == [] }}"
                           - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) }}"
