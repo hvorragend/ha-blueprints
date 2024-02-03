@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.02.01-01** / hvorragend
+    **Version: 2024.02.02-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -44,11 +44,11 @@ blueprint:
     - `shading_azimuth_start` should be lower than `shading_azimuth_end`
     - `shading_elevation_min` should be lower than `shading_elevation_max`
     - `shading_sun_brightness_start` should be higher than `shading_sun_brightness_end`
-    - `open_position` should be higher than `closed_position`
+    - `open_position` should be higher than `close_position`
     - `open_position` should be higher than `ventilate_position`
-    - `closed_position` should be lower than `ventilate_position`
-    - `shading_cover_position` should be higher than `closed_position`
-    - `shading_cover_position` should be lower than `open_position`
+    - `close_position` should be lower than `ventilate_position`
+    - `shading_position` should be higher than `close_position`
+    - `shading_position` should be lower than `open_position`
     - `resident_sensor` is only allowed to be on/off/true/false
     - cover must have a `current_position` attribute
     - After <ins>manual creation</ins> of the helper in the GUI, it will be filled with standard content on the <ins>first trigger</ins>.
@@ -82,6 +82,12 @@ blueprint:
       - Removed commented out code
       - Fixed closing-condition
       - Fixed cover status helper initialisation and still make the first cover drive possible
+
+    2024.02.02-01:
+      - *BREAKING CHANGE:* Please reconfigure/rename the variables close_position and shading_position in your blueprint config.
+        Old: closed_position - New: close_position
+        Old: shading_cover_position - New: shading_position
+      - Added tilt positions for open, close and ventilation
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -174,6 +180,15 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
+    open_tilt_position:
+      name: "🔼 Open Tilt Position"
+      description: "To which tilt position should the cover be moved when opening?"
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
     time_up_early:
       name: "🔼 Time For Drive Up - Early On Workdays"
       description: "The earliest time at which the cover may be opened. The cover will be opened if <ins>AFTER</ins> this time the defined brightness or sun-elevation value is high enough. (**NOTE**: If a resident is defined, he must also be awake)."
@@ -201,14 +216,23 @@ blueprint:
       selector:
         condition: {}
 
-    closed_position:
-      name: "🔻 Closed Position"
+    close_position:
+      name: "🔻 Close Position"
       description: "What position should the cover be moved into when closing?"
       default: 0
       selector:
         number:
           min: 0.0
           max: 100.0
+          unit_of_measurement: "%"
+    close_tilt_position:
+      name: "🔻 Close Tilt Position"
+      description: "To which tilt position should the cover be moved when closing?"
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
           unit_of_measurement: "%"
     time_down_early:
       name: "🔻 Time For Drive Down - Early"
@@ -374,6 +398,15 @@ blueprint:
           min: 0.0
           max: 100.0
           unit_of_measurement: "%"
+    ventilate_tilt_position:
+      name: "💨 Ventilate Tilt Position"
+      description: "To which tilt position should the cover be moved for ventilation?"
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
 
     drive_delay_fix:
       name: "🕛 Fixed Drive Delay"
@@ -448,7 +481,7 @@ blueprint:
           step: 1.0
           mode: slider
 
-    shading_cover_position:
+    shading_position:
       name: "🕶️ Shading Position"
       description: "To which position should the cover be moved for shading?\n\n`Shading`"
       default: 25
@@ -738,9 +771,12 @@ variables:
 
   # Positions
   open_position: !input open_position
-  closed_position: !input closed_position
-  position_tolerance: !input position_tolerance
+  open_tilt_position: !input shading_tilt_position
+  close_position: !input close_position
+  close_tilt_position: !input close_tilt_position
   ventilate_position: !input ventilate_position
+  ventilate_tilt_position: !input ventilate_tilt_position
+  position_tolerance: !input position_tolerance
 
   # Sensors
   contact_cover_place: !input contact_cover_place
@@ -757,7 +793,7 @@ variables:
   shading_azimuth_end: !input shading_azimuth_end
   shading_elevation_min: !input shading_elevation_min
   shading_elevation_max: !input shading_elevation_max
-  shading_cover_position: !input shading_cover_position
+  shading_position: !input shading_position
   shading_tilt_position: !input shading_tilt_position
   shading_sun_brightness_start: !input shading_sun_brightness_start
   shading_sun_brightness_end: !input shading_sun_brightness_end
@@ -946,8 +982,8 @@ action:
         data:
           entity_id: !input cover_status_helper
           value: |
-            {% set dictionary = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())} %}
-            {{ dictionary | to_json }}
+            {% set dict_var = {'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())} %}
+            {{ dict_var | to_json }}
 
   - choose:
       - alias: "Check and perform shading in or covers up"
@@ -989,7 +1025,7 @@ action:
                       - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | int(default=shading_sun_brightness_start) >= shading_sun_brightness_start) ) }}"
                       - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                       - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
-                      - "{{ current_position | int(default=101) > shading_cover_position }}"
+                      - "{{ current_position | int(default=101) > shading_position }}"
                       - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
@@ -1010,23 +1046,23 @@ action:
                   - repeat:
                       for_each: "{{ blind_entities|list }}"
                       sequence:
-                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
                         - alias: "Moving the cover to shading position"
                           service: cover.set_cover_position
                           data:
-                            position: !input shading_cover_position
+                            position: !input shading_position
                           target:
                             entity_id: "{{ repeat.item }}"
                         - if:
-                            - "{{ state_attr(blind, 'current_tilt_position') != 'None' }}"
+                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                           then:
                             - alias: "Moving the cover to tilt position"
                               service: cover.set_cover_tilt_position
                               data:
                                 tilt_position: !input shading_tilt_position
                               target:
-                                entity_id: !input blind
+                                entity_id: "{{ repeat.item }}"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
                   - if:
                       - "{{ 'cover_helper_enabled' in cover_status_options }}"
                     then:
@@ -1034,8 +1070,8 @@ action:
                         data:
                           entity_id: !input cover_status_helper
                           value: |
-                            {% set dictionary = states(cover_status_helper) | from_json  %}
-                            {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'off', 't': as_timestamp(now())}) %}
+                            {% set dict_var = states(cover_status_helper) | from_json  %}
+                            {% set result = dict(dict_var, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'off', 't': as_timestamp(now())}) %}
                             {{ result | to_json }}
                   - stop: "Stop the automation"
 
@@ -1057,7 +1093,7 @@ action:
                       - "{{ cover_status_helper_enabled and cover_status_close }}"
                       - "{{ cover_status_helper_enabled and cover_status_ventilate }}"
                       - "{{ cover_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
-                      - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance)}}"
+                      - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance)}}"
                   - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                   # Now we have to check different opening scenarios
                   - or:
@@ -1090,8 +1126,6 @@ action:
                   - repeat:
                       for_each: "{{ blind_entities|list }}"
                       sequence:
-                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
                         - if:
                             - "{{ open_position == 100 }}"
                           then:
@@ -1107,6 +1141,18 @@ action:
                                 position: !input open_position
                               target:
                                 entity_id: "{{ repeat.item }}"
+                        - if:
+                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                          then:
+                            - alias: "Moving the cover to tilt position"
+                              service: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: !input open_tilt_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
+
                   - if:
                       - "{{ 'cover_helper_enabled' in cover_status_options }}"
                     then:
@@ -1114,8 +1160,8 @@ action:
                         data:
                           entity_id: !input cover_status_helper
                           value: |
-                            {% set dictionary = states(cover_status_helper) | from_json  %}
-                            {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())}) %}
+                            {% set dict_var = states(cover_status_helper) | from_json  %}
+                            {% set result = dict(dict_var, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())}) %}
                             {{ result | to_json }}
                   - stop: "Stop the automation"
 
@@ -1139,7 +1185,7 @@ action:
                   - "t_so_6" # shading_elevation_min
           - or:
               - "{{ cover_status_helper_enabled and cover_status_shading }}"
-              - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_cover_position) }}"
+              - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_position) }}"
         sequence:
           - if:
               # if sun is outside of shading window (azimuth or elevation) we immedately stop shading
@@ -1163,6 +1209,15 @@ action:
                         position: !input ventilate_position
                       target:
                         entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input ventilate_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
                     - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
               - if:
@@ -1172,21 +1227,39 @@ action:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
             else:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
                   sequence:
+                    - if:
+                        - "{{ open_position == 100 }}"
+                      then:
+                        - alias: "Moving the cover to open position"
+                          service: cover.open_cover
+                          data: {}
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                      else:
+                        - alias: "Moving the cover to open position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input open_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input open_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
                     - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
-                    - alias: "Moving the cover to open position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input open_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
               - if:
                   - "{{ 'cover_helper_enabled' in cover_status_options }}"
                 then:
@@ -1194,8 +1267,8 @@ action:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
 
           - stop: "Stop the automation"
@@ -1225,7 +1298,7 @@ action:
           - or:
               - "{{ cover_status_helper_enabled and cover_status_open }}"
               - "{{ cover_status_helper_enabled and cover_status_ventilate }}"
-              - "{{ cover_status_helper_enabled and cover_status_shading and (closed_position < shading_cover_position) }}" # TODO: Keep this?
+              - "{{ cover_status_helper_enabled and cover_status_shading and (close_position < shading_position) }}" # TODO: Keep this?
               - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               - "{{ cover_status_helper_disabled and (current_position == ventilate_position) }}"
           - or:
@@ -1284,6 +1357,15 @@ action:
                         position: !input ventilate_position
                       target:
                         entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input ventilate_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
                     - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                       delay: "00:00:{{ (range(1, 3)|random|int) }}"
               - if:
@@ -1293,15 +1375,15 @@ action:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
             else:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
                   sequence:
                     - if:
-                        - "{{ closed_position == 0 }}"
+                        - "{{ close_position == 0 }}"
                       then:
                         - alias: "Moving the cover to close position"
                           service: cover.close_cover
@@ -1312,7 +1394,16 @@ action:
                         - alias: "Moving the cover to close position"
                           service: cover.set_cover_position
                           data:
-                            position: !input closed_position
+                            position: !input close_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input close_tilt_position
                           target:
                             entity_id: "{{ repeat.item }}"
                     - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
@@ -1324,8 +1415,8 @@ action:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'off', 'version': 1, 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
           - stop: "Stop the automation"
 
@@ -1337,7 +1428,7 @@ action:
           - "{{ contact_sensor != [] and is_state(contact_sensor, 'on') }}"
           - or:
               - "{{ cover_status_helper_enabled and cover_status_close }}"
-              - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+              - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
         sequence:
           - repeat:
               for_each: "{{ blind_entities|list }}"
@@ -1348,6 +1439,15 @@ action:
                     position: !input ventilate_position
                   target:
                     entity_id: "{{ repeat.item }}"
+                - if:
+                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                  then:
+                    - alias: "Moving the cover to tilt position"
+                      service: cover.set_cover_tilt_position
+                      data:
+                        tilt_position: !input ventilate_tilt_position
+                      target:
+                        entity_id: "{{ repeat.item }}"
                 - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                   delay: "00:00:{{ (range(1, 3)|random|int) }}"
           - if:
@@ -1357,8 +1457,8 @@ action:
                 data:
                   entity_id: !input cover_status_helper
                   value: |
-                    {% set dictionary = states(cover_status_helper) | from_json  %}
-                    {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
+                    {% set dict_var = states(cover_status_helper) | from_json  %}
+                    {% set result = dict(dict_var, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'off', 't': as_timestamp(now())}) %}
                     {{ result | to_json }}
           - stop: "Stop the automation"
 
@@ -1374,16 +1474,16 @@ action:
               - conditions: # Now defined positions can be assigned
                   - not:
                       - "{{ ('auto_up_enabled' in auto_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
-                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
+                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
                       - "{{ ('auto_ventilate_enabled' in auto_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
-                      - "{{ ('auto_shading_enabled' in auto_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
+                      - "{{ ('auto_shading_enabled' in auto_options) and (current_position | int(default=110) <= shading_position + position_tolerance) and (current_position | int(default=110) >= shading_position - position_tolerance) }}"
                 sequence:
                   - service: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
               - conditions: # Manually opened
                   - or:
@@ -1394,20 +1494,20 @@ action:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'on', 'close': 'off', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
               - conditions: # Manually closed
                   - or:
-                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= closed_position + position_tolerance) and (current_position | int(default=110) >= closed_position - position_tolerance) }}"
-                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) < shading_cover_position) and (current_position | int(default=110) < ventilate_position) }}"
+                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
+                      - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) < shading_position) and (current_position | int(default=110) < ventilate_position) }}"
                 sequence:
                   - service: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'off', 'close': 'on', 'ventilate': 'off', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
               - conditions: # Manually ventilated
                   - "{{ ('auto_ventilate_enabled' in auto_options) and (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
@@ -1416,18 +1516,18 @@ action:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'off', 'close': 'off', 'ventilate': 'on', 'shading': 'off', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
               - conditions: # Manually shaded
-                  - "{{ ('auto_shading_enabled' in auto_options) and (current_position | int(default=110) <= shading_cover_position + position_tolerance) and (current_position | int(default=110) >= shading_cover_position - position_tolerance) }}"
+                  - "{{ ('auto_shading_enabled' in auto_options) and (current_position | int(default=110) <= shading_position + position_tolerance) and (current_position | int(default=110) >= shading_position - position_tolerance) }}"
                 sequence:
                   - service: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
-                        {% set dictionary = states(cover_status_helper) | from_json  %}
-                        {% set result = dict(dictionary, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'on', 't': as_timestamp(now())}) %}
+                        {% set dict_var = states(cover_status_helper) | from_json  %}
+                        {% set result = dict(dict_var, **{'open': 'off', 'close': 'off', 'ventilate': 'off', 'shading': 'on', 'manual': 'on', 't': as_timestamp(now())}) %}
                         {{ result | to_json }}
 
     default:
@@ -1487,12 +1587,12 @@ action:
                   logger: "blueprints.hvorragend.cover_control_automation"
           ## checking positions
           - if:
-              - "{{ (open_position - position_tolerance) <= (closed_position + position_tolerance) }}"
+              - "{{ (open_position - position_tolerance) <= (close_position + position_tolerance) }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "Cover Control Automation (CCA): Config issue: open_position should be higher than closed_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: open_position should be higher than close_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
@@ -1503,28 +1603,28 @@ action:
                   message: "Cover Control Automation (CCA): Config issue: open_position should be higher than ventilate_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ (closed_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
+              - "{{ (close_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "Cover Control Automation (CCA): Config issue: closed_position should be lower than ventilate_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: close_position should be lower than ventilate_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ (shading_cover_position - position_tolerance) <= (closed_position + position_tolerance)}}"
+              - "{{ (shading_position - position_tolerance) <= (close_position + position_tolerance)}}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "Cover Control Automation (CCA): Config issue: shading_cover_position should be higher than closed_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: shading_position should be higher than close_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ (shading_cover_position + position_tolerance) >= (open_position - position_tolerance) }}"
+              - "{{ (shading_position + position_tolerance) >= (open_position - position_tolerance) }}"
             then:
               - service: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
-                  message: "Cover Control Automation (CCA): Config issue: shading_cover_position should be lower than open_position - {{this.entity_id}}"
+                  message: "Cover Control Automation (CCA): Config issue: shading_position should be lower than open_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
               - "{{ ( (resident_sensor != [] ) and (not is_state(resident_sensor, ['false', 'off','true', 'on'])) ) }}"
