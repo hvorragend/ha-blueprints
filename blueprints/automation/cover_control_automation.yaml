@@ -227,6 +227,15 @@ blueprint:
       selector:
         condition: {}
 
+    scheduler:
+      name: "🔼🔻 Scheduler"
+      description: >-
+        TEST
+      default: []
+      selector:
+        entity:
+          domain: schedule
+
     close_position:
       name: "🔻 Close Position"
       description: "What position should the cover be moved into when closing?"
@@ -1066,6 +1075,11 @@ trigger:
     for:
       seconds: !input sun_time_duration
     id: "t_bo_7"
+  - platform: state
+    entity_id: !input scheduler
+    from: "off"
+    to: "on"
+    id: "t_bo_8"
 
   # trigger for closing cover
   - platform: numeric_state
@@ -1096,6 +1110,11 @@ trigger:
     for:
       seconds: !input sun_time_duration
     id: "t_bc_7"
+  - platform: state
+    entity_id: !input scheduler
+    from: "on"
+    to: "off"
+    id: "t_bc_8"
 
   # trigger for ventilate
   - platform: state
@@ -1149,7 +1168,7 @@ action:
               'shading':{'a':false,'t':0},
               'manual':{'a':false,'t':0},
               'v':2,
-              't': as_timestamp(now()) | round(0)
+              't':as_timestamp(now()) | round(0)
               }
             %}
             {{ dict_var | to_json }}
@@ -1170,7 +1189,7 @@ action:
               'shading':{'a':cover_status_shading,'t':0},
               'manual':{'a':cover_status_manual,'t':0},
               'v':2,
-              't': cover_status_time | round(0)
+              't':cover_status_time | round(0)
               }
             %}
             {{ dict_var | to_json }}
@@ -1225,7 +1244,7 @@ action:
                   # we are ready for shading in
                   - if: # check helper or if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
                       - or:
-                          - "{{ cover_status_helper_enabled and (now_ts - 86400 >= cover_status_shading_ts) and not cover_status_shading }}"
+                          - "{{ cover_status_helper_enabled and (now().day != cover_status_shading_ts|timestamp_custom('%-d')) and not cover_status_shading }}"
                           - "{{ cover_status_helper_disabled and (current_position | int(default=101) > ventilate_position) }}"
                     then:
                       - alias: "Wait the number of seconds set in shading_waitingtime"
@@ -1267,7 +1286,7 @@ action:
                               'shading':{'a':true,'t':now_ts},
                               'manual':{'a':false,'t':dict_var.manual.t},
                               'v':2,
-                              't': as_timestamp(now()) | round(0)
+                              't':as_timestamp(now()) | round(0)
                               }
                             %}
                             {{ dict_new | to_json }}
@@ -1287,7 +1306,7 @@ action:
                           - "t_bo_5" # resident
                           - "t_bo_7" # sun_elevation_up
                   - or:
-                      - "{{ cover_status_helper_enabled and (now_ts - 86400 >= cover_status_open_ts) and not cover_status_open }}"
+                      - "{{ cover_status_helper_enabled and (now().day != cover_status_open_ts|timestamp_custom('%-d')) and not cover_status_open }}"
                       - "{{ cover_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
                       - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance)}}"
                   - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
@@ -1361,7 +1380,7 @@ action:
                               'shading':{'a':false,'t':dict_var.shading.t},
                               'manual':{'a':false,'t':dict_var.manual.t},
                               'v':2,
-                              't': as_timestamp(now()) | round(0)
+                              't':as_timestamp(now()) | round(0)
                               }
                             %}
                             {{ dict_new | to_json }}
@@ -1437,7 +1456,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1486,7 +1505,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1515,7 +1534,7 @@ action:
               - "{{ contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, 'off') }}"
           # - "{{ cover_status_helper_disabled or (cover_status_helper_enabled and cover_status_shading and (close_position < shading_position)) }}" # TODO: Keep this?
           - or:
-              - "{{ cover_status_helper_enabled and (now_ts - 86400 >= cover_status_close_ts) and not cover_status_close }}"
+              - "{{ cover_status_helper_enabled and (now().day != cover_status_close_ts|timestamp_custom('%-d')) and not cover_status_close }}"
               - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               - "{{ cover_status_helper_disabled and (current_position == ventilate_position) }}"
           - or:
@@ -1599,7 +1618,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1648,7 +1667,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1699,7 +1718,7 @@ action:
                       'shading':{'a':false,'t':dict_var.shading.t},
                       'manual':{'a':false,'t':dict_var.manual.t},
                       'v':2,
-                      't': as_timestamp(now()) | round(0)
+                      't':as_timestamp(now()) | round(0)
                       }
                     %}
                     {{ dict_new | to_json }}
@@ -1733,7 +1752,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1755,7 +1774,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1777,7 +1796,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1797,7 +1816,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
@@ -1817,7 +1836,7 @@ action:
                           'shading':{'a':true,'t':now_ts},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
-                          't': as_timestamp(now()) | round(0)
+                          't':as_timestamp(now()) | round(0)
                           }
                         %}
                         {{ dict_new | to_json }}
