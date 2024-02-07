@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.02.06-01** / hvorragend
+    **Version: 2024.02.07-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -101,6 +101,9 @@ blueprint:
       - Comprehensive JSON changes / Now multidimensional JSON
       - Roller blind movements can now only be executed once a day when the helpers are used.
 
+    2024.02.07-01:
+      - Fixed weather.get_forecasts: The response from the service is a dict with the target entities as keys
+
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
     </details>
@@ -110,7 +113,6 @@ blueprint:
   # - Todo: Add WindProtection to exammple
   # - Todo: Add ExternalTrigger
   # - Todo: Allow force open/force close? With forced position?
-  # - Todo: Use Calendar or Scheduler?
   # - Checkbox: ignore shading, ventilation, open, close after manual movement?
   # - Checkbox? "{{ cover_status_helper_enabled and cover_status_shading and (close_position < shading_position) }}"
 
@@ -164,6 +166,49 @@ blueprint:
           sort: false
           custom_value: false
           mode: list
+
+    # time_control:
+    #   name: "🕜 Selection of time control options"
+    #   description: "Selection of time control options"
+    #   default: time_control_input
+    #   selector:
+    #     select:
+    #       options:
+    #         - label: "Use the input fields here in the blueprint"
+    #           value: "time_control_input"
+    #         - label: "Use the Schedule Helper"
+    #           value: "time_control_schedule"
+    #         - label: "Use the Calendar Integration"
+    #           value: "time_control_calendar"
+    #       sort: false
+    #       multiple: false
+    #       custom_value: false
+
+    # time_calendar:
+    #   name: "📅 Cover driving time calendar"
+    #   description: >-
+    #     Instead of entering the times (early and late) for opening and closing in individual fields, you can also configure
+    #     the opening and closing times dynamically in an Home Assistant Calendar.
+    #   default: []
+    #   selector:
+    #     entity:
+    #       filter:
+    #         - domain:
+    #             - calendar
+    #       multiple: false
+
+    # time_schedule:
+    #   name: "📅 Cover driving time schedule helper"
+    #   description: >-
+    #     Instead of entering the times (early and late) for opening and closing in individual fields, you can also configure
+    #     the opening and closing times dynamically in an Home Assistant Schedule helper.
+    #   default: []
+    #   selector:
+    #     entity:
+    #       filter:
+    #         - domain:
+    #             - schedule
+    #       multiple: false
 
     auto_global_condition:
       name: "❓ Additional condition for the entire automation"
@@ -226,15 +271,6 @@ blueprint:
       default: []
       selector:
         condition: {}
-
-    scheduler:
-      name: "🔼🔻 Scheduler"
-      description: >-
-        TEST
-      default: []
-      selector:
-        entity:
-          domain: schedule
 
     close_position:
       name: "🔻 Close Position"
@@ -868,6 +904,8 @@ variables:
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
   drive_time: !input drive_time
+  # time_schedule: !input time_schedule
+  # time_calendar: !input time_calendar
 
   # Positions
   open_position: !input open_position
@@ -1075,11 +1113,19 @@ trigger:
     for:
       seconds: !input sun_time_duration
     id: "t_bo_7"
-  - platform: state
-    entity_id: !input scheduler
-    from: "off"
-    to: "on"
-    id: "t_bo_8"
+  # - platform: state
+  #   entity_id: !input time_scheduler
+  #   from: "off"
+  #   to: "on"
+  #   id: "t_bo_8"
+  # - platform: calendar
+  #   entity_id: !input time_calendar
+  #   event: start
+  #   id: "t_bo_9"
+  # - platform: calendar
+  #   entity_id: !input time_calendar
+  #   event: end
+  #   id: "t_bo_10"
 
   # trigger for closing cover
   - platform: numeric_state
@@ -1110,11 +1156,19 @@ trigger:
     for:
       seconds: !input sun_time_duration
     id: "t_bc_7"
-  - platform: state
-    entity_id: !input scheduler
-    from: "on"
-    to: "off"
-    id: "t_bc_8"
+  # - platform: state
+  #   entity_id: !input time_scheduler
+  #   from: "on"
+  #   to: "off"
+  #   id: "t_bc_8"
+  # - platform: calendar
+  #   entity_id: !input time_calendar
+  #   event: start
+  #   id: "t_bc_9"
+  # - platform: calendar
+  #   entity_id: !input time_calendar
+  #   event: end
+  #   id: "t_bc_10"
 
   # trigger for ventilate
   - platform: state
@@ -1147,7 +1201,25 @@ action:
           entity_id: !input shading_forecast_sensor
         data:
           type: daily
-        response_variable: forecast
+        response_variable: weather_forecast
+
+  # Get Calendar events
+  # - if:
+  #     - "{{ (time_calendar != [] ) }}"
+  #   then:
+  #     - service: calendar.get_events
+  #       target:
+  #         entity_id: !input time_calendar
+  #       data:
+  #         start_date_time: "{{today_at()}}"
+  #         duration:
+  #           days: 1
+  #       response_variable: calendar_events
+  #     - service: system_log.write
+  #       data:
+  #         level: "critical"
+  #         message: "Cover Control Automation (CCA): Debug - {{calendar_events[calendar]['events'] | count}}"
+  #         logger: "blueprints.hvorragend.cover_control_automation"
 
   # If the helper is empty, the initial values are set here once.
   - if:
@@ -1237,7 +1309,7 @@ action:
                       - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
-                          - "{{ ( shading_forecast_sensor != [] ) and ( forecast.forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
+                          - "{{ ( shading_forecast_sensor != [] ) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
                           - "{{ ( shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
                       - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
                 sequence:
@@ -1312,6 +1384,7 @@ action:
                   - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                   # Now we have to check different opening scenarios
                   - or:
+                      # TODO 'time_control_input' in time_control / 'time_control_schedule' in time_control
                       - and: # Covers - opening - up late reached
                           - "{{ now() >= today_at(time_up_late) }}"
                           - "{{ now() <= today_at(time_down_early) - timedelta(seconds = 5) }}"
