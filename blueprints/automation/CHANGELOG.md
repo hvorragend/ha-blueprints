@@ -44,3 +44,6 @@
   - Added: Helper length validation
   - Comprehensive JSON changes / Now multidimensional JSON
   - Roller blind movements can now only be executed once a day when the helpers are used.
+
+2024.02.07-01:
+  - Fixed weather.get_forecasts: The response from the service is a dict with the target entities as keys
