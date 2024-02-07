@@ -39,3 +39,8 @@
 
 2024.02.03-02:
   - Opening the blinds only until time_down_early. Otherwise, overlaps may occur if the brightness values are not set correctly. Avoid bouncing the blinds.
+
+2024.02.06-01:
+  - Added: Helper length validation
+  - Comprehensive JSON changes / Now multidimensional JSON
+  - Roller blind movements can now only be executed once a day when the helpers are used.
