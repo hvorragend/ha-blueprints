@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.02.07-01** / hvorragend
+    **Version: 2024.02.0x-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -167,28 +167,28 @@ blueprint:
           custom_value: false
           mode: list
 
-    # time_control:
-    #   name: "🕜 Selection of time control options"
-    #   description: "Selection of time control options"
-    #   default: time_control_input
-    #   selector:
-    #     select:
-    #       options:
-    #         - label: "Use the input fields here in the blueprint"
-    #           value: "time_control_input"
-    #         - label: "Use the Schedule Helper"
-    #           value: "time_control_schedule"
-    #         - label: "Use the Calendar Integration"
-    #           value: "time_control_calendar"
-    #       sort: false
-    #       multiple: false
-    #       custom_value: false
+    time_control:
+      name: "🕜 Selection of time control options"
+      description: "Selection of time control options"
+      default: time_control_input
+      selector:
+        select:
+          options:
+            - label: "Use the input fields here in the blueprint"
+              value: "time_control_input"
+            - label: "Use the Schedule Helper"
+              value: "time_control_schedule"
+            # - label: "Use the Calendar Integration"
+            #   value: "time_control_calendar"
+          sort: false
+          multiple: false
+          custom_value: false
 
     # time_calendar:
     #   name: "📅 Cover driving time calendar"
     #   description: >-
     #     Instead of entering the times (early and late) for opening and closing in individual fields, you can also configure
-    #     the opening and closing times dynamically in an Home Assistant Calendar.
+    #     the <ins>opening and closing times</ins> dynamically in an Home Assistant Calendar.
     #   default: []
     #   selector:
     #     entity:
@@ -197,18 +197,18 @@ blueprint:
     #             - calendar
     #       multiple: false
 
-    # time_schedule:
-    #   name: "📅 Cover driving time schedule helper"
-    #   description: >-
-    #     Instead of entering the times (early and late) for opening and closing in individual fields, you can also configure
-    #     the opening and closing times dynamically in an Home Assistant Schedule helper.
-    #   default: []
-    #   selector:
-    #     entity:
-    #       filter:
-    #         - domain:
-    #             - schedule
-    #       multiple: false
+    time_schedule:
+      name: "📅 Cover driving time schedule helper"
+      description: >-
+        Instead of entering the times (early and late) for opening and closing in individual fields, you can also configure
+        the <ins>opening</ins> time dynamically in an Home Assistant Schedule helper.
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - schedule
+          multiple: false
 
     auto_global_condition:
       name: "❓ Additional condition for the entire automation"
@@ -904,7 +904,7 @@ variables:
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
   drive_time: !input drive_time
-  # time_schedule: !input time_schedule
+  time_schedule: !input time_schedule
   # time_calendar: !input time_calendar
 
   # Positions
@@ -1113,11 +1113,11 @@ trigger:
     for:
       seconds: !input sun_time_duration
     id: "t_bo_7"
-  # - platform: state
-  #   entity_id: !input time_scheduler
-  #   from: "off"
-  #   to: "on"
-  #   id: "t_bo_8"
+  - platform: state
+    entity_id: !input time_schedule
+    from: "off"
+    to: "on"
+    id: "t_bo_8"
   # - platform: calendar
   #   entity_id: !input time_calendar
   #   event: start
@@ -1156,11 +1156,11 @@ trigger:
     for:
       seconds: !input sun_time_duration
     id: "t_bc_7"
-  # - platform: state
-  #   entity_id: !input time_scheduler
-  #   from: "on"
-  #   to: "off"
-  #   id: "t_bc_8"
+  - platform: state
+    entity_id: !input time_schedule
+    from: "on"
+    to: "off"
+    id: "t_bc_8"
   # - platform: calendar
   #   entity_id: !input time_calendar
   #   event: start
@@ -1377,6 +1377,7 @@ action:
                           - "t_bo_4" # time_up_early_non_workday
                           - "t_bo_5" # resident
                           - "t_bo_7" # sun_elevation_up
+                          - "t_bo_8" # schedule
                   - or:
                       - "{{ cover_status_helper_enabled and (now().day != cover_status_open_ts|timestamp_custom('%-d')) and not cover_status_open }}"
                       - "{{ cover_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
@@ -1384,19 +1385,31 @@ action:
                   - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                   # Now we have to check different opening scenarios
                   - or:
-                      # TODO 'time_control_input' in time_control / 'time_control_schedule' in time_control
                       - and: # Covers - opening - up late reached
+                          - "{{ 'time_control_input' in time_control }}"
                           - "{{ now() >= today_at(time_up_late) }}"
                           - "{{ now() <= today_at(time_down_early) - timedelta(seconds = 5) }}"
+                      - and: # Covers - opening via schedule helper w/o brightness and sun
+                          - "{{ 'time_control_schedule' in time_control }}"
+                          - "{{ 'auto_brightness_enabled' not in auto_options }}"
+                          - "{{ 'auto_sun_enabled' not in auto_options }}"
+                          - "{{ is_state(time_schedule, 'on') }}"
                       - and: # Covers - opening - up early reached and brightness/sun above minimum
                           - or:
                               - and:
+                                  - "{{ 'time_control_input' in time_control }}"
                                   - "{{ workday_sensor == [] or (is_state(workday_sensor, 'on')) }}"
                                   - "{{ now() >= today_at(time_up_early) }}"
                               - and:
+                                  - "{{ 'time_control_input' in time_control }}"
                                   - "{{ workday_sensor == [] or (is_state(workday_sensor, 'off')) }}"
                                   - "{{ now() >= today_at(time_up_early_non_workday) }}"
-                          - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
+                              - and:
+                                  - "{{ 'time_control_input' in time_control }}"
+                                  - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
+                              - and:
+                                  - "{{ 'time_control_schedule' in time_control }}"
+                                  - "{{ is_state(time_schedule, 'on') }}"
                           - or:
                               - or:
                                   - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] }}"
@@ -1600,6 +1613,7 @@ action:
                   - "t_bc_4" # contact_sensor
                   - "t_bc_5" # resident_sensor
                   - "t_bc_7" # sun_elevation_down
+                  - "t_bc_8" # schedule
           # check to allow a window but a door only if contact_sensor not open - we want protection
           - or:
               - "{{ contact_cover_place == 'window' }}"
