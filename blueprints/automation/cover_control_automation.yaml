@@ -3,7 +3,7 @@ blueprint:
   description: |
     # Cover Control Automation (CCA)
 
-    **Version: 2024.02.0x-01** / hvorragend
+    **Version: 2024.02.07-01** / hvorragend
 
     This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
     - Opening and closing the roller shutters (depending on brightness, <ins>sun-elevation</ins> and within time windows)
@@ -103,6 +103,9 @@ blueprint:
 
     2024.02.07-01:
       - Fixed weather.get_forecasts: The response from the service is a dict with the target entities as keys
+
+    2024.02.08-01:
+      - Implementation of the Home Assistant Schedule Helpers for time control
 
     [GitHub Source](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
 
@@ -905,6 +908,7 @@ variables:
   drive_delay_random: !input drive_delay_random
   drive_time: !input drive_time
   time_schedule: !input time_schedule
+  time_control: !input time_control
   # time_calendar: !input time_calendar
 
   # Positions
@@ -1221,7 +1225,7 @@ action:
   #         message: "Cover Control Automation (CCA): Debug - {{calendar_events[calendar]['events'] | count}}"
   #         logger: "blueprints.hvorragend.cover_control_automation"
 
-  # If the helper is empty, the initial values are set here once.
+  # Initialise empty helper with JSON default values
   - if:
       - "{{ 'cover_helper_enabled' in cover_status_options }}"
       - "{{ cover_status_helper != [] }}"
@@ -1245,7 +1249,7 @@ action:
             %}
             {{ dict_var | to_json }}
 
-  # Upgrade json to v2
+  # Upgrade helper to JSON v2
   - if:
       - "{{ cover_status_helper_enabled }}"
       - "{{ (states(cover_status_helper)|from_json).version == 1}}"
@@ -1267,6 +1271,7 @@ action:
             {{ dict_var | to_json }}
 
   - choose:
+      # ANCHOR
       - alias: "Check and perform shading in or covers up"
         conditions:
           - or:
@@ -1291,8 +1296,11 @@ action:
                   - "t_bo_4" # time_up_early_non_workday
                   - "t_bo_5" # resident
                   - "t_bo_7" # sun_elevation_up
+                  - "t_bo_8" # scheduler
+
         sequence:
           - choose:
+              # SUB-ANCHOR
               - alias: "Checking for shading in"
                 conditions:
                   - and: # Check if we want to perform shading in
@@ -1312,9 +1320,10 @@ action:
                           - "{{ ( shading_forecast_sensor != [] ) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
                           - "{{ ( shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
                       - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
+
                 sequence:
-                  # we are ready for shading in
-                  - if: # check helper or if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
+                  # We are ready for shading in
+                  - if: # Check helper or if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
                       - or:
                           - "{{ cover_status_helper_enabled and (now().day != cover_status_shading_ts|timestamp_custom('%-d')) and not cover_status_shading }}"
                           - "{{ cover_status_helper_disabled and (current_position | int(default=101) > ventilate_position) }}"
@@ -1364,6 +1373,7 @@ action:
                             {{ dict_new | to_json }}
                   - stop: "Stop the automation"
 
+              # SUB-ANCHOR
               - alias: "Check for opening"
                 conditions:
                   - "{{ 'auto_up_enabled' in auto_options }}"
@@ -1385,30 +1395,32 @@ action:
                   - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                   # Now we have to check different opening scenarios
                   - or:
-                      - and: # Covers - opening - up late reached
-                          - "{{ 'time_control_input' in time_control }}"
+                      - and: # Opening - Up late reached
+                          - "{{ 'time_control_input' in time_control or time_schedule == [] }}"
                           - "{{ now() >= today_at(time_up_late) }}"
                           - "{{ now() <= today_at(time_down_early) - timedelta(seconds = 5) }}"
-                      - and: # Covers - opening via schedule helper w/o brightness and sun
-                          - "{{ 'time_control_schedule' in time_control }}"
+                      - and: # Opening - Via schedule helper w/o brightness and sun
                           - "{{ 'auto_brightness_enabled' not in auto_options }}"
                           - "{{ 'auto_sun_enabled' not in auto_options }}"
+                          - "{{ 'time_control_schedule' in time_control }}"
+                          - "{{ time_schedule != [] }}"
                           - "{{ is_state(time_schedule, 'on') }}"
-                      - and: # Covers - opening - up early reached and brightness/sun above minimum
+                      - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                           - or:
                               - and:
-                                  - "{{ 'time_control_input' in time_control }}"
+                                  - "{{ 'time_control_input' in time_control or time_schedule == [] }}"
                                   - "{{ workday_sensor == [] or (is_state(workday_sensor, 'on')) }}"
                                   - "{{ now() >= today_at(time_up_early) }}"
                               - and:
-                                  - "{{ 'time_control_input' in time_control }}"
+                                  - "{{ 'time_control_input' in time_control or time_schedule == [] }}"
                                   - "{{ workday_sensor == [] or (is_state(workday_sensor, 'off')) }}"
                                   - "{{ now() >= today_at(time_up_early_non_workday) }}"
                               - and:
-                                  - "{{ 'time_control_input' in time_control }}"
+                                  - "{{ 'time_control_input' in time_control or time_schedule == [] }}"
                                   - "{{ now() <= today_at(time_up_late) + timedelta(seconds = 5) }}"
                               - and:
                                   - "{{ 'time_control_schedule' in time_control }}"
+                                  - "{{ time_schedule != [] }}"
                                   - "{{ is_state(time_schedule, 'on') }}"
                           - or:
                               - or:
@@ -1419,7 +1431,6 @@ action:
                                   - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_up) >= sun_elevation_up) }}"
 
                 sequence:
-                  # ok, we can open the cover
                   - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - repeat:
                       for_each: "{{ blind_entities|list }}"
@@ -1475,6 +1486,7 @@ action:
             default:
               - stop: "Stop the automation"
 
+      # ANCHOR
       - alias: "Check and perform shading out"
         conditions:
           - "{{ 'auto_shading_enabled' in auto_options }}"
@@ -1493,9 +1505,10 @@ action:
           - or:
               - "{{ cover_status_helper_enabled and cover_status_shading }}"
               - "{{ cover_status_helper_disabled and (current_position | int(default=101) == shading_position) }}"
+
         sequence:
           - if:
-              # if sun is outside of shading window (azimuth or elevation) we immedately stop shading
+              # If sun is outside of shading window (azimuth or elevation) we immediately stop shading
               - and:
                   - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                   - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
@@ -1597,6 +1610,7 @@ action:
                         {{ dict_new | to_json }}
           - stop: "Stop the automation"
 
+      # ANCHOR
       - alias: "Check for closing cover"
         conditions:
           - or:
@@ -1614,26 +1628,43 @@ action:
                   - "t_bc_5" # resident_sensor
                   - "t_bc_7" # sun_elevation_down
                   - "t_bc_8" # schedule
-          # check to allow a window but a door only if contact_sensor not open - we want protection
+
+          # Check to allow a window but a door only if contact_sensor not open - we want protection
           - or:
               - "{{ contact_cover_place == 'window' }}"
               - "{{ contact_cover_place == 'door' and contact_sensor == [] }}"
               - "{{ contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, 'off') }}"
           # - "{{ cover_status_helper_disabled or (cover_status_helper_enabled and cover_status_shading and (close_position < shading_position)) }}" # TODO: Keep this?
+
           - or:
               - "{{ cover_status_helper_enabled and (now().day != cover_status_close_ts|timestamp_custom('%-d')) and not cover_status_close }}"
               - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               - "{{ cover_status_helper_disabled and (current_position == ventilate_position) }}"
+
           - or:
-              # Covers - closing - down late reached
-              - and:
+              - and: # Closing - Down late reached
                   - "{{ 'auto_down_enabled' in auto_options }}"
+                  - "{{ 'time_control_input' in time_control or time_schedule == [] }}"
                   - "{{ now() >= today_at(time_down_late) }}"
-              # Covers - closing - down early reached and brightness/sun below minimum
-              - and:
+              - and: # Closing - Via schedule helper w/o brightness and sun
                   - "{{ 'auto_down_enabled' in auto_options }}"
-                  - "{{ now() >= today_at(time_down_early) }}"
-                  - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
+                  - "{{ 'auto_brightness_enabled' not in auto_options }}"
+                  - "{{ 'auto_sun_enabled' not in auto_options }}"
+                  - "{{ 'time_control_schedule' in time_control }}"
+                  - "{{ time_schedule != [] }}"
+                  - "{{ is_state(time_schedule, 'off') }}"
+              - and: # Closing - Down early reached and brightness/sun below minimum
+                  - or:
+                      - and:
+                          - "{{ 'auto_down_enabled' in auto_options }}"
+                          - "{{ 'time_control_input' in time_control or time_schedule == [] }}"
+                          - "{{ now() >= today_at(time_down_early) }}"
+                          - "{{ now() <= today_at(time_down_late) + timedelta(seconds = 5) }}"
+                      - and:
+                          - "{{ 'auto_down_enabled' in auto_options }}"
+                          - "{{ 'time_control_schedule' in time_control }}"
+                          - "{{ time_schedule != [] }}"
+                          - "{{ is_state(time_schedule, 'off') }}"
                   - or:
                       - or:
                           - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] }}"
@@ -1641,18 +1672,16 @@ action:
                       - or:
                           - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor == [] }}"
                           - "{{ 'auto_sun_enabled' in auto_options and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) }}"
-
-              # Covers - closing - due to resident goes sleeping
+              # Closing - due to resident goes sleeping
               - and:
                   - "{{ 'auto_down_enabled' in auto_options }}"
                   - "{{ resident_sensor != [] and is_state(resident_sensor, ['true', 'on']) }}"
                   - condition: trigger #  Resident_sensor
                     id: t_bc_5
-
-              # Covers - closing after ventilate
+              # Closing after ventilate
               - and:
-                  - condition: trigger # contact_sensor
-                    id: "t_bc_4"
+                  - condition: trigger
+                    id: "t_bc_4" # contact_sensor
                   - "{{ 'auto_ventilate_enabled' in auto_options }}"
                   - "{{ contact_sensor != [] and states(contact_sensor) == 'off' }}"
                   - or:
@@ -1662,8 +1691,8 @@ action:
         sequence:
           - if:
               - not:
-                  - condition: trigger # Windows sensor
-                    id: "t_bc_4"
+                  - condition: trigger
+                    id: "t_bc_4" # Windows sensor
             then:
               - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
           - if:
@@ -1760,15 +1789,17 @@ action:
                         {{ dict_new | to_json }}
           - stop: "Stop the automation"
 
+      # ANCHOR
       - alias: Window sensor - opened
         conditions:
-          - condition: trigger # contact_sensor
-            id: "t_bv_1"
+          - condition: trigger
+            id: "t_bv_1" # contact_sensor
           - "{{ 'auto_ventilate_enabled' in auto_options }}"
           - "{{ contact_sensor != [] and is_state(contact_sensor, 'on') }}"
           - or:
               - "{{ cover_status_helper_enabled and cover_status_close }}"
               - "{{ cover_status_helper_disabled and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
+
         sequence:
           - repeat:
               for_each: "{{ blind_entities|list }}"
@@ -1811,16 +1842,18 @@ action:
                     {{ dict_new | to_json }}
           - stop: "Stop the automation"
 
-      - alias: "Blind Movement" # Checking for manual position changes
+      # ANCHOR
+      - alias: "Blind Movement - Checking for manual position changes"
         conditions:
           - condition: trigger
             id: "t_ma_1"
-          - "{{ 'cover_helper_enabled' in cover_status_options }}" #Do not use 'cover_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
+          - "{{ 'cover_helper_enabled' in cover_status_options }}" # Do not use 'cover_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
           - "{{ cover_status_helper != [] }}"
           - "{{ as_timestamp(now()) - cover_status_time > (drive_time + 60)}}" # Drive time + trigger waiting time
+
         sequence:
           - choose:
-              - conditions: # Now defined positions can be assigned
+              - conditions: # Defined positions can be assigned
                   - not:
                       - "{{ ('auto_up_enabled' in auto_options) and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance) }}"
                       - "{{ ('auto_down_enabled' in auto_options) and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
@@ -1929,11 +1962,10 @@ action:
                         {{ dict_new | to_json }}
 
     default:
-      # TODO: I'm not sure whether I want to have this checked with every default run.
       - if:
           - "{{ check_config }}"
         then:
-          ## checking time slots
+          # Checking time slots
           - if:
               - "{{ today_at(time_up_early) >= today_at(time_up_late) }}"
             then:
@@ -1958,7 +1990,7 @@ action:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: time_down_early should be earlier than time_down_late - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          ## checking shading
+          # Checking shading
           - if:
               - "{{ shading_azimuth_start >= shading_azimuth_end }}"
             then:
@@ -1983,7 +2015,7 @@ action:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: shading_sun_brightness_start should be higher than shading_sun_brightness_end - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          ## checking positions
+          # Checking positions
           - if:
               - "{{ (open_position - position_tolerance) <= (close_position + position_tolerance) }}"
             then:
@@ -2032,7 +2064,7 @@ action:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: resident_sensor is only allowed to be on/off/true/false - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          ## checking if blind entity has the right attributes
+          # Checking if blind entity has the right attributes
           - if:
               - "{{ state_attr(blind, 'current_position') is none }}"
             then:
@@ -2041,7 +2073,7 @@ action:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: blind is missing attribute current_position - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          ## checking if sun sensor has the right attributes
+          # Checking if sun sensor has the right attributes
           - if:
               - "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
             then:
@@ -2058,7 +2090,7 @@ action:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: sun sensor is missing attribute azimuth - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          ## checking if brightness sensor is defined
+          # Checking if brightness sensor is defined
           - if:
               - or:
                   - "{{ 'auto_brightness_enabled' in auto_options and default_brightness_sensor == [] }}"
@@ -2069,7 +2101,7 @@ action:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: brightness sensor not defined or state is not numeric - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
-          ## checking helper
+          # Checking helper
           - if:
               - or:
                   - "{{ 'cover_helper_enabled' in cover_status_options }}"
