@@ -47,3 +47,9 @@
 
 2024.02.07-01:
   - Fixed weather.get_forecasts: The response from the service is a dict with the target entities as keys
+
+2024.02.09-01:
+  - Streamline the code
+  - Added option to enable time control via external schedule helper
+  - Added more options for manual time control (drive up - late on non-workdays / drive down early and late on non-workdays)
+  - **Possible breaking change**: You should reconfigure the times in your CCA automations!
