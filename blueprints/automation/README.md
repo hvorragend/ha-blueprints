@@ -4,18 +4,20 @@
 
 This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
 
-* Opening and closing the roller shutters (depending on brightness, **sun-elevation** and within time windows)
+* Automatic opening and closing the roller shutters
+* Freely configurable time windows for opening or closing
+* Brightness control and/or control via the sun-elevation
+* The use of scheduler helpers are possible
 * Ventilation feature (Currently for two-way sensors)
 * Resident feature: keep the cover closed if resident is asleep
-* Complete flexibility in almost all parameters:
+* Complete flexibility in almost all parameters (drive delays, waiting times, position tolerance)
   - Fixed drive delay and random drive delay
   - Waiting time duration for triggers
   - Position tolerance
-
-* Complete flexibility in almost all parameters (drive delays, waiting times, position tolerance)
-* Each feature can be activated or deactivated as required. Not only through a switch in the blueprint, but also through dynamic conditions outside the automation.
-* Extensive automatic sun shading with many different setting options.
-* Added the option to save the current status in a helper. This has the advantage that the roller blind can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
+* Each feature can be activated or deactivated as required
+* Dynamic conditions possible
+* Extensive automatic sun shading with many different setting options
+* Added the option to save the current status in a helper. This has the advantage that the cover can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
 
 
 *This was originally a fork of Eimeel's blueprint [automatic_blinds_shading.yaml](https://community.home-assistant.io/t/extensive-roller-shutter-control-including-shading-brightness-sun-position-temperature-forecast/613715).*
@@ -42,8 +44,9 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 - It is **not** possible to execute this automation manually!
 - If you want to use sun elevation and/or azimuth it's strongly advised to use sun.sun. And please make sure your sun.sun entity is enabled!
 - `time_up_early` should be earlier `than time_up_late`
-- `time_up_early_non_workday` should be earlier than `time_up_late`
+- `time_up_early_non_workday` should be earlier than `time_up_late_non_workday`
 - `time_down_early` should be earlier than `time_down_late`
+- `time_down_early_non_workday` should be earlier than `time_down_late_non_workday`
 - `shading_azimuth_start` should be lower than `shading_azimuth_end`
 - `shading_elevation_min` should be lower than `shading_elevation_max`
 - `shading_sun_brightness_start` should be higher than `shading_sun_brightness_end`
