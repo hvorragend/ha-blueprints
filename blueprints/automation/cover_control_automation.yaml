@@ -18,7 +18,7 @@ blueprint:
 
     ## Additional Information
 
-    **Version**: 2024.02.09-01
+    **Version**: 2024.02.12-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -28,11 +28,10 @@ blueprint:
 
     **Latest changes**
 
-    2024.02.09-01:
-      - Streamline the code
-      - Added option to enable time control via external schedule helper
-      - Added more options for manual time control (drive up - late on non-workdays / drive down early and late on non-workdays)
-      - **Possible breaking change**: You should reconfigure the times in your CCA automations!
+    2024.02.12-01:
+      - Allow input_boolean as contact sensors.
+      - The state of the contact sensor can be true/on or false/off
+      - Fixed time control bug
 
     **Condition examples**
     - If, for example, your blinds on the upper floor only close automatically and are not opened via the automation, you can also enable the blinds to be opened during this time by activating a vacation mode boolean.
@@ -322,6 +321,13 @@ blueprint:
       default: []
       selector:
         condition: {}
+
+    # action_up:
+    #   name: "🔼 Additional Actions After Opening The Cover"
+    #   description: Additional actions to run after opening the cover
+    #   default: []
+    #   selector:
+    #     action: {}
 
     close_position:
       name: "🔻 Close Position"
@@ -613,6 +619,7 @@ blueprint:
       name: "〰️ Position Tolerance"
       description: >-
         Tolerance to be applied when comparing the current position with the to be position.
+        These are absolute values. Not relative to the previous position values.
         <br /><br />`Optional`
       default: 0
       selector:
@@ -1183,7 +1190,7 @@ variables:
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
-  is_time_field_enabled: "{{ 'time_control_input' in time_control or time_schedule_helper == [] }}"
+  is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
 
 trigger:
@@ -1698,7 +1705,7 @@ action:
                 delay:
                   seconds: !input shading_waitingtime_end
           - if:
-              - "{{ contact_sensor != [] and is_state(contact_sensor, 'on') }}"
+              - "{{ contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
               - "{{ is_ventilation_enabled }}"
             then:
               - repeat:
@@ -1816,7 +1823,7 @@ action:
           - or:
               - "{{ contact_cover_place == 'window' }}"
               - "{{ contact_cover_place == 'door' and contact_sensor == [] }}"
-              - "{{ contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, 'off') }}"
+              - "{{ contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, ['false', 'off']) }}"
 
           # - "{{ is_status_helper_disabled or (is_status_helper_enabled and is_cover_shaded and (close_position < shading_position)) }}" # TODO: Keep this?
 
@@ -1869,7 +1876,7 @@ action:
                     id: "t_bc_6" # contact_sensor
                   - "{{ is_ventilation_enabled }}"
                   - "{{ contact_sensor != [] }}"
-                  - "{{ states(contact_sensor) == 'off' }}"
+                  - "{{ is_state(contact_sensor, ['false', 'off']) }}"
                   - or:
                       - "{{ is_status_helper_enabled and is_cover_ventilated }}"
                       - "{{ is_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
@@ -1883,7 +1890,7 @@ action:
               - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
           - if:
               - "{{ contact_sensor != [] }}"
-              - "{{ is_state(contact_sensor, 'on') }}"
+              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
               - "{{ is_ventilation_enabled }}"
             then:
               - repeat:
@@ -1983,7 +1990,7 @@ action:
             id: "t_bv_1" # contact_sensor
           - "{{ is_ventilation_enabled }}"
           - "{{ contact_sensor != [] }}"
-          - "{{ is_state(contact_sensor, 'on') }}"
+          - "{{ is_state(contact_sensor, ['true', 'on']) }}"
           - or:
               - "{{ is_status_helper_enabled and is_cover_closed }}"
               - "{{ is_status_helper_disabled and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
