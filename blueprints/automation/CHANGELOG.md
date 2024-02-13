@@ -53,3 +53,11 @@
   - Added option to enable time control via external schedule helper
   - Added more options for manual time control (drive up - late on non-workdays / drive down early and late on non-workdays)
   - **Possible breaking change**: You should reconfigure the times in your CCA automations!
+
+2024.02.12-01:
+  - Allow input_boolean as contact sensors.
+  - The state of the contact sensor can be true/on or false/off
+  - Fixed time control bug
+
+2024.02.13-01:
+  - Fixed potential bug when opening via time control
