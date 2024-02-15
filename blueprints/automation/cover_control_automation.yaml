@@ -18,7 +18,7 @@ blueprint:
 
     ## Additional Information
 
-    **Version**: 2024.02.15-01
+    **Version**: 2024.02.15-02
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -39,6 +39,11 @@ blueprint:
     2024.02.15-01:
       - Fixed timestamp comparison bug
       - Faster checking for manual position changes
+
+    2024.02.15-02:
+      - Separate ventilation from lockout protection
+      - Added own lockout protection feature
+      - Removed door/window chooser (contact_cover_place)
 
     **Condition examples**
     - If, for example, your blinds on the upper floor only close automatically and are not opened via the automation, you can also enable the blinds to be opened during this time by activating a vacation mode boolean.
@@ -124,17 +129,19 @@ blueprint:
       selector:
         select:
           options:
-            - label: "1 - 🔼 - Activate automatic cover opening"
+            - label: "1 - 🔼 - Enable automatic cover opening"
               value: "auto_up_enabled"
-            - label: "2 - 🔻 - Activate automatic cover closing"
+            - label: "2 - 🔻 - Enable automatic cover closing"
               value: "auto_down_enabled"
-            - label: "3 - 🔅 - Activate control via brightness values"
+            - label: "3 - 🔅 - Enable control via brightness values"
               value: "auto_brightness_enabled"
-            - label: "4 - ☀️ - Activate control via sun elevation"
+            - label: "4 - ☀️ - Enable control via sun elevation"
               value: "auto_sun_enabled"
-            - label: "5 - 💨 - Activate ventilation mode"
+            - label: "5 - 💨 - Enable ventilation mode"
               value: "auto_ventilate_enabled"
-            - label: "6 - 🕶️ - Activate automatic shading"
+            - label: "6 - 🚪 - Enable lockout protection"
+              value: "auto_lockout_protection_enabled"
+            - label: "7 - 🕶️ - Enable automatic shading"
               value: "auto_shading_enabled"
           multiple: true
           sort: false
@@ -540,29 +547,36 @@ blueprint:
             - input_boolean
             - binary_sensor
 
-    contact_cover_place:
-      name: "🚪 Cover Belongs To"
-      description: >-
-        Does the cover belong to a window or a door?
-        In the case of a door, an attempt is made to prevent the cover from being lowered
-        when the door is open in order to prevent it from being locked out. (without guarantee!)
-        <br /><br />`Optional`
-      default: "window"
-      selector:
-        select:
-          options:
-            - label: "Window"
-              value: "window"
-            - label: "Door"
-              value: "door"
+    # contact_cover_place:
+    #   name: "🚪 Cover Belongs To"
+    #   description: >-
+    #     Necessary for lockout protection!
+    #     Does the cover belong to a window or a door? In the case of a door, an attempt is made to prevent the cover from being lowered
+    #     when the door is open in order to prevent it from being locked out. *Without guarantee!*
+    #     <br /><br />`Optional`
+    #   default: "window"
+    #   selector:
+    #     select:
+    #       options:
+    #         - label: "Window"
+    #           value: "window"
+    #         - label: "Door"
+    #           value: "door"
 
     contact_sensor:
-      name: "🚪 Contact Sensor Entity"
+      name: "🚪💨 Contact Sensor Entity"
       description: >-
-        This can be used to define whether the cover belongs to a window or an (outer) door with a window opening sensor.
-        If this is the case, the ventilation function can be used.
-        This means that the ventilate position is approached when the window is opened/tilted.
-        This sensor can be defined here.
+        The contact sensor is required for lock-out protection and for ventilation mode. It must be a binary two-way contact sensor.
+        <br /><br />
+        <ins>Lock-out protection:</ins>
+        <br />
+        The roller blind is not closed if the door contact is on or true.
+        <br /><br />
+        <ins>Ventilation mode:</ins>
+        <br />
+        If the door contact changes to on/true, the roller blind is moved to the ventilation position.
+        After the status changes to off/false, the close position is activated.
+        The same applies in the shading-out situation.
         <br /><br />`Optional`
       default: []
       selector:
@@ -577,7 +591,7 @@ blueprint:
       description: >-
         What position should the cover move to when opening the window/door and the cover is closed to allow ventilation?
         If closing is triggered and the contact_sensor is 'on' the cover will move to this position instead of closing completly
-        <br /><br />Should not be 100. In this case please use 99
+        <br /><br />Should not be 100. In this case please use 99. And please also note the information in the position tolerance.
         <br /><br />`Optional`
       default: 30
       selector:
@@ -627,6 +641,13 @@ blueprint:
       description: >-
         Tolerance to be applied when comparing the current position with the to be position.
         These are absolute values. Not relative to the previous position values.
+        <br /><br />
+        Bear in mind that the other positions are not too close to each other if you include the tolerance.
+        The following could cause problems and would then be <ins>incorrect</ins>:
+        <br />
+        - Open Position = 100<br />
+        - Ventilate Position = 99<br />
+        - Tolerance >= 1<br />
         <br /><br />`Optional`
       default: 0
       selector:
@@ -1038,7 +1059,7 @@ variables:
   position_tolerance: !input position_tolerance
 
   # Sensors
-  contact_cover_place: !input contact_cover_place
+  # contact_cover_place: !input contact_cover_place
   contact_sensor: !input contact_sensor
   resident_sensor: !input resident_sensor
 
@@ -1197,6 +1218,7 @@ variables:
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
+  is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
 
@@ -1365,7 +1387,7 @@ trigger:
     entity_id: !input blind
     attribute: current_position
     id: "t_ma_1"
-   # for: "00:01:00"
+    # for: "00:01:00"
 
 condition:
   - condition: !input auto_global_condition
@@ -1709,8 +1731,8 @@ action:
                 delay:
                   seconds: !input shading_waitingtime_end
           - if:
-              - "{{ contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
               - "{{ is_ventilation_enabled }}"
+              - "{{ contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
             then:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
@@ -1808,6 +1830,7 @@ action:
           - or:
               - "{{ is_down_enabled }}"
               - "{{ is_ventilation_enabled }}"
+              - "{{ is_lockout_protection_enabled }}"
           - condition: !input auto_down_condition
           - or:
               # Check if we have a trigger for cover down
@@ -1823,11 +1846,11 @@ action:
                   - "t_bc_8"
                   - "t_bc_9"
 
-          # Check to allow a window but a door only if contact_sensor not open - we want protection
+          # Consider potential lockout protection. Only continue if it is a window or a door with closed contact.
           - or:
-              - "{{ contact_cover_place == 'window' }}"
-              - "{{ contact_cover_place == 'door' and contact_sensor == [] }}"
-              - "{{ contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, ['false', 'off']) }}"
+              - "{{ not is_lockout_protection_enabled }}"
+              - "{{ is_lockout_protection_enabled and contact_sensor == [] }}"
+              - "{{ is_lockout_protection_enabled and contact_sensor != [] and is_state(contact_sensor, ['false', 'off']) }}"
 
           # - "{{ is_status_helper_disabled or (is_status_helper_enabled and is_cover_shaded and (close_position < shading_position)) }}" # TODO: Keep this?
 
@@ -1874,7 +1897,7 @@ action:
                   - condition: trigger #  Resident_sensor
                     id: t_bc_7
 
-              # Closing after ventilate
+              # Closing after ventilation
               - and:
                   - condition: trigger
                     id: "t_bc_6" # contact_sensor
@@ -1893,9 +1916,9 @@ action:
             then:
               - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
           - if:
+              - "{{ is_ventilation_enabled }}"
               - "{{ contact_sensor != [] }}"
               - "{{ is_state(contact_sensor, ['true', 'on']) }}"
-              - "{{ is_ventilation_enabled }}"
             then:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
@@ -1988,7 +2011,7 @@ action:
           - stop: "Stop the automation"
 
       # ANCHOR
-      - alias: Window sensor - opened
+      - alias: Contact sensor - opened
         conditions:
           - condition: trigger
             id: "t_bv_1" # contact_sensor
@@ -2128,6 +2151,7 @@ action:
               - conditions: # Manually ventilated
                   - "{{ is_ventilation_enabled }}"
                   - "{{ (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
+                  - "{{ (current_position | int(default=110) != open_position) }}" # If ventilate_position and open_position are too close together, the Ventilation-status should not be assigned.
                 sequence:
                   - service: input_text.set_value
                     data:
