@@ -61,3 +61,14 @@
 
 2024.02.13-01:
   - Fixed potential bug when opening via time control
+
+2024.02.15-01:
+  - Fixed timestamp comparison bug
+  - Faster checking for manual position changes
+
+2024.02.18-01:
+  - Fixed: Schedule open/close-bug
+  - Fixed: Next try - faster checking for manual position changes
+  - Separate ventilation from lockout protection
+  - Added own lockout protection feature
+  - Removed door/window chooser (contact_cover_place)
