@@ -72,3 +72,6 @@
   - Separate ventilation from lockout protection
   - Added own lockout protection feature
   - Removed door/window chooser (contact_cover_place)
+
+2024.02.18-02:
+  - Fixed: Problems with helper json
