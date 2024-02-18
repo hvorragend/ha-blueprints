@@ -18,7 +18,7 @@ blueprint:
 
     ## Additional Information
 
-    **Version**: 2024.02.15-01
+    **Version**: 2024.02.18-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -39,6 +39,13 @@ blueprint:
     2024.02.15-01:
       - Fixed timestamp comparison bug
       - Faster checking for manual position changes
+
+    2024.02.18-01:
+      - Fixed: Schedule open/close-bug
+      - Fixed: Next try - faster checking for manual position changes
+      - Separate ventilation from lockout protection
+      - Added own lockout protection feature
+      - Removed door/window chooser (contact_cover_place)
 
     **Condition examples**
     - If, for example, your blinds on the upper floor only close automatically and are not opened via the automation, you can also enable the blinds to be opened during this time by activating a vacation mode boolean.
@@ -124,17 +131,19 @@ blueprint:
       selector:
         select:
           options:
-            - label: "1 - 🔼 - Activate automatic cover opening"
+            - label: "1 - 🔼 - Enable automatic cover opening"
               value: "auto_up_enabled"
-            - label: "2 - 🔻 - Activate automatic cover closing"
+            - label: "2 - 🔻 - Enable automatic cover closing"
               value: "auto_down_enabled"
-            - label: "3 - 🔅 - Activate control via brightness values"
+            - label: "3 - 🔅 - Enable control via brightness values"
               value: "auto_brightness_enabled"
-            - label: "4 - ☀️ - Activate control via sun elevation"
+            - label: "4 - ☀️ - Enable control via sun elevation"
               value: "auto_sun_enabled"
-            - label: "5 - 💨 - Activate ventilation mode"
+            - label: "5 - 💨 - Enable ventilation mode"
               value: "auto_ventilate_enabled"
-            - label: "6 - 🕶️ - Activate automatic shading"
+            - label: "6 - 🚪 - Enable lockout protection"
+              value: "auto_lockout_protection_enabled"
+            - label: "7 - 🕶️ - Enable automatic shading"
               value: "auto_shading_enabled"
           multiple: true
           sort: false
@@ -176,8 +185,9 @@ blueprint:
     time_schedule_helper:
       name: "⏲️ Cover driving time schedule helper"
       description: >-
-        If enabled above, olease select the schedule helper here.
+        If enabled above, please select the schedule helper here.
         Of course, it is also important that the times in the helper are configured accordingly.
+        Please create only one period in total. Example: Start at 08:00 and end at 22:00.
         The helper can be created [here](https://my.home-assistant.io/redirect/helpers/).
       default: []
       selector:
@@ -235,7 +245,7 @@ blueprint:
 
     drive_time:
       name: "🦮 Cover Drive Time"
-      description: "Can be used to recognise manual control. Please round up a little and do not adjust too precisely."
+      description: "Can be used to recognise manual control. Please round up a little and do not adjust too precisely. Is used to delay the trigger if too much or incorrect position data is sent back."
       default: 90
       selector:
         number:
@@ -540,29 +550,36 @@ blueprint:
             - input_boolean
             - binary_sensor
 
-    contact_cover_place:
-      name: "🚪 Cover Belongs To"
-      description: >-
-        Does the cover belong to a window or a door?
-        In the case of a door, an attempt is made to prevent the cover from being lowered
-        when the door is open in order to prevent it from being locked out. (without guarantee!)
-        <br /><br />`Optional`
-      default: "window"
-      selector:
-        select:
-          options:
-            - label: "Window"
-              value: "window"
-            - label: "Door"
-              value: "door"
+    # contact_cover_place:
+    #   name: "🚪 Cover Belongs To"
+    #   description: >-
+    #     Necessary for lockout protection!
+    #     Does the cover belong to a window or a door? In the case of a door, an attempt is made to prevent the cover from being lowered
+    #     when the door is open in order to prevent it from being locked out. *Without guarantee!*
+    #     <br /><br />`Optional`
+    #   default: "window"
+    #   selector:
+    #     select:
+    #       options:
+    #         - label: "Window"
+    #           value: "window"
+    #         - label: "Door"
+    #           value: "door"
 
     contact_sensor:
-      name: "🚪 Contact Sensor Entity"
+      name: "🚪💨 Contact Sensor Entity"
       description: >-
-        This can be used to define whether the cover belongs to a window or an (outer) door with a window opening sensor.
-        If this is the case, the ventilation function can be used.
-        This means that the ventilate position is approached when the window is opened/tilted.
-        This sensor can be defined here.
+        The contact sensor is required for lock-out protection and for ventilation mode. It must be a binary two-way contact sensor.
+        <br /><br />
+        <ins>Lock-out protection:</ins>
+        <br />
+        The roller blind is not closed if the door contact is on or true.
+        <br /><br />
+        <ins>Ventilation mode:</ins>
+        <br />
+        If the door contact changes to on/true, the roller blind is moved to the ventilation position.
+        After the status changes to off/false, the close position is activated.
+        The same applies in the shading-out situation.
         <br /><br />`Optional`
       default: []
       selector:
@@ -577,7 +594,7 @@ blueprint:
       description: >-
         What position should the cover move to when opening the window/door and the cover is closed to allow ventilation?
         If closing is triggered and the contact_sensor is 'on' the cover will move to this position instead of closing completly
-        <br /><br />Should not be 100. In this case please use 99
+        <br /><br />Should not be 100. In this case please use 99. And please also note the information in the position tolerance.
         <br /><br />`Optional`
       default: 30
       selector:
@@ -627,6 +644,13 @@ blueprint:
       description: >-
         Tolerance to be applied when comparing the current position with the to be position.
         These are absolute values. Not relative to the previous position values.
+        <br /><br />
+        Bear in mind that the other positions are not too close to each other if you include the tolerance.
+        The following could cause problems and would then be <ins>incorrect</ins>:
+        <br />
+        - Open Position = 100<br />
+        - Ventilate Position = 99<br />
+        - Tolerance >= 1<br />
         <br /><br />`Optional`
       default: 0
       selector:
@@ -1038,7 +1062,7 @@ variables:
   position_tolerance: !input position_tolerance
 
   # Sensors
-  contact_cover_place: !input contact_cover_place
+  # contact_cover_place: !input contact_cover_place
   contact_sensor: !input contact_sensor
   resident_sensor: !input resident_sensor
 
@@ -1094,97 +1118,91 @@ variables:
       states(cover_status_helper) not in ["unavailable", "none", "unknown"]
     }}
 
-  # After a few weeks, I will delete the downward compatibility in the form of the version checks.
+  # Cover status assignments
   is_cover_open: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).version == 1,
-          (states(cover_status_helper)|from_json).open,
-          (states(cover_status_helper)|from_json).open.a, false
-          ) | bool
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('open') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).open.a | bool }}
+    {% else %}
+      {{ false }}
+    {% endif %}
+
   is_cover_open_ts: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).v == 2,
-          (states(cover_status_helper)|from_json).open.t,
-          now_ts, 0
-          )
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('open') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).open.t }}
+    {% else %}
+      {{ now_ts }}
+    {% endif %}
+
   is_cover_closed: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).version == 1,
-          (states(cover_status_helper)|from_json).close,
-          (states(cover_status_helper)|from_json).close.a, false
-          ) | bool
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('close') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).close.a | bool }}
+    {% else %}
+      {{ false }}
+    {% endif %}
+
   is_cover_closed_ts: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).v == 2,
-          (states(cover_status_helper)|from_json).close.t,
-          now_ts, 0
-          )
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('close') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).close.t }}
+    {% else %}
+      {{ now_ts }}
+    {% endif %}
+
   is_cover_ventilated: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).version == 1,
-          (states(cover_status_helper)|from_json).ventilate,
-          (states(cover_status_helper)|from_json).ventilate.a, false
-          ) | bool
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('ventilate') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).ventilate.a | bool }}
+    {% else %}
+      {{ false }}
+    {% endif %}
+
   is_cover_ventilated_ts: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).v == 2,
-          (states(cover_status_helper)|from_json).ventilate.t,
-          now_ts, 0
-          )
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('ventilate') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).ventilate.t }}
+    {% else %}
+      {{ now_ts }}
+    {% endif %}
+
   is_cover_shaded: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).version == 1,
-          (states(cover_status_helper)|from_json).shading,
-          (states(cover_status_helper)|from_json).shading.a, false
-          ) | bool
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('shading') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).shading.a | bool }}
+    {% else %}
+      {{ false }}
+    {% endif %}
+
   is_cover_shaded_ts: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).v == 2,
-          (states(cover_status_helper)|from_json).shading.t,
-          now_ts, 0
-          )
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('shading') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).shading.t }}
+    {% else %}
+      {{ now_ts }}
+    {% endif %}
+
+  is_cover_locked: >-
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('locked') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).locked.a | bool }}
+    {% else %}
+      {{ false }}
+    {% endif %}
+
+  is_cover_locked_ts: >-
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('locked') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).locked.t }}
+    {% else %}
+      {{ now_ts }}
+    {% endif %}
+
   is_cover_manual: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).version == 1,
-          (states(cover_status_helper)|from_json).manual,
-          (states(cover_status_helper)|from_json).manual.a, false
-          ) | bool
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('manual') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).manual.a | bool }}
+    {% else %}
+      {{ false }}
+    {% endif %}
+
   is_cover_manual_ts: >-
-    {{
-      is_status_helper_enabled and
-      iif (
-          (states(cover_status_helper)|from_json).v == 2,
-          (states(cover_status_helper)|from_json).manual.t,
-          now_ts, 0
-          )
-    }}
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('manual') and (states(cover_status_helper)|from_json).v == 2 %}
+      {{ (states(cover_status_helper)|from_json).manual.t }}
+    {% else %}
+      {{ now_ts }}
+    {% endif %}
+
   cover_status_time: >-
     {{
       is_status_helper_enabled and
@@ -1197,6 +1215,7 @@ variables:
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
+  is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
 
@@ -1365,7 +1384,9 @@ trigger:
     entity_id: !input blind
     attribute: current_position
     id: "t_ma_1"
-   # for: "00:01:00"
+    # for: "00:00:60"
+    for:
+      seconds: !input drive_time
 
 condition:
   - condition: !input auto_global_condition
@@ -1427,6 +1448,7 @@ action:
               'close':{'a':false,'t':0},
               'ventilate':{'a':false,'t':0},
               'shading':{'a':false,'t':0},
+              'locked':{'a':false,'t':0},
               'manual':{'a':false,'t':0},
               'v':2,
               't':as_timestamp(now()) | round(0)
@@ -1448,6 +1470,7 @@ action:
               'close':{'a':is_cover_closed,'t':0},
               'ventilate':{'a':is_cover_ventilated,'t':0},
               'shading':{'a':is_cover_shaded,'t':0},
+              'locked':{'a':is_cover_locked,'t':0},
               'manual':{'a':is_cover_manual,'t':0},
               'v':2,
               't':cover_status_time | round(0)
@@ -1557,6 +1580,7 @@ action:
                               'close':{'a':false,'t':dict_var.close.t},
                               'ventilate':{'a':false,'t':dict_var.ventilate.t},
                               'shading':{'a':true,'t':now_ts},
+                              'locked':{'a':false,'t':dict_var.locked.t},
                               'manual':{'a':false,'t':dict_var.manual.t},
                               'v':2,
                               't':as_timestamp(now()) | round(0)
@@ -1594,10 +1618,15 @@ action:
                           - "{{ is_time_field_enabled }}"
                           - "{{ now() >= today_at(time_up_late_today) }}"
                           - "{{ now() <= today_at(time_down_early_today) - timedelta(seconds = 5) }}"
-                      - and: # Opening - Via schedule helper w/o brightness and sun
+                      - and: # Opening - Scheduler changes to on
                           - "{{ is_schedule_helper_enabled }}"
-                          - "{{ is_brightness_enabled }}"
-                          - "{{ is_sun_elevation_enabled }}"
+                          - "{{ is_state(time_schedule_helper, 'on') }}"
+                          - condition: trigger
+                            id: "t_bo_8"
+                      - and: # Opening - Via schedule helper w/o brightness and sun TODO: ?????
+                          - "{{ is_schedule_helper_enabled }}"
+                          - "{{ not is_brightness_enabled }}"
+                          - "{{ not is_sun_elevation_enabled }}"
                           - "{{ is_state(time_schedule_helper, 'on') }}"
                       - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                           - or:
@@ -1661,6 +1690,7 @@ action:
                               'close':{'a':false,'t':dict_var.close.t},
                               'ventilate':{'a':false,'t':dict_var.ventilate.t},
                               'shading':{'a':false,'t':dict_var.shading.t},
+                              'locked':{'a':false,'t':dict_var.locked.t},
                               'manual':{'a':false,'t':dict_var.manual.t},
                               'v':2,
                               't':as_timestamp(now()) | round(0)
@@ -1709,8 +1739,8 @@ action:
                 delay:
                   seconds: !input shading_waitingtime_end
           - if:
-              - "{{ contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
               - "{{ is_ventilation_enabled }}"
+              - "{{ contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
             then:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
@@ -1745,6 +1775,7 @@ action:
                           'close':{'a':false,'t':dict_var.close.t},
                           'ventilate':{'a':true,'t':now_ts},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -1794,6 +1825,7 @@ action:
                           'close':{'a':false,'t':dict_var.close.t},
                           'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -1808,6 +1840,7 @@ action:
           - or:
               - "{{ is_down_enabled }}"
               - "{{ is_ventilation_enabled }}"
+              - "{{ is_lockout_protection_enabled }}"
           - condition: !input auto_down_condition
           - or:
               # Check if we have a trigger for cover down
@@ -1823,12 +1856,6 @@ action:
                   - "t_bc_8"
                   - "t_bc_9"
 
-          # Check to allow a window but a door only if contact_sensor not open - we want protection
-          - or:
-              - "{{ contact_cover_place == 'window' }}"
-              - "{{ contact_cover_place == 'door' and contact_sensor == [] }}"
-              - "{{ contact_cover_place == 'door' and contact_sensor != [] and is_state(contact_sensor, ['false', 'off']) }}"
-
           # - "{{ is_status_helper_disabled or (is_status_helper_enabled and is_cover_shaded and (close_position < shading_position)) }}" # TODO: Keep this?
 
           - or:
@@ -1841,23 +1868,28 @@ action:
                   - "{{ is_down_enabled }}"
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_down_late_today) }}"
-              - and: # Closing - Via schedule helper w/o brightness and sun
+              - and: # Closing - Scheduler changes to off
+                  - "{{ is_down_enabled }}"
+                  - "{{ is_schedule_helper_enabled }}"
+                  - "{{ is_state(time_schedule_helper, 'off') }}"
+                  - condition: trigger
+                    id: "t_bc_9"
+              - and: # Closing - Via schedule helper w/o brightness and sun TODO: ?????
                   - "{{ is_down_enabled }}"
                   - "{{ not is_brightness_enabled }}"
                   - "{{ not is_sun_elevation_enabled }}"
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
+                  - "{{ is_down_enabled }}"
                   - or:
                       - and:
-                          - "{{ is_down_enabled }}"
                           - "{{ is_time_field_enabled }}"
                           - "{{ now() >= today_at(time_down_early_today) }}"
                           - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
                       - and:
-                          - "{{ is_down_enabled }}"
                           - "{{ is_schedule_helper_enabled }}"
-                          - "{{ is_state(time_schedule_helper, 'off') }}"
+                          - "{{ is_state(time_schedule_helper, 'on') }}"
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
@@ -1868,24 +1900,53 @@ action:
 
               # Closing - due to resident goes sleeping
               - and:
+                  - condition: trigger #  Resident_sensor
+                    id: t_bc_7
                   - "{{ is_down_enabled }}"
                   - "{{ resident_sensor != [] }}"
                   - "{{ is_state(resident_sensor, ['true', 'on']) }}"
-                  - condition: trigger #  Resident_sensor
-                    id: t_bc_7
 
-              # Closing after ventilate
+              # Closing after ventilation and after lockout-protection
               - and:
                   - condition: trigger
                     id: "t_bc_6" # contact_sensor
-                  - "{{ is_ventilation_enabled }}"
+                  - "{{ is_ventilation_enabled or is_lockout_protection_enabled }}"
                   - "{{ contact_sensor != [] }}"
                   - "{{ is_state(contact_sensor, ['false', 'off']) }}"
                   - or:
-                      - "{{ is_status_helper_enabled and is_cover_ventilated }}"
+                      - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}"
                       - "{{ is_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
 
         sequence:
+          # Consider lockout protection
+          - if:
+              - "{{ is_lockout_protection_enabled }}"
+              - "{{ contact_sensor != [] }}"
+              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+            then:
+              - if:
+                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                then:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = {
+                          'open':{'a':false,'t':dict_var.open.t},
+                          'close':{'a':false,'t':dict_var.close.t},
+                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                          'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':true,'t':now_ts},
+                          'manual':{'a':false,'t':dict_var.manual.t},
+                          'v':2,
+                          't':as_timestamp(now()) | round(0)
+                          }
+                        %}
+                        {{ dict_new | to_json }}
+              - stop: "Stop the automation"
+
+          # Move to ventilate
           - if:
               - not:
                   - condition: trigger
@@ -1893,9 +1954,9 @@ action:
             then:
               - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
           - if:
+              - "{{ is_ventilation_enabled }}"
               - "{{ contact_sensor != [] }}"
               - "{{ is_state(contact_sensor, ['true', 'on']) }}"
-              - "{{ is_ventilation_enabled }}"
             then:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
@@ -1930,6 +1991,7 @@ action:
                           'close':{'a':false,'t':dict_var.close.t},
                           'ventilate':{'a':true,'t':now_ts},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -1979,6 +2041,7 @@ action:
                           'close':{'a':true,'t':now_ts},
                           'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -1988,7 +2051,7 @@ action:
           - stop: "Stop the automation"
 
       # ANCHOR
-      - alias: Window sensor - opened
+      - alias: Contact sensor - opened
         conditions:
           - condition: trigger
             id: "t_bv_1" # contact_sensor
@@ -2033,6 +2096,7 @@ action:
                       'close':{'a':false,'t':dict_var.close.t},
                       'ventilate':{'a':true,'t':now_ts},
                       'shading':{'a':false,'t':dict_var.shading.t},
+                      'locked':{'a':false,'t':dict_var.locked.t},
                       'manual':{'a':false,'t':dict_var.manual.t},
                       'v':2,
                       't':as_timestamp(now()) | round(0)
@@ -2070,6 +2134,7 @@ action:
                           'close':{'a':false,'t':dict_var.close.t},
                           'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -2094,6 +2159,7 @@ action:
                           'close':{'a':false,'t':dict_var.close.t},
                           'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -2118,6 +2184,7 @@ action:
                           'close':{'a':true,'t':now_ts},
                           'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -2128,6 +2195,7 @@ action:
               - conditions: # Manually ventilated
                   - "{{ is_ventilation_enabled }}"
                   - "{{ (current_position | int(default=110) <= ventilate_position + position_tolerance) and (current_position | int(default=110) >= ventilate_position - position_tolerance) }}"
+                  - "{{ (current_position | int(default=110) != open_position) }}" # If ventilate_position and open_position are too close together, the Ventilation-status should not be assigned.
                 sequence:
                   - service: input_text.set_value
                     data:
@@ -2139,6 +2207,7 @@ action:
                           'close':{'a':false,'t':dict_var.close.t},
                           'ventilate':{'a':true,'t':now_ts},
                           'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
@@ -2160,6 +2229,7 @@ action:
                           'close':{'a':false,'t':dict_var.close.t},
                           'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':true,'t':now_ts},
+                          'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':now_ts},
                           'v':2,
                           't':as_timestamp(now()) | round(0)
