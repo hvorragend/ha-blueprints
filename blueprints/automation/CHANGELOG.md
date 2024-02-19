@@ -75,3 +75,9 @@
 
 2024.02.18-02:
   - Fixed: Problems with helper json
+
+
+2024.02.19-01:
+  - Added: External trigger to force opening or closing. Useful for Antifreeze, RainProtection or WindProtection.
+  - Fixed: Still timing problems occur when recognising manual drives
+  - Added: Additional actions for open, close, ventilation, shading start and shading end
