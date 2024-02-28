@@ -81,3 +81,10 @@
   - Added: External trigger to force opening or closing. Useful for Antifreeze, RainProtection or WindProtection.
   - Fixed: Still timing problems occur when recognising manual drives
   - Added: Additional actions for open, close, ventilation, shading start and shading end
+
+2024.02.28-01:
+  - Fixed a nasty bug in the helper detection.
+  - Fixed the warning: AttributeError: ‘list’ object has no attribute ‘lower’
+
+2024.02.28-02:
+  - Fixed: Float values were incorrectly compared as integers. This fixed problems with sun-elevation and brightness.
