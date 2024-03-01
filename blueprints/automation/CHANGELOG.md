@@ -87,3 +87,6 @@
 
 2024.02.28-02:
   - Fixed: Float values were incorrectly compared as integers. This fixed problems with sun-elevation and brightness.
+
+2024.03.01-01:
+  - Roller blinds may only be closed once after Time_Down_Late. Previously, the entire day was checked.
