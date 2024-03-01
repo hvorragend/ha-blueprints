@@ -18,27 +18,14 @@ blueprint:
 
     ## Additional Information
 
-    **Version**: 2024.02.19-01
+    **Version**: 2024.02.xx-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
-    **Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+    **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
     <details>
-
-    **Latest changes**
-
-    2024.02.12-01:
-      - Allow input_boolean as contact sensors.
-      - The state of the contact sensor can be true/on or false/off
-      - Fixed time control bug
-
-    2024.02.13-01:
-      - Fixed potential bug when opening via time control
-
-    2024.02.15-01:
-      - Fixed timestamp comparison bug
-      - Faster checking for manual position changes
+    <summary>Latest changes</summary>
 
     2024.02.18-01:
       - Fixed: Schedule open/close-bug
@@ -55,7 +42,20 @@ blueprint:
       - Fixed: Still timing problems occur when recognising manual drives
       - Added: Additional actions for open, close, ventilation, shading start and shading end
 
-    **Condition examples**
+    2024.02.28-01:
+      - Fixed a nasty bug in the helper detection.
+      - Fixed the warning: AttributeError: ‘list’ object has no attribute ‘lower’
+
+    2024.02.28-02:
+      - Fixed: Float values were incorrectly compared as integers. This fixed problems with sun-elevation and brightness.
+
+    2024.02.xx-01:
+      - foobar
+    </details>
+
+    <details>
+    <summary>Condition examples & Features</summary>
+
     - If, for example, your blinds on the upper floor only close automatically and are not opened via the automation, you can also enable the blinds to be opened during this time by activating a vacation mode boolean.
     - If you have visitors or a party, you may not want the blinds to close. This can be easily configured using a party mode boolean.
     - If, for any reason, you want to pause the activation of shading or the ending of shading, this can be controlled via a shading boolean.
@@ -70,8 +70,11 @@ blueprint:
     - Two different temperature sensors (compare thresholds for indoor and/or outdoor sensors)
     - Not only the current temperature, but also the temperature forecast can also be taken into account.
     - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until <ins>all</ins> criteria are met.
+    </details>
 
-    **Important notes**
+    <details>
+    <summary>Important notes</summary>
+
     - It is <ins>not</ins> possible to execute this automation manually!
     - If you want to use sun elevation and/or azimuth it's strongly advised to use sun.sun. And please make sure your sun.sun entity is enabled!
     - `time_up_early` should be earlier `than time_up_late`
@@ -121,6 +124,10 @@ blueprint:
 
         **Please ensure that the corresponding sensors are also specified.**
         For example, the brightness control only works if a brightness sensor is also specified.
+
+
+        **Note:** If you want to use the <ins>lockout protection</ins>, I recommend configuring a cover status helper.
+        Otherwise, the cover cannot be moved to the next state after the door contact is closed.
       default:
         [
           auto_up_enabled,
@@ -150,6 +157,32 @@ blueprint:
           custom_value: false
           mode: list
 
+    individual_config:
+      name: "⚙️ Individual Configuration"
+      description: "Various different options for fine adjustment."
+      default: []
+      selector:
+        select:
+          options:
+            - label: "A - Forbid closing the cover after deactivating the lockout protection"
+              value: "conf_forbid_close_after_lockout"
+            - label: "B - Forbid driving to a higher position when closing the cover"
+              value: "conf_forbid_higher_position_closing"
+            - label: "C - Forbid driving to a higher closed-position when shading ends"
+              value: "conf_forbid_higher_position_shading_end"
+            - label: "D - Forbid using the get_forecasts service"
+              value: "conf_forbid_forecast_service"
+            - label: "E - Forbid end of shading if the cover already is closed"
+              value: "conf_forbid_shading_end_if_closed"
+            # - label: "F - Ignore shading, ventilation, open, close after manual movement"
+            #   value: "conf_ignore_after_manual"
+            # Do not allow the blind to move to a lower position than the shading position when closing
+            # Hotdaycheck: Forecast and not just current temperature: The blinds should not be opened at all when it gets very hot.
+          multiple: true
+          sort: false
+          custom_value: false
+          mode: list
+
     time_control:
       name: "⏲️ Selection of time control options"
       description: >-
@@ -158,16 +191,18 @@ blueprint:
         However, you can also activate a scheduler helper mode at this point.
         This would allow you to configure a different time period for keeping the cover open for each day.
         Unfortunately, the HA core currently only has a 30-minute time grid for the time configuration.
-        <br /><br />
+
+
         **When using scheduler helper - Important difference to the usual input fields!**
-        <br /><br />
-        <ins>Without brightness or sun elevation control:</ins><br />
-        - As soon as the helper state is switched on, the cover is opened.<br />
-        - The cover is closed when the helper state changes from off to on.<br />
-        <br />
-        <ins>With brightness or sun elevation control:</ins><br />
-        - The cover is opened when the threshold values are exceeded and the helper state is on.<br />
-        - The cover is closed when the threshold values are undershot and the helper state is off.<br />
+
+
+          - <ins>Without brightness or sun elevation control:</ins>
+            As soon as the helper state is switched on, the cover is opened.
+            The cover is closed when the helper state changes from off to on.
+
+          - <ins>With brightness or sun elevation control:</ins>
+            The cover is opened when the threshold is exceeded and the helper is on.
+            The cover is closed when the threshold is undershot and the helper is off.
       default: time_control_input
       selector:
         select:
@@ -198,13 +233,13 @@ blueprint:
     cover_status_options:
       name: "🦮 Status detection of the cover"
       description: |
-        - CHECK THE CURRENT POSITION
+        - <ins>Check the current position</ins>
         The automation only moves the cover if it is positioned at one of the defined positions (ventilate position, shading position, open position or closed position). Otherwise, the cover has been moved manually.
         After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action.
         To automate the movement of the cover again, it must be moved to one of the defined positions beforehand.
         The advantage of this is that you don't have to create a helper in Home Assistant.
 
-        - USE AN EXTERNAL STATUS HELPER
+        - <ins>Use an external cover status helper</ins>
         If you want to be able to intervene manually and the automation should execute the next movement as usual, a helper is required.
         *Without helper, the manual override would always be overwritten by the automation.*
         This has the advantage that the cover does not necessarily have to be in a defined position.
@@ -214,7 +249,7 @@ blueprint:
           options:
             - label: "Check the current position"
               value: "cover_helper_disabled"
-            - label: "Use an external status helper"
+            - label: "Use an external cover status helper"
               value: "cover_helper_enabled"
 
     cover_status_helper:
@@ -581,18 +616,20 @@ blueprint:
     contact_sensor:
       name: "🚪💨 Contact Sensor Entity"
       description: >-
-        The contact sensor is required for lock-out protection and for ventilation mode. It must be a binary two-way contact sensor.
+        The contact sensor is required for lockout protection and for ventilation mode. It must be a binary two-way contact sensor.
         <br /><br />
-        <ins>Lock-out protection:</ins>
-        <br />
-        The roller blind is not closed if the door contact is on or true.
+          - <ins>Lockout protection:</ins>
+            <br />
+            The roller blind is not closed if the door contact is on or true.
         <br /><br />
-        <ins>Ventilation mode:</ins>
-        <br />
-        If the door contact changes to on/true, the roller blind is moved to the ventilation position.
-        After the status changes to off/false, the close position is activated.
-        The same applies in the shading-out situation.
-        <br /><br />`Optional`
+          - <ins>Ventilation mode:</ins>
+            <br />
+            If the door contact changes to on/true, the roller blind is moved to the ventilation position.
+            After the status changes to off/false, the close position is activated.
+            The same applies in the shading-out situation.
+
+
+        `Optional`
       default: []
       selector:
         entity:
@@ -957,6 +994,8 @@ blueprint:
       description: >-
         This condition can be used to dynamically control the <ins>shading-IN-automation</ins> of the cover.
         This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).
+        <br />
+        Another example: Here you could also set that the shading is only triggered in the summer season.
         <br /><br />`Optional`
         <br /><br />`Shading`
       default: []
@@ -1024,6 +1063,7 @@ variables:
 
   # Modes
   auto_options: !input auto_options
+  individual_config: !input individual_config
   # auto_global_condition: !input auto_global_condition
   # auto_up_condition: !input auto_up_condition
   # auto_down_condition: !input auto_down_condition
@@ -1148,7 +1188,7 @@ variables:
       cover_status_helper == [] or
       states(cover_status_helper) == [] or
       not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") or
-      states(cover_status_helper) not in ["unavailable", "none", "unknown"]
+      states(cover_status_helper) in ["unavailable", "none", "unknown"]
     }}
 
   # Cover status assignments
@@ -1251,6 +1291,13 @@ variables:
   is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
+
+  forbid_close_after_lockout: "{{ 'conf_forbid_close_after_lockout' in individual_config }}"
+  forbid_higher_position_closing: "{{ 'conf_forbid_higher_position_closing' in individual_config }}"
+  forbid_higher_position_shading_end: "{{ 'conf_forbid_higher_position_shading_end' in individual_config }}"
+  forbid_forecast_service: "{{ 'conf_forbid_forecast_service' in individual_config }}"
+  forbid_shading_end_if_closed: "{{ 'conf_forbid_shading_end_if_closed' in individual_config }}"
+  # is_ignore_after_manual: "{{ 'conf_ignore_after_manual' in individual_config }}"
 
 trigger:
   # triggers for shading in
@@ -1425,6 +1472,7 @@ condition:
 action:
   # we have to call a service for forecast due to HA changes
   - if:
+      - "{{ not forbid_forecast_service }}"
       - "{{ (shading_forecast_sensor != [] ) }}"
       - condition: trigger
         id:
@@ -1535,17 +1583,17 @@ action:
                           - and:
                               - "{{ is_schedule_helper_enabled }}"
                               - "{{ is_state(time_schedule_helper, 'on') }}"
-                      - "{{ ( (shading_temperatur_sensor1 == [] ) or (states(shading_temperatur_sensor1) | int(default=shading_min_temperatur1) >= shading_min_temperatur1) ) }}"
-                      - "{{ ( (shading_temperatur_sensor2 == [] ) or (states(shading_temperatur_sensor2) | int(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
-                      - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | int(default=shading_sun_brightness_start) >= shading_sun_brightness_start) ) }}"
+                      - "{{ ( (shading_temperatur_sensor1 == [] ) or (states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) >= shading_min_temperatur1) ) }}"
+                      - "{{ ( (shading_temperatur_sensor2 == [] ) or (states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
+                      - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) >= shading_sun_brightness_start) ) }}"
                       - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                       - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
                       - "{{ current_position | int(default=101) > shading_position }}"
                       - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
                       - or:
                           - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
-                          - "{{ ( shading_forecast_sensor != [] ) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | int(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
-                          - "{{ ( shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | int(default=shading_forecast_temp) >= shading_forecast_temp) }}"
+                          - "{{ ( shading_forecast_sensor != [] ) and (not forbid_forecast_service) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
+                          - "{{ ( shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | float(default=shading_forecast_temp) >= shading_forecast_temp) }}"
                       - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
 
                 sequence:
@@ -1625,7 +1673,7 @@ action:
                           - "t_bo_8"
                           - "t_bo_9"
                   - or:
-                      - "{{ is_state(auto_up_force, ['true', 'on']) }}"
+                      - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
                       - and:
                           - condition: !input auto_up_condition
                           - or:
@@ -1663,10 +1711,10 @@ action:
                                   - or:
                                       - or:
                                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | int(default=brightness_up) >= brightness_up) }}"
+                                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) >= brightness_up) }}"
                                       - or:
                                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_up) >= sun_elevation_up) }}"
+                                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) >= sun_elevation_up) }}"
 
                 sequence:
                   - if:
@@ -1759,6 +1807,18 @@ action:
           - or:
               - "{{ is_status_helper_enabled and is_cover_shaded }}"
               - "{{ is_status_helper_disabled and (current_position | int(default=101) == shading_position) }}"
+
+          - or: # Continue if cover is not already closed
+              - "{{ not forbid_shading_end_if_closed }}"
+              - or:
+                  - and:
+                      - "{{ is_status_helper_enabled }}"
+                      - "{{ forbid_shading_end_if_closed }}"
+                      - "{{ not is_cover_closed }}"
+                  - and:
+                      - "{{ is_status_helper_disabled }}"
+                      - "{{ forbid_shading_end_if_closed }}"
+                      - "{{ not (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
 
         sequence:
           - if:
@@ -1898,10 +1958,27 @@ action:
                   - "t_bc_9"
                   - "t_bc_10"
           - or:
-              - "{{ is_state(auto_down_force, ['true', 'on']) }}"
+              - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
               - and:
-                  # - "{{ is_status_helper_disabled or (is_status_helper_enabled and is_cover_shaded and (close_position < shading_position)) }}" # TODO: Keep this?
                   - condition: !input auto_down_condition
+
+                  - or: # Continue if cover is shaded and close position is lower than shading position
+                      - "{{ not forbid_higher_position_shading_end }}"
+                      - and:
+                          - "{{ is_status_helper_enabled }}"
+                          - "{{ forbid_higher_position_shading_end }}"
+                          - "{{ is_cover_shaded }}"
+                          - "{{ close_position < shading_position }}"
+                      - and:
+                          - "{{ is_status_helper_disabled }}"
+                          - "{{ forbid_higher_position_shading_end }}"
+                          - "{{ current_position | int(default=101) == shading_position }}"
+                          - "{{ close_position < shading_position }}"
+
+                  - or: # Continue if close-position is higher than the current position
+                      - "{{ not forbid_higher_position_closing }}"
+                      - "{{ forbid_higher_position_closing and (current_position | int(default=110) >= close_position) }}"
+
                   - or:
                       - "{{ is_status_helper_enabled and (now().day != is_cover_closed_ts|timestamp_custom('%-d')|int) and not is_cover_closed }}"
                       - "{{ is_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
@@ -1937,10 +2014,10 @@ action:
                           - or:
                               - or:
                                   - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                                  - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | int(default=brightness_down) <= brightness_down) }}"
+                                  - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) <= brightness_down) }}"
                               - or:
                                   - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                                  - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | int(default=sun_elevation_down) <= sun_elevation_down) }}"
+                                  - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) <= sun_elevation_down) }}"
 
                       # Closing - due to resident goes sleeping
                       - and:
@@ -1954,13 +2031,14 @@ action:
                       - and:
                           - condition: trigger
                             id: "t_bc_6" # contact_sensor
-                          - "{{ is_ventilation_enabled or is_lockout_protection_enabled }}"
+                          - or:
+                              - "{{ is_ventilation_enabled }}"
+                              - "{{ is_lockout_protection_enabled and not forbid_close_after_lockout }}"
                           - "{{ contact_sensor != [] }}"
                           - "{{ is_state(contact_sensor, ['false', 'off']) }}"
                           - or:
                               - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}"
                               - "{{ is_status_helper_disabled and (current_position | int(default=101) == ventilate_position) }}"
-                            #  - "{{ is_status_helper_disabled and (current_position | int(default=101) == open_position) }}" # because of lockout-protection
 
         sequence:
           # Consider lockout protection
