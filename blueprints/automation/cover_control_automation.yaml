@@ -109,6 +109,7 @@ blueprint:
       - Only compare such positions if the mode has been activated accordingly
       - Avoid status change from 'unavailable'
       - Allow delay in ventilation mode
+      - Fixed: Shading should not be activated when ventilation mode is active.
 
     </details>
 
@@ -224,11 +225,13 @@ blueprint:
         After a manual movement, it is unclear what is intended to be achieved, so the automation no longer takes action.
         To automate the movement of the cover again, it must be moved to one of the defined positions beforehand.
         The advantage of this is that you don't have to create a helper in Home Assistant.
+        Only basic features are available with this setting.
 
         - <ins>Use an external cover status helper</ins>
         If you want to be able to intervene manually and the automation should execute the next movement as usual, a helper is required.
         *Without helper, the manual override would always be overwritten by the automation.*
         This has the advantage that the cover does not necessarily have to be in a defined position.
+        With this selection, advanced features are possible and you can always rely on automation.
       default: cover_helper_disabled
       selector:
         select:
@@ -283,7 +286,7 @@ blueprint:
 
     individual_config:
       name: "⚙️ Individual Configuration"
-      description: "Various different options for somt fine adjustments"
+      description: "Various different options for some fine adjustments"
       default: []
       selector:
         select:
@@ -1615,6 +1618,10 @@ action:
                           - "{{ is_status_helper_enabled and not ignore_shading_after_manual }}"
                           - "{{ is_status_helper_enabled and ignore_shading_after_manual and not is_cover_manual }}"
                       - or:
+                          - "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
+                          - "{{ is_status_helper_enabled and not (is_cover_ventilated or is_cover_locked) }}"
+                          - "{{ is_status_helper_disabled and not (current_position | int(default=101) == ventilate_position) }}"
+                      - or:
                           - and:
                               - "{{ is_time_field_enabled }}"
                               - "{{ now() >= today_at(time_up_early_today) }}"
@@ -2028,7 +2035,7 @@ action:
                           - "{{ close_position < shading_position }}"
 
                   - or: # Continue if close-position is higher than the current position
-                      - "{{ not prevent_higher_position_closing }}" # conditions/2/conditions/1/conditions/2/conditions/0
+                      - "{{ not prevent_higher_position_closing }}"
                       - "{{ prevent_higher_position_closing and (current_position | int(default=110) >= close_position) }}"
 
                   - or:
