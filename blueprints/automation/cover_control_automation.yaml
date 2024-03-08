@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.03.07-01
+    **Version**: 2024.03.08-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -103,7 +103,7 @@ blueprint:
     2024.03.01-01:
       - Roller blinds may only be closed once after Time_Down_Late. Previously, the entire day was checked.
 
-    2024.03.07-01:
+    2024.03.08-01:
       - Added various options for fine adjustment
       - Possibility to ignore actions after manual position changes
       - Only compare such positions if the mode has been activated accordingly
@@ -1098,13 +1098,12 @@ mode: restart
 max_exceeded: silent
 
 variables:
-  version: "2024.03.07-01"
+  version: "2024.03.08-01"
   blind: !input blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
 
   # Modes
   auto_options: !input auto_options
-  individual_config: !input individual_config
 
   # Brightness
   default_brightness_sensor: !input default_brightness_sensor
@@ -1328,12 +1327,14 @@ variables:
   is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
 
+  individual_config: !input individual_config
   prevent_close_after_lockout: "{{ '_prevent_close_after_lockout' in individual_config }}"
   prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
   prevent_higher_position_shading_end: "{{ 'prevent_higher_position_shading_end' in individual_config }}"
   prevent_forecast_service: "{{ 'prevent_forecast_service' in individual_config }}"
   prevent_shading_end_if_closed: "{{ 'prevent_shading_end_if_closed' in individual_config }}"
 
+  ignore_after_manual_config: !input ignore_after_manual_config
   ignore_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
   ignore_closing_after_manual: "{{ 'ignore_closing_after_manual' in ignore_after_manual_config }}"
   ignore_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in ignore_after_manual_config }}"
@@ -1549,7 +1550,7 @@ action:
               'shading':{'a':false,'t':0},
               'locked':{'a':false,'t':0},
               'manual':{'a':false,'t':0},
-              'c':current_position,
+              'p':current_position,
               'v':4,
               't':as_timestamp(now()) | round(0)
               }
@@ -1572,7 +1573,7 @@ action:
               'shading':{'a':is_cover_shaded,'t':is_cover_shaded_ts},
               'locked':{'a':is_cover_locked,'t':is_cover_locked_ts},
               'manual':{'a':is_cover_manual,'t':is_cover_manual_ts},
-              'c':current_position,
+              'p':current_position,
               'v':4,
               't':cover_status_time | round(0)
               }
@@ -1587,7 +1588,6 @@ action:
               - "{{ is_shading_enabled }}"
               - "{{ is_up_enabled }}"
           - or:
-              # Check if we have a trigger for shading in
               - condition: trigger
                 id:
                   - "t_si_1"
@@ -1596,7 +1596,6 @@ action:
                   - "t_si_4"
                   - "t_si_5"
                   - "t_si_6"
-              # Check if we have a trigger for covers up
               - condition: trigger
                 id:
                   - "t_bo_1"
@@ -1611,18 +1610,16 @@ action:
 
         sequence:
           - choose:
-              # SUB-ANCHOR
+              # ANCHOR
               - alias: "Checking for shading in"
                 conditions:
                   - and: # Check if we want to perform shading in
                       - "{{ is_shading_enabled }}"
                       - condition: !input auto_shading_start_condition
                       - or:
-                          - "{{ is_status_helper_disabled }}"
-                          - "{{ is_status_helper_enabled and not ignore_shading_after_manual }}"
-                          - "{{ is_status_helper_enabled and ignore_shading_after_manual and not is_cover_manual }}"
-                      - or:
-                          - "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
+                          - "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}" # TODO: Why?
+                          - "{{ is_status_helper_enabled and ignore_shading_after_manual and is_cover_manual }}"
+                          - "{{ is_status_helper_enabled and not ignore_shading_after_manual and (now().day != is_cover_shaded_ts|timestamp_custom('%-d')|int) and not is_cover_shaded }}"
                           - "{{ is_status_helper_enabled and not (is_cover_ventilated or is_cover_locked) }}"
                           - "{{ is_status_helper_disabled and not (current_position | int(default=101) == ventilate_position) }}"
                       - or:
@@ -1648,12 +1645,11 @@ action:
                       - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
 
                 sequence:
-                  # We are ready for shading in
                   - if: # Check helper or if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
                       - or:
                           - "{{ is_status_helper_enabled and (now().day != is_cover_shaded_ts|timestamp_custom('%-d')|int) and not is_cover_shaded }}"
                           - "{{ is_status_helper_disabled and is_ventilation_enabled and (current_position | int(default=101) > ventilate_position) }}"
-                          - "{{ is_status_helper_disabled and not is_ventilation_enabled and (current_position | int(default=101) > shading_position) }}"
+                          - "{{ is_status_helper_disabled and not is_ventilation_enabled and (current_position | int(default=101) > shading_position) }}" # Fallback
                     then:
                       - alias: "Wait the number of seconds set in shading_waitingtime"
                         delay:
@@ -1697,7 +1693,7 @@ action:
                               'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
                               'locked':{'a':false,'t':dict_var.locked.t},
                               'manual':{'a':false,'t':dict_var.manual.t},
-                              'c':current_position,
+                              'p':current_position,
                               'v':4,
                               't':as_timestamp(now()) | round(0)
                               })
@@ -1730,18 +1726,13 @@ action:
                       - and:
                           - condition: !input auto_up_condition
                           - or:
-                              - "{{ is_status_helper_disabled }}"
-                              - "{{ is_status_helper_enabled and not ignore_opening_after_manual }}"
-                              - "{{ is_status_helper_enabled and ignore_opening_after_manual and not is_cover_manual }}"
-                          - or:
-                              - "{{ is_status_helper_enabled and (now().day != is_cover_open_ts|timestamp_custom('%-d')|int) and not is_cover_open }}"
-                              # - "{{ is_status_helper_enabled and (is_cover_open_ts < today_at(time_up_late) + timedelta(seconds = 5) | as_timestamp) and not is_cover_open }}"
+                              - "{{ is_status_helper_enabled and ignore_opening_after_manual and is_cover_manual }}"
+                              - "{{ is_status_helper_enabled and not ignore_opening_after_manual and (now().day != is_cover_open_ts|timestamp_custom('%-d')|int) and not is_cover_open }}"
                               - "{{ is_status_helper_disabled and is_ventilation_enabled and (current_position | int(default=101) == ventilate_position) }}"
                               - "{{ is_status_helper_disabled and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance)}}"
                           - or:
                               - "{{ resident_sensor == [] }}"
                               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
-                          # Now we have to check different opening scenarios
                           - or:
                               - and: # Opening - Up late reached
                                   - "{{ is_time_field_enabled }}"
@@ -1829,7 +1820,7 @@ action:
                               'shading':{'a':false,'t':dict_var.shading.t},
                               'locked':{'a':false,'t':dict_var.locked.t},
                               'manual':{'a':false,'t':dict_var.manual.t},
-                              'c':current_position,
+                              'p':current_position,
                               'v':4,
                               't':as_timestamp(now()) | round(0)
                               })
@@ -1850,10 +1841,6 @@ action:
           - "{{ is_shading_enabled }}"
           - condition: !input auto_shading_end_condition
           - or:
-              - "{{ is_status_helper_disabled }}"
-              - "{{ is_status_helper_enabled and not ignore_shading_after_manual }}"
-              - "{{ is_status_helper_enabled and ignore_shading_after_manual and not is_cover_manual }}"
-          - or:
               - and:
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_up_early_today) }}"
@@ -1872,9 +1859,9 @@ action:
                   - "t_so_5"
                   - "t_so_6"
           - or:
-              - "{{ is_status_helper_enabled and is_cover_shaded }}"
+              - "{{ is_status_helper_enabled and ignore_shading_after_manual and is_cover_manual }}"
+              - "{{ is_status_helper_enabled and not ignore_shading_after_manual and is_cover_shaded }}"
               - "{{ is_status_helper_disabled and (current_position | int(default=101) == shading_position) }}"
-
           - or: # Continue if cover is not already closed
               - "{{ not prevent_shading_end_if_closed }}"
               - or:
@@ -1888,8 +1875,7 @@ action:
                       - "{{ not (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
 
         sequence:
-          - if:
-              # If sun is outside of shading window (azimuth or elevation) we immediately stop shading
+          - if: # If sun is outside of shading window (azimuth or elevation) we immediately stop shading
               - and:
                   - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
                   - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
@@ -1938,7 +1924,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -1993,7 +1979,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2013,7 +1999,6 @@ action:
               - "{{ is_ventilation_enabled }}"
               - "{{ is_lockout_protection_enabled }}"
           - or:
-              # Check if we have a trigger for cover down
               - condition: trigger
                 id:
                   - "t_bc_1"
@@ -2030,11 +2015,6 @@ action:
               - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
               - and:
                   - condition: !input auto_down_condition
-                  - or:
-                      - "{{ is_status_helper_disabled }}"
-                      - "{{ is_status_helper_enabled and not ignore_closing_after_manual }}"
-                      - "{{ is_status_helper_enabled and ignore_closing_after_manual and not is_cover_manual }}"
-
                   - or: # Continue if cover is shaded and close position is lower than shading position
                       - "{{ not prevent_higher_position_shading_end }}"
                       - and:
@@ -2047,17 +2027,15 @@ action:
                           - "{{ prevent_higher_position_shading_end }}"
                           - "{{ current_position | int(default=101) == shading_position }}"
                           - "{{ close_position < shading_position }}"
-
                   - or: # Continue if close-position is higher than the current position
                       - "{{ not prevent_higher_position_closing }}"
                       - "{{ prevent_higher_position_closing and (current_position | int(default=110) >= close_position) }}"
-
                   - or:
-                      - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}" # always close cover after closing the contact
-                      - "{{ is_status_helper_enabled and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) and not is_cover_closed }}"
+                      - "{{ is_status_helper_enabled and ignore_closing_after_manual and is_cover_manual }}"
+                      - "{{ is_status_helper_enabled and not ignore_closing_after_manual and (is_cover_ventilated or is_cover_locked) }}" # always close cover after closing the contact
+                      - "{{ is_status_helper_enabled and not ignore_closing_after_manual and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) and not is_cover_closed }}"
                       - "{{ is_status_helper_disabled and (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
                       - "{{ is_status_helper_disabled and is_ventilation_enabled and (current_position == ventilate_position) }}"
-
                   - or:
                       - and: # Closing - Down late reached
                           - "{{ is_down_enabled }}"
@@ -2093,20 +2071,15 @@ action:
                               - or:
                                   - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
                                   - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) <= sun_elevation_down) }}"
-
-                      # Closing - due to resident goes sleeping
-                      - and:
-                          - condition: trigger #  Resident_sensor
+                      - and: # Closing - due to resident goes sleeping
+                          - condition: trigger
                             id: t_bc_7
                           - "{{ is_down_enabled }}"
                           - "{{ resident_sensor != [] }}"
                           - "{{ is_state(resident_sensor, ['true', 'on']) }}"
-
-                      # Closing after ventilation and after lockout-protection
-                      # TODO/Problem: If you previously set the ventilation manually, even during the day, the roller blind would now lower incorrectly.
-                      - and:
+                      - and: # Closing after ventilation and after lockout-protection
                           - condition: trigger
-                            id: "t_bc_6" # contact_sensor
+                            id: "t_bc_6"
                           - or:
                               - "{{ is_ventilation_enabled }}"
                               - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
@@ -2138,7 +2111,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2200,7 +2173,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2260,7 +2233,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2278,16 +2251,13 @@ action:
       - alias: Contact sensor opened
         conditions:
           - condition: trigger
-            id: "t_bv_1" # contact_sensor
+            id: "t_bv_1"
           - "{{ is_ventilation_enabled }}"
           - "{{ contact_sensor != [] }}"
           - "{{ is_state(contact_sensor, ['true', 'on']) }}"
           - or:
-              - "{{ is_status_helper_disabled }}"
-              - "{{ is_status_helper_enabled and not ignore_ventilation_after_manual }}"
-              - "{{ is_status_helper_enabled and ignore_ventilation_after_manual and not is_cover_manual }}"
-          - or:
-              - "{{ is_status_helper_enabled and is_cover_closed }}"
+              - "{{ is_status_helper_enabled and ignore_ventilation_after_manual and is_cover_manual }}"
+              - "{{ is_status_helper_enabled and not ignore_ventilation_after_manual and is_cover_closed }}"
               - "{{ is_status_helper_disabled and (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
 
         sequence:
@@ -2329,7 +2299,7 @@ action:
                       'shading':{'a':false,'t':dict_var.shading.t},
                       'locked':{'a':false,'t':dict_var.locked.t},
                       'manual':{'a':false,'t':dict_var.manual.t},
-                      'c':current_position,
+                      'p':current_position,
                       'v':4,
                       't':as_timestamp(now()) | round(0)
                       })
@@ -2373,7 +2343,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2399,7 +2369,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2425,7 +2395,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2449,7 +2419,7 @@ action:
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
@@ -2472,7 +2442,7 @@ action:
                           'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'locked':{'a':false,'t':dict_var.locked.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'c':current_position,
+                          'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
