@@ -88,3 +88,18 @@
 
 2024.02.28-02:
   - Fixed: Float values were incorrectly compared as integers. This fixed problems with sun-elevation and brightness.
+
+2024.03.01-01:
+  - Roller blinds may only be closed once after Time_Down_Late. Previously, the entire day was checked.
+
+2024.03.11-01:
+  - Added various options for fine adjustment
+  - Possibility to ignore actions after manual position changes
+  - Only compare such positions if the mode has been activated accordingly
+  - Avoid status change from 'unavailable'
+  - Allow delay in ventilation mode
+  - Fixed: Shading should not be activated when ventilation mode is active
+  - Fixed: Closing the door contact should always lower the roller
+  - Instead of cover helper and position detection working against each other, the two can now complement each other.
+  - Manual detection adjusted. Positions 0% and 100% always result in close/open regardless of the configuration.
+  - Forcing a status is now also automatically used as a negative condition in other queries.
