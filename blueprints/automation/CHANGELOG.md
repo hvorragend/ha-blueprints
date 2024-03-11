@@ -76,7 +76,6 @@
 2024.02.18-02:
   - Fixed: Problems with helper json
 
-
 2024.02.19-01:
   - Added: External trigger to force opening or closing. Useful for Antifreeze, RainProtection or WindProtection.
   - Fixed: Still timing problems occur when recognising manual drives
@@ -103,3 +102,4 @@
   - Instead of cover helper and position detection working against each other, the two can now complement each other.
   - Manual detection adjusted. Positions 0% and 100% always result in close/open regardless of the configuration.
   - Forcing a status is now also automatically used as a negative condition in other queries.
+
