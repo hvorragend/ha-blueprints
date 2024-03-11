@@ -103,3 +103,9 @@
   - Manual detection adjusted. Positions 0% and 100% always result in close/open regardless of the configuration.
   - Forcing a status is now also automatically used as a negative condition in other queries.
 
+2024.03.11-02:
+  - Completely new structure of the various choose-branches
+  - Relocation of some conditions to the sequence section
+  - Redesign of the ventilation mode
+  - Added: Additional Condition For Ventilation #33
+  - Added: Force Ventilation #28
