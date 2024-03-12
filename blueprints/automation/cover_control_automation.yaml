@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.03.12-01
+    **Version**: 2024.03.12-02
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -124,6 +124,10 @@ blueprint:
 
     2024.03.12-01:
       - Fixed #29: Do not compare forecast temp with temp-sensor1 for shading
+
+    2024.03.12-02:
+      - Added #20: Allow ventilation not only in closed state, but also when the position is below the ventilation position.
+      - Bugfixes when comparing positions
 
     </details>
 
@@ -797,12 +801,36 @@ blueprint:
       selector:
         action: {}
 
-    ventilation_delay_enabled:
-      name: "💨 Enable delay in ventilation mode"
-      description: "Normally, when the window contact is opened, there is no delay in the upcoming movements. If you do want this, you can activate it here."
-      default: false
+    auto_ventilate_options:
+      name: "💨 Ventilation Configuration"
+      description: >-
+        Various different ventilation options.
+
+        <details>
+        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+          - <ins>Enable delay in ventilation mode:</ins>
+            <br />
+            Normally, when the window contact is opened, there is no delay in the upcoming movements. If you do want this, you can activate it here.
+            <br /><br />
+          - <ins>Allow ventilation not only when closed:</ins>
+            <br />
+            Allow ventilation not only in closed state, but also when the position is below the ventilation position.
+
+        </details>
+      default: []
       selector:
-        boolean: {}
+        select:
+          options:
+            - label: "💨 Enable delay in ventilation mode"
+              value: "ventilation_delay_enabled"
+            - label: "💨 Allow ventilation not only when closed"
+              value: "ventilation_if_lower_enabled"
+          multiple: true
+          sort: false
+          custom_value: false
+          mode: list
 
     shading_position:
       name: "🥵 Shading Position"
@@ -1187,7 +1215,7 @@ mode: restart
 max_exceeded: silent
 
 variables:
-  version: "2024.03.12-01"
+  version: "2024.03.12-02"
   blind: !input blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
 
@@ -1255,7 +1283,6 @@ variables:
   close_tilt_position: !input close_tilt_position
   ventilate_position: !input ventilate_position
   ventilate_tilt_position: !input ventilate_tilt_position
-  ventilation_delay_enabled: !input ventilation_delay_enabled
   position_tolerance: !input position_tolerance
 
   # Sensors
@@ -1303,18 +1330,10 @@ variables:
     {{
       'cover_helper_enabled' in cover_status_options and
       cover_status_helper != [] and
-      states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")
+      states(cover_status_helper) != [] and
+      states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
+      states(cover_status_helper) not in ["unavailable", "none", "unknown"]
     }}
-
-  # Fallback for disabled helper. Absolutely necessary for the first run if the helper is not yet set.
-  # is_status_helper_disabled: >-
-  #   {{
-  #     'cover_helper_disabled' in cover_status_options or
-  #     cover_status_helper == [] or
-  #     states(cover_status_helper) == [] or
-  #     not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") or
-  #     states(cover_status_helper) in ["unavailable", "none", "unknown"]
-  #   }}
 
   # Cover status assignments
   is_cover_open: >-
@@ -1430,38 +1449,9 @@ variables:
   ignore_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in ignore_after_manual_config }}"
   ignore_shading_after_manual: "{{ 'ignore_shading_after_manual' in ignore_after_manual_config }}"
 
-  # TODO: DELETE DEBUG CODE
-  # TagWeilZwischenZeitraeumen: >-
-  #   {{
-  #     (now() > today_at(time_up_late_today) and now() < today_at(time_down_early_today)) or
-  #     (is_schedule_helper_enabled and time_schedule_helper != [] and is_state(time_schedule_helper, 'on'))
-  #   }}
-
-  # TagWeilHellGenug: >-
-  #   {{
-  #     (
-  #       (now() >= today_at(time_up_early_today) and now() <= today_at(time_up_late_today)) or
-  #       (is_schedule_helper_enabled and time_schedule_helper != [] and is_state(time_schedule_helper, 'on'))
-  #     )
-  #     and
-  #     (
-  #       default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) >= brightness_up) or
-  #       default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) >= sun_elevation_up)
-  #     )
-  #   }}
-
-  # TagWeilNochHellGenug: >-
-  #   {{
-  #     (
-  #       (now() >= today_at(time_down_early_today)) or
-  #       (is_schedule_helper_enabled and time_schedule_helper != [] and is_state(time_schedule_helper, 'on'))
-  #     )
-  #     and
-  #     (
-  #       is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) >= brightness_down) or
-  #       is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) >= sun_elevation_down)
-  #     )
-  #   }}
+  auto_ventilate_options: !input auto_ventilate_options
+  ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
+  ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
 
 trigger:
   # triggers for shading in
@@ -1724,11 +1714,13 @@ action:
               - "t_bo_7"
               - "t_bo_8"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-          - or:
+          - or: # Check the current positions
               - "{{ is_status_helper_enabled and ignore_opening_after_manual and is_cover_manual }}"
-              - "{{ is_status_helper_enabled and (now().day != is_cover_open_ts|timestamp_custom('%-d')|int) and not is_cover_open }}"
+              - "{{ is_status_helper_enabled and not is_cover_open }}"
               - "{{ is_ventilation_enabled and (current_position | int(default=101) == ventilate_position) }}"
               - "{{ (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance)}}"
+          - or: # Only once a day
+              - "{{ not is_status_helper_enabled or is_status_helper_enabled and (now().day != is_cover_open_ts|timestamp_custom('%-d')|int) }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
@@ -1855,19 +1847,19 @@ action:
                   - "{{ is_cover_shaded }}"
                   - "{{ close_position < shading_position }}"
               - and:
-                  # - "{{ not is_status_helper_enabled }}"
+                  # - "{{ not is_status_helper_enabled }}" # Todo
                   - "{{ prevent_higher_position_shading_end }}"
                   - "{{ current_position | int(default=101) == shading_position }}"
                   - "{{ close_position < shading_position }}"
           - or: # Optional: Continue if close-position is higher than the current position
               - "{{ not prevent_higher_position_closing }}"
               - "{{ prevent_higher_position_closing and (current_position | int(default=110) >= close_position) }}"
-          - or:
+          - or: # Check the current positions
               - "{{ is_status_helper_enabled and ignore_closing_after_manual and is_cover_manual }}"
-              - "{{ is_status_helper_enabled and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) and not is_cover_closed }}"
+              - "{{ is_status_helper_enabled and not is_cover_closed }}"
               - "{{ (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
-              # - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}" # always close cover after closing the contact
-              # - "{{ not is_status_helper_enabled and is_ventilation_enabled and (current_position == ventilate_position) }}"
+          - or: # Only once a day
+              - "{{ not is_status_helper_enabled or is_status_helper_enabled and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) }}"
           - or:
               - and: # Closing - Down late reached
                   - "{{ is_down_enabled }}"
@@ -2017,12 +2009,14 @@ action:
               - "t_si_6"
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-          - or:
-              - "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}" # TODO: Why?
+          - or: # Check the current positions
+              # - "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}" # TODO: Why?
               - "{{ is_status_helper_enabled and ignore_shading_after_manual and is_cover_manual }}"
-              - "{{ is_status_helper_enabled and (now().day != is_cover_shaded_ts|timestamp_custom('%-d')|int) and not is_cover_shaded }}"
+              - "{{ is_status_helper_enabled and not is_cover_shaded }}"
               - "{{ is_status_helper_enabled and not (is_cover_ventilated or is_cover_locked) }}"
               - "{{ not (current_position | int(default=101) == ventilate_position) }}"
+          - or: # Only once a day
+              - "{{ not is_status_helper_enabled or is_status_helper_enabled and (now().day != is_cover_shaded_ts|timestamp_custom('%-d')|int) }}"
           - or:
               - and:
                   - "{{ is_time_field_enabled }}"
@@ -2142,7 +2136,7 @@ action:
                       - "{{ prevent_shading_end_if_closed }}"
                       - "{{ not is_cover_closed }}"
                   - and:
-                      # - "{{ not is_status_helper_enabled }}"
+                      # - "{{ not is_status_helper_enabled }}" # Todo
                       - "{{ prevent_shading_end_if_closed }}"
                       - "{{ not (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
 
@@ -2277,9 +2271,10 @@ action:
           - "{{ is_state(contact_sensor, ['true', 'on']) }}"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or:
-              # - "{{ is_status_helper_enabled and ignore_ventilation_after_manual and is_cover_manual }}"  # TODO: Attention. This can lower the cover to vent-position during the day
               - "{{ is_status_helper_enabled and is_cover_closed }}"
               - "{{ (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}" # always
+              - "{{ not ventilation_if_lower_enabled }}"
+              - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) < ventilate_position) }}"
 
         sequence: # Ventilation because contact open
           - repeat:
