@@ -112,3 +112,7 @@
 
 2024.03.12-01:
   - Fixed #29: Do not compare forecast temp with temp-sensor1 for shading
+
+2024.03.12-02:
+  - Added #20: Allow ventilation not only in closed state, but also when the position is below the ventilation position.
+  - Bugfixes when comparing positions
