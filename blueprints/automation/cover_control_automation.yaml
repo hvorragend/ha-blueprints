@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.03.11-02
+    **Version**: 2024.03.12-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -121,6 +121,9 @@ blueprint:
       - Redesign of the ventilation mode
       - Added: Additional Condition For Ventilation #33
       - Added: Force Ventilation #28
+
+    2024.03.12-01:
+      - Fixed #29: Do not compare forecast temp with temp-sensor1 for shading
 
     </details>
 
@@ -1003,8 +1006,6 @@ blueprint:
       name: "🥵 Forecast Temperatur Value"
       description: >-
         Minimum temperature for forecast sensor above which shading should occur.
-        **NOTE**: If temperature sensor1 is also defined and its temperature rises above the value defined here,
-        this condition is considered to be TRUE.
         <br /><br />`Optional`
         <br /><br />`Shading`
       default: 20
@@ -1186,7 +1187,7 @@ mode: restart
 max_exceeded: silent
 
 variables:
-  version: "2024.03.11-02"
+  version: "2024.03.12-01"
   blind: !input blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
 
@@ -1306,14 +1307,14 @@ variables:
     }}
 
   # Fallback for disabled helper. Absolutely necessary for the first run if the helper is not yet set.
-  is_status_helper_disabled: >-
-    {{
-      'cover_helper_disabled' in cover_status_options or
-      cover_status_helper == [] or
-      states(cover_status_helper) == [] or
-      not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") or
-      states(cover_status_helper) in ["unavailable", "none", "unknown"]
-    }}
+  # is_status_helper_disabled: >-
+  #   {{
+  #     'cover_helper_disabled' in cover_status_options or
+  #     cover_status_helper == [] or
+  #     states(cover_status_helper) == [] or
+  #     not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") or
+  #     states(cover_status_helper) in ["unavailable", "none", "unknown"]
+  #   }}
 
   # Cover status assignments
   is_cover_open: >-
@@ -1854,7 +1855,7 @@ action:
                   - "{{ is_cover_shaded }}"
                   - "{{ close_position < shading_position }}"
               - and:
-                  # - "{{ is_status_helper_disabled }}"
+                  # - "{{ not is_status_helper_enabled }}"
                   - "{{ prevent_higher_position_shading_end }}"
                   - "{{ current_position | int(default=101) == shading_position }}"
                   - "{{ close_position < shading_position }}"
@@ -1866,7 +1867,7 @@ action:
               - "{{ is_status_helper_enabled and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) and not is_cover_closed }}"
               - "{{ (current_position | int(default=110) <= open_position + position_tolerance) and (current_position | int(default=110) >= open_position - position_tolerance)}}"
               # - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}" # always close cover after closing the contact
-              # - "{{ is_status_helper_disabled and is_ventilation_enabled and (current_position == ventilate_position) }}"
+              # - "{{ not is_status_helper_enabled and is_ventilation_enabled and (current_position == ventilate_position) }}"
           - or:
               - and: # Closing - Down late reached
                   - "{{ is_down_enabled }}"
@@ -2041,7 +2042,6 @@ action:
           - or:
               - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
               - "{{ ( shading_forecast_sensor != [] ) and (not prevent_forecast_service) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
-              - "{{ ( shading_temperatur_sensor1 != [] ) and (states(shading_temperatur_sensor1) | float(default=shading_forecast_temp) >= shading_forecast_temp) }}"
           - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
 
         sequence:
@@ -2142,7 +2142,7 @@ action:
                       - "{{ prevent_shading_end_if_closed }}"
                       - "{{ not is_cover_closed }}"
                   - and:
-                      # - "{{ is_status_helper_disabled }}"
+                      # - "{{ not is_status_helper_enabled }}"
                       - "{{ prevent_shading_end_if_closed }}"
                       - "{{ not (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}"
 
