@@ -109,3 +109,6 @@
   - Redesign of the ventilation mode
   - Added: Additional Condition For Ventilation #33
   - Added: Force Ventilation #28
+
+2024.03.12-01:
+  - Fixed #29: Do not compare forecast temp with temp-sensor1 for shading
