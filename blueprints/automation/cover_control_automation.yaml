@@ -133,6 +133,9 @@ blueprint:
       - Fixed: Ventilation mode could always be started by mistake.
       - Fixing helper length check. Thx to crandler.
 
+    2024.03.14-xx:
+      - Reduction of triggers and thus avoidance of overlaps due to running delays (fixes #40)
+
     </details>
 
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml
@@ -1222,35 +1225,13 @@ variables:
   version: "2024.03.14-01"
   blind: !input blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
+  current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
+  current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
 
-  # Modes
-  auto_options: !input auto_options
-
-  # Brightness
-  default_brightness_sensor: !input default_brightness_sensor
-  brightness_up: !input brightness_up
-  brightness_down: !input brightness_down
-
-  # Sun
-  default_sun_sensor: !input default_sun_sensor
-  sun_elevation_up: !input sun_elevation_up
-  sun_elevation_down: !input sun_elevation_down
-
-  # Times / Delays
-  time_up_early: !input time_up_early
-  time_up_early_non_workday: !input time_up_early_non_workday
-  time_up_late: !input time_up_late
-  time_up_late_non_workday: !input time_up_late_non_workday
-  time_down_early: !input time_down_early
-  time_down_early_non_workday: !input time_down_early_non_workday
-  time_down_late: !input time_down_late
-  time_down_late_non_workday: !input time_down_late_non_workday
-  workday_sensor: !input workday_sensor
+  # Delays
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
   drive_time: !input drive_time
-  time_control: !input time_control
-  time_schedule_helper: !input time_schedule_helper
 
   time_up_early_today: >-
     {% if time_up_early_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
@@ -1289,31 +1270,17 @@ variables:
   ventilate_tilt_position: !input ventilate_tilt_position
   position_tolerance: !input position_tolerance
 
-  # Sensors
-  contact_sensor: !input contact_sensor
-  resident_sensor: !input resident_sensor
+  # Force
   auto_up_force: !input auto_up_force
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
 
   # Shading
-  shading_brightness_sensor: !input shading_brightness_sensor
-  shading_temperatur_sensor1: !input shading_temperatur_sensor1
-  shading_temperatur_sensor2: !input shading_temperatur_sensor2
-  shading_min_temperatur1: !input shading_min_temperatur1
-  shading_min_temperatur2: !input shading_min_temperatur2
-  shading_azimuth_start: !input shading_azimuth_start
-  shading_azimuth_end: !input shading_azimuth_end
-  shading_elevation_min: !input shading_elevation_min
-  shading_elevation_max: !input shading_elevation_max
   shading_position: !input shading_position
   shading_tilt_position: !input shading_tilt_position
-  shading_sun_brightness_start: !input shading_sun_brightness_start
-  shading_sun_brightness_end: !input shading_sun_brightness_end
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
   shading_forecast_sensor: !input shading_forecast_sensor
-  shading_forecast_temp: !input shading_forecast_temp
   shading_weather_conditions: !input shading_weather_conditions
 
   # Config check
@@ -1322,8 +1289,6 @@ variables:
 
   # Little helper for leaner code
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
-  current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
-  current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
 
   # Cover Status Helper
   cover_status_options: !input cover_status_options
@@ -1430,16 +1395,6 @@ variables:
       (states(cover_status_helper)|from_json).t
     }}
 
-  is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
-  is_up_enabled: "{{ 'auto_up_enabled' in auto_options }}"
-  is_down_enabled: "{{ 'auto_down_enabled' in auto_options }}"
-  is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
-  is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
-  is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
-  is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}"
-  is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
-  is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
-
   individual_config: !input individual_config
   prevent_close_after_lockout: "{{ '_prevent_close_after_lockout' in individual_config }}"
   prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
@@ -1457,176 +1412,402 @@ variables:
   ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
   ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
 
+trigger_variables:
+  # Modes
+  auto_options: !input auto_options
+
+  # Times
+  time_up_early: !input time_up_early
+  time_up_early_non_workday: !input time_up_early_non_workday
+  time_up_late: !input time_up_late
+  time_up_late_non_workday: !input time_up_late_non_workday
+  time_down_early: !input time_down_early
+  time_down_early_non_workday: !input time_down_early_non_workday
+  time_down_late: !input time_down_late
+  time_down_late_non_workday: !input time_down_late_non_workday
+  workday_sensor: !input workday_sensor
+
+  # Brightness
+  default_brightness_sensor: !input default_brightness_sensor
+  brightness_up: !input brightness_up
+  brightness_down: !input brightness_down
+
+  # Sun
+  default_sun_sensor: !input default_sun_sensor
+  sun_elevation_up: !input sun_elevation_up
+  sun_elevation_down: !input sun_elevation_down
+
+  # Sensors
+  contact_sensor: !input contact_sensor
+  resident_sensor: !input resident_sensor
+
+  # Time controls
+  time_control: !input time_control
+  time_schedule_helper: !input time_schedule_helper
+
+  # Shading
+  shading_brightness_sensor: !input shading_brightness_sensor
+  shading_temperatur_sensor1: !input shading_temperatur_sensor1
+  shading_temperatur_sensor2: !input shading_temperatur_sensor2
+  shading_min_temperatur1: !input shading_min_temperatur1
+  shading_min_temperatur2: !input shading_min_temperatur2
+  shading_azimuth_start: !input shading_azimuth_start
+  shading_azimuth_end: !input shading_azimuth_end
+  shading_elevation_min: !input shading_elevation_min
+  shading_elevation_max: !input shading_elevation_max
+  shading_sun_brightness_start: !input shading_sun_brightness_start
+  shading_sun_brightness_end: !input shading_sun_brightness_end
+  shading_forecast_temp: !input shading_forecast_temp
+
+  # Internal code helper
+  is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
+  is_up_enabled: "{{ 'auto_up_enabled' in auto_options }}"
+  is_down_enabled: "{{ 'auto_down_enabled' in auto_options }}"
+  is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
+  is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
+  is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
+  is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}"
+  is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
+  is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
+
 trigger:
-  # triggers for shading in
-  - platform: numeric_state
-    entity_id: !input shading_temperatur_sensor1
-    above: !input shading_min_temperatur1
-    id: "t_si_1"
-  - platform: numeric_state
-    entity_id: !input shading_temperatur_sensor2
-    above: !input shading_min_temperatur2
-    id: "t_si_2"
-  - platform: numeric_state
-    entity_id: !input shading_brightness_sensor
-    above: !input shading_sun_brightness_start
-    id: "t_si_3"
-  - platform: numeric_state
-    entity_id: !input default_sun_sensor
-    attribute: elevation
-    above: !input shading_elevation_min
-    id: "t_si_4"
-  - platform: numeric_state
-    entity_id: !input default_sun_sensor
-    attribute: azimuth
-    above: !input shading_azimuth_start
-    below: !input shading_azimuth_end
-    id: "t_si_5"
-  - platform: numeric_state
-    entity_id: !input shading_temperatur_sensor1
-    above: !input shading_forecast_temp
-    id: "t_si_6"
+  ########################################
+  # Trigger for opening cover
+  ########################################
 
-  # triggers for shading out
-  - platform: numeric_state
-    entity_id: !input shading_temperatur_sensor1
-    below: !input shading_min_temperatur1
-    id: "t_so_1"
-  - platform: numeric_state
-    entity_id: !input shading_temperatur_sensor2
-    below: !input shading_min_temperatur2
-    id: "t_so_2"
-  - platform: numeric_state
-    entity_id: !input shading_brightness_sensor
-    below: !input shading_sun_brightness_end
-    id: "t_so_3"
-  - platform: numeric_state
-    entity_id: !input default_sun_sensor
-    attribute: elevation
-    above: !input shading_elevation_max
-    id: "t_so_4"
-  - platform: numeric_state
-    entity_id: !input default_sun_sensor
-    attribute: azimuth
-    above: !input shading_azimuth_end
-    id: "t_so_5"
-  - platform: numeric_state
-    entity_id: !input default_sun_sensor
-    attribute: elevation
-    below: !input shading_elevation_min
-    id: "t_so_6"
+  - platform: template
+    value_template: >-
+      {% if time_up_early_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+        {{ is_time_field_enabled and now() >= today_at(time_up_early) }}
+      {% else %}
+        {{ is_time_field_enabled and now() >= today_at(time_up_early_non_workday) }}
+      {% endif %}
+    id: "t_bo_1"
 
-  # trigger for opening cover
-  - platform: numeric_state
-    entity_id: !input default_brightness_sensor
-    above: !input brightness_up
+  - platform: template
+    value_template: >-
+      {% if time_up_late_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+        {{ is_time_field_enabled and now() >= today_at(time_up_late) }}
+      {% else %}
+        {{ is_time_field_enabled and now() >= today_at(time_up_late_non_workday) }}
+      {% endif %}
+    id: "t_bo_2"
+
+  - platform: template
+    value_template: "{{ is_schedule_helper_enabled and time_schedule_helper != [] and is_state(time_schedule_helper, ['true', 'on']) }}"
+    id: "t_bo_3"
+
+  - platform: template
+    value_template: >-
+      {{
+        is_brightness_enabled and
+        default_brightness_sensor != [] and
+        (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up) and
+        (
+          (
+            is_time_field_enabled and
+            now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) and
+            now() <= today_at([time_up_late, time_up_late_non_workday] | min) + timedelta(seconds = 5)
+          )
+          or
+          (
+            is_schedule_helper_enabled and
+            time_schedule_helper != [] and
+            is_state(time_schedule_helper, 'on')
+          )
+        )
+      }}
     for:
       seconds: !input brightness_time_duration
-    id: "t_bo_1"
-  - platform: time
-    at: !input time_up_late
-    id: "t_bo_2"
-  - platform: time
-    at: !input time_up_late_non_workday
-    id: "t_bo_3"
-  - platform: time
-    at: !input time_up_early
     id: "t_bo_4"
-  - platform: time
-    at: !input time_up_early_non_workday
+
+  - platform: template
+    value_template: >-
+      {{
+        is_sun_elevation_enabled and
+        default_sun_sensor != [] and
+        (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_up) > sun_elevation_up) and
+        (
+          (
+            is_time_field_enabled and
+            now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) and
+            now() <= today_at([time_up_late, time_up_late_non_workday] | min) + timedelta(seconds = 5)
+          )
+          or
+          (
+            is_schedule_helper_enabled and
+            time_schedule_helper != [] and
+            is_state(time_schedule_helper, 'on')
+          )
+        )
+      }}
+    for:
+      seconds: !input sun_time_duration
     id: "t_bo_5"
+
   - platform: state
     entity_id: !input resident_sensor
     from: "on"
     to: "off"
     id: "t_bo_6"
-  - platform: numeric_state
-    entity_id: !input default_sun_sensor
-    above: !input sun_elevation_up
-    attribute: elevation
-    for:
-      seconds: !input sun_time_duration
-    id: "t_bo_7"
-  - platform: state
-    entity_id: !input time_schedule_helper
-    from: "off"
-    to: "on"
-    id: "t_bo_8"
+
   - platform: state
     entity_id: !input auto_up_force
     from: "off"
     to: "on"
-    id: "t_bo_9"
+    id: "t_bo_force"
 
-  # trigger for closing cover
-  - platform: numeric_state
-    entity_id: !input default_brightness_sensor
-    below: !input brightness_down
-    for: !input brightness_time_duration
+  ########################################
+  # Trigger for closing cover
+  ########################################
+
+  - platform: template
+    value_template: >-
+      {% if time_down_early_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+        {{ is_time_field_enabled and now() >= today_at(time_down_early) }}
+      {% else %}
+        {{ is_time_field_enabled and now() >= today_at(time_down_early_non_workday) }}
+      {% endif %}
     id: "t_bc_1"
-  - platform: time
-    at: !input time_down_early
+
+  - platform: template
+    value_template: >-
+      {% if time_down_late_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+        {{ is_time_field_enabled and now() >= today_at(time_down_late) }}
+      {% else %}
+        {{ is_time_field_enabled and now() >= today_at(time_down_late_non_workday) }}
+      {% endif %}
     id: "t_bc_2"
-  - platform: time
-    at: !input time_down_early_non_workday
+
+  - platform: template
+    value_template: "{{ is_schedule_helper_enabled and time_schedule_helper != [] and is_state(time_schedule_helper, ['false', 'off']) }}"
     id: "t_bc_3"
-  - platform: time
-    at: !input time_down_late
+
+  - platform: template
+    value_template: >-
+      {{
+        is_brightness_enabled and
+        default_brightness_sensor != [] and
+        (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) and
+        (
+          (
+            is_time_field_enabled and
+            now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) and
+            now() <= today_at([time_down_late, time_down_late_non_workday] | min) + timedelta(seconds = 5)
+          )
+          or
+          (
+            is_schedule_helper_enabled and
+            time_schedule_helper != [] and
+            is_state(time_schedule_helper, 'on')
+          )
+        )
+      }}
+    for:
+      seconds: !input brightness_time_duration
     id: "t_bc_4"
-  - platform: time
-    at: !input time_down_late_non_workday
+
+  - platform: template
+    value_template: >-
+      {{
+        is_sun_elevation_enabled and
+        default_sun_sensor != [] and
+        (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_down) < sun_elevation_down) and
+        (
+          (
+            is_time_field_enabled and
+            now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) and
+            now() <= today_at([time_down_late, time_down_late_non_workday] | min) + timedelta(seconds = 5)
+          )
+          or
+          (
+            is_schedule_helper_enabled and
+            time_schedule_helper != [] and
+            is_state(time_schedule_helper, 'on')
+          )
+        )
+      }}
+
+    for:
+      seconds: !input sun_time_duration
     id: "t_bc_5"
+
   - platform: state
     entity_id: !input resident_sensor
     from: "off"
     to: "on"
-    id: "t_bc_7"
-  - platform: numeric_state
-    entity_id: !input default_sun_sensor
-    attribute: elevation
-    below: !input sun_elevation_down
-    for:
-      seconds: !input sun_time_duration
-    id: "t_bc_8"
-  - platform: state
-    entity_id: !input time_schedule_helper
-    from: "on"
-    to: "off"
-    id: "t_bc_9"
+    id: "t_bc_6"
+
   - platform: state
     entity_id: !input auto_down_force
     from: "off"
     to: "on"
-    id: "t_bc_10"
+    id: "t_bc_force"
 
-  # trigger for ventilate
-  - platform: state
-    entity_id: !input contact_sensor
-    from: "off"
-    to: "on"
-    id: "t_bv_1"
-  - platform: state
-    entity_id: !input contact_sensor
-    from: "on"
-    to: "off"
-    id: "t_bv_2"
+  ########################################
+  # Trigger for ventilate
+  ########################################
+
+  - platform: template
+    value_template: "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
+    id: "t_co_open"
+
+  - platform: template
+    value_template: "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['false', 'off']) }}"
+    id: "t_co_close"
+
   - platform: state
     entity_id: !input auto_ventilate_force
     from: "off"
     to: "on"
-    id: "t_bv_3"
+    id: "t_co_force"
 
-  # trigger for manual cover movements
+  ########################################
+  # Triggers for shading in
+  ########################################
+
+  - platform: template # Only allow triggers in certain time periods. Too volatile
+    value_template: >-
+      {{
+        is_shading_enabled and
+        shading_temperatur_sensor1 != [] and
+        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1
+      }}"
+    for: "00:00:05"
+    id: "t_si_1"
+
+  - platform: template # Only allow triggers in certain time periods. Too volatile
+    value_template: >-
+      {{
+        is_shading_enabled and
+        shading_temperatur_sensor2 != [] and
+        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2
+      }}"
+    for: "00:00:05"
+    id: "t_si_2"
+
+  - platform: template # TODO: Only allow triggers in certain time periods. Too volatile
+    value_template: >-
+      {{
+        is_shading_enabled and
+        shading_brightness_sensor != [] and
+        states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start
+      }}"
+    for: "00:00:05"
+    id: "t_si_3"
+
+  - platform: template
+    value_template: >-
+      {{
+        is_shading_enabled and
+        default_sun_sensor != [] and
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) > shading_elevation_min)
+      }}"
+    for: "00:00:05"
+    id: "t_si_4"
+
+  - platform: template
+    value_template: >-
+      {{
+        is_shading_enabled and
+        default_sun_sensor != [] and
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_start) > shading_azimuth_start) and
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) < shading_azimuth_end)
+      }}"
+    for: "00:00:05"
+    id: "t_si_5"
+
+  # - platform: numeric_state
+  #   entity_id: !input shading_temperatur_sensor1
+  #   above: !input shading_forecast_temp
+  #   for: "00:00:05"
+  #   id: "t_si_6"
+
+  ########################################
+  # Triggers for shading out
+  ########################################
+
+  # state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position')
+  - platform: template # TODO: Not used anyhwere / Only allow triggers in certain time periods. Too volatile
+    value_template: >-
+      {{
+        is_shading_enabled and
+        shading_temperatur_sensor1 != [] and
+        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1
+      }}"
+    for: "00:00:05"
+    id: "t_so_1"
+
+  - platform: template # TODO: Not used anyhwere / Only allow triggers in certain time periods. Too volatile
+    value_template: >-
+      {{
+        is_shading_enabled and
+        shading_temperatur_sensor2 != [] and
+        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2
+      }}"
+    for: "00:00:05"
+    id: "t_so_2"
+
+  - platform: template # TODO: Not used anyhwere / Only allow triggers in certain time periods. Too volatile
+    value_template: >-
+      {{
+        is_shading_enabled and
+        shading_brightness_sensor != [] and
+        states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end
+      }}"
+    for: "00:00:05"
+    id: "t_so_3"
+
+  - platform: template
+    value_template: >-
+      {{
+        is_shading_enabled and
+        default_sun_sensor != [] and
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max)
+      }}"
+    for: "00:00:05"
+    id: "t_so_4"
+
+  - platform: template
+    value_template: >-
+      {{
+        is_shading_enabled and
+        default_sun_sensor != [] and
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end)
+      }}"
+    for: "00:00:05"
+    id: "t_so_5"
+
+  - platform: template
+    value_template: >-
+      {{
+        is_shading_enabled and
+        default_sun_sensor != [] and
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
+      }}"
+    for: "00:00:05"
+    id: "t_so_6"
+
+  ########################################
+  # Trigger for manual cover movements
+  ########################################
+
   - platform: state
     entity_id: !input blind
     attribute: current_position
     id: "t_ma_1"
-    #for: "00:00:30"
     for:
       seconds: !input drive_time
 
 condition:
   - condition: !input auto_global_condition
+  - condition: template
+    value_template: "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+  - condition: template
+    value_template: "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+
+  # - condition: template # Problem mit 'closing'
+  #   value_template: "{{ trigger.to_state.state != trigger.from_state.state }}"
 
 action:
   # We have to call a service for forecast due to HA changes
@@ -1641,7 +1822,7 @@ action:
           - "t_si_3"
           - "t_si_4"
           - "t_si_5"
-          - "t_si_6"
+          # - "t_si_6"
     then:
       - service: weather.get_forecasts
         target:
@@ -1715,8 +1896,6 @@ action:
               - "t_bo_4"
               - "t_bo_5"
               - "t_bo_6"
-              - "t_bo_7"
-              - "t_bo_8"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or: # Check the current positions
               - "{{ is_status_helper_enabled and ignore_opening_after_manual and is_cover_manual }}"
@@ -1738,7 +1917,7 @@ action:
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
                   - condition: trigger
-                    id: "t_bo_8"
+                    id: "t_bo_3"
               # - and: # Opening - Via schedule helper w/o brightness and sun TODO: ?????
               #     - "{{ is_schedule_helper_enabled }}"
               #     - "{{ not is_brightness_enabled }}"
@@ -1758,10 +1937,10 @@ action:
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) >= brightness_up) }}"
+                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up) }}"
                       - or:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) >= sun_elevation_up) }}"
+                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
 
         sequence:
           - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -1836,9 +2015,7 @@ action:
               - "t_bc_3"
               - "t_bc_4"
               - "t_bc_5"
-              - "t_bc_7"
-              - "t_bc_8"
-              - "t_bc_9"
+              - "t_bc_6"
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - or: # Optional: Continue if cover is shaded and close position is lower than shading position
@@ -1866,23 +2043,20 @@ action:
               - "{{ not is_status_helper_enabled or is_status_helper_enabled and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) }}"
           - or:
               - and: # Closing - Down late reached
-                  - "{{ is_down_enabled }}"
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_down_late_today) }}"
               - and: # Closing - Scheduler changes to off
-                  - "{{ is_down_enabled }}"
                   - "{{ is_schedule_helper_enabled }}"
+                  - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
                   - condition: trigger
-                    id: "t_bc_9"
+                    id: "t_bc_3"
               # - and: # Closing - Via schedule helper w/o brightness and sun TODO: ?????
-              #     - "{{ is_down_enabled }}"
               #     - "{{ not is_brightness_enabled }}"
               #     - "{{ not is_sun_elevation_enabled }}"
               #     - "{{ is_schedule_helper_enabled }}"
               #     - "{{ is_state(time_schedule_helper, 'off') }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
-                  - "{{ is_down_enabled }}"
                   - or:
                       - and:
                           - "{{ is_time_field_enabled }}"
@@ -1895,14 +2069,13 @@ action:
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) <= brightness_down) }}"
+                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) }}"
                       - or:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) <= sun_elevation_down) }}"
+                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down) }}"
               - and: # Closing - due to resident goes sleeping
                   - condition: trigger
-                    id: t_bc_7
-                  - "{{ is_down_enabled }}"
+                    id: t_bc_6
                   - "{{ resident_sensor != [] }}"
                   - "{{ is_state(resident_sensor, ['true', 'on']) }}"
 
@@ -2010,7 +2183,7 @@ action:
               - "t_si_3"
               - "t_si_4"
               - "t_si_5"
-              - "t_si_6"
+              # - "t_si_6"
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - or: # Check the current positions
@@ -2018,7 +2191,7 @@ action:
               - "{{ is_status_helper_enabled and ignore_shading_after_manual and is_cover_manual }}"
               - "{{ is_status_helper_enabled and not is_cover_shaded }}"
               - "{{ is_status_helper_enabled and not (is_cover_ventilated or is_cover_locked) }}"
-              - "{{ not (current_position | int(default=101) == ventilate_position) }}"
+              - "{{ not (current_position | int(default=101) == ventilate_position) }}" # TODO: Why not checking with shading_pos, too?
           - or: # Only once a day
               - "{{ not is_status_helper_enabled or is_status_helper_enabled and (now().day != is_cover_shaded_ts|timestamp_custom('%-d')|int) }}"
           - or:
@@ -2030,16 +2203,16 @@ action:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
-          - "{{ ( (shading_temperatur_sensor1 == [] ) or (states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) >= shading_min_temperatur1) ) }}"
-          - "{{ ( (shading_temperatur_sensor2 == [] ) or (states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) >= shading_min_temperatur2) ) }}"
-          - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) >= shading_sun_brightness_start) ) }}"
-          - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
-          - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
+          - "{{ ( (shading_temperatur_sensor1 == [] ) or (states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1) ) }}"
+          - "{{ ( (shading_temperatur_sensor2 == [] ) or (states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2) ) }}"
+          - "{{ ( (shading_brightness_sensor == [] ) or (states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start) ) }}"
+          - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+          - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
           - "{{ current_position | int(default=101) > shading_position }}"
           - "{{ resident_sensor == [] or is_state(resident_sensor, ['false', 'off']) }}"
           - or:
               - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
-              - "{{ ( shading_forecast_sensor != [] ) and (not prevent_forecast_service) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp) >= shading_forecast_temp ) }}"
+              - "{{ ( shading_forecast_sensor != [] ) and (not prevent_forecast_service) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp) > shading_forecast_temp ) }}"
           - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
 
         sequence:
@@ -2147,8 +2320,8 @@ action:
         sequence:
           - if: # If sun is outside of shading window (azimuth or elevation) we immediately stop shading
               - and:
-                  - "{{ current_sun_azimuth >= shading_azimuth_start and current_sun_azimuth <= shading_azimuth_end }}"
-                  - "{{ current_sun_elevation >= shading_elevation_min and current_sun_elevation <= shading_elevation_max }}"
+                  - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+                  - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
             then:
               - alias: "Wait the number of seconds set in shading_waitingtime_end"
                 delay:
@@ -2270,7 +2443,7 @@ action:
           - "{{ is_ventilation_enabled }}"
           - condition: !input auto_ventilate_condition
           - condition: trigger
-            id: "t_bv_1"
+            id: "t_co_open"
           - "{{ contact_sensor != [] }}"
           - "{{ is_state(contact_sensor, ['true', 'on']) }}"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
@@ -2338,7 +2511,7 @@ action:
               - "{{ is_ventilation_enabled }}"
               - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
           - condition: trigger
-            id: "t_bv_2"
+            id: "t_co_close"
           - "{{ contact_sensor != [] }}"
           - "{{ is_state(contact_sensor, ['false', 'off']) }}"
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
@@ -2353,6 +2526,7 @@ action:
                   - "{{ now() >= today_at(time_down_late_today) }}"
               - and: # Closed - Scheduler is off
                   - "{{ is_schedule_helper_enabled }}"
+                  - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
               - and: # Closed - Down early reached and brightness/sun below minimum
                   - or:
@@ -2367,10 +2541,10 @@ action:
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) <= brightness_down) }}"
+                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) }}"
                       - or:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) <= sun_elevation_down) }}"
+                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down) }}"
 
         sequence:
           - if:
@@ -2443,7 +2617,7 @@ action:
         conditions:
           - "{{ is_up_enabled }}"
           - condition: trigger
-            id: "t_bo_9"
+            id: "t_bo_force"
           - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
         sequence:
           - repeat:
@@ -2510,7 +2684,7 @@ action:
         conditions:
           - "{{ is_down_enabled }}"
           - condition: trigger
-            id: "t_bc_10"
+            id: "t_bc_force"
           - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
         sequence:
           - repeat:
@@ -2577,7 +2751,7 @@ action:
         conditions:
           - "{{ is_ventilation_enabled }}"
           - condition: trigger
-            id: "t_bv_3"
+            id: "t_co_force"
           - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
         sequence:
           - repeat:
