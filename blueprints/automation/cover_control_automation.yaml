@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.03.12-02
+    **Version**: 2024.03.14-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -128,6 +128,10 @@ blueprint:
     2024.03.12-02:
       - Added #20: Allow ventilation not only in closed state, but also when the position is below the ventilation position.
       - Bugfixes when comparing positions
+
+    2024.03.14-01:
+      - Fixed: Ventilation mode could always be started by mistake.
+      - Fixing helper length check. Thx to crandler.
 
     </details>
 
@@ -1215,7 +1219,7 @@ mode: restart
 max_exceeded: silent
 
 variables:
-  version: "2024.03.12-02"
+  version: "2024.03.14-01"
   blind: !input blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
 
@@ -2273,7 +2277,7 @@ action:
           - or:
               - "{{ is_status_helper_enabled and is_cover_closed }}"
               - "{{ (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}" # always
-              - "{{ not ventilation_if_lower_enabled }}"
+              # - "{{ not ventilation_if_lower_enabled }}" # TODO: WRONG. Ventilation starts always
               - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) < ventilate_position) }}"
 
         sequence: # Ventilation because contact open
@@ -2916,9 +2920,8 @@ action:
                   logger: "blueprints.hvorragend.cover_control_automation"
           # Checking helper
           - if:
-              - or:
-                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
-                  - "{{ state_attr(cover_status_helper, 'max') < 254 }}"
+              - "{{ 'cover_helper_enabled' in cover_status_options }}"
+              - "{{ state_attr(cover_status_helper, 'max') < 254 }}"
             then:
               - service: system_log.write
                 data:
