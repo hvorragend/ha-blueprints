@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.03.14-01
+    **Version**: 2024.03.19-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -78,43 +78,6 @@ blueprint:
     <details>
     <summary><strong>Latest changes</strong></summary>
 
-    2024.02.18-01:
-      - Fixed: Schedule open/close-bug
-      - Fixed: Next try - faster checking for manual position changes
-      - Separate ventilation from lockout protection
-      - Added own lockout protection feature
-      - Removed door/window chooser (contact_cover_place)
-
-    2024.02.18-02:
-      - Fixed: Problems with helper json
-
-    2024.02.19-01:
-      - Added: External trigger to force opening or closing. Useful for Antifreeze, RainProtection or WindProtection.
-      - Fixed: Still timing problems occur when recognising manual drives
-      - Added: Additional actions for open, close, ventilation, shading start and shading end
-
-    2024.02.28-01:
-      - Fixed a nasty bug in the helper detection.
-      - Fixed the warning: AttributeError: ‘list’ object has no attribute ‘lower’
-
-    2024.02.28-02:
-      - Fixed: Float values were incorrectly compared as integers. This fixed problems with sun-elevation and brightness.
-
-    2024.03.01-01:
-      - Roller blinds may only be closed once after Time_Down_Late. Previously, the entire day was checked.
-
-    2024.03.11-01:
-      - Added various options for fine adjustment
-      - Possibility to ignore actions after manual position changes
-      - Only compare such positions if the mode has been activated accordingly
-      - Avoid status change from 'unavailable'
-      - Allow delay in ventilation mode
-      - Fixed: Shading should not be activated when ventilation mode is active
-      - Fixed: Closing the door contact should always lower the roller
-      - Instead of cover helper and position detection working against each other, the two can now complement each other.
-      - Manual detection adjusted. Positions 0% and 100% always result in close/open regardless of the configuration.
-      - Forcing a status is now also automatically used as a negative condition in other queries.
-
     2024.03.11-02:
       - Completely new structure of the various choose-branches
       - Relocation of some conditions to the sequence section
@@ -133,8 +96,14 @@ blueprint:
       - Fixed: Ventilation mode could always be started by mistake.
       - Fixing helper length check. Thx to crandler.
 
-    2024.03.14-xx:
-      - Reduction of triggers and thus avoidance of overlaps due to running delays (fixes #40)
+    2024.03.19-01:
+      - New: Reduction of triggers and thus avoidance of overlaps due to running delays (fixes #40)
+      - New: Added possibility to disable the use of 'set_cover_position' and 'set_cover_tilt_position' and only use the additional actions
+      - Fixed: Shading Forecast Weather Conditions
+      - Fixed: Ventilation mode should not only be ended in the evening, but whenever it is not yet daytime.
+      - Fixed: Added the ventilation mode activation on closing down again
+      - **Breaking change** in the schedule helper usage! You can find the details in the section "Selection of time control options".
+      - Try to avoid overlaps in the execution of the automation if several triggers are triggered shortly after each other.
 
     </details>
 
@@ -242,6 +211,29 @@ blueprint:
             The cover is closed when the threshold is undershot and the helper is off.
 
         </details>
+        <br />
+        <details>
+        <summary><code><strong>CLICK HERE:</strong> Important information since version 2024.03.19-01</code></summary>
+
+
+        It is not possible to find out more about the status of the schedule helper in Home Assistant.
+        I never know whether we are at the beginning or end of the period.
+        However, this is important to avoid bouncing when controlling the brightness, for example.
+        In order to recognise whether we are still in the opening period or the closing period,
+        it is necessary to enter a very rough time period in the time variables in the blueprint.
+        <br />
+        <ins>Example:</ins>
+        If the schedule helper goes to the "ON" status at 08:00 and to the "OFF" status at 18:00, it is sufficient to configure the times as follows:
+        <br /><br />
+        Time For Drive Up - Early: 06:00<br />
+        Time For Drive Up - Late: 12:00<br /><br />
+        Time For Drive Down - Early: 16:00<br />
+        Time For Drive Down - Late: 22:00<br />
+
+        The times are not used for triggering, but only to divide the day into two halves!
+
+        </details>
+
       default: time_control_input
       selector:
         select:
@@ -878,7 +870,7 @@ blueprint:
       name: "🥵 Shading Brightness Start Value"
       description: >-
         The minimum brightness value from which shading should start.
-        (Must be above the value of brightness out!)
+        (Must be above the value of brightness end!)
         <br /><br />`Optional`
         <br /><br />`Shading`
       default: 35000
@@ -893,7 +885,7 @@ blueprint:
       name: "🥵 Shading Brightness End Value"
       description: >-
         The brightness value from which shading is no longer necessary.
-        (Must be BELOW the value of brightness in!).
+        (Must be below the value of brightness start!).
         <br /><br />`Optional`
         <br /><br />`Shading`
       default: 25000
@@ -1171,7 +1163,20 @@ blueprint:
 
     individual_config:
       name: "⚙️ Individual Configuration"
-      description: "Various different options for some fine adjustments"
+      description: >-
+        Various different options for some fine adjustments
+
+        <details>
+        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+          - <ins>Prevent 'set_cover_position' and 'set_cover_tilt_position'</ins>
+            There are devices that have problems when the two services 'set_cover_position' and 'set_cover_tilt_position' are executed directly one after the other.
+            For example, there are Shelly devices that use the script [cover_position_tilt.yaml](https://gist.github.com/lukasvice/b364724d84c3ac4e160f7a7d8fa37066) here.
+            Or Homematic blind actuators, which can better use their own service for this: [homematicip_local.set_cover_combined_position](https://github.com/danielperna84/custom_homematic?tab=readme-ov-file#homematicip_localset_cover_combined_position).
+            This option can be used to disable the standard services and allows the control to be implemented individually via the addtional actions.
+
+        </details>
+
       default: []
       selector:
         select:
@@ -1182,10 +1187,12 @@ blueprint:
               value: "prevent_higher_position_closing"
             - label: "🚫 Prevent the automation from moving to a higher closing position at the end of shading"
               value: "prevent_higher_position_shading_end"
-            - label: "🚫 Prevent the use of the get_forecasts service"
+            - label: "🚫 Prevent the use of the 'get_forecasts' service"
               value: "prevent_forecast_service"
             - label: "🚫 Prevent the end of shading when the cover is already closed"
               value: "prevent_shading_end_if_closed"
+            - label: "🚫 Prevent the use of 'set_cover_position' and 'set_cover_tilt_position' and only use the additional actions"
+              value: "prevent_default_cover_actions"
           multiple: true
           sort: false
           custom_value: false
@@ -1218,13 +1225,14 @@ blueprint:
             - "info"
             - "warning"
 
-mode: restart
+mode: restart #queued
 max_exceeded: silent
 
 variables:
-  version: "2024.03.14-01"
-  blind: !input blind
+  version: "2024.03.19-01"
+
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
+  current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
 
@@ -1262,9 +1270,7 @@ variables:
     {% endif %}
 
   # Positions
-  open_position: !input open_position
   open_tilt_position: !input shading_tilt_position
-  close_position: !input close_position
   close_tilt_position: !input close_tilt_position
   ventilate_position: !input ventilate_position
   ventilate_tilt_position: !input ventilate_tilt_position
@@ -1276,7 +1282,6 @@ variables:
   auto_ventilate_force: !input auto_ventilate_force
 
   # Shading
-  shading_position: !input shading_position
   shading_tilt_position: !input shading_tilt_position
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
@@ -1286,9 +1291,6 @@ variables:
   # Config check
   check_config: !input check_config
   check_config_debuglevel: !input check_config_debuglevel
-
-  # Little helper for leaner code
-  current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
 
   # Cover Status Helper
   cover_status_options: !input cover_status_options
@@ -1401,6 +1403,7 @@ variables:
   prevent_higher_position_shading_end: "{{ 'prevent_higher_position_shading_end' in individual_config }}"
   prevent_forecast_service: "{{ 'prevent_forecast_service' in individual_config }}"
   prevent_shading_end_if_closed: "{{ 'prevent_shading_end_if_closed' in individual_config }}"
+  prevent_default_cover_actions: "{{ 'prevent_default_cover_actions' in individual_config }}"
 
   ignore_after_manual_config: !input ignore_after_manual_config
   ignore_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
@@ -1413,6 +1416,13 @@ variables:
   ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
 
 trigger_variables:
+  blind: !input blind
+
+  # Positions
+  open_position: !input open_position
+  close_position: !input close_position
+  shading_position: !input shading_position
+
   # Modes
   auto_options: !input auto_options
 
@@ -1502,48 +1512,62 @@ trigger:
       {{
         is_brightness_enabled and
         default_brightness_sensor != [] and
-        (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up) and
-        (
-          (
-            is_time_field_enabled and
-            now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) and
-            now() <= today_at([time_up_late, time_up_late_non_workday] | min) + timedelta(seconds = 5)
-          )
-          or
-          (
-            is_schedule_helper_enabled and
-            time_schedule_helper != [] and
-            is_state(time_schedule_helper, 'on')
-          )
-        )
+        (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up)
       }}
     for:
       seconds: !input brightness_time_duration
-    id: "t_bo_4"
+    id:
+      "t_bo_4"
+
+      # {{
+      #   is_brightness_enabled and
+      #   default_brightness_sensor != [] and
+      #   (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up) and
+      #   (
+      #     (
+      #       is_time_field_enabled and
+      #       now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) and
+      #       now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5)
+      #     )
+      #     or
+      #     (
+      #       is_schedule_helper_enabled and
+      #       time_schedule_helper != [] and
+      #       is_state(time_schedule_helper, 'on')
+      #     )
+      #   )
+      # }}
 
   - platform: template
     value_template: >-
       {{
         is_sun_elevation_enabled and
         default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_up) > sun_elevation_up) and
-        (
-          (
-            is_time_field_enabled and
-            now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) and
-            now() <= today_at([time_up_late, time_up_late_non_workday] | min) + timedelta(seconds = 5)
-          )
-          or
-          (
-            is_schedule_helper_enabled and
-            time_schedule_helper != [] and
-            is_state(time_schedule_helper, 'on')
-          )
-        )
+        (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_up) > sun_elevation_up)
       }}
     for:
       seconds: !input sun_time_duration
-    id: "t_bo_5"
+    id:
+      "t_bo_5"
+
+      # {{
+      #   is_sun_elevation_enabled and
+      #   default_sun_sensor != [] and
+      #   (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_up) > sun_elevation_up) and
+      #   (
+      #     (
+      #       is_time_field_enabled and
+      #       now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) and
+      #       now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5)
+      #     )
+      #     or
+      #     (
+      #       is_schedule_helper_enabled and
+      #       time_schedule_helper != [] and
+      #       is_state(time_schedule_helper, 'on')
+      #     )
+      #   )
+      # }}
 
   - platform: state
     entity_id: !input resident_sensor
@@ -1588,49 +1612,62 @@ trigger:
       {{
         is_brightness_enabled and
         default_brightness_sensor != [] and
-        (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) and
-        (
-          (
-            is_time_field_enabled and
-            now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) and
-            now() <= today_at([time_down_late, time_down_late_non_workday] | min) + timedelta(seconds = 5)
-          )
-          or
-          (
-            is_schedule_helper_enabled and
-            time_schedule_helper != [] and
-            is_state(time_schedule_helper, 'on')
-          )
-        )
+        (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down)
       }}
     for:
       seconds: !input brightness_time_duration
-    id: "t_bc_4"
+    id:
+      "t_bc_4"
+
+      # {{
+      #   is_brightness_enabled and
+      #   default_brightness_sensor != [] and
+      #   (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) and
+      #   (
+      #     (
+      #       is_time_field_enabled and
+      #       now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) and
+      #       now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5)
+      #     )
+      #     or
+      #     (
+      #       is_schedule_helper_enabled and
+      #       time_schedule_helper != [] and
+      #       is_state(time_schedule_helper, 'on')
+      #     )
+      #   )
+      # }}
 
   - platform: template
     value_template: >-
       {{
         is_sun_elevation_enabled and
         default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_down) < sun_elevation_down) and
-        (
-          (
-            is_time_field_enabled and
-            now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) and
-            now() <= today_at([time_down_late, time_down_late_non_workday] | min) + timedelta(seconds = 5)
-          )
-          or
-          (
-            is_schedule_helper_enabled and
-            time_schedule_helper != [] and
-            is_state(time_schedule_helper, 'on')
-          )
-        )
+        (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_down) < sun_elevation_down)
       }}
-
     for:
       seconds: !input sun_time_duration
-    id: "t_bc_5"
+    id:
+      "t_bc_5"
+
+      # {{
+      #   is_sun_elevation_enabled and
+      #   default_sun_sensor != [] and
+      #   (state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_down) < sun_elevation_down) and
+      #   (
+      #     (
+      #       is_time_field_enabled and
+      #       now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) and
+      #       now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5)
+      #     )
+      #     or
+      #     (
+      #       is_schedule_helper_enabled and
+      #       time_schedule_helper != [] and
+      #       is_state(time_schedule_helper, 'on')
+      #     )
+      #   )
+      # }}
 
   - platform: state
     entity_id: !input resident_sensor
@@ -1666,23 +1703,32 @@ trigger:
   # Triggers for shading in
   ########################################
 
-  - platform: template # Only allow triggers in certain time periods. Too volatile
+  #  TODO: Combine into one trigger
+  # - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+  # - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
+  # - "{{ current_position | int(default=101) > shading_position }}"
+
+  - platform: template # TODO: Only allow triggers in certain time periods. Too volatile
     value_template: >-
       {{
         is_shading_enabled and
         shading_temperatur_sensor1 != [] and
-        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1
-      }}"
+        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 and
+        state_attr(blind, 'current_position') | int(default=110) != close_position and
+        state_attr(blind, 'current_position') | int(default=101) > shading_position
+      }}
     for: "00:00:05"
     id: "t_si_1"
 
-  - platform: template # Only allow triggers in certain time periods. Too volatile
+  - platform: template # TODO: Only allow triggers in certain time periods. Too volatile
     value_template: >-
       {{
         is_shading_enabled and
         shading_temperatur_sensor2 != [] and
-        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2
-      }}"
+        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 and
+        state_attr(blind, 'current_position') | int(default=110) != close_position and
+        state_attr(blind, 'current_position') | int(default=101) > shading_position
+      }}
     for: "00:00:05"
     id: "t_si_2"
 
@@ -1691,8 +1737,10 @@ trigger:
       {{
         is_shading_enabled and
         shading_brightness_sensor != [] and
-        states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start
-      }}"
+        states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start and
+        state_attr(blind, 'current_position') | int(default=110) != close_position and
+        state_attr(blind, 'current_position') | int(default=101) > shading_position
+      }}
     for: "00:00:05"
     id: "t_si_3"
 
@@ -1701,8 +1749,10 @@ trigger:
       {{
         is_shading_enabled and
         default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) > shading_elevation_min)
-      }}"
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) > shading_elevation_min) and
+        state_attr(blind, 'current_position') | int(default=110) != close_position and
+        state_attr(blind, 'current_position') | int(default=101) > shading_position
+      }}
     for: "00:00:05"
     id: "t_si_4"
 
@@ -1712,11 +1762,14 @@ trigger:
         is_shading_enabled and
         default_sun_sensor != [] and
         (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_start) > shading_azimuth_start) and
-        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) < shading_azimuth_end)
-      }}"
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) < shading_azimuth_end) and
+        state_attr(blind, 'current_position') | int(default=110) != close_position and
+        state_attr(blind, 'current_position') | int(default=101) > shading_position
+      }}
     for: "00:00:05"
     id: "t_si_5"
 
+  # TODO
   # - platform: numeric_state
   #   entity_id: !input shading_temperatur_sensor1
   #   above: !input shading_forecast_temp
@@ -1727,14 +1780,14 @@ trigger:
   # Triggers for shading out
   ########################################
 
-  # state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position')
   - platform: template # TODO: Not used anyhwere / Only allow triggers in certain time periods. Too volatile
     value_template: >-
       {{
         is_shading_enabled and
         shading_temperatur_sensor1 != [] and
-        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1
-      }}"
+        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1 and
+        state_attr(blind, 'current_position') | int(default=110) != open_position
+      }}
     for: "00:00:05"
     id: "t_so_1"
 
@@ -1743,8 +1796,9 @@ trigger:
       {{
         is_shading_enabled and
         shading_temperatur_sensor2 != [] and
-        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2
-      }}"
+        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2 and
+        state_attr(blind, 'current_position') | int(default=110) != open_position
+      }}
     for: "00:00:05"
     id: "t_so_2"
 
@@ -1753,8 +1807,9 @@ trigger:
       {{
         is_shading_enabled and
         shading_brightness_sensor != [] and
-        states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end
-      }}"
+        states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end and
+        state_attr(blind, 'current_position') | int(default=110) != open_position
+      }}
     for: "00:00:05"
     id: "t_so_3"
 
@@ -1763,8 +1818,9 @@ trigger:
       {{
         is_shading_enabled and
         default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max)
-      }}"
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) and
+        state_attr(blind, 'current_position') | int(default=110) != open_position
+      }}
     for: "00:00:05"
     id: "t_so_4"
 
@@ -1773,8 +1829,9 @@ trigger:
       {{
         is_shading_enabled and
         default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end)
-      }}"
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) and
+        state_attr(blind, 'current_position') | int(default=110) != open_position
+      }}
     for: "00:00:05"
     id: "t_so_5"
 
@@ -1783,10 +1840,27 @@ trigger:
       {{
         is_shading_enabled and
         default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
-      }}"
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min) and
+        state_attr(blind, 'current_position') | int(default=110) != open_position
+      }}
     for: "00:00:05"
     id: "t_so_6"
+
+  # TODO
+  # - platform: template
+  #   value_template: >-
+  #     {{
+  #       is_shading_enabled and
+  #       shading_brightness_sensor != [] and
+  #       default_sun_sensor != [] and
+  #       states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end and
+  #       (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
+  #     }}
+  #   for: "00:00:05"
+  #   id: "t_so_test"
+
+  # - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+  # - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
 
   ########################################
   # Trigger for manual cover movements
@@ -1802,12 +1876,11 @@ trigger:
 condition:
   - condition: !input auto_global_condition
   - condition: template
+    value_template: "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}"
+  - condition: template
     value_template: "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
   - condition: template
     value_template: "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
-
-  # - condition: template # Problem mit 'closing'
-  #   value_template: "{{ trigger.to_state.state != trigger.from_state.state }}"
 
 action:
   # We have to call a service for forecast due to HA changes
@@ -1918,12 +1991,6 @@ action:
                   - "{{ is_state(time_schedule_helper, 'on') }}"
                   - condition: trigger
                     id: "t_bo_3"
-              # - and: # Opening - Via schedule helper w/o brightness and sun TODO: ?????
-              #     - "{{ is_schedule_helper_enabled }}"
-              #     - "{{ not is_brightness_enabled }}"
-              #     - "{{ not is_sun_elevation_enabled }}"
-              #     - "{{ time_schedule_helper != [] }}"
-              #     - "{{ is_state(time_schedule_helper, 'on') }}"
               - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                   - or:
                       - and:
@@ -1934,6 +2001,8 @@ action:
                           - "{{ is_schedule_helper_enabled }}"
                           - "{{ time_schedule_helper != [] }}"
                           - "{{ is_state(time_schedule_helper, 'on') }}"
+                          - "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) }}"
+                          - "{{ now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5) }}"
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
@@ -1944,35 +2013,39 @@ action:
 
         sequence:
           - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - if:
-                    - "{{ open_position == 100 }}"
-                  then:
-                    - alias: "Moving the cover to open position"
-                      service: cover.open_cover
-                      data: {}
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                  else:
-                    - alias: "Moving the cover to open position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input open_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
-                      data:
-                        tilt_position: !input open_tilt_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - if:
+                        - "{{ open_position == 100 }}"
+                      then:
+                        - alias: "Moving the cover to open position"
+                          service: cover.open_cover
+                          data: {}
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                      else:
+                        - alias: "Moving the cover to open position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input open_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input open_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
           - if:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2051,11 +2124,6 @@ action:
                   - "{{ is_state(time_schedule_helper, 'off') }}"
                   - condition: trigger
                     id: "t_bc_3"
-              # - and: # Closing - Via schedule helper w/o brightness and sun TODO: ?????
-              #     - "{{ not is_brightness_enabled }}"
-              #     - "{{ not is_sun_elevation_enabled }}"
-              #     - "{{ is_schedule_helper_enabled }}"
-              #     - "{{ is_state(time_schedule_helper, 'off') }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
                   - or:
                       - and:
@@ -2066,6 +2134,8 @@ action:
                           - "{{ is_schedule_helper_enabled }}"
                           - "{{ time_schedule_helper != [] }}"
                           - "{{ is_state(time_schedule_helper, 'on') }}"
+                          - "{{ now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) }}"
+                          - "{{ now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5) }}"
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
@@ -2111,61 +2181,123 @@ action:
 
           - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - if:
-                    - "{{ close_position == 0 }}"
-                  then:
-                    - alias: "Moving the cover to close position"
-                      service: cover.close_cover
-                      data: {}
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                  else:
-                    - alias: "Moving the cover to close position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input close_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
-                      data:
-                        tilt_position: !input close_tilt_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
-
+          # Ventilation
           - if:
-              - "{{ 'cover_helper_enabled' in cover_status_options }}"
+              - "{{ is_ventilation_enabled }}"
+              - "{{ contact_sensor != [] }}"
+              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
             then:
-              - service: input_text.set_value
-                data:
-                  entity_id: !input cover_status_helper
-                  value: |
-                    {% set dict_var = states(cover_status_helper) | from_json %}
-                    {% set dict_new = dict(dict_var, **{
-                      'open':{'a':false,'t':dict_var.open.t},
-                      'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                      'shading':{'a':false,'t':dict_var.shading.t},
-                      'locked':{'a':false,'t':dict_var.locked.t},
-                      'manual':{'a':false,'t':dict_var.manual.t},
-                      'p':current_position,
-                      'v':4,
-                      't':as_timestamp(now()) | round(0)
-                      })
-                    %}
-                    {{ dict_new | to_json }}
+              - if:
+                  - "{{ not prevent_default_cover_actions}}"
+                then:
+                  - repeat:
+                      for_each: "{{ blind_entities|list }}"
+                      sequence:
+                        - alias: "Moving the cover to ventilate position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input ventilate_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                        - if:
+                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                          then:
+                            - alias: "Moving the cover to tilt position"
+                              service: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: !input ventilate_tilt_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
-          - choose: []
-            default: !input auto_down_action
+              - if:
+                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                then:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':false,'t':dict_var.open.t},
+                          'close':{'a':false,'t':dict_var.close.t},
+                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'manual':{'a':false,'t':dict_var.manual.t},
+                          'p':current_position,
+                          'v':4,
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+              - choose: []
+                default: !input auto_ventilate_action
+
+              - stop: "Stop automation: Moved to ventilation position during the closing process"
+
+            else:
+              - if:
+                  - "{{ not prevent_default_cover_actions}}"
+                then:
+                  - repeat:
+                      for_each: "{{ blind_entities|list }}"
+                      sequence:
+                        - if:
+                            - "{{ close_position == 0 }}"
+                          then:
+                            - alias: "Moving the cover to close position"
+                              service: cover.close_cover
+                              data: {}
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                          else:
+                            - alias: "Moving the cover to close position"
+                              service: cover.set_cover_position
+                              data:
+                                position: !input close_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - if:
+                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                          then:
+                            - alias: "Moving the cover to tilt position"
+                              service: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: !input close_tilt_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
+
+              - if:
+                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                then:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':false,'t':dict_var.open.t},
+                          'close':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                          'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'manual':{'a':false,'t':dict_var.manual.t},
+                          'p':current_position,
+                          'v':4,
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+              - choose: []
+                default: !input auto_down_action
+
+              - stop: "Stop automation: Moved to closing position"
 
           - stop: "Stop automation: Closing"
 
@@ -2213,7 +2345,7 @@ action:
           - or:
               - "{{ ( shading_forecast_sensor == [] ) and (shading_temperatur_sensor1 == [] ) }}"
               - "{{ ( shading_forecast_sensor != [] ) and (not prevent_forecast_service) and ( weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp) > shading_forecast_temp ) }}"
-          - "{{ ( shading_forecast_sensor == [] ) or (states(shading_forecast_sensor) in shading_weather_conditions) }}"
+          - "{{ ( shading_forecast_sensor == [] ) or ((not prevent_forecast_service) and weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions) }}"
 
         sequence:
           - if: # Check helper or if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
@@ -2228,26 +2360,29 @@ action:
 
           - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - alias: "Moving the cover to shading position"
-                  service: cover.set_cover_position
-                  data:
-                    position: !input shading_position
-                  target:
-                    entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - alias: "Moving the cover to shading position"
+                      service: cover.set_cover_position
                       data:
-                        tilt_position: !input shading_tilt_position
+                        position: !input shading_position
                       target:
                         entity_id: "{{ repeat.item }}"
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input shading_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
           - if:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2331,26 +2466,29 @@ action:
               - "{{ is_ventilation_enabled }}"
               - "{{ contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
             then:
-              - repeat:
-                  for_each: "{{ blind_entities|list }}"
-                  sequence:
-                    - alias: "Moving the cover to ventilate position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input ventilate_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                    - if:
-                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                      then:
-                        - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
+              - if:
+                  - "{{ not prevent_default_cover_actions}}"
+                then:
+                  - repeat:
+                      for_each: "{{ blind_entities|list }}"
+                      sequence:
+                        - alias: "Moving the cover to ventilate position"
+                          service: cover.set_cover_position
                           data:
-                            tilt_position: !input ventilate_tilt_position
+                            position: !input ventilate_position
                           target:
                             entity_id: "{{ repeat.item }}"
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
+                        - if:
+                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                          then:
+                            - alias: "Moving the cover to tilt position"
+                              service: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: !input ventilate_tilt_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
               - if:
                   - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2378,35 +2516,38 @@ action:
                 default: !input auto_ventilate_action
 
             else:
-              - repeat:
-                  for_each: "{{ blind_entities|list }}"
-                  sequence:
-                    - if:
-                        - "{{ open_position == 100 }}"
-                      then:
-                        - alias: "Moving the cover to open position"
-                          service: cover.open_cover
-                          data: {}
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                      else:
-                        - alias: "Moving the cover to open position"
-                          service: cover.set_cover_position
-                          data:
-                            position: !input open_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - if:
-                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                      then:
-                        - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
-                          data:
-                            tilt_position: !input open_tilt_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
+              - if:
+                  - "{{ not prevent_default_cover_actions}}"
+                then:
+                  - repeat:
+                      for_each: "{{ blind_entities|list }}"
+                      sequence:
+                        - if:
+                            - "{{ open_position == 100 }}"
+                          then:
+                            - alias: "Moving the cover to open position"
+                              service: cover.open_cover
+                              data: {}
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                          else:
+                            - alias: "Moving the cover to open position"
+                              service: cover.set_cover_position
+                              data:
+                                position: !input open_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - if:
+                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                          then:
+                            - alias: "Moving the cover to tilt position"
+                              service: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: !input open_tilt_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                          delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
               - if:
                   - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2450,30 +2591,32 @@ action:
           - or:
               - "{{ is_status_helper_enabled and is_cover_closed }}"
               - "{{ (current_position | int(default=110) <= close_position + position_tolerance) and (current_position | int(default=110) >= close_position - position_tolerance) }}" # always
-              # - "{{ not ventilation_if_lower_enabled }}" # TODO: WRONG. Ventilation starts always
               - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) < ventilate_position) }}"
 
         sequence: # Ventilation because contact open
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - alias: "Moving the cover to ventilate position"
-                  service: cover.set_cover_position
-                  data:
-                    position: !input ventilate_position
-                  target:
-                    entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - alias: "Moving the cover to ventilate position"
+                      service: cover.set_cover_position
                       data:
-                        tilt_position: !input ventilate_tilt_position
+                        position: !input ventilate_position
                       target:
                         entity_id: "{{ repeat.item }}"
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input ventilate_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
           - if:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2521,14 +2664,34 @@ action:
               - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}"
               - "{{ current_position | int(default=101) == ventilate_position }}"
           - or:
-              - and: # Closed - Down late reached
-                  - "{{ is_time_field_enabled }}"
-                  - "{{ now() >= today_at(time_down_late_today) }}"
-              - and: # Closed - Scheduler is off
+              - and: # OPEN/CLOSE - Whenever the scheduler is off
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
-              - and: # Closed - Down early reached and brightness/sun below minimum
+              - and: # <OPEN - Always before the earliest possible time
+                  - "{{ is_time_field_enabled }}"
+                  - "{{ now() <= today_at(time_up_early_today) }}"
+              - and: # >CLOSE - Always after the latest time
+                  - "{{ is_time_field_enabled }}"
+                  - "{{ now() >= today_at(time_down_late_today) }}"
+              - and: # <OPEN - Between the time intervals only if the brightness/sun-elevation is still too low.
+                  - or:
+                      - and:
+                          - "{{ is_time_field_enabled }}"
+                          - "{{ now() >= today_at(time_up_early_today) }}"
+                          - "{{ now() <= today_at(time_up_late_today) }}"
+                      - and:
+                          - "{{ is_schedule_helper_enabled }}"
+                          - "{{ time_schedule_helper != [] }}"
+                          - "{{ is_state(time_schedule_helper, 'on') }}"
+                  - or:
+                      - or:
+                          - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
+                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) < brightness_up) }}"
+                      - or:
+                          - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
+                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) < sun_elevation_up) }}"
+              - and: # >CLOSE - Between the time intervals only if the brightness/sun-elevation has already fallen.
                   - or:
                       - and:
                           - "{{ is_time_field_enabled }}"
@@ -2552,36 +2715,38 @@ action:
             then:
               - delay: "00:00:{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - if:
-                    - "{{ close_position == 0 }}"
-                  then:
-                    - alias: "Moving the cover to close position"
-                      service: cover.close_cover
-                      data: {}
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                  else:
-                    - alias: "Moving the cover to close position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input close_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
-                      data:
-                        tilt_position: !input close_tilt_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - if:
+                        - "{{ close_position == 0 }}"
+                      then:
+                        - alias: "Moving the cover to close position"
+                          service: cover.close_cover
+                          data: {}
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                      else:
+                        - alias: "Moving the cover to close position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input close_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input close_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
           - if:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2620,35 +2785,38 @@ action:
             id: "t_bo_force"
           - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
         sequence:
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - if:
-                    - "{{ open_position == 100 }}"
-                  then:
-                    - alias: "Moving the cover to open position"
-                      service: cover.open_cover
-                      data: {}
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                  else:
-                    - alias: "Moving the cover to open position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input open_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
-                      data:
-                        tilt_position: !input open_tilt_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - if:
+                        - "{{ open_position == 100 }}"
+                      then:
+                        - alias: "Moving the cover to open position"
+                          service: cover.open_cover
+                          data: {}
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                      else:
+                        - alias: "Moving the cover to open position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input open_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input open_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
           - if:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2687,35 +2855,38 @@ action:
             id: "t_bc_force"
           - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
         sequence:
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - if:
-                    - "{{ close_position == 0 }}"
-                  then:
-                    - alias: "Moving the cover to close position"
-                      service: cover.close_cover
-                      data: {}
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                  else:
-                    - alias: "Moving the cover to close position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input close_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
-                      data:
-                        tilt_position: !input close_tilt_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - if:
+                        - "{{ close_position == 0 }}"
+                      then:
+                        - alias: "Moving the cover to close position"
+                          service: cover.close_cover
+                          data: {}
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                      else:
+                        - alias: "Moving the cover to close position"
+                          service: cover.set_cover_position
+                          data:
+                            position: !input close_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input close_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
           - if:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2754,26 +2925,29 @@ action:
             id: "t_co_force"
           - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
         sequence:
-          - repeat:
-              for_each: "{{ blind_entities|list }}"
-              sequence:
-                - alias: "Moving the cover to ventilate position"
-                  service: cover.set_cover_position
-                  data:
-                    position: !input ventilate_position
-                  target:
-                    entity_id: "{{ repeat.item }}"
-                - if:
-                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                  then:
-                    - alias: "Moving the cover to tilt position"
-                      service: cover.set_cover_tilt_position
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - alias: "Moving the cover to ventilate position"
+                      service: cover.set_cover_position
                       data:
-                        tilt_position: !input ventilate_tilt_position
+                        position: !input ventilate_position
                       target:
                         entity_id: "{{ repeat.item }}"
-                - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                  delay: "00:00:{{ (range(1, 3)|random|int) }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input ventilate_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay: "00:00:{{ (range(1, 3)|random|int) }}"
 
           - if:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
