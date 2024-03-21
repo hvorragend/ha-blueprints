@@ -120,3 +120,13 @@
 2024.03.14-01:
   - Fixed: Ventilation mode could always be started by mistake.
   - Fixing helper length check. Thx to crandler.
+
+2024.03.21-01:
+  - **Breaking change** in the schedule helper usage! You can find the details in the section "Selection of time control options".
+  - New: Reduction of triggers and thus avoidance of overlaps due to running delays (fixes #40)
+  - New: Added possibility to disable the use of 'set_cover_position' and 'set_cover_tilt_position' and only use the additional actions
+  - Fixed: Shading Forecast Weather Conditions
+  - Fixed: Ventilation mode should not only be ended in the evening, but whenever it is not yet daytime.
+  - Fixed: Added the ventilation mode activation on closing down again
+  - Try to avoid overlaps in the execution of the automation if several triggers are triggered shortly after each other.
+  - Fixed: Optional weather conditions for "shading in" #41
