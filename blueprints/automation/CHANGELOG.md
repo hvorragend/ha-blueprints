@@ -130,3 +130,9 @@
   - Fixed: Added the ventilation mode activation on closing down again
   - Try to avoid overlaps in the execution of the automation if several triggers are triggered shortly after each other.
   - Fixed: Optional weather conditions for "shading in" #41
+
+2024.04.05-01:
+  - Update: Forecast Temperature below 0 possible
+  - Delay lines minimally changed
+  - Added: Allow shading to activate multiple times a day #44
+  - Fixed: Ventilation is usually activated too often.
