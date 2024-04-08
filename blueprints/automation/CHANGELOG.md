@@ -136,3 +136,6 @@
   - Delay lines minimally changed
   - Added: Allow shading to activate multiple times a day #44
   - Fixed: Ventilation is usually activated too often.
+
+2024.04.08-01:
+  - Fixed: Make the shading work even without a helper
