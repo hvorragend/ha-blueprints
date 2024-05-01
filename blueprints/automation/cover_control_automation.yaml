@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.04.08-01
+    **Version**: 2024.05.01-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -78,24 +78,6 @@ blueprint:
     <details>
     <summary><strong>Latest changes</strong></summary>
 
-    2024.03.11-02:
-      - Completely new structure of the various choose-branches
-      - Relocation of some conditions to the sequence section
-      - Redesign of the ventilation mode
-      - Added: Additional Condition For Ventilation #33
-      - Added: Force Ventilation #28
-
-    2024.03.12-01:
-      - Fixed #29: Do not compare forecast temp with temp-sensor1 for shading
-
-    2024.03.12-02:
-      - Added #20: Allow ventilation not only in closed state, but also when the position is below the ventilation position.
-      - Bugfixes when comparing positions
-
-    2024.03.14-01:
-      - Fixed: Ventilation mode could always be started by mistake.
-      - Fixing helper length check. Thx to crandler.
-
     2024.03.21-01:
       - **Breaking change** in the schedule helper usage! You can find the details in the section "Selection of time control options".
       - New: Reduction of triggers and thus avoidance of overlaps due to running delays (fixes #40)
@@ -114,6 +96,12 @@ blueprint:
 
     2024.04.08-01:
       - Fixed: Make the shading work even without a helper
+
+    2024.05.01-01:
+      - Updated: Trigger shading at time_up_early and schedule helper state change, too
+      - Fixed: Possibility to ignore actions after manual position changes
+      - Added Feature: Force activation of sun shading #49
+      - Fixed: Manual shutter movements after a core restart were not always recognised.
 
     </details>
 
@@ -944,9 +932,11 @@ blueprint:
       default: 25
       selector:
         number:
-          min: 0
-          max: 90
-          unit_of_measurement: "°"
+          min: -90.0
+          max: 90.0
+          unit_of_measurement: °
+          step: 0.1
+          mode: slider
 
     shading_elevation_max:
       name: "🥵 Shading Elevation Maximum Value"
@@ -959,9 +949,11 @@ blueprint:
       default: 90
       selector:
         number:
-          min: 0
-          max: 90
-          unit_of_measurement: "°"
+          min: -90.0
+          max: 90.0
+          unit_of_measurement: °
+          step: 0.1
+          mode: slider
 
     shading_temperatur_sensor1:
       name: "🥵 Shading Temperature Sensor 1"
@@ -986,7 +978,7 @@ blueprint:
       default: 18
       selector:
         number:
-          min: -20.0
+          min: 0
           max: 50.0
           step: 0.1
           mode: slider
@@ -1017,7 +1009,7 @@ blueprint:
       default: 18
       selector:
         number:
-          min: -20.0
+          min: 0.0
           max: 50.0
           step: 0.1
           mode: slider
@@ -1050,7 +1042,7 @@ blueprint:
       default: 20
       selector:
         number:
-          min: -20.0
+          min: 0.0
           max: 50.0
           step: 0.1
           mode: slider
@@ -1138,6 +1130,18 @@ blueprint:
       default: []
       selector:
         condition: {}
+
+    auto_shading_start_force:
+      name: "🥵 Force Activation Sun Shading"
+      description: >-
+        If the status of this entity changes to on or true, the shading is immediately activated and without further checking.
+        <br /><br />`Optional`
+      default: []
+      selector:
+        entity:
+          domain:
+            - input_boolean
+            - binary_sensor
 
     auto_shading_start_action:
       name: "🥵 Additional Actions After Activating Sun Shading"
@@ -1306,7 +1310,7 @@ trigger_variables:
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
 
 variables:
-  version: "2024.04.08-01"
+  version: "2024.05.01-01"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1356,6 +1360,7 @@ variables:
   auto_up_force: !input auto_up_force
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
+  auto_shading_start_force: !input auto_shading_start_force
 
   # Shading
   shading_tilt_position: !input shading_tilt_position
@@ -1497,7 +1502,7 @@ variables:
   ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
   ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
 
-mode: restart #queued
+mode: restart
 max_exceeded: silent
 
 trigger:
@@ -1658,6 +1663,12 @@ trigger:
     for: "00:00:05"
     id: "t_si_1"
 
+  - platform: state
+    entity_id: !input auto_shading_start_force
+    from: "off"
+    to: "on"
+    id: "t_si_force"
+
   ########################################
   # Triggers for shading end
   ########################################
@@ -1747,8 +1758,8 @@ condition:
   - condition: !input auto_global_condition
   - condition: template
     value_template: "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}"
-  - condition: template
-    value_template: "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+  # - condition: template # TODO: Had to be commented out because it does not recognise certain shutter movements if HA has been restarted beforehand.
+  #   value_template: "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
   - condition: template
     value_template: "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
 
@@ -1839,12 +1850,17 @@ action:
               - "t_bo_6"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or: # Check the current positions
-              - "{{ is_status_helper_enabled and ignore_opening_after_manual and is_cover_manual }}"
               - "{{ is_status_helper_enabled and not is_cover_open }}"
               - "{{ is_ventilation_enabled and in_ventilate_position }}"
               - "{{ in_close_position }}"
+          - or: # Ignore check
+              - "{{ not is_status_helper_enabled }}"
+              - "{{ is_status_helper_enabled and not is_cover_manual }}"
+              - "{{ is_status_helper_enabled and ignore_opening_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_manual and not ignore_opening_after_manual }}"
           - or: # Only once a day
-              - "{{ not is_status_helper_enabled or is_status_helper_enabled and (now().day != is_cover_open_ts|timestamp_custom('%-d')|int) }}"
+              - "{{ not is_status_helper_enabled }}"
+              - "{{ is_status_helper_enabled and (now().day != is_cover_open_ts|timestamp_custom('%-d')|int) }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
@@ -1978,11 +1994,16 @@ action:
               - "{{ not prevent_higher_position_closing }}"
               - "{{ prevent_higher_position_closing and (current_position | int(default=101) >= close_position) }}"
           - or: # Check the current positions
-              - "{{ is_status_helper_enabled and ignore_closing_after_manual and is_cover_manual }}"
               - "{{ is_status_helper_enabled and not is_cover_closed }}"
               - "{{ in_open_position }}"
+          - or: # Ignore check
+              - "{{ not is_status_helper_enabled }}"
+              - "{{ is_status_helper_enabled and not is_cover_manual }}"
+              - "{{ is_status_helper_enabled and ignore_closing_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_manual and not ignore_closing_after_manual }}"
           - or: # Only once a day
-              - "{{ not is_status_helper_enabled or is_status_helper_enabled and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) }}"
+              - "{{ not is_status_helper_enabled }}"
+              - "{{ is_status_helper_enabled and (is_cover_closed_ts < today_at(time_down_early) | as_timestamp) }}"
           - or:
               - and: # Closing - Down late reached
                   - "{{ is_time_field_enabled }}"
@@ -2181,7 +2202,10 @@ action:
           - "{{ is_shading_enabled }}"
           - condition: !input auto_shading_start_condition
           - condition: trigger
-            id: "t_si_1"
+            id:
+              - "t_si_1"
+              - "t_bo_1" # time_up_early
+              - "t_bo_3" # schedule helper state change
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
@@ -2189,10 +2213,14 @@ action:
           - "{{ current_position | int(default=101) > shading_position }}"
           - or: # Check the current positions
               - "{{ not is_status_helper_enabled }}"
-              - "{{ is_status_helper_enabled and ignore_shading_after_manual and is_cover_manual }}"
               - "{{ is_status_helper_enabled and not is_cover_shaded }}"
               - "{{ is_status_helper_enabled and not (is_cover_ventilated or is_cover_locked) }}"
               # - "{{ not in_ventilate_position }}" # TODO: With the OR condition, this means ALWAYS. Bad idea. Disabled.
+          - or: # Ignore check
+              - "{{ not is_status_helper_enabled }}"
+              - "{{ is_status_helper_enabled and not is_cover_manual }}"
+              - "{{ is_status_helper_enabled and ignore_shading_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_manual and not ignore_shading_after_manual }}"
           - or:
               - "{{ not is_status_helper_enabled }}"
               - "{{ allow_shading_multiple_times }}"
@@ -2320,8 +2348,12 @@ action:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
+          - or: # Ignore check
+              - "{{ not is_status_helper_enabled }}"
+              - "{{ is_status_helper_enabled and not is_cover_manual }}"
+              - "{{ is_status_helper_enabled and ignore_shading_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_manual and not ignore_shading_after_manual }}"
           - or:
-              - "{{ is_status_helper_enabled and ignore_shading_after_manual and is_cover_manual }}"
               - "{{ is_status_helper_enabled and is_cover_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
           - or: # Optional: Continue if cover is not already closed
@@ -2545,10 +2577,14 @@ action:
           - "{{ is_state(contact_sensor, ['false', 'off']) }}"
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-          - or:
-              - "{{ is_status_helper_enabled and ignore_ventilation_after_manual and is_cover_manual }}"
+          - or: # Position check
               - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}"
               - "{{ in_ventilate_position }}"
+          - or: # Ignore check
+              - "{{ not is_status_helper_enabled }}"
+              - "{{ is_status_helper_enabled and not is_cover_manual }}"
+              - "{{ is_status_helper_enabled and ignore_ventilation_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_manual and not ignore_ventilation_after_manual }}"
           - or:
               - and: # OPEN/CLOSE - Whenever the scheduler is off
                   - "{{ is_schedule_helper_enabled }}"
@@ -2866,6 +2902,68 @@ action:
             default: !input auto_ventilate_action
 
           - stop: "Stop automation: Forced Ventilation"
+
+      ############################################################
+      # ANCHOR: FORCE SHADING START
+      ############################################################
+      - alias: "Forced activating of the sun shading"
+        conditions:
+          - "{{ is_shading_enabled }}"
+          - condition: trigger
+            id: "t_si_force"
+          - "{{ auto_shading_start_force != [] and is_state(auto_shading_start_force, ['true', 'on']) }}"
+        sequence:
+          - if:
+              - "{{ not prevent_default_cover_actions}}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities|list }}"
+                  sequence:
+                    - alias: "Moving the cover to shading position"
+                      service: cover.set_cover_position
+                      data:
+                        position: !input shading_position
+                      target:
+                        entity_id: "{{ repeat.item }}"
+                    - if:
+                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                      then:
+                        - alias: "Moving the cover to tilt position"
+                          service: cover.set_cover_tilt_position
+                          data:
+                            tilt_position: !input shading_tilt_position
+                          target:
+                            entity_id: "{{ repeat.item }}"
+                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                      delay:
+                        seconds: "{{ (range(1, 3)|random|int) }}"
+
+          - if:
+              - "{{ 'cover_helper_enabled' in cover_status_options }}"
+            then:
+              - service: input_text.set_value
+                data:
+                  entity_id: !input cover_status_helper
+                  value: |
+                    {% set dict_var = states(cover_status_helper) | from_json %}
+                    {% set dict_new = dict(dict_var, **{
+                      'open':{'a':false,'t':dict_var.open.t},
+                      'close':{'a':false,'t':dict_var.close.t},
+                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                      'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
+                      'locked':{'a':false,'t':dict_var.locked.t},
+                      'manual':{'a':false,'t':dict_var.manual.t},
+                      'p':current_position,
+                      'v':4,
+                      't':as_timestamp(now()) | round(0)
+                      })
+                    %}
+                    {{ dict_new | to_json }}
+
+          - choose: []
+            default: !input auto_shading_start_action
+
+          - stop: "Stop automation: Forced Shading-start"
 
       ############################################################
       # ANCHOR: MANUAL
