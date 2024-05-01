@@ -139,3 +139,9 @@
 
 2024.04.08-01:
   - Fixed: Make the shading work even without a helper
+
+2024.05.01-01:
+  - Updated: Trigger shading at time_up_early and schedule helper state change, too
+  - Fixed: Possibility to ignore actions after manual position changes
+  - Added Feature: Force activation of sun shading #49
+  - Fixed: Manual shutter movements after a core restart were not always recognised.
