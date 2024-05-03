@@ -145,3 +145,6 @@
   - Fixed: Possibility to ignore actions after manual position changes
   - Added Feature: Force activation of sun shading #49
   - Fixed: Manual shutter movements after a core restart were not always recognised.
+
+2024.05.03-01:
+  - Minor editorial changes
