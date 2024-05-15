@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.05.15-01
+    **Version**: 2024.05.15-02
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -116,6 +116,10 @@ blueprint:
       - Added: Lockout protection implemented at the start and end of shading. #43/#55 (Attention: Cover may close in the evening after contact is closed again!)
       - Fixed: Retriggering of the shading is possible again. Open/close branches are only started if automation is not already running.
 
+    2024.05.15-02:
+      - Quick workaround, as opening and closing does not currently work.
+      - Minor changes
+
     </details>
 
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml
@@ -167,6 +171,7 @@ blueprint:
 
         **Note:** If you want to use the <ins>lockout protection</ins>, I recommend configuring a cover status helper.
         Otherwise, the cover cannot be moved to the next state after the door contact is closed.
+        See further information in the description of "Contact Sensor Entity"
 
         </details>
       default:
@@ -779,7 +784,13 @@ blueprint:
 
           - <ins>Lockout protection:</ins> 🚪
             <br />
-            The cover is not closed if the door contact is on or true.
+            The cover is not closed and the sun shading is not activated when the door contact is open.
+            Note that the cover can close in the evening when the door contact is closed.
+            It is not moved to the previously desired shading position!
+            <br /><br />
+            If the sun shading is cancelled, the door contact is open and the lock-out protection is enabled,
+            the blind does not move from the shading position to the ventilation position.
+            Instead, the roller blind is opened.
             <br /><br />
           - <ins>Ventilation mode:</ins> 💨
             <br />
@@ -1161,8 +1172,10 @@ blueprint:
     shading_waitingtime_start:
       name: "🥵 Waiting Time For Sun Shading Start"
       description: >-
-        To prevent excessive stress on the motor, a waiting time for starting shading can be defined here.
-        Shading then only STARTs when the conditions are fulfilled over the entire waiting time IN.
+        To avoid overloading the motor, a waiting time can be defined here for the start of shading.
+        The shade will then only start if <ins>all</ins> mandatory conditions are fulfilled for the entire waiting time.
+        <br /><br />
+        Note: The automated system only waits for the time when the roller blind is above the ventilation position.
         <br /><br />`Shading`
       default: 300
       selector:
@@ -1174,8 +1187,11 @@ blueprint:
     shading_waitingtime_end:
       name: "🥵 Waiting Time For Sun Shading End"
       description: >-
-        To prevent excessive stress on the motor, a waiting time can be defined here.
-        Shading then ENDs when ONE of the conditions is NOT fulfilled over the entire waiting time OUT.
+        To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended.
+        Shading ends if <ins>one</ins> of the conditions is <ins>not</ins> fulfilled for the entire waiting time.
+        <br /><br />
+        Note: If the sun is outside the shading window (azimuth or elevation), shading is ended immediately.
+        In this case, no waiting time is taken into consideration.
         <br /><br />`Shading`
       default: 900
       selector:
@@ -1430,7 +1446,7 @@ trigger_variables:
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
 
 variables:
-  version: "2024.05.15-01"
+  version: "2024.05.15-02"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1440,7 +1456,7 @@ variables:
   # Delays
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
-  tilt_delay: !input tilt_delay
+  # tilt_delay: !input tilt_delay
   drive_time: !input drive_time
 
   time_up_early_today: >-
@@ -1485,8 +1501,8 @@ variables:
 
   # Shading
   shading_tilt_position: !input shading_tilt_position
-  shading_waitingtime_start: !input shading_waitingtime_start
-  shading_waitingtime_end: !input shading_waitingtime_end
+  # shading_waitingtime_start: !input shading_waitingtime_start
+  # shading_waitingtime_end: !input shading_waitingtime_end
   shading_forecast_sensor: !input shading_forecast_sensor
   shading_weather_conditions: !input shading_weather_conditions
 
@@ -1967,7 +1983,7 @@ action:
               - "t_bo_4"
               - "t_bo_5"
               - "t_bo_6"
-          - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering / TODO: Check whether this might already be too late here
+          # - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering / TODO: Check whether this might already be too late here
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or: # Check the current positions
               - "{{ is_status_helper_enabled and not is_cover_open }}"
@@ -2099,7 +2115,7 @@ action:
               - "t_bc_4"
               - "t_bc_5"
               - "t_bc_6"
-          - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering / TODO: Check whether this might already be too late here
+          # - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering / TODO: Check whether this might already be too late here
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - or: # Optional: Continue if cover is shaded and close position is lower than shading position
@@ -3165,10 +3181,8 @@ action:
             id: "t_ma_1"
           - "{{ is_number(trigger.to_state.attributes.current_position) and is_number(trigger.from_state.attributes.current_position) }}" # Avoid status change from -unavailable- (common with Homematic)
           - "{{ trigger.to_state.attributes.current_position != trigger.from_state.attributes.current_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
-          - condition: template
-            value_template: "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
-          - condition: template
-            value_template: "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
 
         sequence:
           - choose:
