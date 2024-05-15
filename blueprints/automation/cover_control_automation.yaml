@@ -773,31 +773,46 @@ blueprint:
             - input_boolean
             - binary_sensor
 
-    contact_sensor:
-      name: "💨 Contact Sensor Entity"
+    contact_sensor_ventilate:
+      name: "💨 Contact Sensor Entity For Ventilation"
       description: >-
-        The contact sensor is required for lockout protection and for ventilation mode. It must be a binary two-way contact sensor.
+        The contact sensor is required for ventilation mode. It must be a binary two-way contact sensor.
 
         <details>
         <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
 
 
-          - <ins>Lockout protection:</ins> 🚪
-            <br />
-            The cover is not closed and the sun shading is not activated when the door contact is open.
-            Note that the cover can close in the evening when the door contact is closed.
-            It is not moved to the previously desired shading position!
-            <br /><br />
-            If the sun shading is cancelled, the door contact is open and the lock-out protection is enabled,
-            the blind does not move from the shading position to the ventilation position.
-            Instead, the roller blind is opened.
-            <br /><br />
-          - <ins>Ventilation mode:</ins> 💨
-            <br />
-            If the door contact changes to on/true, the cover is moved to the ventilation position.
-            The prerequisite is that the cover is already closed.
-            After the status changes to off/false, the close position is activated.
-            The same applies in the shading-out situation.
+        If the door contact changes to on/true, the cover is moved to the ventilation position.
+        The prerequisite is that the cover is already closed.
+        After the status changes to off/false, the close position is activated.
+        The same applies in the shading-out situation.
+
+        </details>
+        <br /><code>Optional</code>
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain:
+                - binary_sensor
+                - input_boolean
+
+    contact_sensor_lockout:
+      name: "💨 Contact Sensor Entity For Lockout Protection"
+      description: >-
+        The contact sensor is required for lockout protection. It must be a binary two-way contact sensor.
+
+        <details>
+        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+        The cover is not closed and the sun shading is not activated when the door contact is open.
+        Note that the cover can close in the evening when the door contact is closed.
+        It is not moved to the previously desired shading position!
+        <br /><br />
+        If the sun shading is cancelled, the door contact is open and the lock-out protection is enabled,
+        the blind does not move from the shading position to the ventilation position.
+        Instead, the roller blind is opened.
 
         </details>
         <br /><code>Optional</code>
@@ -813,7 +828,7 @@ blueprint:
       name: "💨 Ventilate Position"
       description: >-
         What position should the cover move to when opening the window/door and the cover is closed to allow ventilation?
-        If closing is triggered and the contact_sensor is 'on' the cover will move to this position instead of closing completly
+        If closing is triggered and the contact_sensor_ventilate is 'on' the cover will move to this position instead of closing completly
         <br /><br />Should not be 100. In this case please use 99. And please also note the information in the position tolerance.
         <br /><br />`Optional`
       default: 30
@@ -1413,7 +1428,8 @@ trigger_variables:
   sun_elevation_down: !input sun_elevation_down
 
   # Sensors
-  contact_sensor: !input contact_sensor
+  contact_sensor_ventilate: !input contact_sensor_ventilate
+  contact_sensor_lockout: !input contact_sensor_lockout
   resident_sensor: !input resident_sensor
 
   # Time controls
@@ -1765,23 +1781,27 @@ trigger:
     to: "on"
     id: "t_bc_force"
 
-  ########################################
-  # Trigger for ventilate
-  ########################################
+  #################################################
+  # Trigger for ventilation and lockout protection
+  #################################################
 
   - platform: template
-    value_template: "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
-    id: "t_co_open"
+    value_template: "{{ is_ventilation_enabled and contact_sensor_ventilate != [] and is_state(contact_sensor_ventilate, ['true', 'on']) }}"
+    id: "t_co_v_open"
 
   - platform: template
-    value_template: "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['false', 'off']) }}"
-    id: "t_co_close"
+    value_template: "{{ is_ventilation_enabled and contact_sensor_ventilate != [] and is_state(contact_sensor_ventilate, ['false', 'off']) }}"
+    id: "t_ve_close"
+
+  - platform: template
+    value_template: "{{ is_lockout_protection_enabled and contact_sensor_lockout != [] and is_state(contact_sensor_lockout, ['false', 'off']) }}"
+    id: "t_lo_close"
 
   - platform: state
     entity_id: !input auto_ventilate_force
     from: "off"
     to: "on"
-    id: "t_co_force"
+    id: "t_ve_force"
 
   ########################################
   # Triggers for shading start
@@ -2185,8 +2205,8 @@ action:
           # Consider lockout protection
           - if:
               - "{{ is_lockout_protection_enabled }}"
-              - "{{ contact_sensor != [] }}"
-              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+              - "{{ contact_sensor_lockout != [] }}"
+              - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
             then:
               - if:
                   - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2217,8 +2237,8 @@ action:
           # Ventilation
           - if:
               - "{{ is_ventilation_enabled }}"
-              - "{{ contact_sensor != [] }}"
-              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+              - "{{ contact_sensor_ventilate != [] }}"
+              - "{{ is_state(contact_sensor_ventilate, ['true', 'on']) }}"
             then:
               - if:
                   - "{{ not prevent_default_cover_actions}}"
@@ -2420,8 +2440,8 @@ action:
           # Consider lockout protection
           - if:
               - "{{ is_lockout_protection_enabled }}"
-              - "{{ contact_sensor != [] }}"
-              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+              - "{{ contact_sensor_lockout != [] }}"
+              - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
             then:
               - if:
                   - "{{ 'cover_helper_enabled' in cover_status_options }}"
@@ -2561,9 +2581,12 @@ action:
           # Ventilation after shading end
           - if:
               - "{{ is_ventilation_enabled }}"
-              - "{{ not is_lockout_protection_enabled }}" # The cover is not allowed to be lowered when the lock-out protection is enabled.
-              - "{{ contact_sensor != [] }}"
-              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+              - "{{ contact_sensor_ventilate != [] }}"
+              - "{{ is_state(contact_sensor_ventilate, ['true', 'on']) }}"
+              - or: # The cover is not allowed to be lowered when the lockout protection is enabled
+                  - "{{ not is_lockout_protection_enabled }}"
+                  - "{{ contact_sensor_lockout == [] }}"
+                  - "{{ is_state(contact_sensor_lockout, ['false', 'off']) }}"
             then:
               - if:
                   - "{{ not prevent_default_cover_actions}}"
@@ -2691,9 +2714,9 @@ action:
           - "{{ is_ventilation_enabled }}"
           - condition: !input auto_ventilate_condition
           - condition: trigger
-            id: "t_co_open"
-          - "{{ contact_sensor != [] }}"
-          - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+            id: "t_ve_open"
+          - "{{ contact_sensor_ventilate != [] }}"
+          - "{{ is_state(contact_sensor_ventilate, ['true', 'on']) }}"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or:
               - "{{ is_status_helper_enabled and is_cover_closed }}"
@@ -2765,9 +2788,9 @@ action:
               - "{{ is_ventilation_enabled }}"
               - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
           - condition: trigger
-            id: "t_co_close"
-          - "{{ contact_sensor != [] }}"
-          - "{{ is_state(contact_sensor, ['false', 'off']) }}"
+            id: "t_ve_close"
+          - "{{ contact_sensor_ventilate != [] }}"
+          - "{{ is_state(contact_sensor_ventilate, ['false', 'off']) }}"
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - or: # Position check
@@ -3047,7 +3070,7 @@ action:
       - alias: "Forced ventilation of the cover"
         conditions:
           - condition: trigger
-            id: "t_co_force"
+            id: "t_ve_force"
           - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
         sequence:
           - if:
