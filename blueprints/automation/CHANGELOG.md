@@ -148,3 +148,13 @@
 
 2024.05.03-01:
   - Minor editorial changes
+
+2024.05.15-01:
+  - Fixed: Do not recognise manual movement if status is unknown
+  - Updated: Change the step size for the brightness values to 1
+  - Fixed: Made the force function easier with fewer conditions
+  - Added: Make it possible to open and close the roller blinds multiple times
+  - Added: The forecast sensor can now trigger the sun shading #48
+  - Added: Delay between set_cover_position and set_cover_tilt_position.
+  - Added: Lockout protection implemented at the start and end of shading. #43/#55 (Attention: Cover may close in the evening after contact is closed again!)
+  - Fixed: Retriggering of the shading is possible again. Open/close branches are only started if automation is not already running.
