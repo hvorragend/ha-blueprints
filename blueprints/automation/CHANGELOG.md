@@ -158,3 +158,7 @@
   - Added: Delay between set_cover_position and set_cover_tilt_position.
   - Added: Lockout protection implemented at the start and end of shading. #43/#55 (Attention: Cover may close in the evening after contact is closed again!)
   - Fixed: Retriggering of the shading is possible again. Open/close branches are only started if automation is not already running.
+
+2024.05.15-02:
+  - Quick workaround, as opening and closing does not currently work.
+  - Minor changes
