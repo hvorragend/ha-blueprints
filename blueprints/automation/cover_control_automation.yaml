@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.05.15-02
+    **Version**: 2024.05.17-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -119,6 +119,11 @@ blueprint:
     2024.05.15-02:
       - Quick workaround, as opening and closing does not currently work.
       - Minor changes
+
+    2024.05.17-01:
+      - Updated: Combining the shading triggers. No more problems with waiting times and retriggers.
+      - Fixed: Do not close after closing the contact if 'Automatic Closing' is disabled
+      - Added: Separate contact Sensors
 
     </details>
 
@@ -773,7 +778,7 @@ blueprint:
             - input_boolean
             - binary_sensor
 
-    contact_sensor_ventilate:
+    contact_sensor:
       name: "💨 Contact Sensor Entity For Ventilation"
       description: >-
         The contact sensor is required for ventilation mode. It must be a binary two-way contact sensor.
@@ -828,7 +833,7 @@ blueprint:
       name: "💨 Ventilate Position"
       description: >-
         What position should the cover move to when opening the window/door and the cover is closed to allow ventilation?
-        If closing is triggered and the contact_sensor_ventilate is 'on' the cover will move to this position instead of closing completly
+        If closing is triggered and the <em>contact_sensor</em> is 'on' the cover will move to this position instead of closing completly
         <br /><br />Should not be 100. In this case please use 99. And please also note the information in the position tolerance.
         <br /><br />`Optional`
       default: 30
@@ -1204,11 +1209,8 @@ blueprint:
       description: >-
         To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended.
         Shading ends if <ins>one</ins> of the conditions is <ins>not</ins> fulfilled for the entire waiting time.
-        <br /><br />
-        Note: If the sun is outside the shading window (azimuth or elevation), shading is ended immediately.
-        In this case, no waiting time is taken into consideration.
         <br /><br />`Shading`
-      default: 900
+      default: 300
       selector:
         number:
           min: 0
@@ -1428,7 +1430,7 @@ trigger_variables:
   sun_elevation_down: !input sun_elevation_down
 
   # Sensors
-  contact_sensor_ventilate: !input contact_sensor_ventilate
+  contact_sensor: !input contact_sensor
   contact_sensor_lockout: !input contact_sensor_lockout
   resident_sensor: !input resident_sensor
 
@@ -1449,6 +1451,8 @@ trigger_variables:
   shading_sun_brightness_start: !input shading_sun_brightness_start
   shading_sun_brightness_end: !input shading_sun_brightness_end
   shading_forecast_temp: !input shading_forecast_temp
+  shading_forecast_sensor: !input shading_forecast_sensor
+  shading_weather_conditions: !input shading_weather_conditions
 
   # Internal code helper
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
@@ -1462,7 +1466,7 @@ trigger_variables:
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
 
 variables:
-  version: "2024.05.15-02"
+  version: "2024.05.17-01"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1517,10 +1521,6 @@ variables:
 
   # Shading
   shading_tilt_position: !input shading_tilt_position
-  # shading_waitingtime_start: !input shading_waitingtime_start
-  # shading_waitingtime_end: !input shading_waitingtime_end
-  shading_forecast_sensor: !input shading_forecast_sensor
-  shading_weather_conditions: !input shading_weather_conditions
 
   # Config check
   check_config: !input check_config
@@ -1786,16 +1786,16 @@ trigger:
   #################################################
 
   - platform: template
-    value_template: "{{ is_ventilation_enabled and contact_sensor_ventilate != [] and is_state(contact_sensor_ventilate, ['true', 'on']) }}"
-    id: "t_co_v_open"
+    value_template: "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['true', 'on']) }}"
+    id: "t_ct_vent_open"
 
   - platform: template
-    value_template: "{{ is_ventilation_enabled and contact_sensor_ventilate != [] and is_state(contact_sensor_ventilate, ['false', 'off']) }}"
-    id: "t_ve_close"
+    value_template: "{{ is_ventilation_enabled and contact_sensor != [] and is_state(contact_sensor, ['false', 'off']) }}"
+    id: "t_ct_vent_close"
 
   - platform: template
     value_template: "{{ is_lockout_protection_enabled and contact_sensor_lockout != [] and is_state(contact_sensor_lockout, ['false', 'off']) }}"
-    id: "t_lo_close"
+    id: "t_ct_lock_close"
 
   - platform: state
     entity_id: !input auto_ventilate_force
@@ -1807,7 +1807,7 @@ trigger:
   # Triggers for shading start
   ########################################
 
-  - platform: template # Mandatory and optional triggers
+  - platform: template
     value_template: >-
       {{
         is_shading_enabled and
@@ -1817,86 +1817,38 @@ trigger:
         state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) > shading_elevation_min and
         (shading_brightness_sensor == [] or states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start) and
         (shading_temperatur_sensor1 == [] or states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1) and
-        (shading_temperatur_sensor2 == [] or states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2)
+        (shading_temperatur_sensor2 == [] or states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2) and
+        (shading_forecast_sensor == [] or states(shading_forecast_sensor) in shading_weather_conditions)
       }}
-    for: "00:00:05"
+    for:
+      seconds: !input shading_waitingtime_start
     id: "t_si_1"
-
-  - platform: state
-    entity_id: !input shading_forecast_sensor
-    to: # Trigger on all state changes, but not attributes
-    id: "t_si_2"
 
   ########################################
   # Triggers for shading end
   ########################################
-  # Problem:
-  # I would like to reduce the triggering here, but I cannot use further constraints here (such as comparison with ShadingPos),
-  # because then the current position also triggers. And that leads to many unpredictable consequences.
-  # Triggers should be executed at the time of the correct event. And not all together, e.g. when the blinds are closed.
-  #
-  # There are hardly any AND conditions at the end of shading, only many different OR scenarios.
-  # So I can't pack everything into one big trigger.
 
   - platform: template
     value_template: >-
       {{
         is_shading_enabled and
-        shading_temperatur_sensor1 != [] and
-        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1
+        (
+            (shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1) or
+            (shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2) or
+            (shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end) or
+            (shading_forecast_sensor != [] and states(shading_forecast_sensor) not in shading_weather_conditions) or
+                default_sun_sensor != [] and
+                (
+                    (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
+                    (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
+                    (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
+                    (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
+                )
+        )
       }}
-    for: "00:00:05"
+    for:
+      seconds: !input shading_waitingtime_end
     id: "t_so_1"
-
-  - platform: template
-    value_template: >-
-      {{
-        is_shading_enabled and
-        shading_temperatur_sensor2 != [] and
-        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2
-      }}
-    for: "00:00:05"
-    id: "t_so_2"
-
-  - platform: template
-    value_template: >-
-      {{
-        is_shading_enabled and
-        shading_brightness_sensor != [] and
-        states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end
-      }}
-    for: "00:00:05"
-    id: "t_so_3"
-
-  - platform: template
-    value_template: >-
-      {{
-        is_shading_enabled and
-        default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max)
-      }}
-    for: "00:00:05"
-    id: "t_so_4"
-
-  - platform: template
-    value_template: >-
-      {{
-        is_shading_enabled and
-        default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end)
-      }}
-    for: "00:00:05"
-    id: "t_so_5"
-
-  - platform: template
-    value_template: >-
-      {{
-        is_shading_enabled and
-        default_sun_sensor != [] and
-        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
-      }}
-    for: "00:00:05"
-    id: "t_so_6"
 
   ########################################
   # Trigger for manual cover movements
@@ -1914,7 +1866,8 @@ trigger:
 
 condition:
   - condition: !input auto_global_condition
-  - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following target values are not valid values
+  - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger
+  - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering
 
   ########################################
   # Action
@@ -1927,9 +1880,7 @@ action:
       - "{{ not prevent_forecast_service }}"
       - "{{ (shading_forecast_sensor != [] ) }}"
       - condition: trigger
-        id:
-          - "t_si_1"
-          - "t_si_2"
+        id: "t_si_1"
     then:
       - service: weather.get_forecasts
         target:
@@ -2003,7 +1954,6 @@ action:
               - "t_bo_4"
               - "t_bo_5"
               - "t_bo_6"
-          # - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering / TODO: Check whether this might already be too late here
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or: # Check the current positions
               - "{{ is_status_helper_enabled and not is_cover_open }}"
@@ -2135,7 +2085,6 @@ action:
               - "t_bc_4"
               - "t_bc_5"
               - "t_bc_6"
-          # - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering / TODO: Check whether this might already be too late here
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - or: # Optional: Continue if cover is shaded and close position is lower than shading position
@@ -2237,8 +2186,8 @@ action:
           # Ventilation
           - if:
               - "{{ is_ventilation_enabled }}"
-              - "{{ contact_sensor_ventilate != [] }}"
-              - "{{ is_state(contact_sensor_ventilate, ['true', 'on']) }}"
+              - "{{ contact_sensor != [] }}"
+              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
             then:
               - if:
                   - "{{ not prevent_default_cover_actions}}"
@@ -2372,7 +2321,6 @@ action:
           - condition: trigger
             id:
               - "t_si_1"
-              - "t_si_2" # forecast sensor
               - "t_bo_1" # time_up_early
               - "t_bo_3" # schedule helper state change
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
@@ -2427,16 +2375,6 @@ action:
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
 
         sequence:
-          - if: # Check helper or if cover is higher than ventilate position. In this case we consider cover position like open and therefor we want to use the delay timer
-              - or: # TODO: Why this?
-                  - "{{ is_status_helper_enabled and (now().day != is_cover_shaded_ts|timestamp_custom('%-d')|int) and not is_cover_shaded }}"
-                  - "{{ is_ventilation_enabled and (current_position | int(default=101) > ventilate_position) }}"
-                  - "{{ not is_ventilation_enabled and (current_position | int(default=101) > shading_position) }}" # Fallback
-            then:
-              - alias: "Wait the number of seconds set in shading_waitingtime"
-                delay:
-                  seconds: !input shading_waitingtime_start
-
           # Consider lockout protection
           - if:
               - "{{ is_lockout_protection_enabled }}"
@@ -2532,13 +2470,7 @@ action:
           - "{{ is_shading_enabled }}"
           - condition: !input auto_shading_end_condition
           - condition: trigger
-            id:
-              - "t_so_1"
-              - "t_so_2"
-              - "t_so_3"
-              - "t_so_4"
-              - "t_so_5"
-              - "t_so_6"
+            id: "t_so_1"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or:
               - and:
@@ -2569,20 +2501,11 @@ action:
                       - "{{ not in_close_position }}"
 
         sequence:
-          - if: # If sun is outside of shading window (azimuth or elevation) we immediately stop shading. Otherwise we will wait here.
-              - and:
-                  - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
-                  - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
-            then:
-              - alias: "Wait the number of seconds set in shading_waitingtime_end"
-                delay:
-                  seconds: !input shading_waitingtime_end
-
           # Ventilation after shading end
           - if:
               - "{{ is_ventilation_enabled }}"
-              - "{{ contact_sensor_ventilate != [] }}"
-              - "{{ is_state(contact_sensor_ventilate, ['true', 'on']) }}"
+              - "{{ contact_sensor != [] }}"
+              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
               - or: # The cover is not allowed to be lowered when the lockout protection is enabled
                   - "{{ not is_lockout_protection_enabled }}"
                   - "{{ contact_sensor_lockout == [] }}"
@@ -2714,9 +2637,9 @@ action:
           - "{{ is_ventilation_enabled }}"
           - condition: !input auto_ventilate_condition
           - condition: trigger
-            id: "t_ve_open"
-          - "{{ contact_sensor_ventilate != [] }}"
-          - "{{ is_state(contact_sensor_ventilate, ['true', 'on']) }}"
+            id: "t_ct_vent_open"
+          - "{{ contact_sensor != [] }}"
+          - "{{ is_state(contact_sensor, ['true', 'on']) }}"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or:
               - "{{ is_status_helper_enabled and is_cover_closed }}"
@@ -2784,23 +2707,31 @@ action:
       ############################################################
       - alias: "Contact sensor closed / Closing after ventilation and after lockout-protection"
         conditions:
-          - or:
-              - "{{ is_ventilation_enabled }}"
-              - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
-          - condition: trigger
-            id: "t_ve_close"
-          - "{{ contact_sensor_ventilate != [] }}"
-          - "{{ is_state(contact_sensor_ventilate, ['false', 'off']) }}"
+          - "{{ is_down_enabled }}" # Only close if it is allowed
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-          - or: # Position check
-              - "{{ is_status_helper_enabled and (is_cover_ventilated or is_cover_locked) }}"
-              - "{{ in_ventilate_position }}"
-          - or: # Ignore check
-              - "{{ not is_status_helper_enabled }}"
-              - "{{ is_status_helper_enabled and not is_cover_manual }}"
-              - "{{ is_status_helper_enabled and ignore_ventilation_after_manual }}"
-              - "{{ is_status_helper_enabled and is_cover_manual and not ignore_ventilation_after_manual }}"
+          - or:
+              - and:
+                  - "{{ is_ventilation_enabled }}"
+                  - condition: trigger
+                    id: "t_ct_vent_close"
+                  - "{{ contact_sensor != [] }}"
+                  - "{{ is_state(contact_sensor, ['false', 'off']) }}"
+                  - or:
+                      - "{{ is_status_helper_enabled and is_cover_ventilated }}" # Status check
+                      - "{{ in_ventilate_position }}" # Position check
+                  - or: # Ignore check
+                      - "{{ not is_status_helper_enabled }}"
+                      - "{{ is_status_helper_enabled and not is_cover_manual }}"
+                      - "{{ is_status_helper_enabled and ignore_ventilation_after_manual }}"
+                      - "{{ is_status_helper_enabled and is_cover_manual and not ignore_ventilation_after_manual }}"
+              - and:
+                  - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
+                  - condition: trigger
+                    id: "t_ct_lock_close"
+                  - "{{ contact_sensor_lockout != [] }}"
+                  - "{{ is_state(contact_sensor_lockout, ['false', 'off']) }}"
+                  - "{{ is_status_helper_enabled and is_cover_locked }}" # Status check
           - or:
               - and: # OPEN/CLOSE - Whenever the scheduler is off
                   - "{{ is_schedule_helper_enabled }}"
@@ -2849,6 +2780,8 @@ action:
 
         sequence:
           - if:
+              - condition: trigger
+                id: "t_ct_vent_close"
               - "{{ ventilation_delay_enabled }}"
             then:
               - delay:
