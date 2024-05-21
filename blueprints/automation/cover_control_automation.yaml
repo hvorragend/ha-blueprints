@@ -123,7 +123,7 @@ blueprint:
     2024.05.17-01:
       - Updated: Combining the shading triggers. No more problems with waiting times and retriggers.
       - Fixed: Do not close after closing the contact if 'Automatic Closing' is disabled
-      - Added: Separate contact Sensors
+      - Added: Separate contact sensors
 
     </details>
 
@@ -1941,6 +1941,8 @@ action:
   - choose:
       ############################################################
       # ANCHOR: OPEN
+      # Source: All
+      # Target: Open
       ############################################################
       - alias: "Check for opening"
         conditions:
@@ -2072,6 +2074,8 @@ action:
 
       ############################################################
       # ANCHOR: CLOSE
+      # Source: Open, Close, Ventilation, Shading
+      # Target: Close
       ############################################################
       - alias: "Check for closing cover"
         conditions:
@@ -2227,7 +2231,7 @@ action:
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
-                          'close':{'a':false,'t':dict_var.close.t},
+                          'close':{'a':true,'t':dict_var.close.t},
                           'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'shading':{'a':false,'t':dict_var.shading.t},
                           'locked':{'a':false,'t':dict_var.locked.t},
@@ -2313,6 +2317,8 @@ action:
 
       ############################################################
       # ANCHOR: SHADING START
+      # Source: Open (all over shadingPos)
+      # Target: Shading Start
       ############################################################
       - alias: "Check for shading start"
         conditions:
@@ -2332,7 +2338,6 @@ action:
               - "{{ not is_status_helper_enabled }}"
               - "{{ is_status_helper_enabled and not is_cover_shaded }}"
               - "{{ is_status_helper_enabled and not (is_cover_ventilated or is_cover_locked) }}"
-              # - "{{ not in_ventilate_position }}" # TODO: With the OR condition, this means ALWAYS. Bad idea. Disabled.
           - or: # Ignore check
               - "{{ not is_status_helper_enabled }}"
               - "{{ is_status_helper_enabled and not is_cover_manual }}"
@@ -2464,6 +2469,8 @@ action:
 
       ############################################################
       # ANCHOR: SHADING END
+      # Source: Shading Start
+      # Target: Open, Ventilation, Lockout
       ############################################################
       - alias: "Check for shading end" # TODO: No forecast sensor trigger atm
         conditions:
@@ -2631,6 +2638,8 @@ action:
 
       ############################################################
       # ANCHOR: CONTACT OPEN
+      # Source: Shading, Close
+      # Target: Ventilation
       ############################################################
       - alias: "Contact sensor opened"
         conditions:
@@ -2641,11 +2650,13 @@ action:
           - "{{ contact_sensor != [] }}"
           - "{{ is_state(contact_sensor, ['true', 'on']) }}"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-          - or:
+          - or: # Source: Close
               - "{{ is_status_helper_enabled and is_cover_closed }}"
-              - "{{ in_close_position }}" # always
+              - "{{ in_close_position }}" # Always and independently of the helper
               - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) < ventilate_position) }}"
-
+          - or: # Source: Shading
+              - "{{ is_status_helper_enabled and is_cover_shaded }}"
+              - "{{ in_shading_position }}" # Always and independently of the helper
         sequence:
           - if:
               - "{{ not prevent_default_cover_actions}}"
@@ -2684,12 +2695,7 @@ action:
                   value: |
                     {% set dict_var = states(cover_status_helper) | from_json %}
                     {% set dict_new = dict(dict_var, **{
-                      'open':{'a':false,'t':dict_var.open.t},
-                      'close':{'a':false,'t':dict_var.close.t},
                       'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
-                      'shading':{'a':false,'t':dict_var.shading.t},
-                      'locked':{'a':false,'t':dict_var.locked.t},
-                      'manual':{'a':false,'t':dict_var.manual.t},
                       'p':current_position,
                       'v':4,
                       't':as_timestamp(now()) | round(0)
@@ -2704,6 +2710,8 @@ action:
 
       ############################################################
       # ANCHOR: CONTACT CLOSED
+      # Source: Ventilation
+      # Target: Open, Close, Shading
       ############################################################
       - alias: "Contact sensor closed / Closing after ventilation and after lockout-protection"
         conditions:
