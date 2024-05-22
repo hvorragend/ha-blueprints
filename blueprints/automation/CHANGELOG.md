@@ -162,3 +162,11 @@
 2024.05.15-02:
   - Quick workaround, as opening and closing does not currently work.
   - Minor changes
+
+2024.05.22-01:
+  - Added: Separation of the contact sensors for ventilation and lockout protection
+    BREAKING CHANGE: Reconfiguration of lockout protection necessary!
+  - Updated: Combining the shading triggers. No more problems with waiting times and retriggers.
+  - Fixed: Do not close after closing the contact if 'Automatic Closing' is disabled
+  - Fixed: Missing shading force trigger
+  - Fixed: Prevent trigger with invalid status
