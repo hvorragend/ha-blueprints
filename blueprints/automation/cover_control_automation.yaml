@@ -124,11 +124,12 @@ blueprint:
       - Added: Separation of the contact sensors for ventilation and lockout protection
         BREAKING CHANGE: Reconfiguration of lockout protection necessary!
       - Updated: Combining the shading triggers. No more problems with waiting times and retriggers.
-      - Fixed: Do not close after closing the contact if 'Automatic Closing' is disabled
+      - Fixed: Do not drive down the cover after closing the contact if 'Automatic Closing Mode' is disabled
       - Fixed: Missing shading force trigger
+      - Fixed: Prevent trigger with invalid status
 
     2024.05.xx-01:
-      - Fixed: Incorrect position detection during manual movement if ShadingPosition is smaller than ClosedPosition
+      - Fixed: Incorrect position detection during manual movement if shading_position is smaller than close_position
 
     </details>
 
@@ -2025,68 +2026,132 @@ action:
         sequence:
           - delay:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+          - choose:
+              # Cover should be shaded
+              - conditions:
+                  - "{{ is_cover_shaded }}"
+                sequence:
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':false,'t':dict_var.close.t},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'locked':{'a':false,'t':dict_var.locked.t},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to shading position"
+                              service: cover.set_cover_position
+                              data:
+                                position: !input shading_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input shading_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                              delay:
+                                seconds: "{{ (range(1, 3)|random|int) }}"
 
-          - if:
-              - "{{ 'cover_helper_enabled' in cover_status_options }}"
-            then:
-              - service: input_text.set_value
-                data:
-                  entity_id: !input cover_status_helper
-                  value: |
-                    {% set dict_var = states(cover_status_helper) | from_json %}
-                    {% set dict_new = dict(dict_var, **{
-                      'open':{'a':true,'t':as_timestamp(now()) | round(0)},
-                      'close':{'a':false,'t':dict_var.close.t},
-                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                      'shading':{'a':false,'t':dict_var.shading.t},
-                      'locked':{'a':false,'t':dict_var.locked.t},
-                      'manual':{'a':false,'t':dict_var.manual.t},
-                      'p':current_position,
-                      'v':4,
-                      't':as_timestamp(now()) | round(0)
-                      })
-                    %}
-                    {{ dict_new | to_json }}
+                  - choose: []
+                    default: !input auto_shading_start_action
 
-          - if:
-              - "{{ not prevent_default_cover_actions}}"
-            then:
-              - repeat:
-                  for_each: "{{ blind_entities|list }}"
-                  sequence:
-                    - if:
-                        - "{{ open_position == 100 }}"
-                      then:
-                        - alias: "Moving the cover to open position"
-                          service: cover.open_cover
-                          data: {}
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                      else:
-                        - alias: "Moving the cover to open position"
-                          service: cover.set_cover_position
-                          data:
-                            position: !input open_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - if:
-                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                      then:
-                        - alias: "Tilt Delay"
-                          delay:
-                            seconds: !input tilt_delay
-                        - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
-                          data:
-                            tilt_position: !input open_tilt_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                      delay:
-                        seconds: "{{ (range(1, 3)|random|int) }}"
+                  - stop: "Stop automation: Shading activated instead opening"
 
-          - choose: []
-            default: !input auto_up_action
+          - choose:
+              # Cover should be opened
+              - conditions:
+                  - "{{ not is_cover_open }}" # TODO: Twice as much
+                sequence:
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':false,'t':dict_var.close.t},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':false,'t':dict_var.shading.t},
+                              'locked':{'a':false,'t':dict_var.locked.t},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - if:
+                                - "{{ open_position == 100 }}"
+                              then:
+                                - alias: "Moving the cover to open position"
+                                  service: cover.open_cover
+                                  data: {}
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                              else:
+                                - alias: "Moving the cover to open position"
+                                  service: cover.set_cover_position
+                                  data:
+                                    position: !input open_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input open_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                              delay:
+                                seconds: "{{ (range(1, 3)|random|int) }}"
+
+                  - choose: []
+                    default: !input auto_up_action
+
+                  - stop: "Stop automation: Activate opening"
 
           - stop: "Stop automation: Opening"
 
@@ -2173,169 +2238,174 @@ action:
                   - "{{ is_state(resident_sensor, ['true', 'on']) }}"
 
         sequence:
-          # Consider lockout protection
-          - if:
-              - "{{ is_lockout_protection_enabled }}"
-              - "{{ contact_sensor_lockout != [] }}"
-              - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
-            then:
-              - if:
-                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
-                then:
-                  - service: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'open':{'a':false,'t':dict_var.open.t},
-                          'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                          'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
-              - stop: "Stop automation: Lockout-protection"
+          - choose:
+              # Consider lockout protection
+              - conditions:
+                  - "{{ is_lockout_protection_enabled }}"
+                  - "{{ contact_sensor_lockout != [] }}"
+                  - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
+                sequence:
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':false,'t':dict_var.open.t},
+                              'close':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':false,'t':dict_var.shading.t},
+                              'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+                  - stop: "Stop automation: Lockout-protection"
 
-          - delay:
-              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+              # Ventilation
+              - conditions:
+                  - "{{ is_ventilation_enabled }}"
+                  - "{{ contact_sensor != [] }}"
+                  - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+                sequence:
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':false,'t':dict_var.open.t},
+                              'close':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'shading':{'a':false,'t':dict_var.shading.t},
+                              'locked':{'a':false,'t':dict_var.locked.t},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
 
-          # Ventilation
-          - if:
-              - "{{ is_ventilation_enabled }}"
-              - "{{ contact_sensor != [] }}"
-              - "{{ is_state(contact_sensor, ['true', 'on']) }}"
-            then:
-              - if:
-                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
-                then:
-                  - service: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'open':{'a':false,'t':dict_var.open.t},
-                          'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
-                          'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
-
-              - if:
-                  - "{{ not prevent_default_cover_actions}}"
-                then:
-                  - repeat:
-                      for_each: "{{ blind_entities|list }}"
-                      sequence:
-                        - alias: "Moving the cover to ventilate position"
-                          service: cover.set_cover_position
-                          data:
-                            position: !input ventilate_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                        - if:
-                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                          then:
-                            - alias: "Tilt Delay"
-                              delay:
-                                seconds: !input tilt_delay
-                            - alias: "Moving the cover to tilt position"
-                              service: cover.set_cover_tilt_position
-                              data:
-                                tilt_position: !input ventilate_tilt_position
-                              target:
-                                entity_id: "{{ repeat.item }}"
-                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                          delay:
-                            seconds: "{{ (range(1, 3)|random|int) }}"
-
-              - choose: []
-                default: !input auto_ventilate_action
-
-              - stop: "Stop automation: Moved to ventilation position during the closing process"
-
-            else:
-              - if:
-                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
-                then:
-                  - service: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'open':{'a':false,'t':dict_var.open.t},
-                          'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                          'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
-                          'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
-
-              - if:
-                  - "{{ not prevent_default_cover_actions}}"
-                then:
-                  - repeat:
-                      for_each: "{{ blind_entities|list }}"
-                      sequence:
-                        - if:
-                            - "{{ close_position == 0 }}"
-                          then:
-                            - alias: "Moving the cover to close position"
-                              service: cover.close_cover
-                              data: {}
-                              target:
-                                entity_id: "{{ repeat.item }}"
-                          else:
-                            - alias: "Moving the cover to close position"
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to ventilate position"
                               service: cover.set_cover_position
                               data:
-                                position: !input close_position
+                                position: !input ventilate_position
                               target:
                                 entity_id: "{{ repeat.item }}"
-                        - if:
-                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                          then:
-                            - alias: "Tilt Delay"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input ventilate_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
                               delay:
-                                seconds: !input tilt_delay
-                            - alias: "Moving the cover to tilt position"
-                              service: cover.set_cover_tilt_position
-                              data:
-                                tilt_position: !input close_tilt_position
-                              target:
-                                entity_id: "{{ repeat.item }}"
-                        - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                          delay:
-                            seconds: "{{ (range(1, 3)|random|int) }}"
+                                seconds: "{{ (range(1, 3)|random|int) }}"
 
-              - choose: []
-                default: !input auto_down_action
+                  - choose: []
+                    default: !input auto_ventilate_action
 
-              - stop: "Stop automation: Moved to closing position"
+                  - stop: "Stop automation: Moved to ventilation position during the closing process"
+
+              # Activate closing
+              - conditions:
+                  - "{{ is_down_enabled }}" # TODO FIXME - better placeholder
+                sequence:
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':false,'t':dict_var.open.t},
+                              'close':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':false,'t':dict_var.shading.t},
+                              'locked':{'a':false,'t':dict_var.locked.t},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - if:
+                                - "{{ close_position == 0 }}"
+                              then:
+                                - alias: "Moving the cover to close position"
+                                  service: cover.close_cover
+                                  data: {}
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                              else:
+                                - alias: "Moving the cover to close position"
+                                  service: cover.set_cover_position
+                                  data:
+                                    position: !input close_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input close_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                              delay:
+                                seconds: "{{ (range(1, 3)|random|int) }}"
+
+                  - choose: []
+                    default: !input auto_down_action
+
+                  - stop: "Stop automation: Moved to closing position"
 
           - stop: "Stop automation: Closing"
 
       ############################################################
       # ANCHOR: SHADING START
-      # Source: Open (all over shadingPos)
+      # Source: Open (all gt shading_position)
       # Target: Shading, Lockout
       ############################################################
       - alias: "Check for shading start"
@@ -2351,7 +2421,6 @@ action:
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
           - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
-          - "{{ current_position | int(default=101) > shading_position }}"
           - or: # Check the current positions
               - "{{ not is_status_helper_enabled }}"
               - "{{ is_status_helper_enabled and not is_cover_shaded }}"
@@ -2398,90 +2467,118 @@ action:
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
 
         sequence:
-          # Consider lockout protection
-          - if:
-              - "{{ is_lockout_protection_enabled }}"
-              - "{{ contact_sensor_lockout != [] }}"
-              - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
-            then:
-              - if:
-                  - "{{ 'cover_helper_enabled' in cover_status_options }}"
-                then:
-                  - service: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'open':{'a':false,'t':dict_var.open.t},
-                          'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                          'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
-              - stop: "Stop automation: Lockout-protection while shading start"
+          - choose:
+              # Consider lockout protection
+              - conditions:
+                  - "{{ is_lockout_protection_enabled }}"
+                  - "{{ contact_sensor_lockout != [] }}"
+                  - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
+                sequence:
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':false,'t':dict_var.open.t},
+                              'close':{'a':false,'t':dict_var.close.t},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+                  - stop: "Stop automation: Lockout-protection while shading start"
 
-          - delay:
-              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+              # Start Shading
+              - conditions:
+                  - "{{ current_position | int(default=101) > shading_position }}"
+                sequence:
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':false,'t':dict_var.close.t},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'locked':{'a':false,'t':dict_var.locked.t},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to shading position"
+                              service: cover.set_cover_position
+                              data:
+                                position: !input shading_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input shading_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
+                              delay:
+                                seconds: "{{ (range(1, 3)|random|int) }}"
 
-          - if:
-              - "{{ 'cover_helper_enabled' in cover_status_options }}"
-            then:
-              - service: input_text.set_value
-                data:
-                  entity_id: !input cover_status_helper
-                  value: |
-                    {% set dict_var = states(cover_status_helper) | from_json %}
-                    {% set dict_new = dict(dict_var, **{
-                      'open':{'a':false,'t':dict_var.open.t},
-                      'close':{'a':false,'t':dict_var.close.t},
-                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                      'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                      'locked':{'a':false,'t':dict_var.locked.t},
-                      'manual':{'a':false,'t':dict_var.manual.t},
-                      'p':current_position,
-                      'v':4,
-                      't':as_timestamp(now()) | round(0)
-                      })
-                    %}
-                    {{ dict_new | to_json }}
+                  - choose: []
+                    default: !input auto_shading_start_action
 
-          - if:
-              - "{{ not prevent_default_cover_actions}}"
-            then:
-              - repeat:
-                  for_each: "{{ blind_entities|list }}"
-                  sequence:
-                    - alias: "Moving the cover to shading position"
-                      service: cover.set_cover_position
-                      data:
-                        position: !input shading_position
-                      target:
-                        entity_id: "{{ repeat.item }}"
-                    - if:
-                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                      then:
-                        - alias: "Tilt Delay"
-                          delay:
-                            seconds: !input tilt_delay
-                        - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
-                          data:
-                            tilt_position: !input shading_tilt_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - alias: "Wait 1-5 random seconds to prevent sending to many commands to covers at same time"
-                      delay:
-                        seconds: "{{ (range(1, 3)|random|int) }}"
+                  - stop: "Stop automation: Shading activated"
 
-          - choose: []
-            default: !input auto_shading_start_action
+              # Save Shading state
+              - conditions:
+                  - "{{ is_cover_closed }}"
+                sequence:
+                  - if:
+                      - "{{ 'cover_helper_enabled' in cover_status_options }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+
+                  - stop: "Stop automation: Shading state saved for the future"
 
           - stop: "Stop automation: Shading-start"
 
@@ -2694,6 +2791,8 @@ action:
           - condition: !input auto_ventilate_condition
           - condition: trigger
             id: "t_ct_vent_open"
+          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - "{{ contact_sensor != [] }}"
           - "{{ is_state(contact_sensor, ['true', 'on']) }}"
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
@@ -2767,6 +2866,8 @@ action:
           - "{{ is_status_helper_enabled }}" # Sorry, it is mandatory now!
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
+          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - or:
               - and:
                   - "{{ is_ventilation_enabled }}"
