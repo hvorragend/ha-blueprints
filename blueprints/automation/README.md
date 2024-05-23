@@ -2,6 +2,8 @@
 
 [Community-Link](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
 
+**If you would like to support me or say thank you, please click here:** 🙏 [Click Here](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) 🙏
+
 This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
 
 * Automatic opening and closing the roller shutters
