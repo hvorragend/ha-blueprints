@@ -170,3 +170,23 @@
   - Fixed: Do not close after closing the contact if 'Automatic Closing' is disabled
   - Fixed: Missing shading force trigger
   - Fixed: Prevent trigger with invalid status
+
+2024.05.28-01:
+  - Complete restructuring and logic change for shading, lockout protection and ventilation:
+      - When the cover is opened, the system checks whether a sun shading is already in place. If this is the case, the cover is not opened but moved directly into the shading position.
+      - If the cover is to be closed and the contact is open, either lockout protection or ventilation mode is activated.
+      - If the cover is closed and the corresponding contact is opened, the ventilation position is activated.
+      - When the sun shading is activated, the lockout protection is taken into account if the contact is open. If the contact is closed, the cover moves back to the shading position.
+      - When the sun shading is stopped, the lockout protection is checked. It is also possible to move to the ventilation position when the contact is open. If the contact is closed here, the cover is opened.
+
+      <ins>Summary:</ins> CCA saves the temporary status (ventilation, lockout protection and shading) and the actual target status in the Cover Status Helper.
+      - This means that the cover is simply opened or closed as before.
+      - And it does <ins>not</ins> always return to the previous state (which may have changed in the meantime).
+      - Instead, it switches to the state that should actually be current.
+  - Fixed: Incorrect position detection during manual drives if shading_position is smaller than close_position
+  - Added: Shading activation before opening. The cover can now move into the shading during the opening process. #4
+  - Added: Prevent automatic closing due to the resident sensor #63
+  - Added: Option to deactivate time control. This means that the system can now also be controlled exclusively via the brightness and the height of the sun. I
+  - <strong>BREAKING CHANGES:</strong>
+      - Cover Status Helper is now mandatory for ventilation, lockout protection and shading!
+      - Invert the status of some options #61 ("Prevent the cover from being ... several times a day" instead of "Allow the cover to be ... several times a day")
