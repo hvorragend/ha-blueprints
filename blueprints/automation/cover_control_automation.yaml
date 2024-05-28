@@ -2195,10 +2195,10 @@ action:
 
         sequence:
           - choose:
-              ###################################
-              # Consider lockout protection
-              ###################################
-              - alias: "Consider lockout protection"
+              ###########################################
+              # Consider lockout protection when closing
+              ###########################################
+              - alias: "Consider lockout protection when closing"
                 conditions:
                   - "{{ is_lockout_protection_enabled }}"
                   - "{{ contact_sensor_lockout != [] }}"
@@ -2289,9 +2289,9 @@ action:
                   - choose: []
                     default: !input auto_ventilate_action
 
-              ###########################################
-              # Cover is already near the close position
-              ###########################################
+              ###################################
+              # Cover is already (almost) closed
+              ###################################
 
               - alias: "Only status change if cover is already near the close position"
                 conditions:
@@ -2465,10 +2465,10 @@ action:
 
         sequence:
           - choose:
-              ###################################
-              # Consider lockout protection
-              ###################################
-              - alias: "Consider lockout protection"
+              ##################################################
+              # Consider lockout protection when shading starts
+              ##################################################
+              - alias: "Consider lockout protection when shading starts"
                 conditions:
                   - "{{ is_lockout_protection_enabled }}"
                   - "{{ contact_sensor_lockout != [] }}"
@@ -2552,9 +2552,9 @@ action:
                   - choose: []
                     default: !input auto_shading_start_action
 
-              ###################################
+              ####################################
               # Save shading state for the future
-              ###################################
+              ####################################
               - alias: "Save shading state for the future"
                 conditions:
                   - "{{ is_cover_closed }}"
@@ -2612,37 +2612,9 @@ action:
         sequence:
           - choose:
               ###################################
-              # Consider lockout protection
+              # Ventilation after shading ends
               ###################################
-              - alias: "Consider lockout protection"
-                conditions:
-                  - "{{ is_lockout_protection_enabled }}"
-                  - "{{ contact_sensor_lockout != [] }}"
-                  - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
-                sequence:
-                  - service: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'open':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                          'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
-
-              ###################################
-              # Ventilation after shading end
-              ###################################
-              - alias: "Ventilation after shading end"
+              - alias: "Ventilation after shading ends"
                 conditions:
                   - "{{ is_ventilation_enabled }}"
                   - "{{ contact_sensor != [] }}"
@@ -2655,6 +2627,36 @@ action:
                       - "{{ contact_sensor_lockout == [] }}"
                       - "{{ is_state(contact_sensor_lockout, ['false', 'off']) }}"
                 sequence:
+                  ################################################
+                  # Consider lockout protection when shading ends
+                  ################################################
+                  - alias: "Consider lockout protection when shading ends" # Only required in this branch. So no separate choose-Condition.
+                    if:
+                      - "{{ is_lockout_protection_enabled }}"
+                      - "{{ contact_sensor_lockout != [] }}"
+                      - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':false,'t':dict_var.close.t},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':false,'t':dict_var.shading.t},
+                              'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+
+                      - stop: "Stop automation: Lockout protection when shading ends"
+
                   - service: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -2799,10 +2801,10 @@ action:
                   - "{{ in_shading_position }}" # Always and independently of the helper
         sequence:
           - choose:
-              ###################################
-              # Consider lockout protection
-              ###################################
-              - alias: "Consider lockout protection" # TODO: Do I really need this here?
+              #################################################
+              # Consider lockout protection when contact opens
+              #################################################
+              - alias: "Consider lockout protection when contact opens" # TODO: Do I really need this here?
                 conditions:
                   - "{{ is_lockout_protection_enabled }}"
                   - "{{ contact_sensor_lockout != [] }}"
@@ -2917,14 +2919,17 @@ action:
                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
           - choose:
-              ###################################
-              # Consider lockout protection
-              ###################################
-              - alias: "Consider lockout protection"
+              ###################################################
+              # Consider lockout protection when contact closes
+              ###################################################
+              - alias: "Consider lockout protection when contact closes"
                 conditions:
                   - "{{ is_lockout_protection_enabled }}"
                   - "{{ contact_sensor_lockout != [] }}"
                   - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
+                  - "{{ not is_cover_open }}" # Not required if the cover is opened anyway
+                  - "{{ is_cover_closed }}"
+                  - "{{ is_cover_shaded }}"
                 sequence:
                   - service: input_text.set_value
                     data:
