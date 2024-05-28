@@ -2,6 +2,8 @@
 
 [Community-Link](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
 
+**If you would like to support me or say thank you, please click here:** 🙏 [Click Here](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) 🙏
+
 This is a comprehensive and highly configurable blueprint that can be used for the following basic purposes:
 
 * Automatic opening and closing the roller shutters
@@ -59,15 +61,3 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 - cover must have a `current_position` attribute
 - After manual creation in the GUI, the helper is filled with standard content on the <ins>first trigger</ins>. In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself a few minutes later. The next day at the latest.
 
-# Why did I fork the original or what are the differences to the Eimeel blueprint?
-- Icons-Updates
-- Streamline variables
-- Complete GUI optimization
-- Added sun elevation feature: Sun control for up/down
-- Added waiting time duration for sensors
-- Added fixed/random drive delays
-- Added several condition selectors: Useful to be able to check various conditions such as party mode or similar when opening, closing, shading, etc.
-- Closing after shading just when position is lower than before
-- Added the possibility that the previous position did not necessarily have to be controlled by the automation.
-- Added optional Cover Status Helper
-- Try to recognize manual drives

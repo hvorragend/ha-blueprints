@@ -163,6 +163,14 @@
   - Quick workaround, as opening and closing does not currently work.
   - Minor changes
 
+2024.05.22-01:
+  - Added: Separation of the contact sensors for ventilation and lockout protection
+    BREAKING CHANGE: Reconfiguration of lockout protection necessary!
+  - Updated: Combining the shading triggers. No more problems with waiting times and retriggers.
+  - Fixed: Do not close after closing the contact if 'Automatic Closing' is disabled
+  - Fixed: Missing shading force trigger
+  - Fixed: Prevent trigger with invalid status
+
 2024.05.28-01:
   - Complete restructuring and logic change for shading, lockout protection and ventilation:
       - When the cover is opened, the system checks whether a sun shading is already in place. If this is the case, the cover is not opened but moved directly into the shading position.
