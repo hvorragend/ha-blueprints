@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.05.27-01
+    **Version**: 2024.05.28-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -66,7 +66,7 @@ blueprint:
     <details>
     <summary><strong>Changes in the last days</strong></summary>
 
-    2024.05.27-01:
+    2024.05.28-01:
       - Complete restructuring and logic change for shading, lockout protection and ventilation:
           - When the cover is opened, the system checks whether a sun shading is already in place. If this is the case, the cover is not opened but moved directly into the shading position.
           - If the cover is to be closed and the contact is open, either lockout protection or ventilation mode is activated.
@@ -81,6 +81,7 @@ blueprint:
       - Fixed: Incorrect position detection during manual drives if shading_position is smaller than close_position
       - Added: Shading activation before opening. The cover can now move into the shading during the opening process. #4
       - Added: Prevent automatic closing due to the resident sensor #63
+      - Added: Option to deactivate time control. This means that the system can now also be controlled exclusively via the brightness and the height of the sun. I
       - <strong>BREAKING CHANGES:</strong>
           - Cover Status Helper is now mandatory for ventilation, lockout protection and shading!
           - Invert the status of some options #61 ("Prevent the cover from being ... several times a day" instead of "Allow the cover to be ... several times a day")
@@ -161,9 +162,9 @@ blueprint:
               value: "auto_up_enabled"
             - label: "🔻 - Enable automatic daily cover closing"
               value: "auto_down_enabled"
-            - label: "🔅 - Enable control (for opening/closing) via brightness values"
+            - label: "🔅 - Enable control (to open/close) via brightness values"
               value: "auto_brightness_enabled"
-            - label: "☀️ - Enable control (for opening/closing) via sun elevation"
+            - label: "☀️ - Enable control (to open/close) via sun elevation"
               value: "auto_sun_enabled"
             - label: "💨 - Enable ventilation mode"
               value: "auto_ventilate_enabled"
@@ -262,7 +263,7 @@ blueprint:
         However, this is important to avoid bouncing when controlling the brightness, for example.
         In order to recognise whether we are still in the opening period or the closing period,
         it is necessary to enter a very rough time period in the time variables in the blueprint.
-        <br />
+        <br /><br />
         <ins>Example:</ins>
         If the schedule helper goes to the "ON" status at 08:00 and to the "OFF" status at 18:00, it is sufficient to configure the times as follows:
         <br /><br />
@@ -272,6 +273,12 @@ blueprint:
         Time For Drive Down - Late: 22:00<br />
 
         The times are not used for triggering, but only to divide the day into two halves!
+
+
+        <ins>Disable time control and all time triggers</ins><br />
+        Finally, you can also deactivate the time control completely.
+        This means that the roller shutters are not opened or closed via time triggers.
+        The sun-elevation and brightness control then also runs completely independently.
 
         </details>
 
@@ -283,6 +290,8 @@ blueprint:
               value: "time_control_input"
             - label: "⏲️ Use an external schedule helper"
               value: "time_control_schedule"
+            - label: "🚫 Disable time control and all time triggers"
+              value: "time_control_disabled"
           sort: false
           multiple: false
           custom_value: false
@@ -318,7 +327,9 @@ blueprint:
       name: "❓ Additional condition for the entire automation"
       description: >-
         This condition allows you to control the execution of the <ins>entire</ins> automation dynamically and outside of the blueprint configuration.
-        With this option you could enable a party mode.
+        With this option you could enable a party mode.<br /><br />
+        This is the only condition that is also taken into account in the force features.
+        Forcing Open/Close/Shading/Ventilation is therefore only possible if this condition remains empty or becomes valid.
         <br /><br />`Optional`
       default: []
       selector:
@@ -1443,9 +1454,10 @@ trigger_variables:
   is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
+  is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
 variables:
-  version: "2024.05.27-01"
+  version: "2024.05.28-01"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1455,7 +1467,6 @@ variables:
   # Delays
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
-  # tilt_delay: !input tilt_delay
   drive_time: !input drive_time
 
   time_up_early_today: >-
@@ -1965,6 +1976,8 @@ action:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
           - or: # Now we have to check different opening scenarios
+              - and: # Control via times disabled
+                  - "{{ is_time_control_disabled }}"
               - and: # Opening - Up late reached
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_up_late_today) }}"
@@ -1977,6 +1990,8 @@ action:
                     id: "t_bo_3"
               - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                   - or:
+                      - and:
+                          - "{{ is_time_control_disabled }}"
                       - and:
                           - "{{ is_time_field_enabled }}"
                           - "{{ now() >= today_at(time_up_early_today) }}"
@@ -2158,6 +2173,8 @@ action:
               - "{{ not prevent_closing_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_closing_multiple_times and (is_cover_closed_ts < today_at(time_down_early_today) | as_timestamp) }}"
           - or:
+              - and: # Control via times disabled
+                  - "{{ is_time_control_disabled }}"
               - and: # Closing - Down late reached
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_down_late_today) }}"
@@ -2169,6 +2186,8 @@ action:
                     id: "t_bc_3"
               - and: # Closing - Down early reached and brightness/sun below minimum
                   - or:
+                      - and: # Control via times disabled
+                          - "{{ is_time_control_disabled }}"
                       - and:
                           - "{{ is_time_field_enabled }}"
                           - "{{ now() >= today_at(time_down_early_today) }}"
@@ -2433,6 +2452,8 @@ action:
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_shaded_ts|timestamp_custom('%-d')|int) }}"
           - or:
               - and:
+                  - "{{ is_time_control_disabled }}"
+              - and:
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_up_early_today) }}"
                   - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
@@ -2591,6 +2612,8 @@ action:
           - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
           - or:
               - and:
+                  - "{{ is_time_control_disabled }}"
+              - and:
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_up_early_today) }}"
                   - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
@@ -2630,7 +2653,7 @@ action:
                   ################################################
                   # Consider lockout protection when shading ends
                   ################################################
-                  - alias: "Consider lockout protection when shading ends" # Only required in this branch. So no separate choose-Condition.
+                  - alias: "Consider lockout protection when shading ends" # Only required in this branch. So no separate choose-condition.
                     if:
                       - "{{ is_lockout_protection_enabled }}"
                       - "{{ contact_sensor_lockout != [] }}"
@@ -3556,7 +3579,7 @@ action:
         then:
           # Checking time slots
           - if:
-              - "{{ today_at(time_up_early) >= today_at(time_up_late) }}"
+              - "{{ not is_time_control_disabled and (today_at(time_up_early) >= today_at(time_up_late)) }}"
             then:
               - service: system_log.write
                 data:
@@ -3564,7 +3587,7 @@ action:
                   message: "Cover Control Automation (CCA): Config issue: time_up_early should be earlier than time_up_late - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ today_at(time_up_early_non_workday) >= today_at(time_up_late_non_workday) }}"
+              - "{{ not is_time_control_disabled and (today_at(time_up_early_non_workday) >= today_at(time_up_late_non_workday)) }}"
             then:
               - service: system_log.write
                 data:
@@ -3572,7 +3595,7 @@ action:
                   message: "Cover Control Automation (CCA): Config issue: time_up_early_non_workday should be earlier than time_up_late_non_workday - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ today_at(time_down_early) >= today_at(time_down_late) }}"
+              - "{{ not is_time_control_disabled and (today_at(time_down_early) >= today_at(time_down_late)) }}"
             then:
               - service: system_log.write
                 data:
@@ -3580,7 +3603,7 @@ action:
                   message: "Cover Control Automation (CCA): Config issue: time_down_early should be earlier than time_down_late - {{this.entity_id}}"
                   logger: "blueprints.hvorragend.cover_control_automation"
           - if:
-              - "{{ today_at(time_down_early_non_workday) >= today_at(time_down_late_non_workday) }}"
+              - "{{ not is_time_control_disabled and (today_at(time_down_early_non_workday) >= today_at(time_down_late_non_workday)) }}"
             then:
               - service: system_log.write
                 data:
