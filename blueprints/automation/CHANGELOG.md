@@ -193,3 +193,7 @@
 
 2024.06.04-01:
   - Major GUI Update: Using blueprint sections now (Min-Core-Version: 2024.6.0)
+
+2024.06.05-01:
+  - Added: Optional checking workday tomorrow sensor when closing the cover #71
+  - Updated: GUI section icons to MDI icons
