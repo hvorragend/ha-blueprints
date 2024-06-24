@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.05.28-01
+    **Version**: 2024.06.05-01
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
@@ -66,6 +66,13 @@ blueprint:
     <details>
     <summary><strong>Changes in the last days</strong></summary>
 
+    2024.06.05-01:
+      - Added: Optional checking workday tomorrow sensor when closing the cover #71
+      - Updated: GUI section icons to MDI icons
+
+    2024.06.04-01:
+      - Major GUI Update: Using blueprint sections now (Min-Core-Version: 2024.6.0)
+
     2024.05.28-01:
       - Complete restructuring and logic change for shading, lockout protection and ventilation:
           - When the cover is opened, the system checks whether a sun shading is already in place. If this is the case, the cover is not opened but moved directly into the shading position.
@@ -99,7 +106,7 @@ blueprint:
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml
   domain: automation
   homeassistant:
-    min_version: "2023.9.0"
+    min_version: "2024.6.0"
   input:
     blind:
       name: "🏠 Cover"
@@ -126,1265 +133,1350 @@ blueprint:
             - domain:
                 - cover
 
-    auto_options:
-      name: "👉 Automation options"
-      description: >-
-        This <ins>basically</ins> determines whether the cover is allowed to open or close.
-
-
-        <strong>Important note:</strong>
-        The configuration of the Cover Status Helper is <ins>mandatory</ins> if you want to use the lockout protection, ventilation mode or shading.
-
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        This can be extended by further conditions (see below). However, it is important that the options are still activated here.
-        Otherwise the conditions will not take effect.
-
-
-        **Please ensure that the corresponding sensors are also specified.**
-        For example, the brightness control only works if a brightness sensor is also specified.
-
-        </details>
-      default:
-        [
-          auto_up_enabled,
-          auto_down_enabled,
-          auto_brightness_enabled,
-          auto_sun_enabled,
-        ]
-      selector:
-        select:
-          options:
-            - label: "🔼 - Enable automatic daily cover opening"
-              value: "auto_up_enabled"
-            - label: "🔻 - Enable automatic daily cover closing"
-              value: "auto_down_enabled"
-            - label: "🔅 - Enable control (to open/close) via brightness values"
-              value: "auto_brightness_enabled"
-            - label: "☀️ - Enable control (to open/close) via sun elevation"
-              value: "auto_sun_enabled"
-            - label: "💨 - Enable ventilation mode"
-              value: "auto_ventilate_enabled"
-            - label: "🚪 - Enable lockout protection"
-              value: "auto_lockout_protection_enabled"
-            - label: "🥵 - Enable automatic sun shading / sun protection control"
-              value: "auto_shading_enabled"
-          multiple: true
-          sort: false
-          custom_value: false
-          mode: list
-
-    cover_status_options:
-      name: "🦮 Status detection of the cover"
-      description: >
-        It is essential that the roller blind has the <em>current_position</em> attribute.
-        Regardless of which option is selected here, the position detection is based on this attribute.
-        The <em>current_tilt_position</em> attribute is <ins>not</ins> taken into account.
-
-
-        <strong>Important note:</strong>
-        I strongly recommend using the Cover Status Helper! The full range of functions is only available if this is configured.
-
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-        - <ins>Check the current position</ins><br />
-        The automation only moves the cover if it is positioned at one of the defined positions (ventilate position, shading position, open position or closed position). Otherwise, the cover has been moved manually.
-        After a manual drive, it is unclear what is intended to be achieved, so the automation no longer takes action.
-        To automate the drive of the cover again, it must be moved to one of the defined positions beforehand.
-        The advantage of this is that you don't have to create a helper in Home Assistant.
-        Only basic features are available with this setting.
-
-
-        - <ins>Use an external Cover Status Helper</ins><br />
-        If you want to be able to do manual overrides and have the automation do the next drive as usual,
-        then a helper is necessary. Without a helper, the manual override would always be overwritten by the automation.
-        This has the advantage that the cover does not necessarily have to be in a defined position.
-        With this choice, advanced functions are possible and you can always rely on the automation.
-
-
-        </details>
-      default: cover_helper_disabled
-      selector:
-        select:
-          options:
-            - label: "#️⃣ Check the current position"
-              value: "cover_helper_disabled"
-            - label: "🦮 Use an external Cover Status Helper"
-              value: "cover_helper_enabled"
-
-    cover_status_helper:
-      name: "🦮 Cover Status Helper"
-      description: >-
-        Helper used to store the last cover event.
-        *Attention:* You will need to manually create a [input_text](https://my.home-assistant.io/redirect/helpers/) entity with a <ins>length of 254 chars</ins> for this.
-        <br /><br />`Optional`
-      default: []
-      selector:
-        entity:
-          domain: input_text
-
-    time_control:
-      name: "⏲️ Selection of time control options"
-      description: >-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-        The times for opening and closing the cover are usually configured here in the blueprint.
-        There are various input fields here for this purpose.
-        Even if you only want to control the covers using brightness values or the sun elevation,
-        it is important to specify times. The times are used to divide the day into "morning" (up) and "evening" (down).
-
-        However, you can also activate a scheduler helper mode at this point.
-        This would allow you to configure a different time period for keeping the cover open for each day.
-        Unfortunately, the HA core currently only has a 30-minute time grid for the time configuration.
-
-        When using scheduler helper - Important difference to the usual input fields!
-
-          - <ins>Without brightness or sun elevation control:</ins>
-            As soon as the helper state is switched on, the cover is opened.
-            The cover is closed when the helper state changes from off to on.
-
-          - <ins>With brightness or sun elevation control:</ins>
-            The cover is opened when the threshold is exceeded and the helper is on.
-            The cover is closed when the threshold is undershot and the helper is off.
-
-        <strong>Important information on using the schedule helper</strong>
-
-
-        It is not possible to find out more about the status of the schedule helper in Home Assistant.
-        I never know whether we are at the beginning or end of the period.
-        However, this is important to avoid bouncing when controlling the brightness, for example.
-        In order to recognise whether we are still in the opening period or the closing period,
-        it is necessary to enter a very rough time period in the time variables in the blueprint.
-        <br /><br />
-        <ins>Example:</ins>
-        If the schedule helper goes to the "ON" status at 08:00 and to the "OFF" status at 18:00, it is sufficient to configure the times as follows:
-        <br /><br />
-        Time For Drive Up - Early: 06:00<br />
-        Time For Drive Up - Late: 12:00<br /><br />
-        Time For Drive Down - Early: 16:00<br />
-        Time For Drive Down - Late: 22:00<br />
-
-        The times are not used for triggering, but only to divide the day into two halves!
-
-
-        <ins>Disable time control and all time triggers</ins><br />
-        Finally, you can also deactivate the time control completely.
-        This means that the roller shutters are not opened or closed via time triggers.
-        The sun-elevation and brightness control then also runs completely independently.
-
-        </details>
-
-      default: time_control_input
-      selector:
-        select:
-          options:
-            - label: "✏️ Use the time input fields in the blueprint"
-              value: "time_control_input"
-            - label: "⏲️ Use an external schedule helper"
-              value: "time_control_schedule"
-            - label: "🚫 Disable time control and all time triggers"
-              value: "time_control_disabled"
-          sort: false
-          multiple: false
-          custom_value: false
-
-    time_schedule_helper:
-      name: "⏲️ Cover driving time schedule helper"
-      description: >-
-        If enabled above, please select the schedule helper here.
-        Of course, it is also important that the times in the helper are configured accordingly.
-        Please create only one period in total. Example: Start at 08:00 and end at 22:00.
-        The helper can be created [here](https://my.home-assistant.io/redirect/helpers/).
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - schedule
-          multiple: false
-
-    drive_time:
-      name: "⏲️ Cover Drive Time"
-      description: "Can be used to recognise manual control. Please round up a little and do not adjust too precisely. Is used to delay the trigger if too much or incorrect position data is sent back."
-      default: 90
-      selector:
-        number:
-          min: 0.0
-          max: 180.0
-          unit_of_measurement: seconds
-          step: 1.0
-          mode: slider
-
-    auto_global_condition:
-      name: "❓ Additional condition for the entire automation"
-      description: >-
-        This condition allows you to control the execution of the <ins>entire</ins> automation dynamically and outside of the blueprint configuration.
-        With this option you could enable a party mode.<br /><br />
-        This is the only condition that is also taken into account in the force features.
-        Forcing Open/Close/Shading/Ventilation is therefore only possible if this condition remains empty or becomes valid.
-        <br /><br />`Optional`
-      default: []
-      selector:
-        condition: {}
-
-    open_position:
-      name: "🔼 Open Position"
-      description: "What position should the cover be moved into when opening?"
-      default: 100
-      selector:
-        number:
-          min: 0.0
-          max: 100.0
-          unit_of_measurement: "%"
-
-    open_tilt_position:
-      name: "🔼 Open Tilt Position"
-      description: >-
-        To which tilt position should the cover be moved when opening?
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        If the cover and the integration support it, the tilt position can be used.
-        However, the attribute 'current_position' is used for position detection and
-        'current_tilt_position' is not used or taken into account.
-
-        </details>
-      default: 50
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
-
-    time_up_early:
-      name: "🔼 Time For Drive Up - Early On Workdays"
-      description: >-
-        The earliest time at which the cover may be opened. The cover will be opened if <ins>AFTER</ins> this time the defined brightness
-        or sun-elevation value is high enough. (**NOTE**: If a resident is defined, he must also be awake).
-      default: "06:00:00"
-      selector:
-        time: {}
-
-    time_up_early_non_workday:
-      name: "🔼 Time For Drive Up - Early On Non-Workdays"
-      description: >-
-        As directly above, but for non-workdays.
-      default: "07:00:00"
-      selector:
-        time: {}
-
-    time_up_late:
-      name: "🔼 Time For Drive Up - Late On Workdays"
-      description: >-
-        The latest time at which the cover should be opened.
-        If the required brightness or sun-elevation value has <ins>NOT</ins> yet been reached by this time, the cover will still be opened.
-        (**NOTE**: If a resident is defined and he is still asleep, the cover will <ins>NOT</ins> be opened.
-        It will only be opened when the resident has woken up).
-      default: "08:00:00"
-      selector:
-        time: {}
-
-    time_up_late_non_workday:
-      name: "🔼 Time For Drive Up - Late On Non-Workdays"
-      description: >-
-        As directly above, but for non-workdays.
-      default: "08:00:00"
-      selector:
-        time: {}
-
-    auto_up_condition:
-      name: "🔼 Additional Condition For Opening The Cover"
-      description: >-
-        This condition can be used to dynamically control the <ins>opening</ins> of the cover.
-        You can use this, for example, if the covers normally don't open, but you really want to do it on vacation.
-        <br /><br />`Optional`
-      default: []
-      selector:
-        condition: {}
-
-    auto_up_force:
-      name: "🔼 Force Immediate Opening"
-      description: >-
-        If the status of this entity changes to on or true, the cover is opened immediately and without further checking.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
-
-        Note:
-          - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
-          - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
-          - Force is a final state that cannot be cancelled or resetted by CCA.
-          - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
-
-        </details>
-        <br /><code>Optional</code>
-      default: []
-      selector:
-        entity:
-          domain:
-            - input_boolean
-            - binary_sensor
-
-    auto_up_action:
-      name: "🔼 Additional Actions After Opening The Cover"
-      description: Additional actions to run after opening the cover
-      default: []
-      selector:
-        action: {}
-
-    close_position:
-      name: "🔻 Close Position"
-      description: "What position should the cover be moved into when closing?"
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 100.0
-          unit_of_measurement: "%"
-
-    close_tilt_position:
-      name: "🔻 Close Tilt Position"
-      description: >-
-        To which tilt position should the cover be moved when closing?
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        If the cover and the integration support it, the tilt position can be used.
-        However, the attribute 'current_position' is used for position detection and
-        'current_tilt_position' is not used or taken into account.
-
-        </details>
-      default: 50
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
-
-    time_down_early:
-      name: "🔻 Time For Drive Down - Early On Workdays"
-      description: >-
-        The earliest time at which the cover may be closed.
-        The cover will be closed if <ins>AFTER</ins> this time the defined brightness or sun-elevation value is low enough.
-      default: "16:00:00"
-      selector:
-        time: {}
-
-    time_down_early_non_workday:
-      name: "🔻 Time For Drive Down - Early On Non-Workdays"
-      description: >-
-        As directly above, but for non-workdays.
-      default: "16:00:00"
-      selector:
-        time: {}
-
-    time_down_late:
-      name: "🔻 Time For Drive Down - Late On Workdays"
-      description: >-
-        The latest time at which the cover should be closed.
-        If the required brightness or sun-elevation value has <ins>NOT</ins> yet been reached by this time,
-        the cover will still be closed.
-      default: "22:00:00"
-      selector:
-        time: {}
-
-    time_down_late_non_workday:
-      name: "🔻 Time For Drive Down - Late On Non-Workdays"
-      description: >-
-        As directly above, but for non-workdays.
-      default: "22:00:00"
-      selector:
-        time: {}
-
-    auto_down_condition:
-      name: "🔻 Additional Condition For Closing The Cover"
-      description: >-
-        This condition can be used to dynamically control the <ins>closing</ins> of the cover.
-        You can use this, for example, at Christmas time or if you want the covers to behave differently while on vacation.
-        <br /><br />`Optional`
-      default: []
-      selector:
-        condition: {}
-
-    auto_down_force:
-      name: "🔻 Force Immediate Closing"
-      description: >-
-        If the status of this entity changes to on or true, the cover is closed immediately and without further checking.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
-
-        Note:
-          - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
-          - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
-          - Force is a final state that cannot be cancelled or resetted by CCA.
-          - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
-
-        </details>
-        <br /><code>Optional</code>
-      default: []
-      selector:
-        entity:
-          domain:
-            - input_boolean
-            - binary_sensor
-
-    auto_down_action:
-      name: "🔻 Additional Actions After Closing The Cover"
-      description: Additional actions to run after closing the cover
-      default: []
-      selector:
-        action: {}
-
-    default_brightness_sensor:
-      name: "🔅 Default Brightness Sensor"
-      description: >-
-        This default brightness sensor can be defined here, which is used for daily up and down.
-        <br /><br />`Optional`
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - sensor
-
-    brightness_time_duration:
-      name: "🔅 Brightness Time Duration"
-      description: "Defines the time to given brightness sensor must be stay above/below the thresholds."
-      default: 30
-      selector:
-        number:
-          min: 0.0
-          max: 600.0
-          mode: slider
-          step: 1.0
-          unit_of_measurement: seconds
-
-    brightness_up:
-      name: "🔅 Brightness Value For Opening The Cover"
-      description: "At what brightness value should the cover be opened?"
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 100000.0
-          unit_of_measurement: lx
-          step: 1.0
-
-    brightness_down:
-      name: "🔅 Brightness Value For Closing The Cover"
-      description: "At what brightness value should the cover be closed? Must be lower then the brightness up value."
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 100000.0
-          unit_of_measurement: lx
-          step: 1.0
-
-    default_sun_sensor:
-      name: "☀️ Sun Sensor"
-      description: >-
-        Which sensors provides attributes with current azimuth and elevation of sun.
-        I strongly suggest to use sun.sun ([Sun integration](https://www.home-assistant.io/integrations/sun/)).
-        Please make sure that the integration is activated and provides the attributes.
-        <strong>Important: If you want to use automatic shading, the sensor must also be specified here.
-        Regardless of whether the basic sun control is used.</strong>
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: "sun.sun"
-      selector:
-        entity:
-          filter:
-            - domain:
-                - sun
-
-    sun_time_duration:
-      name: "☀️ Sun Time Duration"
-      description: "Defines the time to given sun sensor must be stay above/below the thresholds."
-      default: 30
-      selector:
-        number:
-          min: 0.0
-          max: 600.0
-          mode: slider
-          step: 1.0
-          unit_of_measurement: seconds
-
-    sun_elevation_up:
-      name: "☀️ Sun Elevation Value For Opening The Cover"
-      description: "The cover will be <ins>opened</ins> if the sun elevation is over this value"
-      default: 0
-      selector:
-        number:
-          min: -90.0
-          max: 90.0
-          unit_of_measurement: °
-          step: 0.1
-          mode: slider
-
-    sun_elevation_down:
-      name: "☀️ Sun Elevation Value For Closing The Cover"
-      description: "The cover will be <ins>closed</ins> if the sun elevation is under this value"
-      default: 0
-      selector:
-        number:
-          min: -90.0
-          max: 90.0
-          unit_of_measurement: °
-          step: 0.1
-          mode: slider
-
-    drive_delay_fix:
-      name: "🕛 Fixed Drive Delay"
-      description: >-
-        Fixed drive delay to avoid radio interferences.
-        <br /><br />`Optional`
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 600.0
-          unit_of_measurement: seconds
-          step: 1.0
-          mode: slider
-
-    drive_delay_random:
-      name: "🕛 Random Drive Delay"
-      description: "Additional random delay."
-      default: 5
-      selector:
-        number:
-          min: 0.0
-          max: 600.0
-          unit_of_measurement: seconds
-          step: 1.0
-          mode: slider
-
-    tilt_delay:
-      name: "🕛 Tilt Delay"
-      description: >-
-        Delay between <em>set_cover_position</em> and <em>set_cover_tilt_position</em>.
-        Only necessary when using the tilt functions.
-        This separates the two commands in terms of time.
-        <br /><br />`Optional`
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 600.0
-          unit_of_measurement: seconds
-          step: 1.0
-          mode: slider
-
-    position_tolerance:
-      name: "〰️ Position Tolerance"
-      description: >-
-        Tolerance to be applied when comparing the current position with the to be position.
-        These are absolute values. Not relative to the previous position values.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-        Attention: Bear in mind that the other positions are not too close to each other if you include the tolerance.
-        The following could cause problems and would then be <ins>incorrect</ins>:
-        <br />
-        - Open Position = 100<br />
-        - Ventilate Position = 99<br />
-        - Tolerance >= 1<br />
-
-        </details>
-      default: 0
-      selector:
-        number:
-          min: 0.0
-          max: 20.0
-          unit_of_measurement: "%"
-
-    workday_sensor:
-      name: "💼 Sensor For Workday/Non-Workday"
-      description: >-
-        It may be desired to open a cover at a different time on work days than on non-work days.
-        The corresponding binary sensor can be defined here. If not set, the cover will open every time at time_up_early.
-        <br /><br />`Optional`
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - binary_sensor
-
-    resident_sensor:
-      name: "🛌 Resident Mode"
-      description: >-
-        Overwrite mode for opening and unplannend closing.
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-        This switch can be used to override the automatic opening of the cover.
-        If this sensor (input_boolean or binary_sensor) is set to ON, the cover will not open automatically.
-
-        This can be used e.g. to define a resident for the room. In this case, the cover only opens when the resident is no longer asleep.
-        <br />
-        For this it is necessary to use a boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.
-        <br />
-        The cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).
-
-        </details>
-        <br /><code>Optional</code>
-      default: []
-      selector:
-        entity:
-          domain:
-            - input_boolean
-            - binary_sensor
-
-    contact_sensor:
-      name: "💨 Contact Sensor Entity For Ventilation"
-      description: >-
-        The contact sensor is required for ventilation mode. It must be a binary two-way contact sensor.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-        If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
-        See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
-
-        If the door contact changes to on/true, the cover is moved to the ventilation position.
-        The prerequisite is that the cover is already closed.
-        After the status changes to off/false, the close position is activated.
-        The same applies in the shading-out situation.
-
-        </details>
-        <br /><code>Optional</code>
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - binary_sensor
-                - input_boolean
-
-    contact_sensor_lockout:
-      name: "💨 Contact Sensor Entity For Lockout Protection"
-      description: >-
-        The contact sensor is required for lockout protection. It must be a binary two-way contact sensor.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-        If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
-        See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
-
-        The cover is not closed and the sun shading is not activated when the door contact is open.
-        Note that the cover can close in the evening when the door contact is closed.
-        It is not moved to the previously desired shading position!
-        <br /><br />
-        If the sun shading is cancelled, the door contact is open and the lockout protection is enabled,
-        the blind does not move from the shading position to the ventilation position.
-        Instead, the roller blind is opened.
-
-        </details>
-        <br /><code>Optional</code>
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - binary_sensor
-                - input_boolean
-
-    ventilate_position:
-      name: "💨 Ventilate Position"
-      description: >-
-        What position should the cover move to when opening the window/door and the cover is closed to allow ventilation?
-        If closing is triggered and the <em>contact_sensor</em> is 'on' the cover will move to this position instead of closing completly
-        <br /><br />Should not be 100. In this case please use 99. And please also note the information in the position tolerance.
-        <br /><br />`Optional`
-      default: 30
-      selector:
-        number:
-          min: 0.0
-          max: 100.0
-          unit_of_measurement: "%"
-
-    ventilate_tilt_position:
-      name: "💨 Ventilate Tilt Position"
-      description: >-
-        To which tilt position should the cover be moved for ventilation?
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        If the cover and the integration support it, the tilt position can be used.
-        However, the attribute 'current_position' is used for position detection and
-        'current_tilt_position' is not used or taken into account.
-
-        </details>
-      default: 50
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
-
-    auto_ventilate_condition:
-      name: "💨 Additional Condition For Ventilation"
-      description: >-
-        This condition can be used to dynamically control the <ins>start of the ventilation</ins> of the cover.
-        <br /><br />`Optional`
-      default: []
-      selector:
-        condition: {}
-
-    auto_ventilate_force:
-      name: "💨 Force Immediate Ventilation"
-      description: >-
-        If the status of this entity changes to on or true, the cover is immediately set to ventilation mode and without further checking.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
-
-        Note:
-          - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
-          - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
-          - Force is a final state that cannot be cancelled or resetted by CCA.
-          - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
-
-        </details>
-        <br /><code>Optional</code>
-      default: []
-      selector:
-        entity:
-          domain:
-            - input_boolean
-            - binary_sensor
-
-    auto_ventilate_action:
-      name: "💨 Additional Actions After Ventilating The Cover"
-      description: Additional actions to run after ventilating the cover
-      default: []
-      selector:
-        action: {}
-
-    auto_ventilate_options:
-      name: "💨 Ventilation Configuration"
-      description: >-
-        Various different ventilation options.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-          - <ins>Use a delay in ventilation mode after closing the contact:</ins>
+    feature_section:
+      name: "Automation Options" # ⚙️
+      icon: mdi:window-shutter-cog
+      collapsed: true
+      input:
+        auto_options:
+          name: "👉 Automation options"
+          description: >-
+            This <ins>basically</ins> determines whether the cover is allowed to open or close.
+
+
+            <strong>Important note:</strong>
+            The configuration of the Cover Status Helper is <ins>mandatory</ins> if you want to use the lockout protection, ventilation mode or shading.
+
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            This can be extended by further conditions (see below). However, it is important that the options are still activated here.
+            Otherwise the conditions will not take effect.
+
+
+            **Please ensure that the corresponding sensors are also specified.**
+            For example, the brightness control only works if a brightness sensor is also specified.
+
+            </details>
+          default:
+            [
+              auto_up_enabled,
+              auto_down_enabled,
+              auto_brightness_enabled,
+              auto_sun_enabled,
+            ]
+          selector:
+            select:
+              options:
+                - label: "🔼 - Enable automatic daily cover opening"
+                  value: "auto_up_enabled"
+                - label: "🔻 - Enable automatic daily cover closing"
+                  value: "auto_down_enabled"
+                - label: "🔅 - Enable control (to open/close) via brightness values"
+                  value: "auto_brightness_enabled"
+                - label: "☀️ - Enable control (to open/close) via sun elevation"
+                  value: "auto_sun_enabled"
+                - label: "💨 - Enable ventilation mode"
+                  value: "auto_ventilate_enabled"
+                - label: "🚪 - Enable lockout protection"
+                  value: "auto_lockout_protection_enabled"
+                - label: "🥵 - Enable automatic sun shading / sun protection control"
+                  value: "auto_shading_enabled"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
+        resident_sensor:
+          name: "🛌 Resident Mode"
+          description: >-
+            Overwrite mode for opening and unplannend closing.
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            This switch can be used to override the automatic opening of the cover.
+            If this sensor (input_boolean or binary_sensor) is set to ON, the cover will not open automatically.
+
+            This can be used e.g. to define a resident for the room. In this case, the cover only opens when the resident is no longer asleep.
             <br />
-            Normally, when the window contact is closed, there is no delay in the upcoming drives. If you do want this, you can activate it here.
-            <br /><br />
-            The "Fixed Drive Delay" and "Random Drive Delay" settings which are already used everywhere are then used.
-            <br /><br />
-          - <ins>Allow ventilation even if cover is already in a higher position:</ins>
+            For this it is necessary to use a boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.
             <br />
-            Activate ventilation mode even if the current position of the cover is already higher than the ventilation position.
+            The cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).
 
-        </details>
-      default: []
-      selector:
-        select:
-          options:
-            - label: "💨 Use a delay in ventilation mode after closing the contact"
-              value: "ventilation_delay_enabled"
-            - label: "💨 Allow ventilation even if cover is already in a higher position"
-              value: "ventilation_if_lower_enabled"
-          multiple: true
-          sort: false
-          custom_value: false
-          mode: list
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
 
-    shading_position:
-      name: "🥵 Sun Shading Position"
-      description: "To which position should the cover be moved for shading?<br /><br />`Shading`"
-      default: 25
-      selector:
-        number:
-          min: 0.0
-          max: 100.0
-          unit_of_measurement: "%"
+        individual_config:
+          name: "⚙️ Individual Configuration"
+          description: >-
+            Various different options for some fine adjustments
 
-    shading_tilt_position:
-      name: "🥵 Sun Shading Tilt Position"
-      description: >-
-        To which tilt position should the cover be moved for shading?
-        <br /><br />`Shading`
-      default: 50
-      selector:
-        number:
-          min: 0
-          max: 100
-          unit_of_measurement: "%"
-
-    shading_brightness_sensor:
-      name: "🥵 Brightness Sensor For Sun Shading"
-      description: >-
-        An additional brightness sensor can be defined here, which is only used for shading.
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - sensor
-
-    shading_sun_brightness_start:
-      name: "🥵 Sun Shading Brightness Start Value"
-      description: >-
-        The minimum brightness value from which shading should start.
-        (Must be above the value of brightness end!)
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: 35000
-      selector:
-        number:
-          min: 0.0
-          max: 100000.0
-          unit_of_measurement: lx
-          step: 1.0
-
-    shading_sun_brightness_end:
-      name: "🥵 Sun Shading Brightness End Value"
-      description: >-
-        The brightness value from which shading is no longer necessary.
-        (Must be below the value of brightness start!).
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: 25000
-      selector:
-        number:
-          min: 0.0
-          max: 100000.0
-          unit_of_measurement: lx
-          step: 1.0
-
-    shading_azimuth_start:
-      name: "🥵 Sun Shading Azimuth Start Value"
-      description: >-
-        What is the minimum azimuth at which the sun hits the window? (Shading will start)
-        <br /><br />`The attribute of default sun sensor (configured above) is used.`
-        <br /><br />`Shading`
-      default: 95
-      selector:
-        number:
-          min: 0
-          max: 365
-          unit_of_measurement: "°"
-
-    shading_azimuth_end:
-      name: "🥵 Sun Shading Azimuth End Value"
-      description: >-
-        What is the maximum azimuth at which the sun hits the window? (Shading will stop)
-        <br /><br />`The attribute of default sun sensor (configured above) is used.`
-        <br /><br />`Shading`
-      default: 265
-      selector:
-        number:
-          min: 0
-          max: 365
-          unit_of_measurement: "°"
-
-    shading_elevation_min:
-      name: "🥵 Sun Shading Elevation Minimum Value"
-      description: >-
-        Starting from which elevation of the sun should the window be shaded?
-        (Here it makes sense to consider surrounding buildings, trees, etc.).
-        <br /><br />`The attribute of default sun sensor (configured above) is used.`
-        <br /><br />`Shading`
-      default: 25
-      selector:
-        number:
-          min: -90.0
-          max: 90.0
-          unit_of_measurement: °
-          step: 0.1
-          mode: slider
-
-    shading_elevation_max:
-      name: "🥵 Sun Shading Elevation Maximum Value"
-      description: >-
-        What is the maximal elevation for elevation?
-        (In most cases, 90 degrees is probably the most reasonable value.
-        However, this can also be different due to surrounding buildings, etc.).
-        <br /><br />`The attribute of default sun sensor (configured above) is used.`
-        <br /><br />`Shading`
-      default: 90
-      selector:
-        number:
-          min: -90.0
-          max: 90.0
-          unit_of_measurement: °
-          step: 0.1
-          mode: slider
-
-    shading_temperatur_sensor1:
-      name: "🥵 Sun Shading Temperature Sensor 1"
-      description: >-
-        This is the main temperature sensor. (Here, for example, the current outdoor or indoor temperature can be used as a condition).
-        This sensor does not have to be defined if the shading is to take place independently of it.
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      selector:
-        entity:
-          filter:
-            - domain:
-                - sensor
-      default: []
-
-    shading_min_temperatur1:
-      name: "🥵 Sun Shading Temperature Sensor 1 Minimum Value"
-      description: >-
-        Minimum temperature for sensor 1 above which shading should occur.
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: 18
-      selector:
-        number:
-          min: 0
-          max: 50.0
-          step: 0.1
-          mode: slider
-          unit_of_measurement: "°C"
-
-    shading_temperatur_sensor2:
-      name: "🥵 Sun Shading Temperature Sensor 2"
-      description: >-
-        This is a secondary temperature sensor.
-        (Here, for example, a temperature difference sensor can be used as a criterion.
-        Or, if Shading Temperature Sensor 1 is outdoor temperature, you can use indoor temperature).
-        This sensor does not have to be defined.
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - sensor
-
-    shading_min_temperatur2:
-      name: "🥵 Sun Shading Temperature Sensor 2 Minimum Value"
-      description: >-
-        Minimum temperature for sensor 2 above which shading should occur.
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: 18
-      selector:
-        number:
-          min: 0.0
-          max: 50.0
-          step: 0.1
-          mode: slider
-          unit_of_measurement: "°C"
-
-    shading_forecast_sensor:
-      name: "🥵 Sun Shading Forecast Temperature Sensor"
-      description: >-
-        Another temperature sensor. In this case, however, explicitly for use with a forecast.
-        The idea is that it can happen, especially in spring, that the value of the Forecast Temperatur Value exceeded by
-        strong solar radiation and the shading would be started.
-        However, in spring you may not want shading, but the solar radiation as a welcome, free heating is desired.
-        So you can define via the forecast sensor that shading is only started at an expected daily maximum temperature.
-        **NOTE**: Sensor must support weather.get_forecasts which has been introduced with HA 2023.9
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: []
-      selector:
-        entity:
-          filter:
-            - domain:
-                - weather
-
-    shading_forecast_temp:
-      name: "🥵 Sun Shading Forecast Temperatur Value"
-      description: >-
-        Minimum temperature for forecast sensor above which shading should occur.
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: 20
-      selector:
-        number:
-          min: 0.0
-          max: 50.0
-          step: 0.1
-          mode: slider
-          unit_of_measurement: "°C"
-
-    shading_weather_conditions:
-      name: "🥵 Sun Shading Weather Conditions"
-      description: >-
-        Check the following weather conditions when activating the shading.
-        **NOTE**: Forecast sensor needs to be defined
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default:
-        - sunny
-        - partlycloudy
-        - cloudy
-        - clear
-      selector:
-        select:
-          multiple: true
-          options:
-            - "clear-night"
-            - "clear"
-            - "cloudy"
-            - "fog"
-            - "hail"
-            - "lightning"
-            - "lightning-rainy"
-            - "partlycloudy"
-            - "pouring"
-            - "rainy"
-            - "snowy"
-            - "snowy-rainy"
-            - "sunny"
-            - "windy"
-            - "windy-variant"
-            - "exceptional"
-
-    shading_waitingtime_start:
-      name: "🥵 Waiting Time For Sun Shading Start"
-      description: >-
-        To avoid overloading the motor, a waiting time can be defined here for the start of shading.
-        The shade will then only start if <ins>all</ins> mandatory conditions are fulfilled for the entire waiting time.
-        <br /><br />
-        Note: The automated system only waits for the time when the roller blind is above the ventilation position.
-        <br /><br />`Shading`
-      default: 300
-      selector:
-        number:
-          min: 0
-          max: 3600
-          unit_of_measurement: seconds
-
-    shading_waitingtime_end:
-      name: "🥵 Waiting Time For Sun Shading End"
-      description: >-
-        To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended.
-        Shading ends if <ins>one</ins> of the conditions is <ins>not</ins> fulfilled for the entire waiting time.
-        <br /><br />`Shading`
-      default: 300
-      selector:
-        number:
-          min: 0
-          max: 3600
-          unit_of_measurement: seconds
-
-    auto_shading_start_condition:
-      name: "🥵 Additional Condition For Activating Sun Shading"
-      description: >-
-        This condition can be used to dynamically control the <ins>shading-IN-automation</ins> of the cover.
-        This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).
-        <br />
-        Another example: Here you could also set that the shading is only triggered in the summer season.
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: []
-      selector:
-        condition: {}
-
-    auto_shading_end_condition:
-      name: "🥵 Additional Condition For Disabling Sun Shading"
-      description: >-
-        This condition can be used to dynamically control the <ins>shading-OUT-automation</ins> of the cover.
-        This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).
-        <br /><br />`Optional`
-        <br /><br />`Shading`
-      default: []
-      selector:
-        condition: {}
-
-    auto_shading_start_force:
-      name: "🥵 Force Activation Sun Shading"
-      description: >-
-        If the status of this entity changes to on or true, the shading is immediately activated and without further checking.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
 
 
-        This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
+            <ins>Prevent 'set_cover_position' and 'set_cover_tilt_position'</ins><br />
+            There are devices that have problems when the two services 'set_cover_position' and 'set_cover_tilt_position' are executed directly one after the other.
+            For example, there are Shelly devices that use the script [cover_position_tilt.yaml](https://gist.github.com/lukasvice/b364724d84c3ac4e160f7a7d8fa37066) here.
+            Or Homematic blind actuators, which can better use their own service for this: [homematicip_local.set_cover_combined_position](https://github.com/danielperna84/custom_homematic?tab=readme-ov-file#homematicip_localset_cover_combined_position).
+            This option can be used to disable the standard services and allows the control to be implemented individually via the addtional actions.
 
-        Note:
-          - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
-          - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
-          - Force is a final state that cannot be cancelled or resetted by CCA.
-          - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
+            </details>
 
-        </details>
-        <br /><code>Optional</code>
-      default: []
-      selector:
-        entity:
-          domain:
-            - input_boolean
-            - binary_sensor
+          default: []
+          selector:
+            select:
+              options:
+                - label: "🚫 Prevent the cover from closing immediately after deactivating the lockout protection"
+                  value: "prevent_close_after_lockout"
+                - label: "🚫 Prevent the cover from moving to a higher position when it is closed"
+                  value: "prevent_higher_position_closing"
+                - label: "🚫 Prevent the cover from moving to a higher closing position at the end of sun shading"
+                  value: "prevent_higher_position_shading_end"
+                - label: "🚫 Prevent the use of the 'get_forecasts' service"
+                  value: "prevent_forecast_service"
+                - label: "🚫 Prevent the end of sun shading when the cover is already closed"
+                  value: "prevent_shading_end_if_closed"
+                - label: "🚫 Prevent the use of 'set_cover_position' and 'set_cover_tilt_position' and only use the additional actions"
+                  value: "prevent_default_cover_actions"
+                - label: "🚫 Prevent the cover from being opened several times a day"
+                  value: "prevent_opening_multiple_times"
+                - label: "🚫 Prevent the cover from being closed several times a day"
+                  value: "prevent_closing_multiple_times"
+                - label: "🚫 Prevent the cover from being shaded several times a day"
+                  value: "prevent_shading_multiple_times"
+                - label: "🚫 Prevent automatic closing due to the resident sensor"
+                  value: "prevent_closing_by_resident"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
 
-    auto_shading_start_action:
-      name: "🥵 Additional Actions After Activating Sun Shading"
-      description: Additional actions to run after activating sun shading
-      default: []
-      selector:
-        action: {}
+        ignore_after_manual_config:
+          name: "⚙️ Ignoring after manual position changes"
+          description: >-
+            Ignore the following actions after manual position changes.
 
-    auto_shading_end_action:
-      name: "🥵 Additional Actions After Disabling Sun Shading"
-      description: Additional actions to run after disabling sun shading
-      default: []
-      selector:
-        action: {}
-
-    ignore_after_manual_config:
-      name: "⚙️ Ignoring after manual position changes"
-      description: >-
-        Ignore the following actions after manual position changes.
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-        Ultimately, this means that the roller blind will not be opened, closed, etc.
-        if a manual interaction has previously been made, e.g. using a wall switch.
-
-
-        The reason behind this is that the human being wins with his decision and his
-        conscious decision is weighted higher than the upcoming action of the automation.
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
 
 
-        As soon as a cover has been moved manually, the status is recorded in the Cover Status Helper.
-        This usually means that a person has deliberately decided against a status.
-
-          - If option is not activated: The covers are moved even if a manual correction has been made.
-          - If option is activated: The action to open, close, etc. is not performed because a conscious decision was made to do otherwise due to a manual intervention.
+            Ultimately, this means that the roller blind will not be opened, closed, etc.
+            if a manual interaction has previously been made, e.g. using a wall switch.
 
 
-        A Cover Status Helper is required!
-
-        </details>
-
-      default: []
-      selector:
-        select:
-          options:
-            - label: "🔼 Ignore next automatic opening after manual position changes"
-              value: "ignore_opening_after_manual"
-            - label: "🔻 Ignore next automatic closing after manual position changes"
-              value: "ignore_closing_after_manual"
-            - label: "💨 Ignore next automatic ventilation after manual position changes"
-              value: "ignore_ventilation_after_manual"
-            - label: "🥵 Ignore next automatic sun shading after manual position changes"
-              value: "ignore_shading_after_manual"
-          multiple: true
-          sort: false
-          custom_value: false
-          mode: list
-
-    individual_config:
-      name: "⚙️ Individual Configuration"
-      description: >-
-        Various different options for some fine adjustments
-
-        <details>
-        <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+            The reason behind this is that the human being wins with his decision and his
+            conscious decision is weighted higher than the upcoming action of the automation.
 
 
-        <ins>Prevent 'set_cover_position' and 'set_cover_tilt_position'</ins><br />
-        There are devices that have problems when the two services 'set_cover_position' and 'set_cover_tilt_position' are executed directly one after the other.
-        For example, there are Shelly devices that use the script [cover_position_tilt.yaml](https://gist.github.com/lukasvice/b364724d84c3ac4e160f7a7d8fa37066) here.
-        Or Homematic blind actuators, which can better use their own service for this: [homematicip_local.set_cover_combined_position](https://github.com/danielperna84/custom_homematic?tab=readme-ov-file#homematicip_localset_cover_combined_position).
-        This option can be used to disable the standard services and allows the control to be implemented individually via the addtional actions.
+            As soon as a cover has been moved manually, the status is recorded in the Cover Status Helper.
+            This usually means that a person has deliberately decided against a status.
 
-        </details>
+              - If option is not activated: The covers are moved even if a manual correction has been made.
+              - If option is activated: The action to open, close, etc. is not performed because a conscious decision was made to do otherwise due to a manual intervention.
 
-      default: []
-      selector:
-        select:
-          options:
-            - label: "🚫 Prevent the cover from closing immediately after deactivating the lockout protection"
-              value: "prevent_close_after_lockout"
-            - label: "🚫 Prevent the cover from moving to a higher position when it is closed"
-              value: "prevent_higher_position_closing"
-            - label: "🚫 Prevent the cover from moving to a higher closing position at the end of sun shading"
-              value: "prevent_higher_position_shading_end"
-            - label: "🚫 Prevent the use of the 'get_forecasts' service"
-              value: "prevent_forecast_service"
-            - label: "🚫 Prevent the end of sun shading when the cover is already closed"
-              value: "prevent_shading_end_if_closed"
-            - label: "🚫 Prevent the use of 'set_cover_position' and 'set_cover_tilt_position' and only use the additional actions"
-              value: "prevent_default_cover_actions"
-            - label: "🚫 Prevent the cover from being opened several times a day"
-              value: "prevent_opening_multiple_times"
-            - label: "🚫 Prevent the cover from being closed several times a day"
-              value: "prevent_closing_multiple_times"
-            - label: "🚫 Prevent the cover from being shaded several times a day"
-              value: "prevent_shading_multiple_times"
-            - label: "🚫 Prevent automatic closing due to the resident sensor"
-              value: "prevent_closing_by_resident"
-          multiple: true
-          sort: false
-          custom_value: false
-          mode: list
 
-    check_config:
-      name: "✔️ Check Configuration"
-      description: >-
-        With this boolean, you can enable or disable the basic plausibility check for the configuration.
-        he check only takes place if the automation is executed manually.
-      default: false
-      selector:
-        boolean: {}
+            A Cover Status Helper is required!
 
-    check_config_debuglevel:
-      name: "✔️ Check Configuration - Debug level"
-      description: >-
-        Choose the debug level for Syslog messages in case of configuration issues
-        <br />
-        Please make sure that it suits your Home Assistant logger default level.
-      default: "info"
-      selector:
-        select:
-          multiple: false
-          mode: dropdown
-          options:
-            - "critical"
-            - "debug"
-            - "error"
-            - "info"
-            - "warning"
+            </details>
+
+          default: []
+          selector:
+            select:
+              options:
+                - label: "🔼 Ignore next automatic opening after manual position changes"
+                  value: "ignore_opening_after_manual"
+                - label: "🔻 Ignore next automatic closing after manual position changes"
+                  value: "ignore_closing_after_manual"
+                - label: "💨 Ignore next automatic ventilation after manual position changes"
+                  value: "ignore_ventilation_after_manual"
+                - label: "🥵 Ignore next automatic sun shading after manual position changes"
+                  value: "ignore_shading_after_manual"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
+        auto_ventilate_options:
+          name: "💨 Ventilation Configuration"
+          description: >-
+            Various different ventilation options.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+              - <ins>Use a delay in ventilation mode after closing the contact:</ins>
+                <br />
+                Normally, when the window contact is closed, there is no delay in the upcoming drives. If you do want this, you can activate it here.
+                <br /><br />
+                The "Fixed Drive Delay" and "Random Drive Delay" settings which are already used everywhere are then used.
+                <br /><br />
+              - <ins>Allow ventilation even if cover is already in a higher position:</ins>
+                <br />
+                Activate ventilation mode even if the current position of the cover is already higher than the ventilation position.
+
+            </details>
+          default: []
+          selector:
+            select:
+              options:
+                - label: "💨 Use a delay in ventilation mode after closing the contact"
+                  value: "ventilation_delay_enabled"
+                - label: "💨 Allow ventilation even if cover is already in a higher position"
+                  value: "ventilation_if_lower_enabled"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
+    helper_section:
+      name: "Cover Status Detection" #🦮
+      icon: mdi:form-textbox
+      collapsed: true
+      input:
+        cover_status_options:
+          name: "🦮 Status detection of the cover"
+          description: >
+            It is essential that the roller blind has the <em>current_position</em> attribute.
+            Regardless of which option is selected here, the position detection is based on this attribute.
+            The <em>current_tilt_position</em> attribute is <ins>not</ins> taken into account.
+
+
+            <strong>Important note:</strong>
+            I strongly recommend using the Cover Status Helper! The full range of functions is only available if this is configured.
+
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            - <ins>Check the current position</ins><br />
+            The automation only moves the cover if it is positioned at one of the defined positions (ventilate position, shading position, open position or closed position). Otherwise, the cover has been moved manually.
+            After a manual drive, it is unclear what is intended to be achieved, so the automation no longer takes action.
+            To automate the drive of the cover again, it must be moved to one of the defined positions beforehand.
+            The advantage of this is that you don't have to create a helper in Home Assistant.
+            Only basic features are available with this setting.
+
+
+            - <ins>Use an external Cover Status Helper</ins><br />
+            If you want to be able to do manual overrides and have the automation do the next drive as usual,
+            then a helper is necessary. Without a helper, the manual override would always be overwritten by the automation.
+            This has the advantage that the cover does not necessarily have to be in a defined position.
+            With this choice, advanced functions are possible and you can always rely on the automation.
+
+
+            </details>
+          default: cover_helper_disabled
+          selector:
+            select:
+              options:
+                - label: "#️⃣ Check the current position"
+                  value: "cover_helper_disabled"
+                - label: "🦮 Also use an external Cover Status Helper (better)"
+                  value: "cover_helper_enabled"
+
+        cover_status_helper:
+          name: "🦮 Cover Status Helper"
+          description: >-
+            Helper used to store the last cover event.
+            *Attention:* You will need to manually create a [input_text](https://my.home-assistant.io/redirect/helpers/) entity with a <ins>length of 254 chars</ins> for this.
+            <br /><br />`Optional`
+          default: []
+          selector:
+            entity:
+              domain: input_text
+
+        drive_time:
+          name: "⏲️ Cover Drive Time"
+          description: "Can be used to recognise manual control. Please round up a little and do not adjust too precisely. Is used to delay the trigger if too much or incorrect position data is sent back."
+          default: 90
+          selector:
+            number:
+              min: 0.0
+              max: 180.0
+              unit_of_measurement: seconds
+              step: 1.0
+              mode: slider
+
+    position_section:
+      name: "Position Configuration" # 📍
+      icon: mdi:window-shutter-settings
+      #  description: "If the cover and the integration support it, the tilt position can be used. However, the attribute 'current_position' is used for position detection and 'current_tilt_position' is not used or taken into account."
+      collapsed: true
+      input:
+        open_position:
+          name: "🔼 Open Position"
+          description: "What position should the cover be moved into when opening?"
+          default: 100
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              unit_of_measurement: "%"
+
+        open_tilt_position:
+          name: "🔼 Open Tilt Position"
+          description: >-
+            To which tilt position should the cover be moved when opening?
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            If the cover and the integration support it, the tilt position can be used.
+            However, the attribute 'current_position' is used for position detection and
+            'current_tilt_position' is not used or taken into account.
+
+            </details>
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
+        close_position:
+          name: "🔻 Close Position"
+          description: "What position should the cover be moved into when closing?"
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              unit_of_measurement: "%"
+
+        close_tilt_position:
+          name: "🔻 Close Tilt Position"
+          description: >-
+            To which tilt position should the cover be moved when closing?
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            If the cover and the integration support it, the tilt position can be used.
+            However, the attribute 'current_position' is used for position detection and
+            'current_tilt_position' is not used or taken into account.
+
+            </details>
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
+
+        ventilate_position:
+          name: "💨 Ventilate Position"
+          description: >-
+            What position should the cover move to when opening the window/door and the cover is closed to allow ventilation?
+            If closing is triggered and the <em>contact_sensor</em> is 'on' the cover will move to this position instead of closing completly
+            <br /><br />Should not be 100. In this case please use 99. And please also note the information in the position tolerance.
+            <br /><br />`Optional`
+          default: 30
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              unit_of_measurement: "%"
+
+        ventilate_tilt_position:
+          name: "💨 Ventilate Tilt Position"
+          description: >-
+            To which tilt position should the cover be moved for ventilation?
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            If the cover and the integration support it, the tilt position can be used.
+            However, the attribute 'current_position' is used for position detection and
+            'current_tilt_position' is not used or taken into account.
+
+            </details>
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
+
+        shading_position:
+          name: "🥵 Sun Shading Position"
+          description: "To which position should the cover be moved for shading?<br /><br />`Shading`"
+          default: 25
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              unit_of_measurement: "%"
+
+        shading_tilt_position:
+          name: "🥵 Sun Shading Tilt Position"
+          description: >-
+            To which tilt position should the cover be moved for shading?
+            <br /><br />`Shading`
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
+
+        position_tolerance:
+          name: "〰️ Position Tolerance"
+          description: >-
+            Tolerance to be applied when comparing the current position with the to be position.
+            These are absolute values. Not relative to the previous position values.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            Attention: Bear in mind that the other positions are not too close to each other if you include the tolerance.
+            The following could cause problems and would then be <ins>incorrect</ins>:
+            <br />
+            - Open Position = 100<br />
+            - Ventilate Position = 99<br />
+            - Tolerance >= 1<br />
+
+            </details>
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 20.0
+              unit_of_measurement: "%"
+
+    time_section:
+      name: "Time Control Configuration" #⏲️
+      icon: mdi:clock-time-two-outline
+      collapsed: true
+      input:
+        time_control:
+          name: "⏲️ Selection of time control options"
+          description: >-
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            The times for opening and closing the cover are usually configured here in the blueprint.
+            There are various input fields here for this purpose.
+            Even if you only want to control the covers using brightness values or the sun elevation,
+            it is important to specify times. The times are used to divide the day into "morning" (up) and "evening" (down).
+
+            However, you can also activate a scheduler helper mode at this point.
+            This would allow you to configure a different time period for keeping the cover open for each day.
+            Unfortunately, the HA core currently only has a 30-minute time grid for the time configuration.
+
+            When using scheduler helper - Important difference to the usual input fields!
+
+              - <ins>Without brightness or sun elevation control:</ins>
+                As soon as the helper state is switched on, the cover is opened.
+                The cover is closed when the helper state changes from off to on.
+
+              - <ins>With brightness or sun elevation control:</ins>
+                The cover is opened when the threshold is exceeded and the helper is on.
+                The cover is closed when the threshold is undershot and the helper is off.
+
+            <strong>Important information on using the schedule helper</strong>
+
+
+            It is not possible to find out more about the status of the schedule helper in Home Assistant.
+            I never know whether we are at the beginning or end of the period.
+            However, this is important to avoid bouncing when controlling the brightness, for example.
+            In order to recognise whether we are still in the opening period or the closing period,
+            it is necessary to enter a very rough time period in the time variables in the blueprint.
+            <br /><br />
+            <ins>Example:</ins>
+            If the schedule helper goes to the "ON" status at 08:00 and to the "OFF" status at 18:00, it is sufficient to configure the times as follows:
+            <br /><br />
+            Time For Drive Up - Early: 06:00<br />
+            Time For Drive Up - Late: 12:00<br /><br />
+            Time For Drive Down - Early: 16:00<br />
+            Time For Drive Down - Late: 22:00<br />
+
+            The times are not used for triggering, but only to divide the day into two halves!
+
+
+            <ins>Disable time control and all time triggers</ins><br />
+            Finally, you can also deactivate the time control completely.
+            This means that the roller shutters are not opened or closed via time triggers.
+            The sun-elevation and brightness control then also runs completely independently.
+
+            </details>
+
+          default: time_control_input
+          selector:
+            select:
+              options:
+                - label: "✏️ Use the time input fields in the blueprint"
+                  value: "time_control_input"
+                - label: "⏲️ Use an external schedule helper"
+                  value: "time_control_schedule"
+                - label: "🚫 Disable time control and all time triggers"
+                  value: "time_control_disabled"
+              sort: false
+              multiple: false
+              custom_value: false
+
+        time_schedule_helper:
+          name: "⏲️ Cover driving time schedule helper"
+          description: >-
+            If enabled above, please select the schedule helper here.
+            Of course, it is also important that the times in the helper are configured accordingly.
+            Please create only one period in total. Example: Start at 08:00 and end at 22:00.
+            The helper can be created [here](https://my.home-assistant.io/redirect/helpers/).
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - schedule
+              multiple: false
+
+        workday_sensor:
+          name: "💼 Sensor For Workday Today"
+          description: >-
+            It may be desired to open a cover at a different time on work days than on non-work days.
+            The corresponding binary sensor can be defined here. If not set, the cover will open every time at time_up_early.
+            <br /><br />
+            Example: `binary_sensor.workday_today`
+            <br /><br />`Optional`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - binary_sensor
+
+        workday_sensor_tomorrow:
+          name: "💼 Sensor For Workday Tomorrow (only for closing)"
+          description: >-
+            When <ins>closing</ins> the blinds, you have the option of checking the times for tomorrow rather than the current day.
+            This has the advantage that you can <ins>close</ins> the blinds earlier if <ins>tomorrow</ins> is a working day.
+            This makes sense if, for example, there is school tomorrow but today is actually still the weekend.
+            But the child has to go to bed earlier.<br />
+            If this field is not configured here, the normal working day sensor is used.
+            <br /><br />
+            Example: `binary_sensor.workday_tomorrow`
+            <br /><br />`Optional`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - binary_sensor
+
+        time_up_early:
+          name: "🔼 Time For Drive Up - Early On Workdays"
+          description: >-
+            The earliest time at which the cover may be opened. The cover will be opened if <ins>AFTER</ins> this time the defined brightness
+            or sun-elevation value is high enough. (**NOTE**: If a resident is defined, he must also be awake).
+          default: "06:00:00"
+          selector:
+            time: {}
+
+        time_up_early_non_workday:
+          name: "🔼 Time For Drive Up - Early On Non-Workdays"
+          description: >-
+            As directly above, but for non-workdays.
+          default: "07:00:00"
+          selector:
+            time: {}
+
+        time_up_late:
+          name: "🔼 Time For Drive Up - Late On Workdays"
+          description: >-
+            The latest time at which the cover should be opened.
+            If the required brightness or sun-elevation value has <ins>NOT</ins> yet been reached by this time, the cover will still be opened.
+            (**NOTE**: If a resident is defined and he is still asleep, the cover will <ins>NOT</ins> be opened.
+            It will only be opened when the resident has woken up).
+          default: "08:00:00"
+          selector:
+            time: {}
+
+        time_up_late_non_workday:
+          name: "🔼 Time For Drive Up - Late On Non-Workdays"
+          description: >-
+            As directly above, but for non-workdays.
+          default: "08:00:00"
+          selector:
+            time: {}
+
+        time_down_early:
+          name: "🔻 Time For Drive Down - Early On Workdays"
+          description: >-
+            The earliest time at which the cover may be closed.
+            The cover will be closed if <ins>AFTER</ins> this time the defined brightness or sun-elevation value is low enough.
+          default: "16:00:00"
+          selector:
+            time: {}
+
+        time_down_early_non_workday:
+          name: "🔻 Time For Drive Down - Early On Non-Workdays"
+          description: >-
+            As directly above, but for non-workdays.
+          default: "16:00:00"
+          selector:
+            time: {}
+
+        time_down_late:
+          name: "🔻 Time For Drive Down - Late On Workdays"
+          description: >-
+            The latest time at which the cover should be closed.
+            If the required brightness or sun-elevation value has <ins>NOT</ins> yet been reached by this time,
+            the cover will still be closed.
+          default: "22:00:00"
+          selector:
+            time: {}
+
+        time_down_late_non_workday:
+          name: "🔻 Time For Drive Down - Late On Non-Workdays"
+          description: >-
+            As directly above, but for non-workdays.
+          default: "22:00:00"
+          selector:
+            time: {}
+
+    brightness_section:
+      name: "Brightness Configuration" #🔅
+      icon: mdi:brightness-5
+      collapsed: true
+      input:
+        default_brightness_sensor:
+          name: "🔅 Default Brightness Sensor"
+          description: >-
+            This default brightness sensor can be defined here, which is used for daily up and down.
+            <br /><br />`Optional`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - sensor
+
+        brightness_time_duration:
+          name: "🔅 Brightness Time Duration"
+          description: "Defines the time to given brightness sensor must be stay above/below the thresholds."
+          default: 30
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              mode: slider
+              step: 1.0
+              unit_of_measurement: seconds
+
+        brightness_up:
+          name: "🔅 Brightness Value For Opening The Cover"
+          description: "At what brightness value should the cover be opened?"
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
+
+        brightness_down:
+          name: "🔅 Brightness Value For Closing The Cover"
+          description: "At what brightness value should the cover be closed? Must be lower then the brightness up value."
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
+
+    sun_section:
+      name: "Sun Elevation Settings" #☀️
+      icon: mdi:weather-sunny
+      collapsed: true
+      input:
+        default_sun_sensor:
+          name: "☀️ Sun Sensor"
+          description: >-
+            Which sensors provides attributes with current azimuth and elevation of sun.
+            I strongly suggest to use sun.sun ([Sun integration](https://www.home-assistant.io/integrations/sun/)).
+            Please make sure that the integration is activated and provides the attributes.
+            <strong>Important: If you want to use automatic shading, the sensor must also be specified here.
+            Regardless of whether the basic sun control is used.</strong>
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: "sun.sun"
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - sun
+
+        sun_time_duration:
+          name: "☀️ Sun Time Duration"
+          description: "Defines the time to given sun sensor must be stay above/below the thresholds."
+          default: 30
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              mode: slider
+              step: 1.0
+              unit_of_measurement: seconds
+
+        sun_elevation_up:
+          name: "☀️ Sun Elevation Value For Opening The Cover"
+          description: "The cover will be <ins>opened</ins> if the sun elevation is over this value"
+          default: 0
+          selector:
+            number:
+              min: -90.0
+              max: 90.0
+              unit_of_measurement: °
+              step: 0.1
+              mode: slider
+
+        sun_elevation_down:
+          name: "☀️ Sun Elevation Value For Closing The Cover"
+          description: "The cover will be <ins>closed</ins> if the sun elevation is under this value"
+          default: 0
+          selector:
+            number:
+              min: -90.0
+              max: 90.0
+              unit_of_measurement: °
+              step: 0.1
+              mode: slider
+
+    delay_section:
+      name: "Delay Settings" #🕛
+      icon: mdi:timer-outline
+      collapsed: true
+      input:
+        drive_delay_fix:
+          name: "🕛 Fixed Drive Delay"
+          description: >-
+            Fixed drive delay to avoid radio interferences.
+            <br /><br />`Optional`
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              unit_of_measurement: seconds
+              step: 1.0
+              mode: slider
+
+        drive_delay_random:
+          name: "🕛 Random Drive Delay"
+          description: "Additional random delay."
+          default: 5
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              unit_of_measurement: seconds
+              step: 1.0
+              mode: slider
+
+        tilt_delay:
+          name: "🕛 Tilt Delay"
+          description: >-
+            Delay between <em>set_cover_position</em> and <em>set_cover_tilt_position</em>.
+            Only necessary when using the tilt functions.
+            This separates the two commands in terms of time.
+            <br /><br />`Optional`
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              unit_of_measurement: seconds
+              step: 1.0
+              mode: slider
+
+    contacts_section:
+      name: "Contact Sensors" #💨
+      icon: mdi:door-closed-lock
+      collapsed: true
+      input:
+        contact_sensor:
+          name: "💨 Contact Sensor Entity For Ventilation"
+          description: >-
+            The contact sensor is required for ventilation mode. It must be a binary two-way contact sensor.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
+            See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
+
+            If the door contact changes to on/true, the cover is moved to the ventilation position.
+            The prerequisite is that the cover is already closed.
+            After the status changes to off/false, the close position is activated.
+            The same applies in the shading-out situation.
+
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - binary_sensor
+                    - input_boolean
+
+        contact_sensor_lockout:
+          name: "💨 Contact Sensor Entity For Lockout Protection"
+          description: >-
+            The contact sensor is required for lockout protection. It must be a binary two-way contact sensor.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
+            See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
+
+            The cover is not closed and the sun shading is not activated when the door contact is open.
+            Note that the cover can close in the evening when the door contact is closed.
+            It is not moved to the previously desired shading position!
+            <br /><br />
+            If the sun shading is cancelled, the door contact is open and the lockout protection is enabled,
+            the blind does not move from the shading position to the ventilation position.
+            Instead, the roller blind is opened.
+
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - binary_sensor
+                    - input_boolean
+
+    shading_section:
+      name: "Shading Settings" #🥵
+      icon: mdi:shield-sun-outline
+      collapsed: true
+      input:
+        shading_brightness_sensor:
+          name: "🥵 Brightness Sensor For Sun Shading"
+          description: >-
+            An additional brightness sensor can be defined here, which is only used for shading.
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - sensor
+
+        shading_sun_brightness_start:
+          name: "🥵 Sun Shading Brightness Start Value"
+          description: >-
+            The minimum brightness value from which shading should start.
+            (Must be above the value of brightness end!)
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: 35000
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
+
+        shading_sun_brightness_end:
+          name: "🥵 Sun Shading Brightness End Value"
+          description: >-
+            The brightness value from which shading is no longer necessary.
+            (Must be below the value of brightness start!).
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: 25000
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
+
+        shading_azimuth_start:
+          name: "🥵 Sun Shading Azimuth Start Value"
+          description: >-
+            What is the minimum azimuth at which the sun hits the window? (Shading will start)
+            <br /><br />`The attribute of default sun sensor (configured above) is used.`
+            <br /><br />`Shading`
+          default: 95
+          selector:
+            number:
+              min: 0
+              max: 365
+              unit_of_measurement: "°"
+
+        shading_azimuth_end:
+          name: "🥵 Sun Shading Azimuth End Value"
+          description: >-
+            What is the maximum azimuth at which the sun hits the window? (Shading will stop)
+            <br /><br />`The attribute of default sun sensor (configured above) is used.`
+            <br /><br />`Shading`
+          default: 265
+          selector:
+            number:
+              min: 0
+              max: 365
+              unit_of_measurement: "°"
+
+        shading_elevation_min:
+          name: "🥵 Sun Shading Elevation Minimum Value"
+          description: >-
+            Starting from which elevation of the sun should the window be shaded?
+            (Here it makes sense to consider surrounding buildings, trees, etc.).
+            <br /><br />`The attribute of default sun sensor (configured above) is used.`
+            <br /><br />`Shading`
+          default: 25
+          selector:
+            number:
+              min: -90.0
+              max: 90.0
+              unit_of_measurement: °
+              step: 0.1
+              mode: slider
+
+        shading_elevation_max:
+          name: "🥵 Sun Shading Elevation Maximum Value"
+          description: >-
+            What is the maximal elevation for elevation?
+            (In most cases, 90 degrees is probably the most reasonable value.
+            However, this can also be different due to surrounding buildings, etc.).
+            <br /><br />`The attribute of default sun sensor (configured above) is used.`
+            <br /><br />`Shading`
+          default: 90
+          selector:
+            number:
+              min: -90.0
+              max: 90.0
+              unit_of_measurement: °
+              step: 0.1
+              mode: slider
+
+        shading_temperatur_sensor1:
+          name: "🥵 Sun Shading Temperature Sensor 1"
+          description: >-
+            This is the main temperature sensor. (Here, for example, the current outdoor or indoor temperature can be used as a condition).
+            This sensor does not have to be defined if the shading is to take place independently of it.
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - sensor
+          default: []
+
+        shading_min_temperatur1:
+          name: "🥵 Sun Shading Temperature Sensor 1 Minimum Value"
+          description: >-
+            Minimum temperature for sensor 1 above which shading should occur.
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: 18
+          selector:
+            number:
+              min: 0
+              max: 50.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+
+        shading_temperatur_sensor2:
+          name: "🥵 Sun Shading Temperature Sensor 2"
+          description: >-
+            This is a secondary temperature sensor.
+            (Here, for example, a temperature difference sensor can be used as a criterion.
+            Or, if Shading Temperature Sensor 1 is outdoor temperature, you can use indoor temperature).
+            This sensor does not have to be defined.
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - sensor
+
+        shading_min_temperatur2:
+          name: "🥵 Sun Shading Temperature Sensor 2 Minimum Value"
+          description: >-
+            Minimum temperature for sensor 2 above which shading should occur.
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: 18
+          selector:
+            number:
+              min: 0.0
+              max: 50.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+
+        shading_forecast_sensor:
+          name: "🥵 Sun Shading Forecast Temperature Sensor"
+          description: >-
+            Another temperature sensor. In this case, however, explicitly for use with a forecast.
+            The idea is that it can happen, especially in spring, that the value of the Forecast Temperatur Value exceeded by
+            strong solar radiation and the shading would be started.
+            However, in spring you may not want shading, but the solar radiation as a welcome, free heating is desired.
+            So you can define via the forecast sensor that shading is only started at an expected daily maximum temperature.
+            **NOTE**: Sensor must support weather.get_forecasts which has been introduced with HA 2023.9
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - weather
+
+        shading_forecast_temp:
+          name: "🥵 Sun Shading Forecast Temperatur Value"
+          description: >-
+            Minimum temperature for forecast sensor above which shading should occur.
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: 20
+          selector:
+            number:
+              min: 0.0
+              max: 50.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+
+        shading_weather_conditions:
+          name: "🥵 Sun Shading Weather Conditions"
+          description: >-
+            Check the following weather conditions when activating the shading.
+            **NOTE**: Forecast sensor needs to be defined
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default:
+            - sunny
+            - partlycloudy
+            - cloudy
+            - clear
+          selector:
+            select:
+              multiple: true
+              options:
+                - "clear-night"
+                - "clear"
+                - "cloudy"
+                - "fog"
+                - "hail"
+                - "lightning"
+                - "lightning-rainy"
+                - "partlycloudy"
+                - "pouring"
+                - "rainy"
+                - "snowy"
+                - "snowy-rainy"
+                - "sunny"
+                - "windy"
+                - "windy-variant"
+                - "exceptional"
+
+        shading_waitingtime_start:
+          name: "🥵 Waiting Time For Sun Shading Start"
+          description: >-
+            To avoid overloading the motor, a waiting time can be defined here for the start of shading.
+            The shade will then only start if <ins>all</ins> mandatory conditions are fulfilled for the entire waiting time.
+            <br /><br />
+            Note: The automated system only waits for the time when the roller blind is above the ventilation position.
+            <br /><br />`Shading`
+          default: 300
+          selector:
+            number:
+              min: 0
+              max: 3600
+              unit_of_measurement: seconds
+
+        shading_waitingtime_end:
+          name: "🥵 Waiting Time For Sun Shading End"
+          description: >-
+            To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended.
+            Shading ends if <ins>one</ins> of the conditions is <ins>not</ins> fulfilled for the entire waiting time.
+            <br /><br />`Shading`
+          default: 300
+          selector:
+            number:
+              min: 0
+              max: 3600
+              unit_of_measurement: seconds
+
+    condition_section:
+      name: "Additional Conditions" #❓
+      icon: mdi:help-rhombus-outline
+      collapsed: true
+      input:
+        auto_global_condition:
+          name: "❓ Additional condition for the entire automation"
+          description: >-
+            This condition allows you to control the execution of the <ins>entire</ins> automation dynamically and outside of the blueprint configuration.
+            With this option you could enable a party mode.<br /><br />
+            This is the only condition that is also taken into account in the force features.
+            Forcing Open/Close/Shading/Ventilation is therefore only possible if this condition remains empty or becomes valid.
+            <br /><br />`Optional`
+          default: []
+          selector:
+            condition: {}
+
+        auto_up_condition:
+          name: "🔼 Additional Condition For Opening The Cover"
+          description: >-
+            This condition can be used to dynamically control the <ins>opening</ins> of the cover.
+            You can use this, for example, if the covers normally don't open, but you really want to do it on vacation.
+            <br /><br />`Optional`
+          default: []
+          selector:
+            condition: {}
+
+        auto_down_condition:
+          name: "🔻 Additional Condition For Closing The Cover"
+          description: >-
+            This condition can be used to dynamically control the <ins>closing</ins> of the cover.
+            You can use this, for example, at Christmas time or if you want the covers to behave differently while on vacation.
+            <br /><br />`Optional`
+          default: []
+          selector:
+            condition: {}
+
+        auto_ventilate_condition:
+          name: "💨 Additional Condition For Ventilation"
+          description: >-
+            This condition can be used to dynamically control the <ins>start of the ventilation</ins> of the cover.
+            <br /><br />`Optional`
+          default: []
+          selector:
+            condition: {}
+
+        auto_shading_start_condition:
+          name: "🥵 Additional Condition For Activating Sun Shading"
+          description: >-
+            This condition can be used to dynamically control the <ins>shading-IN-automation</ins> of the cover.
+            This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).
+            <br />
+            Another example: Here you could also set that the shading is only triggered in the summer season.
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: []
+          selector:
+            condition: {}
+
+        auto_shading_end_condition:
+          name: "🥵 Additional Condition For Disabling Sun Shading"
+          description: >-
+            This condition can be used to dynamically control the <ins>shading-OUT-automation</ins> of the cover.
+            This can be useful if you want to temporarily disable automation (e.g. because of control by other automations).
+            <br /><br />`Optional`
+            <br /><br />`Shading`
+          default: []
+          selector:
+            condition: {}
+
+    force_section:
+      name: "Force Features" #💪
+      icon: mdi:arm-flex
+      collapsed: true
+      input:
+        auto_up_force:
+          name: "🔼 Force Immediate Opening"
+          description: >-
+            If the status of this entity changes to on or true, the cover is opened immediately and without further checking.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
+
+            Note:
+              - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
+              - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
+              - Force is a final state that cannot be cancelled or resetted by CCA.
+              - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
+
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
+
+        auto_down_force:
+          name: "🔻 Force Immediate Closing"
+          description: >-
+            If the status of this entity changes to on or true, the cover is closed immediately and without further checking.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
+
+            Note:
+              - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
+              - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
+              - Force is a final state that cannot be cancelled or resetted by CCA.
+              - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
+
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
+
+        auto_ventilate_force:
+          name: "💨 Force Immediate Ventilation"
+          description: >-
+            If the status of this entity changes to on or true, the cover is immediately set to ventilation mode and without further checking.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
+
+            Note:
+              - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
+              - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
+              - Force is a final state that cannot be cancelled or resetted by CCA.
+              - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
+
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
+
+        auto_shading_start_force:
+          name: "🥵 Force Activation Sun Shading"
+          description: >-
+            If the status of this entity changes to on or true, the shading is immediately activated and without further checking.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            This can be used for the following purposes under certain circumstances: Antifreeze, RainProtection or WindProtection.
+
+            Note:
+              - However, after forcing a state, you must ensure that you move to the correct target position yourself. You are responsible for getting CCA back on track.
+              - This cannot be performed in CCA and must therefore be done via a separate automation. Presumably in the same automation that sets the "Force"-boolean. It is sufficient, by the way, if a configured position is targeted. CCA then recognises the status.
+              - Force is a final state that cannot be cancelled or resetted by CCA.
+              - The default automations (open, close, and further) will never be able to override a force. The force feature must therefore be cancelled manually beforehand.
+
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
+
+    actions_section:
+      name: "Additional Actions" # ▶️
+      icon: mdi:run
+      collapsed: true
+      input:
+        auto_up_action:
+          name: "🔼 Additional Actions After Opening The Cover"
+          description: Additional actions to run after opening the cover
+          default: []
+          selector:
+            action: {}
+
+        auto_down_action:
+          name: "🔻 Additional Actions After Closing The Cover"
+          description: Additional actions to run after closing the cover
+          default: []
+          selector:
+            action: {}
+
+        auto_ventilate_action:
+          name: "💨 Additional Actions After Ventilating The Cover"
+          description: Additional actions to run after ventilating the cover
+          default: []
+          selector:
+            action: {}
+
+        auto_shading_start_action:
+          name: "🥵 Additional Actions After Activating Sun Shading"
+          description: Additional actions to run after activating sun shading
+          default: []
+          selector:
+            action: {}
+
+        auto_shading_end_action:
+          name: "🥵 Additional Actions After Disabling Sun Shading"
+          description: Additional actions to run after disabling sun shading
+          default: []
+          selector:
+            action: {}
+
+    configcheck_section:
+      name: "Configuration Check" #✔️
+      icon: mdi:invoice-text-check-outline
+      collapsed: true
+      input:
+        check_config:
+          name: "✔️ Check Configuration"
+          description: >-
+            With this boolean, you can enable or disable the basic plausibility check for the configuration.
+            he check only takes place if the automation is executed manually.
+          default: false
+          selector:
+            boolean: {}
+
+        check_config_debuglevel:
+          name: "✔️ Check Configuration - Debug level"
+          description: >-
+            Choose the debug level for Syslog messages in case of configuration issues
+            <br />
+            Please make sure that it suits your Home Assistant logger default level.
+          default: "info"
+          selector:
+            select:
+              multiple: false
+              mode: dropdown
+              options:
+                - "critical"
+                - "debug"
+                - "error"
+                - "info"
+                - "warning"
 
 trigger_variables:
   blind: !input blind
@@ -1408,6 +1500,7 @@ trigger_variables:
   time_down_late: !input time_down_late
   time_down_late_non_workday: !input time_down_late_non_workday
   workday_sensor: !input workday_sensor
+  workday_sensor_tomorrow: !input workday_sensor_tomorrow
 
   # Brightness
   default_brightness_sensor: !input default_brightness_sensor
@@ -1457,7 +1550,7 @@ trigger_variables:
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
 variables:
-  version: "2024.05.28-01"
+  version: "2024.06.05-01"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1484,14 +1577,24 @@ variables:
     {% endif %}
 
   time_down_early_today: >-
-    {% if time_down_early_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+    {% if
+      (workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on')) or
+      time_down_early_non_workday == [] or
+      workday_sensor == [] or
+      is_state(workday_sensor, 'on')
+    %}
       {{ time_down_early }}
     {% else %}
       {{ time_down_early_non_workday }}
     {% endif %}
 
   time_down_late_today: >-
-    {% if time_down_late_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+    {% if
+      (workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on')) or
+      time_down_late_non_workday == [] or
+      workday_sensor == [] or
+      is_state(workday_sensor, 'on')
+    %}
       {{ time_down_late }}
     {% else %}
       {{ time_down_late_non_workday }}
@@ -1716,7 +1819,12 @@ trigger:
 
   - platform: template
     value_template: >-
-      {% if time_down_early_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+      {% if
+        (workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on')) or
+        time_down_early_non_workday == [] or
+        workday_sensor == [] or
+        is_state(workday_sensor, 'on')
+      %}
         {{ is_time_field_enabled and now() >= today_at(time_down_early) }}
       {% else %}
         {{ is_time_field_enabled and now() >= today_at(time_down_early_non_workday) }}
@@ -1725,7 +1833,12 @@ trigger:
 
   - platform: template
     value_template: >-
-      {% if time_down_late_non_workday == [] or workday_sensor == [] or (is_state(workday_sensor, 'on')) %}
+      {% if
+        (workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on')) or
+        time_down_late_non_workday == [] or
+        workday_sensor == [] or
+        is_state(workday_sensor, 'on')
+      %}
         {{ is_time_field_enabled and now() >= today_at(time_down_late) }}
       {% else %}
         {{ is_time_field_enabled and now() >= today_at(time_down_late_non_workday) }}

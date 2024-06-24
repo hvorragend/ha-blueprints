@@ -190,3 +190,10 @@
   - <strong>BREAKING CHANGES:</strong>
       - Cover Status Helper is now mandatory for ventilation, lockout protection and shading!
       - Invert the status of some options #61 ("Prevent the cover from being ... several times a day" instead of "Allow the cover to be ... several times a day")
+
+2024.06.04-01:
+  - Major GUI Update: Using blueprint sections now (Min-Core-Version: 2024.6.0)
+
+2024.06.05-01:
+  - Added: Optional checking workday tomorrow sensor when closing the cover #71
+  - Updated: GUI section icons to MDI icons
