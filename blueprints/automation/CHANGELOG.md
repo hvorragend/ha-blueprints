@@ -197,3 +197,14 @@
 2024.06.05-01:
   - Added: Optional checking workday tomorrow sensor when closing the cover #71
   - Updated: GUI section icons to MDI icons
+
+2024.06.24:
+  - Breaking change: 'prevent_higher_position_shading_end' changed to new parameter 'prevent_lowering_when_closing_if_shaded'
+  - Added: Limited templates for enabling automation triggers
+  - Added: Shading sensor 2 is also checked again during shading
+  - Fixed: Occasionally sun shading was performed without checking the weather conditions
+  - Fixed: The ventilation position was not set correctly when closing the roller blind
+  - Fixed: At the end of sun shading, the system no longer moves to the ventilation position
+  - Fixed: Sun shading is now also calculated outside the configured times and can be taken into account when opening.
+  - Fixed: Option "Prevent the cover from closing immediately after deactivating the lockout protection"
+  - Many thanks to Eimeel and Bostil
