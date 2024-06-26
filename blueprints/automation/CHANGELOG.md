@@ -208,3 +208,11 @@
   - Fixed: Sun shading is now also calculated outside the configured times and can be taken into account when opening.
   - Fixed: Option "Prevent the cover from closing immediately after deactivating the lockout protection"
   - Many thanks to Eimeel and Bostil
+
+2024.06.26:
+  - <strong>Breaking change:</strong> The option <em>"Prevent the use of the 'get_forecasts' service (prevent_forecast_service)"</em> has been removed and replaced by the configuration option under <em>"Sun Shading Forecast Type"</em>
+  - Fixed: If tomorrow is not a working day, the right time is taken now - #80
+  - Fixed: If the blind is moved manually below the shading and ventilation position, this is no longer recognised as closed.
+  - Added: Additional Actions After Manual Change - #87
+  - Added: You can now decide whether you want to use the hourly or daily weather forecast.
+  - Added: It is now possible to reset the manual detection of roller blind movements at 00:01 - #86
