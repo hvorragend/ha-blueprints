@@ -67,11 +67,12 @@ blueprint:
     <summary><strong>Changes in the last days</strong></summary>
 
     2024.06.26:
-      - Fixed: If tomorrow is not a working day, the right time is taken now #80
-      - Fixed: If the blind is moved manually below the shading and ventilation position, this is no longer recognised as closed.
-      - Added: Additional Actions After Manual Change #87
-      - Added: You can now decide whether you want to use the hourly or daily weather forecast.
       - <strong>Breaking change:</strong> The option <em>"Prevent the use of the 'get_forecasts' service (prevent_forecast_service)"</em> has been removed and replaced by the configuration option under <em>"Sun Shading Forecast Type"</em>
+      - Fixed: If tomorrow is not a working day, the right time is taken now - #80
+      - Fixed: If the blind is moved manually below the shading and ventilation position, this is no longer recognised as closed.
+      - Added: Additional Actions After Manual Change - #87
+      - Added: You can now decide whether you want to use the hourly or daily weather forecast.
+      - Added: It is now possible to reset the manual detection of roller blind movements at 00:01 - #86
 
     2024.06.24:
       - <strong>Breaking change:</strong> 'prevent_higher_position_shading_end' changed to new parameter 'prevent_lowering_when_closing_if_shaded'
@@ -328,6 +329,8 @@ blueprint:
                   value: "ignore_ventilation_after_manual"
                 - label: "🥵 Ignore/skip next automatic sun shading after manual position changes"
                   value: "ignore_shading_after_manual"
+                - label: "🗑️ Reset manual detection at 00:01 h"
+                  value: "reset_manual_detection"
               multiple: true
               sort: false
               custom_value: false
@@ -1633,6 +1636,9 @@ trigger_variables:
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
+  skip_after_manual_config: !input ignore_after_manual_config
+  reset_manual_detection: "{{ 'reset_manual_detection' in skip_after_manual_config }}"
+
 variables:
   version: "2024.06.26"
 
@@ -1821,7 +1827,6 @@ variables:
   prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
   prevent_closing_by_resident: "{{ 'prevent_closing_by_resident' in individual_config }}"
 
-  skip_after_manual_config: !input ignore_after_manual_config
   skip_opening_after_manual: "{{ 'ignore_opening_after_manual' in skip_after_manual_config }}"
   skip_closing_after_manual: "{{ 'ignore_closing_after_manual' in skip_after_manual_config }}"
   skip_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in skip_after_manual_config }}"
@@ -2036,6 +2041,11 @@ trigger:
     attribute: current_position
     id: "t_ma_1"
     for: "00:01:00"
+
+  - platform: time # Reset manual detection
+    at: "00:01"
+    enabled: "{{ reset_manual_detection }}"
+    id: "t_ma_2"
 
   ########################################
   # Global conditions
@@ -3786,6 +3796,30 @@ action:
                         {{ dict_new | to_json }}
                   - choose: []
                     default: !input auto_manual_action
+
+      ############################################################
+      # ANCHOR: RESET MANUAL DETECTION
+      ############################################################
+
+      - alias: "Reset manual detection"
+        conditions:
+          - "{{ reset_manual_detection }}"
+          - condition: trigger
+            id: "t_ma_2"
+        sequence:
+          - service: input_text.set_value
+            data:
+              entity_id: !input cover_status_helper
+              value: |
+                {% set dict_var = states(cover_status_helper) | from_json %}
+                {% set dict_new = dict(dict_var, **{
+                  'manual':{'a':false,'t':as_timestamp(now()) | round(0)},
+                  'p':current_position,
+                  'v':4,
+                  't':as_timestamp(now()) | round(0)
+                  })
+                %}
+                {{ dict_new | to_json }}
 
     default:
       - if:
