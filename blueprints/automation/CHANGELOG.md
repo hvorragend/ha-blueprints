@@ -216,3 +216,6 @@
   - Added: Additional Actions After Manual Change - #87
   - Added: You can now decide whether you want to use the hourly or daily weather forecast.
   - Added: It is now possible to reset the manual detection of roller blind movements at 00:01 - #86
+
+2024-06-27:
+  - Minor bugfix
