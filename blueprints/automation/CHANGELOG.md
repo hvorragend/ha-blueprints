@@ -219,3 +219,10 @@
 
 2024-06-27:
   - Minor bugfix
+
+2024.06.29:
+  - Breaking change: The checkbox introduced in the last update "reset_manual_detection" has been moved to a separate selection. Please reconfigure.
+  - Added: Time and timeout in minutes to reset the manual override #95
+  - Added: Additional Actions After Override Reset #94
+  - Fixed: The cover may also be closed after ventilation if the down mode is not activated
+  - Many thanks to crandler for the ideas

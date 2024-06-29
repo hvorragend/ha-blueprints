@@ -4,13 +4,14 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.06.27
+    **Version**: 2024.06.29
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
     **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    **If you would like to support me or say thank you, please click here:** 🙏 [Click Here](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) 🙏
+    ### If you would like to support me or say thank you, please click here:
+    🙏 [PayPal Donation](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) | [Buy me a Coffee](https://buymeacoffee.com/herr.vorragend) 🙏
 
     <details>
     <summary><strong>Features</strong></summary>
@@ -57,18 +58,22 @@ blueprint:
     - `shading_position` should be lower than `open_position`
     - `resident_sensor` is only allowed to be on/off/true/false
     - cover must have a `current_position` attribute
-    - After <ins>manual creation</ins> of the helper in the GUI, it will be filled with standard content on the <ins>first trigger</ins>.
-      In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself with the next trigger later.
-      Alternatively, the roller blinds must be moved shortly once so that the automation system knows what the current status is.
 
     </details>
 
     <details>
     <summary><strong>Changes in the last days</strong></summary>
- 
+
+    2024.06.29:
+      - <strong>Breaking change:</strong>: The checkbox introduced in the last update "reset_manual_detection" has been moved to a separate selection. Please reconfigure.
+      - Added: Time and timeout in minutes to reset the manual override #95
+      - Added: Additional Actions After Override Reset #94
+      - Fixed: The cover may also be closed after ventilation if the down mode is not activated
+      - Many thanks to crandler for the ideas
+
     2024.06.27:
       - Minor bugfix
-      
+
     2024.06.26:
       - <strong>Breaking change:</strong> The option <em>"Prevent the use of the 'get_forecasts' service (prevent_forecast_service)"</em> has been removed and replaced by the configuration option under <em>"Sun Shading Forecast Type"</em>
       - Fixed: If tomorrow is not a working day, the right time is taken now - #80
@@ -94,34 +99,6 @@ blueprint:
 
     2024.06.04-01:
       - Major GUI Update: Using blueprint sections now (Min-Core-Version: 2024.6.0)
-
-    2024.05.28-01:
-      - Complete restructuring and logic change for shading, lockout protection and ventilation:
-          - When the cover is opened, the system checks whether a sun shading is already in place. If this is the case, the cover is not opened but moved directly into the shading position.
-          - If the cover is to be closed and the contact is open, either lockout protection or ventilation mode is activated.
-          - If the cover is closed and the corresponding contact is opened, the ventilation position is activated.
-          - When the sun shading is activated, the lockout protection is taken into account if the contact is open. If the contact is closed, the cover moves back to the shading position.
-          - When the sun shading is stopped, the lockout protection is checked. It is also possible to move to the ventilation position when the contact is open. If the contact is closed here, the cover is opened.
-
-          <ins>Summary:</ins> CCA saves the temporary status (ventilation, lockout protection and shading) and the actual target status in the Cover Status Helper.
-          - This means that the cover is simply opened or closed as before.
-          - And it does <ins>not</ins> always return to the previous state (which may have changed in the meantime).
-          - Instead, it switches to the state that should actually be current.
-      - Fixed: Incorrect position detection during manual drives if shading_position is smaller than close_position
-      - Added: Shading activation before opening. The cover can now move into the shading during the opening process. #4
-      - Added: Prevent automatic closing due to the resident sensor #63
-      - Added: Option to deactivate time control. This means that the system can now also be controlled exclusively via the brightness and the height of the sun. I
-      - <strong>BREAKING CHANGES:</strong>
-          - Cover Status Helper is now mandatory for ventilation, lockout protection and shading!
-          - Invert the status of some options #61 ("Prevent the cover from being ... several times a day" instead of "Allow the cover to be ... several times a day")
-
-    2024.05.22-01:
-      - Added: Separation of the contact sensors for ventilation and lockout protection
-        BREAKING CHANGE: Reconfiguration of lockout protection necessary!
-      - Updated: Combining the shading triggers. No more problems with waiting times and retriggers.
-      - Fixed: Do not drive down the cover after closing the contact if 'Automatic Closing Mode' is disabled
-      - Fixed: Missing shading force trigger
-      - Fixed: Prevent trigger with invalid status
 
     </details>
 
@@ -156,7 +133,7 @@ blueprint:
                 - cover
 
     feature_section:
-      name: "Automation Options" # ⚙️
+      name: "Automation Options"
       icon: mdi:window-shutter-cog
       collapsed: true
       input:
@@ -260,6 +237,18 @@ blueprint:
             This option can be used to disable the standard services and allows the control to be implemented individually via the addtional actions.
 
             </details>
+            <br /><br />
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Some notes on multiple triggering</code></summary>
+
+
+            Even if multiple opening, closing, shading, etc. is activated, this only works if a trigger is available.
+            However, the numeric state triggers only trigger under certain circumstances.
+            Please see notes here [Numeric state triggers](https://www.home-assistant.io/docs/automation/trigger/#numeric-state-trigger)
+
+            > <em>Crossing the threshold means that the trigger only fires if the state wasn't previously within the threshold. If the current state of your entity is `50` and you set the threshold to `below: 75`, the trigger would not fire if the state changed to e.g. `49` or `72` because the threshold was never crossed. The state would first have to change to e.g. `76` and then to e.g. `74` for the trigger to fire.</em>
+
+            </details>
 
           default: []
           selector:
@@ -292,10 +281,15 @@ blueprint:
               custom_value: false
               mode: list
 
+    override_section:
+      name: "Manual Override"
+      icon: mdi:debug-step-over
+      collapsed: true
+      input:
         ignore_after_manual_config:
-          name: "🖐️ Ignoring/skipping after manual position changes"
+          name: "🖐️ Ignoring/override after manual position changes"
           description: >-
-            Ignore or skip the following actions after manual position changes.
+            Ignore or override the following actions after manual position changes.
 
             <details>
             <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
@@ -324,23 +318,56 @@ blueprint:
           selector:
             select:
               options:
-                - label: "🔼 Ignore/skip next automatic opening after manual position changes"
+                - label: "🔼 Ignore/override next automatic opening after manual position changes"
                   value: "ignore_opening_after_manual"
-                - label: "🔻 Ignore/skip next automatic closing after manual position changes"
+                - label: "🔻 Ignore/override next automatic closing after manual position changes"
                   value: "ignore_closing_after_manual"
-                - label: "💨 Ignore/skip next automatic ventilation after manual position changes"
+                - label: "💨 Ignore/override next automatic ventilation after manual position changes"
                   value: "ignore_ventilation_after_manual"
-                - label: "🥵 Ignore/skip next automatic sun shading after manual position changes"
+                - label: "🥵 Ignore/override next automatic sun shading after manual position changes"
                   value: "ignore_shading_after_manual"
-                - label: "🗑️ Reset manual detection at 00:01 h"
-                  value: "reset_manual_detection"
               multiple: true
               sort: false
               custom_value: false
               mode: list
 
+        reset_override_config:
+          name: "🗑️ Reset manual override"
+          description: >-
+            If the detection of the manual position change was activated above, you may need a way to reset this status.
+            Otherwise, the next cover movements will be permanently ignored or overridden.
+            Or you have not activated an individual action, e.g. when closing the covers, which resets the status.
+          default: reset_disabled
+          selector:
+            select:
+              options:
+                - label: "No timed reset for manual override"
+                  value: "reset_disabled"
+                - label: "Reset at a specified time (see below)"
+                  value: "reset_time"
+                - label: "Reset after a timeout in minutes (see below)"
+                  value: "reset_timeout"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
+
+        reset_override_time:
+          name: "🗑️ Time to reset manual override"
+          description: "At what time do you want the manual detection to be reset?"
+          default: "00:01:00"
+          selector:
+            time: {}
+
+        reset_override_timeout:
+          name: "🗑️ Number of minutes until reset manual override"
+          description: "After how many minutes should it be reset?"
+          default: 360
+          selector:
+            number:
+
     helper_section:
-      name: "Cover Status Detection" #🦮
+      name: "Cover Status"
       icon: mdi:form-textbox
       collapsed: true
       input:
@@ -409,9 +436,8 @@ blueprint:
               mode: slider
 
     position_section:
-      name: "Position Configuration" # 📍
+      name: "Position Configuration"
       icon: mdi:window-shutter-settings
-      #  description: "If the cover and the integration support it, the tilt position can be used. However, the attribute 'current_position' is used for position detection and 'current_tilt_position' is not used or taken into account."
       collapsed: true
       input:
         open_position:
@@ -558,7 +584,7 @@ blueprint:
               unit_of_measurement: "%"
 
     time_section:
-      name: "Time Control Configuration" #⏲️
+      name: "Time Control Configuration"
       icon: mdi:clock-time-two-outline
       collapsed: true
       input:
@@ -752,7 +778,7 @@ blueprint:
             time: {}
 
     brightness_section:
-      name: "Brightness Configuration" #🔅
+      name: "Brightness Configuration"
       icon: mdi:brightness-5
       collapsed: true
       input:
@@ -803,7 +829,7 @@ blueprint:
               step: 1.0
 
     sun_section:
-      name: "Sun Elevation Settings" #☀️
+      name: "Sun Elevation Settings"
       icon: mdi:weather-sunny
       collapsed: true
       input:
@@ -861,7 +887,7 @@ blueprint:
               mode: slider
 
     delay_section:
-      name: "Delay Settings" #🕛
+      name: "Delay Settings"
       icon: mdi:timer-outline
       collapsed: true
       input:
@@ -908,7 +934,7 @@ blueprint:
               mode: slider
 
     contacts_section:
-      name: "Contact Sensors" #💨
+      name: "Contact Sensors / Ventilation"
       icon: mdi:door-closed-lock
       collapsed: true
       input:
@@ -940,7 +966,7 @@ blueprint:
                     - input_boolean
 
         contact_sensor_lockout:
-          name: "💨 Contact Sensor Entity For Lockout Protection"
+          name: "🚪 Contact Sensor Entity For Lockout Protection"
           description: >-
             The contact sensor is required for lockout protection. It must be a binary two-way contact sensor.
 
@@ -1003,7 +1029,7 @@ blueprint:
               mode: list
 
     shading_section:
-      name: "Sun Shading / Sun Protection" #🥵
+      name: "Sun Shading / Sun Protection"
       icon: mdi:shield-sun-outline
       collapsed: true
       input:
@@ -1310,7 +1336,7 @@ blueprint:
               unit_of_measurement: seconds
 
     condition_section:
-      name: "Additional Conditions" #❓
+      name: "Additional Conditions"
       icon: mdi:help-rhombus-outline
       collapsed: true
       input:
@@ -1380,7 +1406,7 @@ blueprint:
             condition: {}
 
     force_section:
-      name: "Force Features" #💪
+      name: "Force Features"
       icon: mdi:arm-flex
       collapsed: true
       input:
@@ -1489,7 +1515,7 @@ blueprint:
                 - binary_sensor
 
     actions_section:
-      name: "Additional Actions" # ▶️
+      name: "Additional Actions"
       icon: mdi:run
       collapsed: true
       input:
@@ -1530,13 +1556,20 @@ blueprint:
 
         auto_manual_action:
           name: "🖐️ Additional Actions After Manual Change"
-          description: "Additional actions after a manual change to the roller blinds"
+          description: "Additional actions after a manual change to the covers"
+          default: []
+          selector:
+            action: {}
+
+        auto_override_reset_action:
+          name: "🗑️ Additional Actions After Override Reset"
+          description: "Additional actions to be taken after resetting the manual override"
           default: []
           selector:
             action: {}
 
     configcheck_section:
-      name: "Configuration Check" #✔️
+      name: "Configuration Check"
       icon: mdi:invoice-text-check-outline
       collapsed: true
       input:
@@ -1639,8 +1672,15 @@ trigger_variables:
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
-  skip_after_manual_config: !input ignore_after_manual_config
-  reset_manual_detection: "{{ 'reset_manual_detection' in skip_after_manual_config }}"
+  reset_override_config: !input reset_override_config
+  reset_override_time: !input reset_override_time
+  reset_override_timeout: !input reset_override_timeout
+  is_reset_disabled: "{{ 'reset_disabled' in reset_override_config }}"
+  is_reset_time: "{{ 'reset_time' in reset_override_config }}"
+  is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
+
+  cover_status_options: !input cover_status_options
+  cover_status_helper: !input cover_status_helper
 
 variables:
   version: "2024.06.27"
@@ -1709,8 +1749,6 @@ variables:
   check_config_debuglevel: !input check_config_debuglevel
 
   # Cover Status Helper
-  cover_status_options: !input cover_status_options
-  cover_status_helper: !input cover_status_helper
   is_status_helper_enabled: >-
     {{
       'cover_helper_enabled' in cover_status_options and
@@ -1830,10 +1868,11 @@ variables:
   prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
   prevent_closing_by_resident: "{{ 'prevent_closing_by_resident' in individual_config }}"
 
-  skip_opening_after_manual: "{{ 'ignore_opening_after_manual' in skip_after_manual_config }}"
-  skip_closing_after_manual: "{{ 'ignore_closing_after_manual' in skip_after_manual_config }}"
-  skip_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in skip_after_manual_config }}"
-  skip_shading_after_manual: "{{ 'ignore_shading_after_manual' in skip_after_manual_config }}"
+  ignore_after_manual_config: !input ignore_after_manual_config
+  override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
+  override_closing_after_manual: "{{ 'ignore_closing_after_manual' in ignore_after_manual_config }}"
+  override_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in ignore_after_manual_config }}"
+  override_shading_after_manual: "{{ 'ignore_shading_after_manual' in ignore_after_manual_config }}"
 
   auto_ventilate_options: !input auto_ventilate_options
   ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
@@ -1966,23 +2005,23 @@ trigger:
   - platform: template
     value_template: "{{ is_state(contact_sensor, ['true', 'on']) }}"
     enabled: "{{ is_ventilation_enabled and contact_sensor != [] }}"
-    id: "t_ct_vent_open"
+    id: "t_vent_open"
 
   - platform: template
     value_template: "{{ is_state(contact_sensor, ['false', 'off']) }}"
     enabled: "{{ is_ventilation_enabled and contact_sensor != [] }}"
-    id: "t_ct_vent_close"
+    id: "t_vent_close"
 
   - platform: template
     value_template: "{{ is_state(contact_sensor_lockout, ['false', 'off']) }}"
     enabled: "{{ is_lockout_protection_enabled and contact_sensor_lockout != [] }}"
-    id: "t_ct_lock_close"
+    id: "t_lock_close"
 
   - platform: state
     entity_id: !input auto_ventilate_force
     from: "off"
     to: "on"
-    id: "t_ve_force"
+    id: "t_vent_force"
 
   ########################################
   # Triggers for shading start
@@ -2045,10 +2084,25 @@ trigger:
     id: "t_ma_1"
     for: "00:01:00"
 
-  - platform: time # Reset manual detection
-    at: "00:01"
-    enabled: "{{ reset_manual_detection }}"
+  - platform: template # Deliberately not using platform:time so that to_state and from_state are available. This would otherwise lead to errors later on
+    value_template: "{{ now() >= today_at(reset_override_time) }}"
+    enabled: "{{ is_reset_time }}"
     id: "t_ma_2"
+
+  - platform: template
+    value_template: >-
+      {% if
+        cover_status_helper != [] and
+        states(cover_status_helper) != [] and
+        states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
+        states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
+        states(cover_status_helper)|from_json|regex_search('manual') and
+        (states(cover_status_helper)|from_json).v >= 2
+      %}
+        {{ now() >= ( (states(cover_status_helper)|from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local }}
+      {% endif %}
+    enabled: "{{ is_reset_timeout }}"
+    id: "t_ma_3"
 
   ########################################
   # Global conditions
@@ -2056,18 +2110,12 @@ trigger:
 
 condition:
   - condition: !input auto_global_condition
-  - "{{ trigger.platform != 'state' or (trigger.platform == 'state' and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed']) }}" # The following values are not valid to trigger
+  - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger / trigger.platform == 'time' or...
   - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering
 
-  ###############################################################################################
-  # ACTION
-  #
-  #   Note: I really have a lot of repetitive YAML code here in the blueprint.
-  #   I'm not used to this and I would like to encapsulate it in functions or something similar
-  #   or make the process more generic. Unfortunately, my hands are tied in an HA blueprint
-  #   and there is this really large amount of - actually nonsensical - repetition.
-  #   So please don't be surprised. I don't like that either. :-)
-  ###############################################################################################
+  ########################################
+  # Action
+  ########################################
 
 action:
   # Querying the weather forecast
@@ -2164,8 +2212,8 @@ action:
           - or: # Ignore check
               - "{{ not is_status_helper_enabled }}"
               - "{{ is_status_helper_enabled and not is_cover_helper_manual }}"
-              - "{{ is_status_helper_enabled and skip_opening_after_manual }}"
-              - "{{ is_status_helper_enabled and is_cover_helper_manual and not skip_opening_after_manual }}"
+              - "{{ is_status_helper_enabled and override_opening_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_helper_manual and not override_opening_after_manual }}"
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_opening_multiple_times }}"
@@ -2364,8 +2412,8 @@ action:
           - or: # Ignore check
               - "{{ not is_status_helper_enabled }}"
               - "{{ is_status_helper_enabled and not is_cover_helper_manual }}"
-              - "{{ is_status_helper_enabled and skip_closing_after_manual }}"
-              - "{{ is_status_helper_enabled and is_cover_helper_manual and not skip_closing_after_manual }}"
+              - "{{ is_status_helper_enabled and override_closing_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_helper_manual and not override_closing_after_manual }}"
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_closing_multiple_times }}"
@@ -2645,8 +2693,8 @@ action:
               - "{{ not (is_cover_helper_ventilated or is_cover_helper_locked) }}"
           - or: # Ignore check
               - "{{ not is_cover_helper_manual }}"
-              - "{{ skip_shading_after_manual }}"
-              - "{{ is_cover_helper_manual and not skip_shading_after_manual }}"
+              - "{{ override_shading_after_manual }}"
+              - "{{ is_cover_helper_manual and not override_shading_after_manual }}"
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d')|int) }}"
@@ -2838,8 +2886,8 @@ action:
                   - "{{ is_state(time_schedule_helper, 'on') }}"
           - or: # Ignore check
               - "{{ not is_cover_helper_manual }}"
-              - "{{ skip_shading_after_manual }}"
-              - "{{ is_cover_helper_manual and not skip_shading_after_manual }}"
+              - "{{ override_shading_after_manual }}"
+              - "{{ is_cover_helper_manual and not override_shading_after_manual }}"
           - or:
               - "{{ is_cover_helper_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
@@ -3024,7 +3072,7 @@ action:
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_condition
           - condition: trigger
-            id: "t_ct_vent_open"
+            id: "t_vent_open"
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - "{{ contact_sensor != [] }}"
@@ -3123,7 +3171,7 @@ action:
 
       - alias: "Contact sensor closed"
         conditions:
-          - "{{ is_down_enabled }}" # Only close if it is allowed
+          # - "{{ is_down_enabled }}" # Removed, becuase of https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/863
           - "{{ is_status_helper_enabled }}"
           - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
           - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
@@ -3133,7 +3181,7 @@ action:
               - and:
                   - "{{ is_ventilation_enabled }}"
                   - condition: trigger
-                    id: "t_ct_vent_close"
+                    id: "t_vent_close"
                   - "{{ contact_sensor != [] }}"
                   - "{{ is_state(contact_sensor, ['false', 'off']) }}"
                   - or:
@@ -3141,12 +3189,12 @@ action:
                       - "{{ in_ventilate_position }}" # Position check
                   - or: # Ignore check
                       - "{{ not is_cover_helper_manual }}"
-                      - "{{ skip_ventilation_after_manual }}"
-                      - "{{ is_cover_helper_manual and not skip_ventilation_after_manual }}"
+                      - "{{ override_ventilation_after_manual }}"
+                      - "{{ is_cover_helper_manual and not override_ventilation_after_manual }}"
               - and:
                   - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
                   - condition: trigger
-                    id: "t_ct_lock_close"
+                    id: "t_lock_close"
                   - "{{ contact_sensor_lockout != [] }}"
                   - "{{ is_state(contact_sensor_lockout, ['false', 'off']) }}"
                   - "{{ is_cover_helper_locked }}" # Status check
@@ -3527,7 +3575,7 @@ action:
       - alias: "Forced ventilation of the cover"
         conditions:
           - condition: trigger
-            id: "t_ve_force"
+            id: "t_vent_force"
           - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
@@ -3806,9 +3854,11 @@ action:
 
       - alias: "Reset manual detection"
         conditions:
-          - "{{ reset_manual_detection }}"
+          - "{{ not is_reset_disabled }}"
           - condition: trigger
-            id: "t_ma_2"
+            id:
+              - "t_ma_2"
+              - "t_ma_3"
         sequence:
           - service: input_text.set_value
             data:
@@ -3823,6 +3873,8 @@ action:
                   })
                 %}
                 {{ dict_new | to_json }}
+          - choose: []
+            default: !input auto_override_reset_action
 
     default:
       - if:
