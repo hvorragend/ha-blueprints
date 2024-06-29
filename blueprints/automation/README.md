@@ -2,7 +2,11 @@
 
 [Community-Link](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
 
-**If you would like to support me or say thank you, please click here:** 🙏 [Click Here](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) 🙏
+### If you would like to support me or say thank you, please click here:
+🙏 [PayPal Donation](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) | [Buy me a Coffee](https://buymeacoffee.com/herr.vorragend) 🙏
+
+
+<br />
 
 *Minimum required version of Home Assistant: **2024.6.0***
 
@@ -61,5 +65,3 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 - `shading_cover_position` should be lower than `open_position`
 - `resident_sensor` is only allowed to be on/off/true/false
 - cover must have a `current_position` attribute
-- After manual creation in the GUI, the helper is filled with standard content on the <ins>first trigger</ins>. In rare cases, this may mean that the first trigger does not move the blinds. This may take care of itself a few minutes later. The next day at the latest.
-
