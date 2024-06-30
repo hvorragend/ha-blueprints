@@ -226,3 +226,7 @@
   - Added: Additional Actions After Override Reset #94
   - Fixed: The cover may also be closed after ventilation if the down mode is not activated
   - Many thanks to crandler for the ideas
+
+2024.06.30:
+  - Fixed: Preventing errors and warning on manual execution
+  - Fixed: Incorrect time adopted if tomorrow is a working day and today is a weekend
