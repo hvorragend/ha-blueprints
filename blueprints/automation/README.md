@@ -28,12 +28,17 @@ This is a comprehensive and highly configurable blueprint that can be used for t
 * Added the option to save the current status in a helper. This has the advantage that the cover can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
 
 
-*This was originally a fork of Eimeel's blueprint [automatic_blinds_shading.yaml](https://community.home-assistant.io/t/extensive-roller-shutter-control-including-shading-brightness-sun-position-temperature-forecast/613715).*
-*Note: My blueprint is not compatible with Eimeel's original. I have used his basis, but my variables are completely different from his design.*
+## License Notice 
+*(Based on the text by SirGoodenough)*
+* Copies of the original Blueprint that were converted via the 'Take Control' feature or other means are officially not supported by me.
+* I may or may not be able to support you when you have a problem after you make changes to my code, as some of the code is no longer mine.
+* I & my license also require attribution as a link back to the original should you use this code in your own creation.
+* [Here is a link to my license](https://github.com/hvorragend/ha-blueprints/?tab=License-1-ov-file) & the original github post expected to be followed & referenced as attribution should you use this code elsewhere.
+
 
 
 ## Condition examples
- - If, for example, your blinds on the upper floor only close automatically and are not opened via the automation, you can also enable the blinds to be opened during this time by activating a vacation mode boolean.
+- If, for example, your blinds on the upper floor only close automatically and are not opened via the automation, you can also enable the blinds to be opened during this time by activating a vacation mode boolean.
 - If you have visitors or a party, you may not want the blinds to close. This can be easily configured using a party mode boolean.
 - If, for any reason, you want to pause the activation of shading or the ending of shading, this can be controlled via a shading boolean.
 - If you want to suspend the entire roller blind control for a short time, perhaps because maintenance work or window cleaning is being carried out, this is possible with just one boolean.
