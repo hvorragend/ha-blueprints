@@ -230,3 +230,10 @@
 2024.06.30:
   - Fixed: Preventing errors and warning on manual execution
   - Fixed: Incorrect time adopted if tomorrow is a working day and today is a weekend
+
+2024.07.06:
+  - Fixed: Return to shading after ventilation #43
+  - Fixed: When closing the ventilation contact, do not move the roller blind if it is already in the correct position #102
+  - Updated: Trigger name renamed to make debugging easier for beginners
+  - Added: Additional information on when a Cover Status Helper is required
+  - Added: License notification and notice about the new <em>Take Control</em>-feature
