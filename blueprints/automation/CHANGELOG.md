@@ -237,3 +237,14 @@
   - Updated: Trigger name renamed to make debugging easier for beginners
   - Added: Additional information on when a Cover Status Helper is required
   - Added: License notification and notice about the new <em>Take Control</em>-feature
+
+2024.07.31:
+  - Fixed: Override conditions were incorrect #109
+  - Fixed: Faulty timing triggers although they have been deactivated #104
+  - Fixed: Removed duplicate line of code without effect #105
+  - Fixed: Reset shading status at midnight that is no longer required - but still saved #106
+  - Fixed: Empty weather conditions are now taken into account when shading is ended #110
+  - Fixed: When the shading is ended, the resident sensor is now also checked so that nobody is woken up #116
+  - Updated: All force situations are now fully cross-checked in all choose-branches
+  - Added: Save the length of the helper for better debugging #107
+  - Added: The ventilation position can now be moved to after the sun shading has ended (if the contact is open)
