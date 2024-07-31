@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.07.06
+    **Version**: 2024.07.31
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,17 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2024.07.31:
+      - Fixed: Override conditions were incorrect #109
+      - Fixed: Faulty timing triggers although they have been deactivated #104
+      - Fixed: Removed duplicate line of code without effect #105
+      - Fixed: Reset shading status at midnight that is no longer required - but still saved #106
+      - Fixed: Empty weather conditions are now taken into account when shading is ended #110
+      - Fixed: When the shading is ended, the resident sensor is now also checked so that nobody is woken up #116
+      - Updated: All force situations are now fully cross-checked in all choose-branches
+      - Added: Save the length of the helper for better debugging #107
+      - Added: The ventilation position can now be moved to after the sun shading has ended (if the contact is open)
 
     2024.07.06:
       - Fixed: Return to shading after ventilation #43
@@ -279,12 +290,8 @@ blueprint:
                   value: "prevent_close_after_lockout"
                 - label: "🚫 Prevent the cover from moving to a higher position when closing in the evening"
                   value: "prevent_higher_position_closing"
-                # - label: "🚫 INACTIVE: Prevent the cover from moving to a higher closing position at the end of sun shading"
-                #   value: "prevent_higher_position_shading_end"
                 - label: "🚫 Prevent the position from being lowered when closing in the evening if it is currently shaded" # If the cover is in the shading position, it should not be closed in the evening if the close position is lower than the shading position. The current shading position should therefore be kept."
                   value: "prevent_lowering_when_closing_if_shaded"
-                # - label: "🚫 Prevent the use of the 'get_forecasts' service"
-                #   value: "prevent_forecast_service"
                 - label: "🚫 Prevent the end of sun shading when the cover is already closed"
                   value: "prevent_shading_end_if_closed"
                 - label: "🚫 Prevent the use of 'set_cover_position' and 'set_cover_tilt_position' and only use the additional actions"
@@ -1038,6 +1045,13 @@ blueprint:
               - <ins>Allow ventilation even if cover is already in a higher position:</ins>
                 <br />
                 Activate ventilation mode even if the current position of the cover is already higher than the ventilation position.
+                <br /><br />
+              - <ins>Using the ventilation position when the sun shade is ended:</ins>
+                <br />
+                The cover can also be moved to the ventilation position when the sun protection/sun shading is ended.
+                Normally, the cover would be fully opened when the shading is ended.
+                <br />
+                To be honest, it makes no sense to switch to the ventilation position during the day if more air can flow in when the cover is open.
 
             </details>
           default: []
@@ -1048,6 +1062,8 @@ blueprint:
                   value: "ventilation_delay_enabled"
                 - label: "💨 Allow ventilation even if cover is already in a higher position"
                   value: "ventilation_if_lower_enabled"
+                - label: "💨 Using the ventilation position when the sun shading is ended (instead of opening it completely)"
+                  value: "ventilation_after_shading_end"
               multiple: true
               sort: false
               custom_value: false
@@ -1693,7 +1709,7 @@ trigger_variables:
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
   is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}"
-  is_time_field_enabled: "{{ 'time_control_input' in time_control or time_control == [] or time_schedule_helper == [] }}"
+  is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
@@ -1708,7 +1724,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2024.07.06"
+  version: "2024.07.31"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1770,10 +1786,6 @@ variables:
 
   # Shading
   shading_tilt_position: !input shading_tilt_position
-
-  # Config check
-  check_config: !input check_config
-  check_config_debuglevel: !input check_config_debuglevel
 
   # Cover Status Helper
   is_status_helper_enabled: >-
@@ -1884,9 +1896,7 @@ variables:
   individual_config: !input individual_config
   prevent_close_after_lockout: "{{ 'prevent_close_after_lockout' in individual_config }}"
   prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
-  # prevent_higher_position_shading_end: "{{ 'prevent_higher_position_shading_end' in individual_config }}"
   prevent_lowering_when_closing_if_shaded: "{{ 'prevent_lowering_when_closing_if_shaded' in individual_config }}"
-  # prevent_forecast_service: "{{ 'prevent_forecast_service' in individual_config }}"
   prevent_forecast_service: "{{ 'weather_attributes' in shading_forecast_type }}"
   prevent_shading_end_if_closed: "{{ 'prevent_shading_end_if_closed' in individual_config }}"
   prevent_default_cover_actions: "{{ 'prevent_default_cover_actions' in individual_config }}"
@@ -1904,6 +1914,15 @@ variables:
   auto_ventilate_options: !input auto_ventilate_options
   ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
   ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
+  ventilation_after_shading_end: "{{ 'ventilation_after_shading_end' in auto_ventilate_options }}"
+
+  # Config check
+  check_config: !input check_config
+  check_config_debuglevel: !input check_config_debuglevel
+  check_status_helper_length: >-
+    {% if is_status_helper_enabled %}
+      {{ state_attr(cover_status_helper, 'max') }}
+    {% endif %}
 
 mode: restart
 max_exceeded: silent
@@ -2089,12 +2108,11 @@ trigger:
         (shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1) or
         (shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2) or
         (shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end) or
-        (shading_forecast_sensor != [] and states(shading_forecast_sensor) not in shading_weather_conditions) or
+        (shading_forecast_sensor != [] and (shading_weather_conditions == [] or states(shading_forecast_sensor) not in shading_weather_conditions)) or
             default_sun_sensor != [] and
             (
-                (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
-                (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
                 (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
+                (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
                 (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
             )
       }}
@@ -2102,6 +2120,10 @@ trigger:
       seconds: !input shading_waitingtime_end
     enabled: "{{ is_shading_enabled }}"
     id: "t_shading_end_1"
+
+  - platform: time
+    at: "00:05"
+    id: "t_shading_reset"
 
   ########################################
   # Trigger for manual cover controls
@@ -2234,7 +2256,10 @@ action:
               - "t_open_4"
               - "t_open_5"
               - "t_open_6"
-          - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+          - and:
+              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
+              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
           - or: # Check the current positions
               - "{{ is_status_helper_enabled and not is_cover_helper_open }}"
               - "{{ is_ventilation_enabled and in_ventilate_position }}"
@@ -2242,8 +2267,8 @@ action:
           - or: # Ignore check
               - "{{ not is_status_helper_enabled }}"
               - "{{ is_status_helper_enabled and not is_cover_helper_manual }}"
-              - "{{ is_status_helper_enabled and override_opening_after_manual }}"
-              - "{{ is_status_helper_enabled and is_cover_helper_manual and not override_opening_after_manual }}"
+              - "{{ is_status_helper_enabled and not override_opening_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_helper_manual and override_opening_after_manual }}"
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_opening_multiple_times }}"
@@ -2435,16 +2460,18 @@ action:
               - "t_close_4"
               - "t_close_5"
               - "t_close_6" # Resident sensor
-          - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-          - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
+          - and:
+              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
+              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
+              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
           - or: # Check the current positions
               - "{{ is_status_helper_enabled and not is_cover_helper_closed }}"
               - "{{ in_open_position }}"
           - or: # Ignore check
               - "{{ not is_status_helper_enabled }}"
               - "{{ is_status_helper_enabled and not is_cover_helper_manual }}"
-              - "{{ is_status_helper_enabled and override_closing_after_manual }}"
-              - "{{ is_status_helper_enabled and is_cover_helper_manual and not override_closing_after_manual }}"
+              - "{{ is_status_helper_enabled and not override_closing_after_manual }}"
+              - "{{ is_status_helper_enabled and is_cover_helper_manual and override_closing_after_manual }}"
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_closing_multiple_times }}"
@@ -2716,8 +2743,10 @@ action:
               - "t_shading_start_1"
               - "t_open_1" # time_up_early
               - "t_open_3" # schedule helper state change
-          - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-          - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
+          - and:
+              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
+              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
           - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
           - or: # Check the current positions
@@ -2725,25 +2754,11 @@ action:
               - "{{ not (is_cover_helper_ventilated or is_cover_helper_locked) }}"
           - or: # Ignore check
               - "{{ not is_cover_helper_manual }}"
-              - "{{ override_shading_after_manual }}"
-              - "{{ is_cover_helper_manual and not override_shading_after_manual }}"
+              - "{{ not override_shading_after_manual }}"
+              - "{{ is_cover_helper_manual and override_shading_after_manual }}"
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d')|int) }}"
-          # Moved to the sequence
-          # The shading must also be calculated outside the times so that this can be taken into account when opening the roller blind.
-          #
-          # - or:
-          #     - and:
-          #         - "{{ is_time_control_disabled }}"
-          #     - and:
-          #         - "{{ is_time_field_enabled }}"
-          #         - "{{ now() >= today_at(time_up_early_today) }}"
-          #         - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-          #     - and:
-          #         - "{{ is_schedule_helper_enabled }}"
-          #         - "{{ time_schedule_helper != [] }}"
-          #         - "{{ is_state(time_schedule_helper, 'on') }}"
           - or:
               - "{{ shading_temperatur_sensor1 == [] }}"
               - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
@@ -2905,7 +2920,11 @@ action:
           - condition: !input auto_shading_end_condition
           - condition: trigger
             id: "t_shading_end_1"
-          - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+          - and:
+              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
+              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
+              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - or:
               - and:
                   - "{{ is_time_control_disabled }}"
@@ -2919,177 +2938,178 @@ action:
                   - "{{ is_state(time_schedule_helper, 'on') }}"
           - or: # Ignore check
               - "{{ not is_cover_helper_manual }}"
-              - "{{ override_shading_after_manual }}"
-              - "{{ is_cover_helper_manual and not override_shading_after_manual }}"
+              - "{{ not override_shading_after_manual }}"
+              - "{{ is_cover_helper_manual and override_shading_after_manual }}"
           - or:
               - "{{ is_cover_helper_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
           - or: # Optional: Continue if cover is not already closed
               - "{{ not prevent_shading_end_if_closed }}"
               - "{{ prevent_shading_end_if_closed and not in_close_position}}"
+          - or: # Issue #116
+              - "{{ resident_sensor == [] }}"
+              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
 
         sequence:
-          # It makes no sense to move to the ventilation position during the day if more air can flow in when the blind is open.
-          #
-          # - choose:
-          #     ###################################
-          #     # Ventilation after shading ends
-          #     ###################################
-          #     - alias: "Ventilation after shading ends"
-          #       conditions:
-          #         - "{{ is_ventilation_enabled }}"
-          #         - "{{ contact_sensor != [] }}"
-          #         - "{{ is_state(contact_sensor, ['true', 'on']) }}"
-          #         - or:
-          #             - "{{ (current_position | int(default=101) < ventilate_position) }}"
-          #             - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
-          #         - or: # The cover is not allowed to be lowered when the lockout protection is enabled
-          #             - "{{ not is_lockout_protection_enabled }}"
-          #             - "{{ contact_sensor_lockout == [] }}"
-          #             - "{{ is_state(contact_sensor_lockout, ['false', 'off']) }}"
-          #       sequence:
-          #         ################################################
-          #         # Consider lockout protection when shading ends
-          #         ################################################
-          #         - alias: "Consider lockout protection when shading ends" # Only required in this branch. So no separate choose-condition.
-          #           if:
-          #             - "{{ is_lockout_protection_enabled }}"
-          #             - "{{ contact_sensor_lockout != [] }}"
-          #             - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
-          #           then:
-          #             - service: input_text.set_value
-          #               data:
-          #                 entity_id: !input cover_status_helper
-          #                 value: |
-          #                   {% set dict_var = states(cover_status_helper) | from_json %}
-          #                   {% set dict_new = dict(dict_var, **{
-          #                     'open':{'a':true,'t':as_timestamp(now()) | round(0)},
-          #                     'close':{'a':false,'t':dict_var.close.t},
-          #                     'ventilate':{'a':false,'t':dict_var.ventilate.t},
-          #                     'shading':{'a':false,'t':dict_var.shading.t},
-          #                     'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
-          #                     'manual':{'a':false,'t':dict_var.manual.t},
-          #                     'p':current_position,
-          #                     'v':4,
-          #                     't':as_timestamp(now()) | round(0)
-          #                     })
-          #                   %}
-          #                   {{ dict_new | to_json }}
+          - choose:
+              ###################################
+              # Ventilation after shading ends
+              ###################################
+              - alias: "Ventilation after shading ends"
+                conditions:
+                  - "{{ is_ventilation_enabled }}"
+                  - "{{ contact_sensor != [] }}"
+                  - "{{ is_state(contact_sensor, ['true', 'on']) }}"
+                  - "{{ ventilation_after_shading_end }}"
+                  - or:
+                      - "{{ (current_position | int(default=101) < ventilate_position) }}"
+                      - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
+                  - or: # The cover is not allowed to be lowered when the lockout protection is enabled
+                      - "{{ not is_lockout_protection_enabled }}"
+                      - "{{ contact_sensor_lockout == [] }}"
+                      - "{{ is_state(contact_sensor_lockout, ['false', 'off']) }}"
+                sequence:
+                  ################################################
+                  # Consider lockout protection when shading ends
+                  ################################################
+                  - alias: "Consider lockout protection when shading ends" # Only required in this branch. So no separate choose-condition.
+                    if:
+                      - "{{ is_lockout_protection_enabled }}"
+                      - "{{ contact_sensor_lockout != [] }}"
+                      - "{{ is_state(contact_sensor_lockout, ['true', 'on']) }}"
+                    then:
+                      - service: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':false,'t':dict_var.close.t},
+                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                              'shading':{'a':false,'t':dict_var.shading.t},
+                              'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                              'manual':{'a':false,'t':dict_var.manual.t},
+                              'p':current_position,
+                              'v':4,
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
 
-          #             - stop: "Stop automation: Lockout protection when shading ends"
+                      - stop: "Stop automation: Lockout protection when shading ends"
 
-          #         - service: input_text.set_value
-          #           data:
-          #             entity_id: !input cover_status_helper
-          #             value: |
-          #               {% set dict_var = states(cover_status_helper) | from_json %}
-          #               {% set dict_new = dict(dict_var, **{
-          #                 'open':{'a':true,'t':as_timestamp(now()) | round(0)},
-          #                 'close':{'a':false,'t':dict_var.close.t},
-          #                 'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
-          #                 'shading':{'a':false,'t':dict_var.shading.t},
-          #                 'locked':{'a':false,'t':dict_var.locked.t},
-          #                 'manual':{'a':false,'t':dict_var.manual.t},
-          #                 'p':current_position,
-          #                 'v':4,
-          #                 't':as_timestamp(now()) | round(0)
-          #                 })
-          #               %}
-          #               {{ dict_new | to_json }}
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'close':{'a':false,'t':dict_var.close.t},
+                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'shading':{'a':false,'t':dict_var.shading.t},
+                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'manual':{'a':false,'t':dict_var.manual.t},
+                          'p':current_position,
+                          'v':4,
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
 
-          #         - if:
-          #             - "{{ not prevent_default_cover_actions}}"
-          #           then:
-          #             - repeat:
-          #                 for_each: "{{ blind_entities|list }}"
-          #                 sequence:
-          #                   - alias: "Moving the cover to ventilate position"
-          #                     service: cover.set_cover_position
-          #                     data:
-          #                       position: !input ventilate_position
-          #                     target:
-          #                       entity_id: "{{ repeat.item }}"
-          #                   - if:
-          #                       - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-          #                     then:
-          #                       - alias: "Tilt Delay"
-          #                         delay:
-          #                           seconds: !input tilt_delay
-          #                       - alias: "Moving the cover to tilt position"
-          #                         service: cover.set_cover_tilt_position
-          #                         data:
-          #                           tilt_position: !input ventilate_tilt_position
-          #                         target:
-          #                           entity_id: "{{ repeat.item }}"
-          #                   - delay:
-          #                       seconds: "{{ (range(1, 3)|random|int) }}"
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to ventilate position"
+                              service: cover.set_cover_position
+                              data:
+                                position: !input ventilate_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input ventilate_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3)|random|int) }}"
 
-          #         - choose: []
-          #           default: !input auto_ventilate_action
+                  - choose: []
+                    default: !input auto_ventilate_action
 
-          #   default:
-          #
-          ###################################
-          # Move cover to open position
-          ###################################
-          - alias: "Move cover to open position"
-            service: input_text.set_value
-            data:
-              entity_id: !input cover_status_helper
-              value: |
-                {% set dict_var = states(cover_status_helper) | from_json %}
-                {% set dict_new = dict(dict_var, **{
-                  'open':{'a':true,'t':as_timestamp(now()) | round(0)},
-                  'close':{'a':false,'t':dict_var.close.t},
-                  'ventilate':{'a':false,'t':dict_var.ventilate.t},
-                  'shading':{'a':false,'t':dict_var.shading.t},
-                  'locked':{'a':false,'t':dict_var.locked.t},
-                  'manual':{'a':false,'t':dict_var.manual.t},
-                  'p':current_position,
-                  'v':4,
-                  't':as_timestamp(now()) | round(0)
-                  })
-                %}
-                {{ dict_new | to_json }}
+            default:
+              ###################################
+              # Move cover to open position
+              ###################################
+              - alias: "Move cover to open position"
+                service: input_text.set_value
+                data:
+                  entity_id: !input cover_status_helper
+                  value: |
+                    {% set dict_var = states(cover_status_helper) | from_json %}
+                    {% set dict_new = dict(dict_var, **{
+                      'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                      'close':{'a':false,'t':dict_var.close.t},
+                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
+                      'shading':{'a':false,'t':dict_var.shading.t},
+                      'locked':{'a':false,'t':dict_var.locked.t},
+                      'manual':{'a':false,'t':dict_var.manual.t},
+                      'p':current_position,
+                      'v':4,
+                      't':as_timestamp(now()) | round(0)
+                      })
+                    %}
+                    {{ dict_new | to_json }}
 
-          - if:
-              - "{{ not prevent_default_cover_actions}}"
-            then:
-              - repeat:
-                  for_each: "{{ blind_entities|list }}"
-                  sequence:
-                    - if:
-                        - "{{ open_position == 100 }}"
-                      then:
-                        - alias: "Moving the cover to open position"
-                          service: cover.open_cover
-                          data: {}
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                      else:
-                        - alias: "Moving the cover to open position"
-                          service: cover.set_cover_position
-                          data:
-                            position: !input open_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - if:
-                        - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                      then:
-                        - alias: "Tilt Delay"
-                          delay:
-                            seconds: !input tilt_delay
-                        - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
-                          data:
-                            tilt_position: !input open_tilt_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                    - delay:
-                        seconds: "{{ (range(1, 3)|random|int) }}"
+              - if:
+                  - "{{ not prevent_default_cover_actions}}"
+                then:
+                  - repeat:
+                      for_each: "{{ blind_entities|list }}"
+                      sequence:
+                        - if:
+                            - "{{ open_position == 100 }}"
+                          then:
+                            - alias: "Moving the cover to open position"
+                              service: cover.open_cover
+                              data: {}
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                          else:
+                            - alias: "Moving the cover to open position"
+                              service: cover.set_cover_position
+                              data:
+                                position: !input open_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - if:
+                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                          then:
+                            - alias: "Tilt Delay"
+                              delay:
+                                seconds: !input tilt_delay
+                            - alias: "Moving the cover to tilt position"
+                              service: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: !input open_tilt_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                        - delay:
+                            seconds: "{{ (range(1, 3)|random|int) }}"
 
-          - choose: []
-            default: !input auto_shading_end_action
+              - choose: []
+                default: !input auto_shading_end_action
 
           - stop: "Stop automation: SHADING END"
 
@@ -3111,7 +3131,10 @@ action:
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - "{{ contact_sensor != [] }}"
           - "{{ is_state(contact_sensor, ['true', 'on']) }}"
-          - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+          - and:
+              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
+              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
           - or:
               - "{{ (current_position | int(default=101) < ventilate_position) }}"
               - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
@@ -3208,10 +3231,13 @@ action:
           - "{{ trigger.id is defined }}"
           # - "{{ is_down_enabled }}" # Removed, because of https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/863
           - "{{ is_status_helper_enabled }}"
-          - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-          - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+          - and:
+              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
+              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
+              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
+              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - or:
               - and:
                   - "{{ is_ventilation_enabled }}"
@@ -3224,8 +3250,8 @@ action:
                       - "{{ in_ventilate_position }}" # Position check
                   - or: # Ignore check
                       - "{{ not is_cover_helper_manual }}"
-                      - "{{ override_ventilation_after_manual }}"
-                      - "{{ is_cover_helper_manual and not override_ventilation_after_manual }}"
+                      - "{{ not override_ventilation_after_manual }}"
+                      - "{{ is_cover_helper_manual and override_ventilation_after_manual }}"
               - and:
                   - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
                   - condition: trigger
@@ -3928,6 +3954,39 @@ action:
                 {{ dict_new | to_json }}
           - choose: []
             default: !input auto_override_reset_action
+
+      ############################################################
+      # ANCHOR (12): RESET SHADING STATUS AT MIDNIGHT
+      ############################################################
+
+      - alias: "Reset shading status that is no longer required - but still saved"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ is_status_helper_enabled }}"
+          - "{{ is_cover_helper_shaded }}"
+          - condition: trigger
+            id:
+              - "t_shading_reset"
+        sequence:
+          - delay:
+              seconds: "{{ (range(0, 60)|random|int) }}"
+          - service: input_text.set_value
+            data:
+              entity_id: !input cover_status_helper
+              value: |
+                {% set dict_var = states(cover_status_helper) | from_json %}
+                {% set dict_new = dict(dict_var, **{
+                  'shading':{'a':false,'t':as_timestamp(now()) | round(0)},
+                  'p':current_position,
+                  'v':4,
+                  't':as_timestamp(now()) | round(0)
+                  })
+                %}
+                {{ dict_new | to_json }}
+
+    ############################################################
+    # DEFAULT BRANCH - CONFIG CHECK
+    ############################################################
 
     default:
       - if:
