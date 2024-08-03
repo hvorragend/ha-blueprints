@@ -248,3 +248,10 @@
   - Updated: All force situations are now fully cross-checked in all choose-branches
   - Added: Save the length of the helper for better debugging #107
   - Added: The ventilation position can now be moved to after the sun shading has ended (if the contact is open)
+
+2024.08.03:
+  - Fixed: Helper length analysis template variable warning #120
+  - Fixed: New trigger "t_shading_reset" causes errors #119
+  - Fixed: "Manual Override" don't work #122 (Thanks to Eimeel)
+  - Fixed: Commenting out the check of the position information in the config check #121
+  - Fixed: Blinds not opening with resident mode when auto close disabled #115
