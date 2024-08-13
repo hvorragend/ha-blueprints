@@ -75,6 +75,26 @@ blueprint:
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
     2024.08.xx:
+      - Updated:
+          - Complete redesign of the logic behind the contact sensors.
+          - Splitting the contact sensors into "Tilted windows" and "Open windows"
+          - Lockout protection removed from the automation options
+          - Lockout protection can be configured individually
+          - <strong>Please reconfigure contacts and resident settings!</strong>
+      - Breaking Changes:
+          <ins>Removed settings:</ins>
+          - "Prevent the cover from closing immediately after deactivating the lockout protection" (prevent_close_after_lockout)
+          - "Enable lockout protection" (auto_lockout_protection_enabled)
+          - "Contact Sensor Entity For Ventilation" (contact_sensor)
+          - "Contact Sensor Entity For Lockout Protectio" (contact_sensor_lockout)
+          - "Prevent automatic closing due to the resident sensor" (prevent_closing_by_resident)
+
+          <ins>Please delete the following variables in the YAML code:</ins>
+          - prevent_close_after_lockout
+          - auto_lockout_protection_enabled
+          - contact_sensor
+          - contact_sensor_lockout
+          - prevent_closing_by_resident
       - Added: Config check for schedule helper
 
     2024.08.03:
@@ -180,7 +200,7 @@ blueprint:
       collapsed: true
       input:
         auto_options:
-          name: "👉 Automation options"
+          name: "👉 Automation Options"
           description: >-
             This basically determines whether the cover is allowed to open or close.
             <br /><br />
@@ -194,7 +214,7 @@ blueprint:
             This is activated in the last option.
             <br /><br />
             <strong>Important note:</strong>
-            The configuration of the Cover Status Helper is <ins>mandatory</ins> if you want to use the lockout protection, ventilation mode or shading.
+            The configuration of the Cover Status Helper is <ins>mandatory</ins> if you want to use the the ventilation mode or sun protection / sunshade control.
 
             <details>
             <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
@@ -228,40 +248,12 @@ blueprint:
                   value: "auto_sun_enabled"
                 - label: "💨 - Enable ventilation mode (helper required)"
                   value: "auto_ventilate_enabled"
-                # - label: "🚪 - Enable lockout protection (helper required)"
-                #   value: "auto_lockout_protection_enabled"
                 - label: "🥵 - Enable automatic sun protection / sunshade control (helper required)"
                   value: "auto_shading_enabled"
               multiple: true
               sort: false
               custom_value: false
               mode: list
-
-        resident_sensor:
-          name: "🛌 Resident Mode"
-          description: >-
-            Overwrite mode for opening and unplannend closing.
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-            This switch can be used to override the automatic opening of the cover.
-            If this sensor (input_boolean or binary_sensor) is set to ON, the cover will not open automatically.
-
-            This can be used e.g. to define a resident for the room. In this case, the cover only opens when the resident is no longer asleep.
-            <br />
-            For this it is necessary to use a boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.
-            <br />
-            The cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).
-
-            </details>
-            <br /><code>Optional</code>
-          default: []
-          selector:
-            entity:
-              domain:
-                - input_boolean
-                - binary_sensor
 
         individual_config:
           name: "⚙️ Individual Configuration"
@@ -296,8 +288,6 @@ blueprint:
           selector:
             select:
               options:
-                - label: "🚫 Prevent the cover from closing immediately after deactivating the lockout protection"
-                  value: "prevent_close_after_lockout"
                 - label: "🚫 Prevent the cover from moving to a higher position when closing in the evening"
                   value: "prevent_higher_position_closing"
                 - label: "🚫 Prevent the position from being lowered when closing in the evening if it is currently shaded" # If the cover is in the shading position, it should not be closed in the evening if the close position is lower than the shading position. The current shading position should therefore be kept."
@@ -312,8 +302,6 @@ blueprint:
                   value: "prevent_closing_multiple_times"
                 - label: "🚫 Prevent the cover from being shaded several times a day"
                   value: "prevent_shading_multiple_times"
-                - label: "🚫 Prevent automatic closing due to the resident sensor"
-                  value: "prevent_closing_by_resident"
               multiple: true
               sort: false
               custom_value: false
@@ -536,94 +524,6 @@ blueprint:
               min: 0.0
               max: 20.0
               unit_of_measurement: "%"
-
-    override_section:
-      name: "Manual Override"
-      icon: mdi:debug-step-over
-      collapsed: true
-      input:
-        ignore_after_manual_config:
-          name: "🖐️ Ignoring/override after manual position changes"
-          description: >-
-            Ignore or override the following actions after manual position changes.
-
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
-
-
-            Ultimately, this means that the roller blind will not be opened, closed, etc.
-            if a manual interaction has previously been made, e.g. using a wall switch.
-
-
-            The reason behind this is that the human being wins with his decision and his
-            conscious decision is weighted higher than the upcoming action of the automation.
-
-
-            As soon as a cover has been moved manually, the status is recorded in the Cover Status Helper.
-            This usually means that a person has deliberately decided against a status.
-
-              - If option is not activated: The covers are moved even if a manual correction has been made.
-              - If option is activated: The action to open, close, etc. is not performed because a conscious decision was made to do otherwise due to a manual intervention.
-
-
-            A Cover Status Helper is required!
-
-            </details>
-
-          default: []
-          selector:
-            select:
-              options:
-                - label: "🔼 Ignore/override next automatic opening after manual position changes"
-                  value: "ignore_opening_after_manual"
-                - label: "🔻 Ignore/override next automatic closing after manual position changes"
-                  value: "ignore_closing_after_manual"
-                - label: "💨 Ignore/override next automatic ventilation after manual position changes"
-                  value: "ignore_ventilation_after_manual"
-                - label: "🥵 Ignore/override next automatic sun shading after manual position changes"
-                  value: "ignore_shading_after_manual"
-              multiple: true
-              sort: false
-              custom_value: false
-              mode: list
-
-        reset_override_config:
-          name: "🗑️ Reset manual override"
-          description: >-
-            If the detection of the manual position change was activated above, you may need a way to reset this status.
-            Otherwise, the next cover movements will be permanently ignored or overridden.
-            Or you have not activated an individual action, e.g. when closing the covers, which resets the status.
-          default: reset_disabled
-          selector:
-            select:
-              options:
-                - label: "No timed reset for manual override"
-                  value: "reset_disabled"
-                - label: "Reset at a specified time (see below)"
-                  value: "reset_time"
-                - label: "Reset after a timeout in minutes (see below)"
-                  value: "reset_timeout"
-              multiple: false
-              sort: false
-              custom_value: false
-              mode: list
-
-        reset_override_time:
-          name: "🗑️ Time to reset manual override"
-          description: "At what time do you want the manual detection to be reset?"
-          default: "00:01:00"
-          selector:
-            time: {}
-
-        reset_override_timeout:
-          name: "🗑️ Number of minutes until reset manual override"
-          description: "After how many minutes should it be reset?"
-          default: 360
-          selector:
-            number:
-              min: 0
-              max: 1440
-              unit_of_measurement: minutes
 
     time_section:
       name: "Time Control Configuration"
@@ -928,73 +828,36 @@ blueprint:
               step: 0.1
               mode: slider
 
-    delay_section:
-      name: "Delay Settings"
-      icon: mdi:timer-outline
-      collapsed: true
-      input:
-        drive_delay_fix:
-          name: "🕛 Fixed Drive Delay"
-          description: >-
-            Fixed drive delay to avoid radio interferences.
-            <br /><br />`Optional`
-          default: 0
-          selector:
-            number:
-              min: 0.0
-              max: 600.0
-              unit_of_measurement: seconds
-              step: 1.0
-              mode: slider
-
-        drive_delay_random:
-          name: "🕛 Random Drive Delay"
-          description: "Additional random delay."
-          default: 5
-          selector:
-            number:
-              min: 0.0
-              max: 600.0
-              unit_of_measurement: seconds
-              step: 1.0
-              mode: slider
-
-        tilt_delay:
-          name: "🕛 Tilt Delay"
-          description: >-
-            Delay between <em>set_cover_position</em> and <em>set_cover_tilt_position</em>.
-            Only necessary when using the tilt functions.
-            This separates the two commands in terms of time.
-            <br /><br />`Optional`
-          default: 0
-          selector:
-            number:
-              min: 0.0
-              max: 600.0
-              unit_of_measurement: seconds
-              step: 1.0
-              mode: slider
-
-    # Contact sensor for window tilt position
-    # Contact sensor for total opening
-
-    # Window and door contacts / ventilation mode for tilt position
-    # Window and door contacts / ventilation mode for tilt position
-
-    # Window tilted sensor
-
-    # twostate, threestate / Rotary handle contact
-
     contacts_section:
-      name: "Contact Sensors for Ventilation and Lockout"
+      name: "Contact Sensors for Ventilation"
       icon: mdi:door-closed-lock
       collapsed: true
       input:
-        #
-
         contact_window_opened:
-          name: "💨 Contact sensor for open window"
-          description: "Contact sensor for total opening. Lockout protection always present! A Cover Status Helper is required!"
+          name: "🚪 Contact Sensor For Open Window"
+          description: >-
+            Contact sensor of a door or window handle for detecting <ins>total opening</ins>.
+            If this sensor switches to on/true, the cover is <ins>fully opened</ins>.
+            At the same time, a lockout protection is <ins>always</ins> activated.
+            The cover is not closed and the sun shading is not activated when the contact is open.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            It must be a binary two-way contact sensor.
+            If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
+            See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
+
+
+            <strong>Important note:</strong> Please do not enter the same sensor in both fields for the contact sensors. This does not work and leads to strange situations.
+
+
+            A Cover Status Helper is required!
+
+            </details>
+            <br /><code>Optional</code>
+
           default: []
           selector:
             entity:
@@ -1004,8 +867,30 @@ blueprint:
                     - input_boolean
 
         contact_window_tilted:
-          name: "📐 Contact sensor for tilted window."
-          description: "A Cover Status Helper is required!"
+          name: "💨 Contact Sensor For Tilted Window"
+          description: >-
+            The contact sensor is required for ventilation mode.
+            If the contact changes to on/true, the cover is moved to the <ins>ventilation</ins> position.
+            The prerequisite is that the cover is already closed.
+            After the status changes to off/false, the close position is activated again.
+            The same applies in the shading-out situation.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            It must be a binary two-way contact sensor.
+            If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
+            See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
+
+
+            <strong>Important note:</strong> Please do not enter the same sensor in both fields for the contact sensors. This does not work and leads to strange situations.
+
+
+            A Cover Status Helper is required!
+
+            </details>
+            <br /><code>Optional</code>
           default: []
           selector:
             entity:
@@ -1015,7 +900,9 @@ blueprint:
                     - input_boolean
 
         lockout_tilted_options:
-          name: "📐 Lockout protection for window tilted"
+          name: "💨 Lockout protection for window tilted"
+          description: >-
+            For the tilted window (or door, of course), you can individually specify where a lockout protection should be used.
           default: []
           selector:
             select:
@@ -1071,61 +958,6 @@ blueprint:
               sort: false
               custom_value: false
               mode: list
-
-        # contact_sensor:
-        #   name: "💨 Contact Sensor Entity For Ventilation"
-        #   description: >-
-        #     The contact sensor is required for ventilation mode. It must be a binary two-way contact sensor.
-
-        #     <details>
-        #     <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-        #     If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
-        #     See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
-
-        #     If the door contact changes to on/true, the cover is moved to the ventilation position.
-        #     The prerequisite is that the cover is already closed.
-        #     After the status changes to off/false, the close position is activated.
-        #     The same applies in the shading-out situation.
-
-        #     </details>
-        #     <br /><code>Optional</code>
-        #   default: []
-        #   selector:
-        #     entity:
-        #       filter:
-        #         - domain:
-        #             - binary_sensor
-        #             - input_boolean
-
-        # contact_window_opened:
-        #   name: "🚪 Contact Sensor Entity For Lockout Protection"
-        #   description: >-
-        #     The contact sensor is required for lockout protection. It must be a binary two-way contact sensor.
-
-        #     <details>
-        #     <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-        #     If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
-        #     See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
-
-        #     The cover is not closed and the sun shading is not activated when the door contact is open.
-        #     Note that the cover can close in the evening when the door contact is closed.
-        #     It is not moved to the previously desired shading position!
-        #     <br /><br />
-        #     If the sun shading is cancelled, the door contact is open and the lockout protection is enabled,
-        #     the blind does not move from the shading position to the ventilation position.
-        #     Instead, the roller blind is opened.
-
-        #     </details>
-        #     <br /><code>Optional</code>
-        #   default: []
-        #   selector:
-        #     entity:
-        #       filter:
-        #         - domain:
-        #             - binary_sensor
-        #             - input_boolean
 
     shading_section:
       name: "Sun Shading / Sun Protection"
@@ -1434,6 +1266,186 @@ blueprint:
               max: 3600
               unit_of_measurement: seconds
 
+    resident_section:
+      name: "Resident Settings"
+      icon: mdi:human-male-female
+      collapsed: true
+      input:
+        resident_sensor:
+          name: "🛌 Resident Mode"
+          description: >-
+            Overwrite mode for opening and unplannend closing.
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+
+
+            This switch can be used to override the automatic opening of the cover.
+            If this sensor (input_boolean or binary_sensor) is set to ON, the cover will not open automatically.
+
+            This can be used e.g. to define a resident for the room. In this case, the cover only opens when the resident is no longer asleep.
+            <br />
+            For this it is necessary to use a boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.
+            <br />
+            The cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).
+
+            </details>
+            <br /><code>Optional</code>
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
+
+        resident_config:
+          name: "🛌 Resident Configuration"
+          description: "A few fine adjustments"
+          default: []
+          selector:
+            select:
+              options:
+                - label: "🔻 Automatic closing due to the resident sensor"
+                  value: "closing_by_resident_enabled"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
+    override_section:
+      name: "Manual Override"
+      icon: mdi:debug-step-over
+      collapsed: true
+      input:
+        ignore_after_manual_config:
+          name: "🖐️ Ignoring/override after manual position changes"
+          description: >-
+            Ignore or override the following actions after manual position changes.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+
+            Ultimately, this means that the roller blind will not be opened, closed, etc.
+            if a manual interaction has previously been made, e.g. using a wall switch.
+
+
+            The reason behind this is that the human being wins with his decision and his
+            conscious decision is weighted higher than the upcoming action of the automation.
+
+
+            As soon as a cover has been moved manually, the status is recorded in the Cover Status Helper.
+            This usually means that a person has deliberately decided against a status.
+
+              - If option is not activated: The covers are moved even if a manual correction has been made.
+              - If option is activated: The action to open, close, etc. is not performed because a conscious decision was made to do otherwise due to a manual intervention.
+
+
+            A Cover Status Helper is required!
+
+            </details>
+
+          default: []
+          selector:
+            select:
+              options:
+                - label: "🔼 Ignore/override next automatic opening after manual position changes"
+                  value: "ignore_opening_after_manual"
+                - label: "🔻 Ignore/override next automatic closing after manual position changes"
+                  value: "ignore_closing_after_manual"
+                - label: "💨 Ignore/override next automatic ventilation after manual position changes"
+                  value: "ignore_ventilation_after_manual"
+                - label: "🥵 Ignore/override next automatic sun shading after manual position changes"
+                  value: "ignore_shading_after_manual"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
+        reset_override_config:
+          name: "🗑️ Reset manual override"
+          description: >-
+            If the detection of the manual position change was activated above, you may need a way to reset this status.
+            Otherwise, the next cover movements will be permanently ignored or overridden.
+            Or you have not activated an individual action, e.g. when closing the covers, which resets the status.
+          default: reset_disabled
+          selector:
+            select:
+              options:
+                - label: "No timed reset for manual override"
+                  value: "reset_disabled"
+                - label: "Reset at a specified time (see below)"
+                  value: "reset_time"
+                - label: "Reset after a timeout in minutes (see below)"
+                  value: "reset_timeout"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
+
+        reset_override_time:
+          name: "🗑️ Time to reset manual override"
+          description: "At what time do you want the manual detection to be reset?"
+          default: "00:01:00"
+          selector:
+            time: {}
+
+        reset_override_timeout:
+          name: "🗑️ Number of minutes until reset manual override"
+          description: "After how many minutes should it be reset?"
+          default: 360
+          selector:
+            number:
+              min: 0
+              max: 1440
+              unit_of_measurement: minutes
+
+    delay_section:
+      name: "Delay Settings"
+      icon: mdi:timer-outline
+      collapsed: true
+      input:
+        drive_delay_fix:
+          name: "🕛 Fixed Drive Delay"
+          description: >-
+            Fixed drive delay to avoid radio interferences.
+            <br /><br />`Optional`
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              unit_of_measurement: seconds
+              step: 1.0
+              mode: slider
+
+        drive_delay_random:
+          name: "🕛 Random Drive Delay"
+          description: "Additional random delay."
+          default: 5
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              unit_of_measurement: seconds
+              step: 1.0
+              mode: slider
+
+        tilt_delay:
+          name: "🕛 Tilt Delay"
+          description: >-
+            Delay between <em>set_cover_position</em> and <em>set_cover_tilt_position</em>.
+            Only necessary when using the tilt functions.
+            This separates the two commands in terms of time.
+            <br /><br />`Optional`
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 600.0
+              unit_of_measurement: seconds
+              step: 1.0
+              mode: slider
+
     condition_section:
       name: "Additional Conditions"
       icon: mdi:help-rhombus-outline
@@ -1734,10 +1746,7 @@ trigger_variables:
   sun_elevation_down: !input sun_elevation_down
 
   # Sensors
-  # contact_sensor: !input contact_sensor
-  # contact_sensor_lockout: !input contact_sensor_lockout
   resident_sensor: !input resident_sensor
-
   contact_window_tilted: !input contact_window_tilted
   contact_window_opened: !input contact_window_opened
   lockout_tilted_options: !input lockout_tilted_options
@@ -1773,7 +1782,6 @@ trigger_variables:
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
-  is_lockout_protection_enabled: "{{ 'auto_lockout_protection_enabled' in auto_options }}" # TOD REWORK
   is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
@@ -1959,7 +1967,6 @@ variables:
   in_ventilate_position: "{{ (current_position | int(default=101) <= ventilate_position + position_tolerance) and (current_position | int(default=101) >= ventilate_position - position_tolerance) }}"
 
   individual_config: !input individual_config
-  prevent_close_after_lockout: "{{ 'prevent_close_after_lockout' in individual_config }}"
   prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
   prevent_lowering_when_closing_if_shaded: "{{ 'prevent_lowering_when_closing_if_shaded' in individual_config }}"
   prevent_forecast_service: "{{ 'weather_attributes' in shading_forecast_type }}"
@@ -1968,7 +1975,9 @@ variables:
   prevent_shading_multiple_times: "{{ 'prevent_shading_multiple_times' in individual_config }}"
   prevent_opening_multiple_times: "{{ 'prevent_opening_multiple_times' in individual_config }}"
   prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
-  prevent_closing_by_resident: "{{ 'prevent_closing_by_resident' in individual_config }}"
+
+  resident_config: !input resident_config
+  closing_by_resident_enabled: "{{ 'closing_by_resident_enabled' in resident_config }}"
 
   ignore_after_manual_config: !input ignore_after_manual_config
   override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
@@ -2112,23 +2121,32 @@ trigger:
     id: "t_close_force"
 
   #################################################
-  # Trigger for ventilation and lockout protection
+  # Trigger for ventilation
   #################################################
 
   - platform: template
     value_template: "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
     id: "t_contact_tilted_on"
+    for: "00:00:01"
 
   - platform: template
     value_template: "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
     id: "t_contact_tilted_off"
+    for: "00:00:01"
 
-  - platform: template # TODO REWORK
+  - platform: template
+    value_template: "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+    enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
+    id: "t_contact_opened_on"
+    for: "00:00:01"
+
+  - platform: template
     value_template: "{{ is_state(contact_window_opened, ['false', 'off']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
     id: "t_contact_opened_off"
+    for: "00:00:01"
 
   - platform: state
     entity_id: !input auto_ventilate_force
@@ -2282,7 +2300,7 @@ action:
   # Upgrade JSON-helper to current version
   - if:
       - "{{ is_status_helper_enabled }}"
-      - "{{ (states(cover_status_helper)|from_json).v != 4 }}"
+      - "{{ (states(cover_status_helper)|from_json).v != 4 }}" # TODO Remove locked and upgrade to v5
     then:
       - service: input_text.set_value
         data:
@@ -2574,7 +2592,7 @@ action:
                     id: t_close_6
                   - "{{ resident_sensor != [] }}"
                   - "{{ is_state(resident_sensor, ['true', 'on']) }}"
-                  - "{{ not prevent_closing_by_resident }}"
+                  - "{{ closing_by_resident_enabled }}"
 
         sequence:
           - choose:
@@ -2816,7 +2834,7 @@ action:
           - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
           - or: # Check the current positions
               - "{{ not is_cover_helper_shaded }}"
-              - "{{ not (is_cover_helper_ventilated or is_cover_helper_locked) }}"
+              - "{{ not is_cover_helper_ventilated }}"
           - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Ignore check
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
@@ -2979,7 +2997,7 @@ action:
       #   Target: Open, Lockout, Ventilation
       ############################################################
 
-      - alias: "Check for shading end" # TODO: No forecast sensor trigger atm
+      - alias: "Check for shading end"
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ is_shading_enabled }}"
@@ -3067,10 +3085,6 @@ action:
                   - or:
                       - "{{ (current_position | int(default=101) < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
-                  # - or: # The cover is not allowed to be lowered when the lockout protection is enabled
-                  #     - "{{ not is_lockout_protection_enabled }}" # TODO
-                  #     - "{{ contact_window_opened == [] }}"
-                  #     - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
                 sequence:
                   - service: input_text.set_value
                     data:
@@ -3199,18 +3213,15 @@ action:
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_condition
           - condition: trigger
-            id: "t_contact_tilted_on"
+            id:
+              - "t_contact_tilted_on"
+              - "t_contact_opened_on"
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
-          - "{{ contact_window_tilted != [] }}"
-          - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
           - and:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
-          - or:
-              - "{{ (current_position | int(default=101) < ventilate_position) }}"
-              - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
           - or:
               - or: # Source: Close
                   - "{{ is_cover_helper_closed }}"
@@ -3220,22 +3231,25 @@ action:
                   - "{{ in_shading_position }}" # Always and independently of the helper
         sequence:
           - choose:
-              #################################################
-              # Consider lockout protection when contact opens
-              #################################################
-              - alias: "Consider lockout protection when contact opens" # TODO: Do I really need this here?
+              ###################################
+              # Window handle to open. Open cover
+              ###################################
+              - alias: "Window handle to open. Open cover"
                 conditions:
-                  - "{{ is_lockout_protection_enabled }}"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+                  - condition: trigger
+                    id:
+                      - "t_contact_opened_on"
                 sequence:
                   - service: input_text.set_value
                     data:
-                      entity_id: !input cover_status_helper # TODO Do not set ventilate to true here, too?
+                      entity_id: !input cover_status_helper
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'open':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'p':current_position,
                           'v':4,
                           't':as_timestamp(now()) | round(0)
@@ -3243,53 +3257,99 @@ action:
                         %}
                         {{ dict_new | to_json }}
 
-            ########################################################
-            # Move to ventilate position because contact was opened
-            ########################################################
-            default:
-              - service: input_text.set_value
-                data:
-                  entity_id: !input cover_status_helper
-                  value: |
-                    {% set dict_var = states(cover_status_helper) | from_json %}
-                    {% set dict_new = dict(dict_var, **{
-                      'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
-                      'p':current_position,
-                      'v':4,
-                      't':as_timestamp(now()) | round(0)
-                      })
-                    %}
-                    {{ dict_new | to_json }}
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - if:
+                                - "{{ open_position == 100 }}"
+                              then:
+                                - alias: "Moving the cover to open position"
+                                  service: cover.open_cover
+                                  data: {}
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                              else:
+                                - alias: "Moving the cover to open position"
+                                  service: cover.set_cover_position
+                                  data:
+                                    position: !input open_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input open_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3)|random|int) }}"
 
-              - if:
-                  - "{{ not prevent_default_cover_actions}}"
-                then:
-                  - repeat:
-                      for_each: "{{ blind_entities|list }}"
-                      sequence:
-                        - alias: "Moving the cover to ventilate position"
-                          service: cover.set_cover_position
-                          data:
-                            position: !input ventilate_position
-                          target:
-                            entity_id: "{{ repeat.item }}"
-                        - if:
-                            - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                          then:
-                            - alias: "Tilt Delay"
-                              delay:
-                                seconds: !input tilt_delay
-                            - alias: "Moving the cover to tilt position"
-                              service: cover.set_cover_tilt_position
+              ###################################################
+              # Window handle to tilt. Move to ventilate position
+              ###################################################
+              - alias: "Window handle to tilt. Move to ventilate position"
+                conditions:
+                  - "{{ contact_window_tilted != [] }}"
+                  - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                  - condition: trigger
+                    id:
+                      - "t_contact_tilted_on"
+                  - or:
+                      - "{{ (current_position | int(default=101) < ventilate_position) }}"
+                      - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
+                sequence:
+                  - service: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'p':current_position,
+                          'v':4,
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to ventilate position"
+                              service: cover.set_cover_position
                               data:
-                                tilt_position: !input ventilate_tilt_position
+                                position: !input ventilate_position
                               target:
                                 entity_id: "{{ repeat.item }}"
-                        - delay:
-                            seconds: "{{ (range(1, 3)|random|int) }}"
+                            - if:
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  service: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input ventilate_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3)|random|int) }}"
 
-              - choose: []
-                default: !input auto_ventilate_action
+                  - choose: []
+                    default: !input auto_ventilate_action
 
           - stop: "Stop automation: CONTACT OPEN"
 
@@ -3301,8 +3361,9 @@ action:
 
       - alias: "Contact sensor closed"
         conditions:
-          - "{{ trigger.id is defined }}"
+          - "{{ is_ventilation_enabled }}"
           - "{{ is_status_helper_enabled }}"
+          - "{{ trigger.id is defined }}"
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - and:
@@ -3310,9 +3371,9 @@ action:
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
               - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
+          - "{{ not (is_cover_helper_manual and override_ventilation_after_manual) }}" # Ignore check
           - or:
               - and:
-                  - "{{ is_ventilation_enabled }}"
                   - condition: trigger
                     id: "t_contact_tilted_off"
                   - "{{ contact_window_tilted != [] }}"
@@ -3320,14 +3381,12 @@ action:
                   - or:
                       - "{{ is_cover_helper_ventilated }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
-                  - "{{ not (is_cover_helper_manual and override_ventilation_after_manual) }}" # Ignore check
               - and:
-                  - "{{ is_lockout_protection_enabled and not prevent_close_after_lockout }}"
                   - condition: trigger
                     id: "t_contact_opened_off"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
-                  - "{{ is_cover_helper_locked }}" # Status check
+                  - "{{ is_cover_helper_opened and is_cover_helper_ventilated }}" # Status check. Both means handle was open
 
         sequence:
           - if:
@@ -3337,33 +3396,6 @@ action:
                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
           - choose:
-              ###################################################
-              # Consider lockout protection when contact closes
-              ###################################################
-              - alias: "Consider lockout protection when contact closes"
-                conditions:
-                  - "{{ is_lockout_protection_enabled }}"
-                  - "{{ contact_window_opened != [] }}"
-                  - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
-                  - "{{ not is_cover_helper_open }}" # Not required if the cover is opened anyway
-                  - "{{ is_cover_helper_closed }}"
-                  - "{{ is_cover_helper_shaded }}"
-                sequence:
-                  - service: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'ventilate':{'a':false,'t':as_timestamp(now()) | round(0)},
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
-
               ##########################################
               # Contact sensor closed. Activate shading
               ##########################################
@@ -3428,7 +3460,7 @@ action:
               ########################################
               - alias: "Contact sensor closed. Open the cover"
                 conditions:
-                  - "{{ is_cover_helper_open }}"
+                  - "{{ is_cover_helper_open }}" # TODO Check if this works with handle=open
                   - "{{ not is_cover_helper_shaded }}"
                   - not:
                       - "{{ in_open_position }}"
@@ -4221,7 +4253,6 @@ action:
               - or:
                   - "{{ is_shading_enabled }}"
                   - "{{ is_ventilation_enabled }}"
-                  - "{{ is_lockout_protection_enabled }}"
               - "{{ not is_status_helper_enabled }}"
             then:
               - service: system_log.write
