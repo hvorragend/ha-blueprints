@@ -52,7 +52,7 @@ blueprint:
 
     - It is <ins>not</ins> possible to execute this automation manually!
     - If you want to use sun elevation and/or azimuth it's strongly advised to use sun.sun. And please make sure your sun.sun entity is enabled!
-    - `time_up_early` should be earlier `than time_up_late`
+    - `time_up_early` should be earlier than `time_up_late`
     - `time_up_early_non_workday` should be earlier than `time_up_late_non_workday`
     - `time_down_early` should be earlier than `time_down_late`
     - `time_down_early_non_workday` should be earlier than `time_down_late_non_workday`
@@ -96,6 +96,9 @@ blueprint:
           - contact_sensor_lockout
           - prevent_closing_by_resident
       - Added: Config check for schedule helper
+      - Fixed: A delay is now also taken into account when the sun shading is ended #128
+      - Added: Sun shading can now be allowed even if a resident is present #131
+      - Fixed: When checking the end of shading, a True was always output if the weather conditions array was empty #133
 
     2024.08.03:
       - Fixed: Helper length analysis template variable warning #120
@@ -1305,7 +1308,9 @@ blueprint:
             select:
               options:
                 - label: "🔻 Automatic closing due to the resident sensor"
-                  value: "closing_by_resident_enabled"
+                  value: "resident_closing_enabled"
+                - label: "🥵 Allow sun protection when resident is still present"
+                  value: "resident_shading_enabled"
               multiple: true
               sort: false
               custom_value: false
@@ -1977,7 +1982,8 @@ variables:
   prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
 
   resident_config: !input resident_config
-  closing_by_resident_enabled: "{{ 'closing_by_resident_enabled' in resident_config }}"
+  resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
+  resident_shading_enabled: "{{ 'resident_shading_enabled' in resident_config }}"
 
   ignore_after_manual_config: !input ignore_after_manual_config
   override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
@@ -2185,13 +2191,13 @@ trigger:
   # Triggers for shading end
   ########################################
 
-  - platform: template
+  - platform: template #Issue 133
     value_template: >-
       {{
         (shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1) or
         (shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2) or
         (shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end) or
-        (shading_forecast_sensor != [] and (shading_weather_conditions == [] or states(shading_forecast_sensor) not in shading_weather_conditions)) or
+        (shading_forecast_sensor != [] and shading_weather_conditions != [] and states(shading_forecast_sensor) not in shading_weather_conditions) or
             default_sun_sensor != [] and
             (
                 (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
@@ -2369,8 +2375,8 @@ action:
                   - "{{ is_state(time_schedule_helper, 'on') }}"
                   - condition: trigger
                     id:
-                      - "t_open_3" # Scheduler > true
-                      - "t_open_6" # Resident > false
+                      - "t_open_3" # Scheduler -> true
+                      - "t_open_6" # Resident -> false
               - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                   - or:
                       - and:
@@ -2592,7 +2598,7 @@ action:
                     id: t_close_6
                   - "{{ resident_sensor != [] }}"
                   - "{{ is_state(resident_sensor, ['true', 'on']) }}"
-                  - "{{ closing_by_resident_enabled }}"
+                  - "{{ resident_closing_enabled }}"
 
         sequence:
           - choose:
@@ -2862,6 +2868,9 @@ action:
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - and: # Issue 131
+                  - "{{ resident_shading_enabled }}"
+                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
 
         sequence:
           - choose:
@@ -3086,6 +3095,9 @@ action:
                       - "{{ (current_position | int(default=101) < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
                 sequence:
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+
                   - service: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -3139,6 +3151,9 @@ action:
               ###################################
               # Move cover to open position
               ###################################
+              - delay:
+                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+
               - alias: "Move cover to open position"
                 service: input_text.set_value
                 data:
@@ -3229,6 +3244,8 @@ action:
               - or: # Source: Shading
                   - "{{ is_cover_helper_shaded }}"
                   - "{{ in_shading_position }}" # Always and independently of the helper
+              - or: # Don't know if this is a good idea :-)
+                  - "{{ (current_position | int(default=101) < ventilate_position) }}"
         sequence:
           - choose:
               ###################################
@@ -3386,7 +3403,7 @@ action:
                     id: "t_contact_opened_off"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
-                  - "{{ is_cover_helper_opened and is_cover_helper_ventilated }}" # Status check. Both means handle was open
+                  - "{{ is_cover_helper_open and is_cover_helper_ventilated }}" # Status check. Both means handle was open
 
         sequence:
           - if:
