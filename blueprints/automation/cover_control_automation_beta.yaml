@@ -1,10 +1,10 @@
 blueprint:
-  name: "Cover Control Automation (CCA) - Beta"
+  name: "Cover Control Automation (CCA)"
   description: |
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.08.21-beta
+    **Version**: 2024.08.28-beta
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -74,7 +74,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    2024.08.21-beta:
+    2024.08.28-beta:
       - Updated:
           - Complete redesign of the logic behind the contact sensors.
           - Splitting the contact sensors into "Tilted windows" and "Open windows"
@@ -249,7 +249,7 @@ blueprint:
                   value: "auto_brightness_enabled"
                 - label: "☀️ - Enable sun elevation control (in addition to daily opening and closing)"
                   value: "auto_sun_enabled"
-                - label: "💨 - Enable ventilation mode (helper required)"
+                - label: "💨 - Enable ventilation mode and lockout protection (helper required)"
                   value: "auto_ventilate_enabled"
                 - label: "🥵 - Enable automatic sun protection / sunshade control (helper required)"
                   value: "auto_shading_enabled"
@@ -513,7 +513,7 @@ blueprint:
             The following could cause problems and would then be <ins>incorrect</ins>:
             <br />
             - Open Position = 100<br />
-            - Ventilate Position = 99<br />
+            - Ventilation Position = 99<br />
             - Tolerance >= 1<br />
 
             </details>
@@ -721,6 +721,7 @@ blueprint:
     brightness_section:
       name: "Brightness Configuration"
       description: >-
+        <br />
         <center><code>Settings if the feature ‘🔅 - Enable brightness control’ has been activated above.</code></center><br />
       icon: mdi:brightness-5
       collapsed: true
@@ -772,6 +773,7 @@ blueprint:
     sun_section:
       name: "Sun Elevation Settings"
       description: >-
+        <br />
         <center><code>Settings if the feature ‘☀️ - Enable sun elevation control’ has been activated above.</code></center><br />
       icon: mdi:weather-sunny
       collapsed: true
@@ -831,13 +833,14 @@ blueprint:
     contacts_section:
       name: "Contact Sensors for Ventilation"
       description: >-
+        <br />
         <center><code>Settings if the feature ‘💨 - Enable ventilation mode’ has been activated above.</code></center><br />
         <center><code>All these settings are optional / A Cover Status Helper is required!</code></center><br />
       icon: mdi:door-closed-lock
       collapsed: true
       input:
         contact_window_opened:
-          name: "🚪 Contact Sensor For Open Window"
+          name: "🚪 Contact Sensor For Open Window (Full Ventilation)"
           description: >-
             Contact sensor of a door or window handle for detecting <ins>total opening</ins>.
             If this sensor switches to on/true, the cover is <ins>fully opened</ins>.
@@ -865,9 +868,9 @@ blueprint:
                     - input_boolean
 
         contact_window_tilted:
-          name: "💨 Contact Sensor For Tilted Window"
+          name: "💨 Contact Sensor For Tilted Window (Partial Ventilation)"
           description: >-
-            The contact sensor is required for ventilation mode.
+            The contact sensor is required for the <ins>partial</ins> ventilation mode.
             If the contact changes to on/true, the cover is moved to the <ins>ventilation</ins> position.
             The prerequisite is that the cover is already closed.
             After the status changes to off/false, the close position is activated again.
@@ -956,6 +959,7 @@ blueprint:
     shading_section:
       name: "Sun Shading / Sun Protection"
       description: >-
+        <br />
         <center><code>Settings if the feature ‘🥵 - Enable automatic sun protection / sunshade control’ has been activated above.</code></center><br />
         <center><code>All these settings are optional / A Cover Status Helper is required! / The attributes of default sun sensor (configured above) is used.</code></center><br />
       icon: mdi:shield-sun-outline
@@ -1261,6 +1265,7 @@ blueprint:
     override_section:
       name: "Manual Override"
       description: >-
+        <br />
         <center><code>A Cover Status Helper is required!</code></center><br />
       icon: mdi:debug-step-over
       collapsed: true
@@ -1400,6 +1405,7 @@ blueprint:
     condition_section:
       name: "Additional Conditions"
       description: >-
+        <br />
         <center><code>All these settings are optional</code></center><br />
       icon: mdi:help-rhombus-outline
       collapsed: true
@@ -1525,6 +1531,7 @@ blueprint:
     actions_section:
       name: "Additional Actions"
       description: >-
+        <br />
         <center><code>All these settings are optional</code></center><br />
       icon: mdi:run
       collapsed: true
@@ -1696,7 +1703,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2024.08.21-beta"
+  version: "2024.08.28-beta"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1798,20 +1805,6 @@ variables:
       {{ 0 }}
     {% endif %}
 
-  is_cover_helper_ventilated: >-
-    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('ventilate') and (states(cover_status_helper)|from_json).v >= 2 %}
-      {{ (states(cover_status_helper)|from_json).ventilate.a | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_ventilated_ts: >-
-    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('ventilate') and (states(cover_status_helper)|from_json).v >= 2 %}
-      {{ (states(cover_status_helper)|from_json).ventilate.t }}
-    {% else %}
-      {{ 0 }}
-    {% endif %}
-
   is_cover_helper_shaded: >-
     {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('shading') and (states(cover_status_helper)|from_json).v >= 2 %}
       {{ (states(cover_status_helper)|from_json).shading.a | bool }}
@@ -1826,16 +1819,30 @@ variables:
       {{ 0 }}
     {% endif %}
 
-  is_cover_helper_locked: >-
-    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('locked') and (states(cover_status_helper)|from_json).v >= 2 %}
-      {{ (states(cover_status_helper)|from_json).locked.a | bool }}
+  is_cover_helper_partially_ventilated: >-
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('vent_partial') and (states(cover_status_helper)|from_json).v >= 2 %}
+      {{ (states(cover_status_helper)|from_json).vent_partial.a | bool }}
     {% else %}
       {{ false }}
     {% endif %}
 
-  is_cover_helper_locked_ts: >-
-    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('locked') and (states(cover_status_helper)|from_json).v >= 2 %}
-      {{ (states(cover_status_helper)|from_json).locked.t }}
+  is_cover_helper_partially_ventilated_ts: >-
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('vent_partial') and (states(cover_status_helper)|from_json).v >= 2 %}
+      {{ (states(cover_status_helper)|from_json).vent_partial.t }}
+    {% else %}
+      {{ 0 }}
+    {% endif %}
+
+  is_cover_helper_fully_ventilated: >-
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('vent_full') and (states(cover_status_helper)|from_json).v >= 2 %}
+      {{ (states(cover_status_helper)|from_json).vent_full.a | bool }}
+    {% else %}
+      {{ false }}
+    {% endif %}
+
+  is_cover_helper_fully_ventilated_ts: >-
+    {% if is_status_helper_enabled and states(cover_status_helper)|from_json|regex_search('vent_full') and (states(cover_status_helper)|from_json).v >= 2 %}
+      {{ (states(cover_status_helper)|from_json).vent_full.t }}
     {% else %}
       {{ 0 }}
     {% endif %}
@@ -2034,7 +2041,7 @@ trigger:
     value_template: "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
     id: "t_contact_tilted_off"
-    for: "00:00:04"
+    for: "00:00:02"
 
   - platform: template
     value_template: "{{ is_state(contact_window_opened, ['true', 'on']) }}"
@@ -2046,7 +2053,7 @@ trigger:
     value_template: "{{ is_state(contact_window_opened, ['false', 'off']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
     id: "t_contact_opened_off"
-    for: "00:00:04"
+    for: "00:00:02"
 
   - platform: state
     entity_id: !input auto_ventilate_force
@@ -2146,7 +2153,7 @@ trigger:
 condition:
   - condition: !input auto_global_condition
   - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger / trigger.platform == 'time' or...
-  - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering
+  # - "{{ state_attr(this.entity_id,'current') | int(99) == 0 }}" # Avoid multiple triggering
 
   ########################################
   # Action
@@ -2164,7 +2171,7 @@ action:
           - "t_open_1"
           - "t_open_3"
     then:
-      - service: weather.get_forecasts
+      - action: weather.get_forecasts
         target:
           entity_id: !input shading_forecast_sensor
         data:
@@ -2179,19 +2186,18 @@ action:
           - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
           - '{{ states(cover_status_helper) in ["unavailable", "none", "unknown"] }}'
     then:
-      - service: input_text.set_value
+      - action: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: |
             {% set dict_var = {
               'open':{'a':false,'t':0},
               'close':{'a':false,'t':0},
-              'ventilate':{'a':false,'t':0},
               'shading':{'a':false,'t':0},
-              'locked':{'a':false,'t':0},
+              'vent_partial':{'a':false,'t':0},
+              'vent_full':{'a':false,'t':0},
               'manual':{'a':false,'t':0},
-              'p':current_position,
-              'v':4,
+              'v':5,
               't':as_timestamp(now()) | round(0)
               }
             %}
@@ -2200,21 +2206,20 @@ action:
   # Upgrade JSON-helper to current version
   - if:
       - "{{ is_status_helper_enabled }}"
-      - "{{ (states(cover_status_helper)|from_json).v != 4 }}" # TODO Remove locked and upgrade to v5
+      - "{{ (states(cover_status_helper)|from_json).v != 5 }}"
     then:
-      - service: input_text.set_value
+      - action: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: |
             {% set dict_var = {
               'open':{'a':is_cover_helper_open,'t':is_cover_helper_open_ts},
               'close':{'a':is_cover_helper_closed,'t':is_cover_helper_closed_ts},
-              'ventilate':{'a':is_cover_helper_ventilated,'t':is_cover_helper_ventilated_ts},
               'shading':{'a':is_cover_helper_shaded,'t':is_cover_helper_shaded_ts},
-              'locked':{'a':is_cover_helper_locked,'t':is_cover_helper_locked_ts},
+              'vent_partial':{'a':is_cover_helper_partially_ventilated,'t':is_cover_helper_partially_ventilated_ts},
+              'vent_full':{'a':is_cover_helper_fully_ventilated,'t':is_cover_helper_fully_ventilated_ts},
               'manual':{'a':is_cover_helper_manual,'t':is_cover_helper_manual_ts},
-              'p':current_position,
-              'v':4,
+              'v':5,
               't':cover_status_time | round(0)
               }
             %}
@@ -2245,7 +2250,7 @@ action:
               - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
           - or: # Check the current positions
-              - "{{ is_status_helper_enabled and not is_cover_helper_open }}"
+              - "{{ is_status_helper_enabled and not is_cover_helper_open }}" # including ventilation, window open-status and more possibilities
               - "{{ is_ventilation_enabled and in_ventilate_position }}"
               - "{{ in_close_position }}"
           - "{{ not (is_status_helper_enabled and is_cover_helper_manual and override_opening_after_manual) }}" # Ignore check
@@ -2306,7 +2311,7 @@ action:
                   - "{{ is_cover_helper_shaded }}"
                   - "{{ is_status_helper_enabled }}"
                 sequence:
-                  - service: input_text.set_value # Set shading to true, but do not overwrite shading time
+                  - action: input_text.set_value # Set shading to true, but do not overwrite shading time
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -2314,12 +2319,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':true,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2332,7 +2335,7 @@ action:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
                             - alias: "Moving the cover to shading position"
-                              service: cover.set_cover_position
+                              action: cover.set_cover_position
                               data:
                                 position: !input shading_position
                               target:
@@ -2344,7 +2347,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input shading_tilt_position
                                   target:
@@ -2363,7 +2366,7 @@ action:
                 if:
                   - "{{ is_status_helper_enabled }}"
                 then:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -2371,12 +2374,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2392,13 +2393,13 @@ action:
                             - "{{ open_position == 100 }}"
                           then:
                             - alias: "Moving the cover to open position"
-                              service: cover.open_cover
+                              action: cover.open_cover
                               data: {}
                               target:
                                 entity_id: "{{ repeat.item }}"
                           else:
                             - alias: "Moving the cover to open position"
-                              service: cover.set_cover_position
+                              action: cover.set_cover_position
                               data:
                                 position: !input open_position
                               target:
@@ -2410,7 +2411,7 @@ action:
                               delay:
                                 seconds: !input tilt_delay
                             - alias: "Moving the cover to tilt position"
-                              service: cover.set_cover_tilt_position
+                              action: cover.set_cover_tilt_position
                               data:
                                 tilt_position: !input open_tilt_position
                               target:
@@ -2426,7 +2427,7 @@ action:
       ############################################################
       # ANCHOR (1): CLOSE
       #   Source: All (Open, Close, Ventilation, Shading)
-      #   Target: Close, Lockout, Ventilation
+      #   Target: Close, Ventilation Partial+Full
       ############################################################
 
       - alias: "Check for closing cover"
@@ -2512,7 +2513,7 @@ action:
                           - "{{ contact_window_tilted != [] }}"
                           - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -2520,12 +2521,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2549,7 +2548,7 @@ action:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -2557,12 +2556,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2574,8 +2571,8 @@ action:
                       - repeat:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
-                            - alias: "Moving the cover to ventilate position"
-                              service: cover.set_cover_position
+                            - alias: "Moving the cover to the partial ventilation position"
+                              action: cover.set_cover_position
                               data:
                                 position: !input ventilate_position
                               target:
@@ -2587,7 +2584,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input ventilate_tilt_position
                                   target:
@@ -2620,7 +2617,7 @@ action:
                   - if:
                       - "{{ is_status_helper_enabled }}"
                     then:
-                      - service: input_text.set_value
+                      - action: input_text.set_value
                         data:
                           entity_id: !input cover_status_helper # Manual not set here! Keep old value
                           value: |
@@ -2628,11 +2625,9 @@ action:
                             {% set dict_new = dict(dict_var, **{
                               'open':{'a':false,'t':dict_var.open.t},
                               'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                              'ventilate':{'a':false,'t':dict_var.ventilate.t},
                               'shading':{'a':false,'t':dict_var.shading.t},
-                              'locked':{'a':false,'t':dict_var.locked.t},
-                              'p':current_position,
-                              'v':4,
+                              'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                              'vent_full':{'a':false,'t':dict_var.vent_full.t},
                               't':as_timestamp(now()) | round(0)
                               })
                             %}
@@ -2649,7 +2644,7 @@ action:
               - if:
                   - "{{ is_status_helper_enabled }}"
                 then:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -2657,12 +2652,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2678,13 +2671,13 @@ action:
                             - "{{ close_position == 0 }}"
                           then:
                             - alias: "Moving the cover to close position"
-                              service: cover.close_cover
+                              action: cover.close_cover
                               data: {}
                               target:
                                 entity_id: "{{ repeat.item }}"
                           else:
                             - alias: "Moving the cover to close position"
-                              service: cover.set_cover_position
+                              action: cover.set_cover_position
                               data:
                                 position: !input close_position
                               target:
@@ -2696,7 +2689,7 @@ action:
                               delay:
                                 seconds: !input tilt_delay
                             - alias: "Moving the cover to tilt position"
-                              service: cover.set_cover_tilt_position
+                              action: cover.set_cover_tilt_position
                               data:
                                 tilt_position: !input close_tilt_position
                               target:
@@ -2732,9 +2725,9 @@ action:
               - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
           - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
-          - or: # Check the current positions
+          - or: # Check the current positions # TODO Move this the the choose branches
               - "{{ not is_cover_helper_shaded }}"
-              - "{{ not is_cover_helper_ventilated }}"
+              - "{{ not (is_cover_helper_partially_ventilated or is_cover_helper_fully_ventilated) }}"
           - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Ignore check
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
@@ -2782,20 +2775,18 @@ action:
                           - "{{ contact_window_tilted != [] }}"
                           - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
-                      entity_id: !input cover_status_helper
+                      entity_id: !input cover_status_helper # TODO: What if it was - window opened - before?
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'open':{'a':false,'t':dict_var.open.t},
+                          'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2822,7 +2813,7 @@ action:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -2830,12 +2821,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2848,7 +2837,7 @@ action:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
                             - alias: "Moving the cover to shading position"
-                              service: cover.set_cover_position
+                              action: cover.set_cover_position
                               data:
                                 position: !input shading_position
                               target:
@@ -2860,7 +2849,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input shading_tilt_position
                                   target:
@@ -2878,15 +2867,13 @@ action:
                 conditions:
                   - "{{ is_cover_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
                           'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2953,7 +2940,7 @@ action:
                           - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
                           - "{{ lockout_tilted_when_shading_ends }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -2961,12 +2948,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'vent_partial':{'a':false,'t':dict_var.shading.t},
+                          'vent_full':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -2992,7 +2977,7 @@ action:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3000,12 +2985,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3017,8 +3000,8 @@ action:
                       - repeat:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
-                            - alias: "Moving the cover to ventilate position"
-                              service: cover.set_cover_position
+                            - alias: "Move the cover to the partial ventilation position"
+                              action: cover.set_cover_position
                               data:
                                 position: !input ventilate_position
                               target:
@@ -3030,7 +3013,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input ventilate_tilt_position
                                   target:
@@ -3049,7 +3032,7 @@ action:
                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
               - alias: "Move cover to open position"
-                service: input_text.set_value
+                action: input_text.set_value
                 data:
                   entity_id: !input cover_status_helper
                   value: |
@@ -3057,12 +3040,10 @@ action:
                     {% set dict_new = dict(dict_var, **{
                       'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                       'close':{'a':false,'t':dict_var.close.t},
-                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
                       'shading':{'a':false,'t':dict_var.shading.t},
-                      'locked':{'a':false,'t':dict_var.locked.t},
+                      'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                      'vent_full':{'a':false,'t':dict_var.vent_full.t},
                       'manual':{'a':false,'t':dict_var.manual.t},
-                      'p':current_position,
-                      'v':4,
                       't':as_timestamp(now()) | round(0)
                       })
                     %}
@@ -3078,13 +3059,13 @@ action:
                             - "{{ open_position == 100 }}"
                           then:
                             - alias: "Moving the cover to open position"
-                              service: cover.open_cover
+                              action: cover.open_cover
                               data: {}
                               target:
                                 entity_id: "{{ repeat.item }}"
                           else:
                             - alias: "Moving the cover to open position"
-                              service: cover.set_cover_position
+                              action: cover.set_cover_position
                               data:
                                 position: !input open_position
                               target:
@@ -3096,7 +3077,7 @@ action:
                               delay:
                                 seconds: !input tilt_delay
                             - alias: "Moving the cover to tilt position"
-                              service: cover.set_cover_tilt_position
+                              action: cover.set_cover_tilt_position
                               data:
                                 tilt_position: !input open_tilt_position
                               target:
@@ -3131,16 +3112,16 @@ action:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
-          - or:
-              - or: # Source: Close
-                  - "{{ is_cover_helper_closed }}"
-                  - "{{ in_close_position }}" # Always and independently of the helper
-              - or: # Source: Shading
-                  - "{{ is_cover_helper_shaded }}"
-                  - "{{ in_shading_position }}" # Always and independently of the helper
-              - or: # Don't know if this is a good idea :-)
-                  - "{{ (current_position | int(default=101) < ventilate_position) }}"
+          # - or: # TODO WHY?
+          #     - or: # Source: Close
+          #         - "{{ is_cover_helper_closed }}"
+          #         - "{{ in_close_position }}"
+          #     - or: # Source: Shading
+          #         - "{{ is_cover_helper_shaded }}"
+          #         - "{{ in_shading_position }}"
         sequence:
+          - delay:
+              seconds: 3 # Wait for possible further handle changes of the contact sensors.
           - choose:
               ###################################
               # Window handle to open. Open cover
@@ -3152,17 +3133,16 @@ action:
                   - condition: trigger
                     id:
                       - "t_contact_opened_on"
+                  - "{{ not in_open_position }}" # TODO necessary?
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'open':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':true,'t':as_timestamp(now()) | round(0)},
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3178,13 +3158,13 @@ action:
                                 - "{{ open_position == 100 }}"
                               then:
                                 - alias: "Moving the cover to open position"
-                                  service: cover.open_cover
+                                  action: cover.open_cover
                                   data: {}
                                   target:
                                     entity_id: "{{ repeat.item }}"
                               else:
                                 - alias: "Moving the cover to open position"
-                                  service: cover.set_cover_position
+                                  action: cover.set_cover_position
                                   data:
                                     position: !input open_position
                                   target:
@@ -3196,7 +3176,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input open_tilt_position
                                   target:
@@ -3204,10 +3184,10 @@ action:
                             - delay:
                                 seconds: "{{ (range(1, 3)|random|int) }}"
 
-              ###################################################
-              # Window handle to tilt. Move to ventilate position
-              ###################################################
-              - alias: "Window handle to tilt. Move to ventilate position"
+              ############################################################################
+              # Window handle to tilt. Move the cover to the partial ventilation position
+              ############################################################################
+              - alias: "Window handle to tilt. Move the cover to the partial ventilation position."
                 conditions:
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
@@ -3217,16 +3197,17 @@ action:
                   - or:
                       - "{{ (current_position | int(default=101) < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
+                  # - or:
+                  # - "{{ is_cover_helper_fully_ventilated }}" # TODO New, but why?
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
+                          'vent_partial':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3238,8 +3219,8 @@ action:
                       - repeat:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
-                            - alias: "Moving the cover to ventilate position"
-                              service: cover.set_cover_position
+                            - alias: "Moving the cover to the partial ventilation position"
+                              action: cover.set_cover_position
                               data:
                                 position: !input ventilate_position
                               target:
@@ -3251,7 +3232,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input ventilate_tilt_position
                                   target:
@@ -3290,14 +3271,14 @@ action:
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
                   - or:
-                      - "{{ is_cover_helper_ventilated }}" # Status check
+                      - "{{ is_cover_helper_partially_ventilated }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
                   - condition: trigger
                     id: "t_contact_opened_off"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
-                  - "{{ is_cover_helper_open and is_cover_helper_ventilated }}" # Status check. Both means handle was open
+                  - "{{ is_cover_helper_fully_ventilated }}"
 
         sequence:
           - if:
@@ -3305,6 +3286,9 @@ action:
             then:
               - delay:
                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+            else:
+              - delay:
+                  seconds: 3 # Wait for possible further handle changes of the contact sensors.
 
           - choose:
               ##########################################
@@ -3313,11 +3297,11 @@ action:
               - alias: "Contact sensor closed. Activate shading"
                 conditions:
                   - "{{ is_cover_helper_shaded }}"
-                  - not:
-                      - "{{ in_shading_position }}"
-                      - "{{ (current_position | int(default=101) == shading_position) }}"
+                  # - not: # TODO: Do I really need this here or should I just always correct the status?
+                  #     - "{{ in_shading_position }}"
+                  #     - "{{ (current_position | int(default=101) == shading_position) }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3325,12 +3309,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3343,7 +3325,7 @@ action:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
                             - alias: "Moving the cover to shading position"
-                              service: cover.set_cover_position
+                              action: cover.set_cover_position
                               data:
                                 position: !input shading_position
                               target:
@@ -3355,7 +3337,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input shading_tilt_position
                                   target:
@@ -3371,14 +3353,14 @@ action:
               ########################################
               - alias: "Contact sensor closed. Open the cover"
                 conditions:
-                  - "{{ is_cover_helper_open }}" # TODO Check if this works with handle=open
+                  - "{{ is_cover_helper_open }}"
                   - "{{ not is_cover_helper_shaded }}"
-                  - not:
-                      - "{{ in_open_position }}"
-                      - "{{ (current_position | int(default=101) >= open_position) }}"
-                      - "{{ (current_position | int(default=101) == 100) }}"
+                  # - not: # TODO: Do I really need this here or should I just always correct the status?
+                  #     - "{{ in_open_position }}"
+                  #     - "{{ (current_position | int(default=101) >= open_position) }}"
+                  #     - "{{ (current_position | int(default=101) == 100) }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3386,12 +3368,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3407,13 +3387,13 @@ action:
                                 - "{{ open_position == 100 }}"
                               then:
                                 - alias: "Moving the cover to open position"
-                                  service: cover.open_cover
+                                  action: cover.open_cover
                                   data: {}
                                   target:
                                     entity_id: "{{ repeat.item }}"
                               else:
                                 - alias: "Moving the cover to open position"
-                                  service: cover.set_cover_position
+                                  action: cover.set_cover_position
                                   data:
                                     position: !input open_position
                                   target:
@@ -3425,7 +3405,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input open_tilt_position
                                   target:
@@ -3442,12 +3422,12 @@ action:
               - alias: "Contact sensor closed. Close the cover"
                 conditions:
                   - "{{ is_cover_helper_closed }}"
-                  - not:
-                      - "{{ in_close_position }}"
-                      - "{{ (current_position | int(default=101) <= close_position) }}"
-                      - "{{ (current_position | int(default=101) == 0) }}"
+                  # - not: # TODO: Do I really need this here or should I just always correct the status?
+                  #     - "{{ in_close_position }}"
+                  #     - "{{ (current_position | int(default=101) <= close_position) }}"
+                  #     - "{{ (current_position | int(default=101) == 0) }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3455,12 +3435,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':false,'t':dict_var.manual.t},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3476,13 +3454,13 @@ action:
                                 - "{{ close_position == 0 }}"
                               then:
                                 - alias: "Moving the cover to close position"
-                                  service: cover.close_cover
+                                  action: cover.close_cover
                                   data: {}
                                   target:
                                     entity_id: "{{ repeat.item }}"
                               else:
                                 - alias: "Moving the cover to close position"
-                                  service: cover.set_cover_position
+                                  action: cover.set_cover_position
                                   data:
                                     position: !input close_position
                                   target:
@@ -3494,7 +3472,7 @@ action:
                                   delay:
                                     seconds: !input tilt_delay
                                 - alias: "Moving the cover to tilt position"
-                                  service: cover.set_cover_tilt_position
+                                  action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: !input close_tilt_position
                                   target:
@@ -3521,7 +3499,7 @@ action:
           - if:
               - "{{ is_status_helper_enabled }}"
             then:
-              - service: input_text.set_value
+              - action: input_text.set_value
                 data:
                   entity_id: !input cover_status_helper
                   value: |
@@ -3529,12 +3507,10 @@ action:
                     {% set dict_new = dict(dict_var, **{
                       'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                       'close':{'a':false,'t':dict_var.close.t},
-                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
                       'shading':{'a':false,'t':dict_var.shading.t},
-                      'locked':{'a':false,'t':dict_var.locked.t},
+                      'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                      'vent_full':{'a':false,'t':dict_var.vent_full.t},
                       'manual':{'a':false,'t':dict_var.manual.t},
-                      'p':current_position,
-                      'v':4,
                       't':as_timestamp(now()) | round(0)
                       })
                     %}
@@ -3550,13 +3526,13 @@ action:
                         - "{{ open_position == 100 }}"
                       then:
                         - alias: "Moving the cover to open position"
-                          service: cover.open_cover
+                          action: cover.open_cover
                           data: {}
                           target:
                             entity_id: "{{ repeat.item }}"
                       else:
                         - alias: "Moving the cover to open position"
-                          service: cover.set_cover_position
+                          action: cover.set_cover_position
                           data:
                             position: !input open_position
                           target:
@@ -3568,7 +3544,7 @@ action:
                           delay:
                             seconds: !input tilt_delay
                         - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
+                          action: cover.set_cover_tilt_position
                           data:
                             tilt_position: !input open_tilt_position
                           target:
@@ -3595,7 +3571,7 @@ action:
           - if:
               - "{{ is_status_helper_enabled }}"
             then:
-              - service: input_text.set_value
+              - action: input_text.set_value
                 data:
                   entity_id: !input cover_status_helper
                   value: |
@@ -3603,12 +3579,10 @@ action:
                     {% set dict_new = dict(dict_var, **{
                       'open':{'a':false,'t':dict_var.open.t},
                       'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                      'ventilate':{'a':false,'t':dict_var.ventilate.t},
                       'shading':{'a':false,'t':dict_var.shading.t},
-                      'locked':{'a':false,'t':dict_var.locked.t},
+                      'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                      'vent_full':{'a':false,'t':dict_var.vent_full.t},
                       'manual':{'a':false,'t':dict_var.manual.t},
-                      'p':current_position,
-                      'v':4,
                       't':as_timestamp(now()) | round(0)
                       })
                     %}
@@ -3624,13 +3598,13 @@ action:
                         - "{{ close_position == 0 }}"
                       then:
                         - alias: "Moving the cover to close position"
-                          service: cover.close_cover
+                          action: cover.close_cover
                           data: {}
                           target:
                             entity_id: "{{ repeat.item }}"
                       else:
                         - alias: "Moving the cover to close position"
-                          service: cover.set_cover_position
+                          action: cover.set_cover_position
                           data:
                             position: !input close_position
                           target:
@@ -3642,7 +3616,7 @@ action:
                           delay:
                             seconds: !input tilt_delay
                         - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
+                          action: cover.set_cover_tilt_position
                           data:
                             tilt_position: !input close_tilt_position
                           target:
@@ -3667,7 +3641,7 @@ action:
           - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
-          - service: input_text.set_value
+          - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper
               value: |
@@ -3675,12 +3649,10 @@ action:
                 {% set dict_new = dict(dict_var, **{
                   'open':{'a':false,'t':dict_var.open.t},
                   'close':{'a':false,'t':dict_var.close.t},
-                  'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                   'shading':{'a':false,'t':dict_var.shading.t},
-                  'locked':{'a':false,'t':dict_var.locked.t},
+                  'vent_partial':{'a':true,'t':as_timestamp(now()) | round(0)},
+                  'vent_full':{'a':false,'t':dict_var.vent_full.t},
                   'manual':{'a':false,'t':dict_var.manual.t},
-                  'p':current_position,
-                  'v':4,
                   't':as_timestamp(now()) | round(0)
                   })
                 %}
@@ -3692,8 +3664,8 @@ action:
               - repeat:
                   for_each: "{{ blind_entities|list }}"
                   sequence:
-                    - alias: "Moving the cover to ventilate position"
-                      service: cover.set_cover_position
+                    - alias: "Moving the cover to the partial ventilation position"
+                      action: cover.set_cover_position
                       data:
                         position: !input ventilate_position
                       target:
@@ -3705,7 +3677,7 @@ action:
                           delay:
                             seconds: !input tilt_delay
                         - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
+                          action: cover.set_cover_tilt_position
                           data:
                             tilt_position: !input ventilate_tilt_position
                           target:
@@ -3730,7 +3702,7 @@ action:
           - "{{ auto_shading_start_force != [] and is_state(auto_shading_start_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
-          - service: input_text.set_value
+          - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper
               value: |
@@ -3738,12 +3710,10 @@ action:
                 {% set dict_new = dict(dict_var, **{
                   'open':{'a':false,'t':dict_var.open.t},
                   'close':{'a':false,'t':dict_var.close.t},
-                  'ventilate':{'a':false,'t':dict_var.ventilate.t},
                   'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                  'locked':{'a':false,'t':dict_var.locked.t},
+                  'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                  'vent_full':{'a':false,'t':dict_var.vent_full.t},
                   'manual':{'a':false,'t':dict_var.manual.t},
-                  'p':current_position,
-                  'v':4,
                   't':as_timestamp(now()) | round(0)
                   })
                 %}
@@ -3756,7 +3726,7 @@ action:
                   for_each: "{{ blind_entities|list }}"
                   sequence:
                     - alias: "Moving the cover to shading position"
-                      service: cover.set_cover_position
+                      action: cover.set_cover_position
                       data:
                         position: !input shading_position
                       target:
@@ -3768,7 +3738,7 @@ action:
                           delay:
                             seconds: !input tilt_delay
                         - alias: "Moving the cover to tilt position"
-                          service: cover.set_cover_tilt_position
+                          action: cover.set_cover_tilt_position
                           data:
                             tilt_position: !input shading_tilt_position
                           target:
@@ -3808,7 +3778,7 @@ action:
                       - "{{ (current_position | int(default=101) >= open_position) }}"
                       - "{{ (current_position | int(default=101) == 100) }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3816,12 +3786,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3834,7 +3802,7 @@ action:
                   - "{{ in_ventilate_position }}"
                   - "{{ not in_open_position }}" # If ventilate_position and open_position are too close together, the ventilation-status should not be assigned.
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3842,12 +3810,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':true,'t':as_timestamp(now()) | round(0)},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':true,'t':as_timestamp(now()) | round(0)},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3859,7 +3825,7 @@ action:
                   - "{{ is_shading_enabled }}"
                   - "{{ in_shading_position }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3867,12 +3833,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3885,11 +3849,10 @@ action:
                   - "{{ not in_shading_position }}"
                   - or:
                       - "{{ in_close_position }}"
-                      # - "{{ (current_position | int(default=101) < shading_position) and (current_position | int(default=101) < ventilate_position) }}" # This can cause problems if shadingPos < closedPos in cover status helper
                       - "{{ (current_position | int(default=101) <= close_position) }}"
                       - "{{ (current_position | int(default=101) == 0) }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3897,12 +3860,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3917,7 +3878,7 @@ action:
                       - "{{ is_ventilation_enabled and in_ventilate_position }}"
                       - "{{ is_shading_enabled and in_shading_position }}"
                 sequence:
-                  - service: input_text.set_value
+                  - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
@@ -3925,12 +3886,10 @@ action:
                         {% set dict_new = dict(dict_var, **{
                           'open':{'a':false,'t':dict_var.open.t},
                           'close':{'a':false,'t':dict_var.close.t},
-                          'ventilate':{'a':false,'t':dict_var.ventilate.t},
                           'shading':{'a':false,'t':dict_var.shading.t},
-                          'locked':{'a':false,'t':dict_var.locked.t},
+                          'vent_partial':{'a':false,'t':dict_var.vent_partial.t},
+                          'vent_full':{'a':false,'t':dict_var.vent_full.t},
                           'manual':{'a':true,'t':as_timestamp(now()) | round(0)},
-                          'p':current_position,
-                          'v':4,
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3951,15 +3910,13 @@ action:
               - "t_manual_2"
               - "t_manual_3"
         sequence:
-          - service: input_text.set_value
+          - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper
               value: |
                 {% set dict_var = states(cover_status_helper) | from_json %}
                 {% set dict_new = dict(dict_var, **{
                   'manual':{'a':false,'t':as_timestamp(now()) | round(0)},
-                  'p':current_position,
-                  'v':4,
                   't':as_timestamp(now()) | round(0)
                   })
                 %}
@@ -3982,15 +3939,13 @@ action:
         sequence:
           - delay:
               seconds: "{{ (range(0, 60)|random|int) }}"
-          - service: input_text.set_value
+          - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper
               value: |
                 {% set dict_var = states(cover_status_helper) | from_json %}
                 {% set dict_new = dict(dict_var, **{
                   'shading':{'a':false,'t':as_timestamp(now()) | round(0)},
-                  'p':current_position,
-                  'v':4,
                   't':as_timestamp(now()) | round(0)
                   })
                 %}
@@ -4008,7 +3963,7 @@ action:
           - if:
               - "{{ not is_time_control_disabled and (today_at(time_up_early) >= today_at(time_up_late)) }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: time_up_early should be earlier than time_up_late - {{this.entity_id}}"
@@ -4016,7 +3971,7 @@ action:
           - if:
               - "{{ not is_time_control_disabled and (today_at(time_up_early_non_workday) >= today_at(time_up_late_non_workday)) }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: time_up_early_non_workday should be earlier than time_up_late_non_workday - {{this.entity_id}}"
@@ -4024,7 +3979,7 @@ action:
           - if:
               - "{{ not is_time_control_disabled and (today_at(time_down_early) >= today_at(time_down_late)) }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: time_down_early should be earlier than time_down_late - {{this.entity_id}}"
@@ -4032,7 +3987,7 @@ action:
           - if:
               - "{{ not is_time_control_disabled and (today_at(time_down_early_non_workday) >= today_at(time_down_late_non_workday)) }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: time_down_early_non_workday should be earlier than time_down_late_non_workday - {{this.entity_id}}"
@@ -4041,7 +3996,7 @@ action:
           - if:
               - "{{ shading_azimuth_start >= shading_azimuth_end }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: shading_azimuth_start should be lower than shading_azimuth_end - {{this.entity_id}}"
@@ -4049,7 +4004,7 @@ action:
           - if:
               - "{{ shading_elevation_min >= shading_elevation_max }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: shading_elevation_min should be lower than - {{this.entity_id}}"
@@ -4057,7 +4012,7 @@ action:
           - if:
               - "{{ shading_sun_brightness_start <= shading_sun_brightness_end }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: shading_sun_brightness_start should be higher than shading_sun_brightness_end - {{this.entity_id}}"
@@ -4067,7 +4022,7 @@ action:
           # - if:
           #     - "{{ (open_position - position_tolerance) <= (close_position + position_tolerance) }}"
           #   then:
-          #     - service: system_log.write
+          #     - action: system_log.write
           #       data:
           #         level: "{{ check_config_debuglevel }}"
           #         message: "Cover Control Automation (CCA): Config issue: open_position should be higher than close_position - {{this.entity_id}}"
@@ -4075,7 +4030,7 @@ action:
           # - if:
           #     - "{{ (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
           #   then:
-          #     - service: system_log.write
+          #     - action: system_log.write
           #       data:
           #         level: "{{ check_config_debuglevel }}"
           #         message: "Cover Control Automation (CCA): Config issue: open_position should be higher than ventilate_position - {{this.entity_id}}"
@@ -4083,7 +4038,7 @@ action:
           # - if:
           #     - "{{ (close_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
           #   then:
-          #     - service: system_log.write
+          #     - action: system_log.write
           #       data:
           #         level: "{{ check_config_debuglevel }}"
           #         message: "Cover Control Automation (CCA): Config issue: close_position should be lower than ventilate_position - {{this.entity_id}}"
@@ -4091,7 +4046,7 @@ action:
           # - if:
           #     - "{{ (shading_position - position_tolerance) <= (close_position + position_tolerance)}}"
           #   then:
-          #     - service: system_log.write
+          #     - action: system_log.write
           #       data:
           #         level: "{{ check_config_debuglevel }}"
           #         message: "Cover Control Automation (CCA): Config issue: shading_position should be higher than close_position - {{this.entity_id}}"
@@ -4099,7 +4054,7 @@ action:
           # - if:
           #     - "{{ (shading_position + position_tolerance) >= (open_position - position_tolerance) }}"
           #   then:
-          #     - service: system_log.write
+          #     - action: system_log.write
           #       data:
           #         level: "{{ check_config_debuglevel }}"
           #         message: "Cover Control Automation (CCA): Config issue: shading_position should be lower than open_position - {{this.entity_id}}"
@@ -4107,7 +4062,7 @@ action:
           - if:
               - "{{ ( (resident_sensor != [] ) and (not is_state(resident_sensor, ['false', 'off','true', 'on'])) ) }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: resident_sensor is only allowed to be on/off/true/false - {{this.entity_id}}"
@@ -4116,7 +4071,7 @@ action:
           - if:
               - "{{ state_attr(blind, 'current_position') is none }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: cover is missing attribute current_position - {{this.entity_id}}"
@@ -4125,7 +4080,7 @@ action:
           - if:
               - "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: sun sensor is missing attribute elevation - {{this.entity_id}}"
@@ -4133,7 +4088,7 @@ action:
           - if:
               - "{{ state_attr(default_sun_sensor, 'azimuth') is none }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: sun sensor is missing attribute azimuth - {{this.entity_id}}"
@@ -4144,7 +4099,7 @@ action:
                   - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
                   - "{{ is_brightness_enabled and not is_number(states(default_brightness_sensor)) }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: brightness sensor not defined or state is not numeric - {{this.entity_id}}"
@@ -4154,7 +4109,7 @@ action:
               - "{{ 'cover_helper_enabled' in cover_status_options }}"
               - "{{ state_attr(cover_status_helper, 'max') < 254 }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: Wrong length of the cover status helper - {{this.entity_id}}"
@@ -4166,7 +4121,7 @@ action:
                   - "{{ is_ventilation_enabled }}"
               - "{{ not is_status_helper_enabled }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: Shading, ventilation and lockout protection require a cover status helper to be configured - {{this.entity_id}}"
@@ -4176,7 +4131,7 @@ action:
               - "{{ is_schedule_helper_enabled }}"
               - "{{ time_schedule_helper == [] }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: Schedule mode selected but no schedule helper specified - {{this.entity_id}}"
@@ -4185,7 +4140,7 @@ action:
           - if:
               - "{{ [in_open_position, in_close_position, in_shading_position, in_ventilate_position].count(True) > 1 }}"
             then:
-              - service: system_log.write
+              - action: system_log.write
                 data:
                   level: "{{ check_config_debuglevel }}"
                   message: "Cover Control Automation (CCA): Config issue: Please revise the position values ​​and take the tolerance values ​​into account. The values ​​must not overlap - {{this.entity_id}}"
