@@ -80,7 +80,7 @@ blueprint:
           - Splitting the contact sensors into "Tilted windows" and "Open windows"
           - Lockout protection removed from the automation options
           - Lockout protection can be configured individually
-          - <strong>Please reconfigure contacts and resident settings!</strong>
+          - <strong>Please reconfigure contacts,  residents and manual override settings!</strong>
       - Breaking Changes:
           <ins>Removed settings:</ins>
           - "Prevent the cover from closing immediately after deactivating the lockout protection" (prevent_close_after_lockout)
@@ -95,6 +95,8 @@ blueprint:
           - contact_sensor
           - contact_sensor_lockout
           - prevent_closing_by_resident
+          - is_reset_time (replaces with is_reset_fixed_time)
+      - Updated: If you previously used the manual control reset at a certain time, you now have to reconfigure this feature once. I had to rename the variable is_reset_time to is_reset_fixed_time.
       - Added: Config check for schedule helper
       - Fixed: A delay is now also taken into account when the sun shading is ended #128
       - Added: Sun shading can now be allowed even if a resident is present #131
@@ -1696,7 +1698,7 @@ trigger_variables:
   reset_override_time: !input reset_override_time
   reset_override_timeout: !input reset_override_timeout
   is_reset_disabled: "{{ 'reset_disabled' in reset_override_config }}"
-  is_reset_time: "{{ 'reset_time' in reset_override_config }}"
+  is_reset_fixed_time: "{{ 'reset_fixed_time' in reset_override_config }}"
   is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
 
   cover_status_options: !input cover_status_options
@@ -2128,7 +2130,7 @@ trigger:
 
   - platform: template # Deliberately not using platform:time so that to_state and from_state are available. This would otherwise lead to errors later on
     value_template: "{{ now() >= today_at(reset_override_time) }}"
-    enabled: "{{ is_reset_time }}"
+    enabled: "{{ is_reset_fixed_time }}"
     id: "t_manual_2"
 
   - platform: template
@@ -2146,17 +2148,17 @@ trigger:
     enabled: "{{ is_reset_timeout }}"
     id: "t_manual_3"
 
-  ########################################
-  # Global conditions
-  ########################################
+########################################
+# Global conditions
+########################################
 
 condition:
   - condition: !input auto_global_condition
-  - "{{ trigger.to_state.state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger / trigger.platform == 'time' or...
+  - "{{ trigger.to_state is not defined or (trigger.to_state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed']) }}" # The following values are not valid to trigger / trigger.platform == 'time' or...
 
-  ########################################
-  # Action
-  ########################################
+########################################
+# Action
+########################################
 
 action:
   # Querying the weather forecast
