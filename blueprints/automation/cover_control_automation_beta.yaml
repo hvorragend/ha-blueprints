@@ -2128,7 +2128,7 @@ trigger:
     id: "t_manual_1"
     for: "00:01:00"
 
-  - platform: template # Deliberately not using platform:time so that to_state and from_state are available. This would otherwise lead to errors later on
+  - platform: template
     value_template: "{{ now() >= today_at(reset_override_time) }}"
     enabled: "{{ is_reset_fixed_time }}"
     id: "t_manual_2"
@@ -2140,8 +2140,7 @@ trigger:
         states(cover_status_helper) != [] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
-        states(cover_status_helper)|from_json|regex_search('manual') and
-        (states(cover_status_helper)|from_json).v >= 2
+        states(cover_status_helper)|from_json|regex_search('manual')
       %}
         {{ now() >= ( (states(cover_status_helper)|from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local }}
       {% endif %}
@@ -2154,7 +2153,9 @@ trigger:
 
 condition:
   - condition: !input auto_global_condition
-  - "{{ trigger.to_state is not defined or (trigger.to_state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed']) }}" # The following values are not valid to trigger / trigger.platform == 'time' or...
+  - or:
+      - "{{ trigger.to_state is not defined }}" # for "platform: time"-Trigger
+      - "{{ trigger.to_state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger
 
 ########################################
 # Action
