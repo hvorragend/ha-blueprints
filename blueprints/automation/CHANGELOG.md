@@ -255,3 +255,44 @@
   - Fixed: "Manual Override" don't work #122 (Thanks to Eimeel)
   - Fixed: Commenting out the check of the position information in the config check #121
   - Fixed: Blinds not opening with resident mode when auto close disabled #115
+
+2024.09.04-beta:
+  - Major Update:
+      - Complete redesign of the logic behind the contact sensors.
+      - Splitting the contact sensors into "Tilted windows" and "Open windows"
+      - Lockout protection removed from the automation options
+      - Lockout protection can be configured individually
+      - <strong>Please reconfigure contacts,  residents and manual override settings!</strong>
+
+  - Major Update:
+      - Complete redesign of the shading triggers.
+        I have now separated the originally combined triggers again.
+        And the waiting time is no longer taken into account in the trigger and also not as a delay in the action sequences.
+        Instead, the new trigger time is now saved in the helper.
+        This has the wonderful advantage that we can work with several shading triggers again, which do not reset and restart each other.
+        Unfortunately, this makes things more complicated in support, as I now need traces for both triggers (pending and execution).
+        But I also hope to have fewer customer service calls in the long term.
+        In addition, you can now see traces again that were previously not available because they were cancelled directly in the for-wait time.
+
+  - Updated: If you previously used the manual control reset at a certain time, you now have to reconfigure this feature once. I had to rename the variable is_reset_time to is_reset_fixed_time.
+  - Added: Config check for schedule helper
+  - Added: Sun shading can now be allowed even if a resident is present #131
+  - Fixed: A delay is now also taken into account when the sun shading is ended #128
+  - Fixed: When checking the end of shading, a True was always output if the weather conditions array was empty #133
+  - Fixed: Prevent double triggering if early+late times are identical.
+
+  - Breaking Changes:
+      <ins>Removed settings:</ins>
+      - "Prevent the cover from closing immediately after deactivating the lockout protection" (prevent_close_after_lockout)
+      - "Enable lockout protection" (auto_lockout_protection_enabled)
+      - "Contact Sensor Entity For Ventilation" (contact_sensor)
+      - "Contact Sensor Entity For Lockout Protectio" (contact_sensor_lockout)
+      - "Prevent automatic closing due to the resident sensor" (prevent_closing_by_resident)
+
+      <ins>Please delete the following variables in the YAML code:</ins>
+      - prevent_close_after_lockout
+      - auto_lockout_protection_enabled
+      - contact_sensor
+      - contact_sensor_lockout
+      - prevent_closing_by_resident
+      - is_reset_time (replaces with is_reset_fixed_time)
