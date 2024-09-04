@@ -256,7 +256,7 @@
   - Fixed: Commenting out the check of the position information in the config check #121
   - Fixed: Blinds not opening with resident mode when auto close disabled #115
 
-2024.09.04-beta:
+2024.09.04:
   - Major Update:
       - Complete redesign of the logic behind the contact sensors.
       - Splitting the contact sensors into "Tilted windows" and "Open windows"
