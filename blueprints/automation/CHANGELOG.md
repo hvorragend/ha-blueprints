@@ -296,3 +296,6 @@
       - contact_sensor_lockout
       - prevent_closing_by_resident
       - is_reset_time (replaces with is_reset_fixed_time)
+
+2024.09.05:
+  - Added check for a shading shading start/end time > 0
