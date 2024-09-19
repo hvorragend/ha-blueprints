@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.09.05
+    **Version**: 2024.09.19
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,11 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2024.09.19:
+      - Fixed: Fixed some warnings in the log. No influence on functionality #141
+      - Fixed: Brightness Down not working #144
+      - Fixed: Shutter up after resident on not (always) functional #139
 
     2024.09.05:
       - Added check for a shading shading start/end time > 0
@@ -666,7 +671,7 @@ blueprint:
           name: "🔼 Time For Drive Up - Early On Workdays"
           description: >-
             The earliest time at which the cover may be opened. The cover will be opened if <ins>AFTER</ins> this time the defined brightness
-            or sun-elevation value is high enough. (**NOTE**: If a resident is defined, he must also be awake).
+            or sun-elevation value is high enough. (**NOTE**: A resident must also be awake if one is defined).
           default: "06:00:00"
           selector:
             time: {}
@@ -684,8 +689,7 @@ blueprint:
           description: >-
             The latest time at which the cover should be opened.
             If the required brightness or sun-elevation value has <ins>NOT</ins> yet been reached by this time, the cover will still be opened.
-            (**NOTE**: If a resident is defined and he is still asleep, the cover will <ins>NOT</ins> be opened.
-            It will only be opened when the resident has woken up).
+            (**NOTE**: If a resident has been defined and the resident is still asleep, then the cover will NOT be opened.)
           default: "08:00:00"
           selector:
             time: {}
@@ -1235,28 +1239,20 @@ blueprint:
 
     resident_section:
       name: "Resident Settings"
+      description: >-
+        <br />
+        <center><code>The resident mode can be used to override the automatic opening of the cover by the resident sensor.
+        The cover will not open automatically if the resident sensor (input_boolean or binary_sensor) is set to true/on.
+        And the cover will basically close (without checking the defined times) when this sensor switches to true/on (because the resident is asleep).</code></center><br />
       icon: mdi:human-male-female
       collapsed: true
       input:
         resident_sensor:
           name: "🛌 Resident Mode"
           description: >-
-            Overwrite mode for opening and unplannend closing.
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-            This switch can be used to override the automatic opening of the cover.
-            If this sensor (input_boolean or binary_sensor) is set to ON, the cover will not open automatically.
-
-            This can be used e.g. to define a resident for the room. In this case, the cover only opens when the resident is no longer asleep.
-            <br />
-            For this it is necessary to use a boolean sensor that returns TRUE/ON for sleeping and FALSE/OFF for non-sleeping.
-            <br />
-            The cover will also close (without checking the defined times) if this sensor switches to TRUE/ON (because the resident is sleeping).
-
-            </details>
-            <br /><code>Optional</code>
+            This can be used, for example, to define a resident for the room. In this case, the cover will only be opened when the occupant is no longer asleep.
+            This requires the use of a boolean sensor that returns true|on for sleep and false/off for non-sleep.
+            <br /><br /><code>Optional</code>
           default: []
           selector:
             entity:
@@ -1266,12 +1262,14 @@ blueprint:
 
         resident_config:
           name: "🛌 Resident Configuration"
-          description: "A few fine adjustments"
+          description: "Some Resident Tweaks"
           default: []
           selector:
             select:
               options:
-                - label: "🔻 Automatic closing due to the resident sensor"
+                - label: "🔼 Automatic opening due to the resident sensor (false/off)"
+                  value: "resident_opening_enabled"
+                - label: "🔻 Automatic closing due to the resident sensor (true/on)"
                   value: "resident_closing_enabled"
                 - label: "🥵 Allow sun protection when resident is still present"
                   value: "resident_shading_enabled"
@@ -1724,7 +1722,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2024.09.05"
+  version: "2024.09.19"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1924,6 +1922,7 @@ variables:
   prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
 
   resident_config: !input resident_config
+  resident_opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
   resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
   resident_shading_enabled: "{{ 'resident_shading_enabled' in resident_config }}"
 
@@ -2043,7 +2042,7 @@ trigger:
     id: "t_close_3"
 
   - platform: template
-    value_template: "{{ (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) }}"
+    value_template: "{{ states(default_brightness_sensor) | float(default=brightness_down) < brightness_down }}"
     for:
       seconds: !input brightness_time_duration
     enabled: "{{ is_brightness_enabled and default_brightness_sensor != [] }}"
@@ -2108,38 +2107,36 @@ trigger:
   - platform: template
     value_template: >-
       {{
-        default_sun_sensor != [] and
         state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_start) > shading_azimuth_start and
         state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) < shading_azimuth_end and
         state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) > shading_elevation_min
       }}
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
     id: "t_shading_start_pending_1"
 
   - platform: template
     value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
     id: "t_shading_start_pending_2"
 
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_start_pending_3"
 
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_start_pending_4"
 
   - platform: template
     value_template: "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
     id: "t_shading_start_pending_5"
 
   - platform: template
     value_template: >-
       {% if
-        cover_status_helper != [] and
         states(cover_status_helper) != [] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
@@ -2149,7 +2146,7 @@ trigger:
       %}
         {{ now() >= ( (states(cover_status_helper)|from_json).shading.p) | as_datetime | as_local }}
       {% endif %}
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_start_execution"
 
   - platform: state
@@ -2163,42 +2160,38 @@ trigger:
   ########################################
 
   - platform: template
-    value_template: "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1 }}"
-    enabled: "{{ is_shading_enabled }}"
+    value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1 }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_end_pending_1"
 
   - platform: template
-    value_template: "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2 }}"
-    enabled: "{{ is_shading_enabled }}"
+    value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2 }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_end_pending_2"
 
   - platform: template
-    value_template: "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
-    enabled: "{{ is_shading_enabled }}"
+    value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
+    enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
     id: "t_shading_end_pending_3"
 
   - platform: template
-    value_template: "{{ shading_forecast_sensor != [] and shading_weather_conditions != [] and states(shading_forecast_sensor) not in shading_weather_conditions }}"
-    enabled: "{{ is_shading_enabled }}"
+    value_template: "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
+    enabled: "{{ is_shading_enabled and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
     id: "t_shading_end_pending_4"
 
   - platform: template
     value_template: >-
       {{
-        default_sun_sensor != [] and
-        (
-            (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
-            (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
-            (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
-        )
+          (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
+          (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
+          (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
       }}
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
     id: "t_shading_end_pending_5"
 
   - platform: template
     value_template: >-
       {% if
-        cover_status_helper != [] and
         states(cover_status_helper) != [] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
@@ -2208,7 +2201,7 @@ trigger:
       %}
         {{ now() >= ( (states(cover_status_helper)|from_json).shading.q) | as_datetime | as_local }}
       {% endif %}
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_end_execution"
 
   - platform: template
@@ -2234,7 +2227,6 @@ trigger:
   - platform: template
     value_template: >-
       {% if
-        cover_status_helper != [] and
         states(cover_status_helper) != [] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
@@ -2243,7 +2235,7 @@ trigger:
       %}
         {{ now() >= ( (states(cover_status_helper)|from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local }}
       {% endif %}
-    enabled: "{{ is_reset_timeout }}"
+    enabled: "{{ is_reset_timeout and cover_status_helper != [] }}"
     id: "t_manual_3"
 
 ########################################
@@ -2365,9 +2357,6 @@ action:
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_opening_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != is_cover_helper_open_ts|timestamp_custom('%-d')|int) }}"
-          - or:
-              - "{{ resident_sensor == [] }}"
-              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
           - or: # Now we have to check different opening scenarios
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
@@ -2404,6 +2393,12 @@ action:
                       - or:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
                           - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
+              - and: # Opening - due to resident waking up
+                  - condition: trigger
+                    id: t_open_6
+                  - "{{ resident_sensor != [] }}"
+                  - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+                  - "{{ resident_opening_enabled }}"
 
         sequence:
           - delay:
