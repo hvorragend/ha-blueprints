@@ -299,3 +299,8 @@
 
 2024.09.05:
   - Added check for a shading shading start/end time > 0
+
+2024.09.19:
+  - Fixed: Fixed some warnings in the log. No influence on functionality #141
+  - Fixed: Brightness Down not working #144
+  - Fixed: Shutter up after resident on not (always) functional #139
