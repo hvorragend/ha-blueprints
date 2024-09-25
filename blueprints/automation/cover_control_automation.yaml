@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.09.19
+    **Version**: 2024.09.25
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,11 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2024.09.25:
+      - Fixed: Shutter up in the morning while Resident asleep #145
+      - Fixed: Some warnings
+      - Minor clean-up work
 
     2024.09.19:
       - Fixed: Fixed some warnings in the log. No influence on functionality #141
@@ -640,6 +645,8 @@ blueprint:
             It may be desired to open a cover at a different time on work days than on non-work days.
             The corresponding binary sensor can be defined here. If not set, the cover will open every time at time_up_early.
             <br /><br />
+            I recommend using the [Workday integration](https://www.home-assistant.io/integrations/workday/).
+            <br /><br />
             Example: `binary_sensor.workday_today`
             <br /><br />`Optional`
           default: []
@@ -657,6 +664,8 @@ blueprint:
             This makes sense if, for example, there is school tomorrow but today is actually still the weekend.
             But the child has to go to bed earlier.<br />
             If this field is not configured here, the normal working day sensor is used.
+            <br /><br />
+            I recommend using the [Workday integration](https://www.home-assistant.io/integrations/workday/).
             <br /><br />
             Example: `binary_sensor.workday_tomorrow`
             <br /><br />`Optional`
@@ -1722,7 +1731,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2024.09.19"
+  version: "2024.09.25"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -2002,7 +2011,7 @@ trigger:
     entity_id: !input auto_up_force
     from: "off"
     to: "on"
-    id: "t_open_force"
+    id: "t_force_open"
 
   ########################################
   # Trigger for closing cover
@@ -2065,7 +2074,7 @@ trigger:
     entity_id: !input auto_down_force
     from: "off"
     to: "on"
-    id: "t_close_force"
+    id: "t_force_close"
 
   #################################################
   # Trigger for ventilation
@@ -2099,7 +2108,7 @@ trigger:
     entity_id: !input auto_ventilate_force
     from: "off"
     to: "on"
-    id: "t_vent_force"
+    id: "t_force_vent"
 
   ########################################
   # Triggers for shading start
@@ -2153,7 +2162,7 @@ trigger:
     entity_id: !input auto_shading_start_force
     from: "off"
     to: "on"
-    id: "t_shading_start_force"
+    id: "t_force_shading_start"
 
   ########################################
   # Triggers for shading end
@@ -2258,15 +2267,7 @@ action:
       - "{{ is_shading_enabled }}"
       - "{{ not prevent_forecast_service }}"
       - "{{ (shading_forecast_sensor != [] ) }}"
-      - condition: trigger # Important: All triggers for shading start necessary!
-        id:
-          - "t_shading_start_pending_1"
-          - "t_shading_start_pending_2"
-          - "t_shading_start_pending_3"
-          - "t_shading_start_pending_4"
-          - "t_shading_start_pending_5"
-          - "t_open_1"
-          - "t_open_3"
+      - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}" # Important: All triggers for shading start necessary!
     then:
       - action: weather.get_forecasts
         target:
@@ -2331,18 +2332,10 @@ action:
 
       - alias: "Check for opening"
         conditions:
-          - "{{ trigger.id is defined }}"
-          # - "{{ this.attributes.current | int(99) == 0 }}"
           - "{{ is_up_enabled }}"
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id | regex_match('^(t_open)') }}"
           - condition: !input auto_up_condition
-          - condition: trigger
-            id:
-              - "t_open_1"
-              - "t_open_2"
-              - "t_open_3"
-              - "t_open_4"
-              - "t_open_5"
-              - "t_open_6"
           - and:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
               - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
@@ -2350,28 +2343,30 @@ action:
           - or: # Check the current positions
               - "{{ is_status_helper_enabled and not is_cover_helper_open }}" # including ventilation, window open-status and more possibilities
               - "{{ not in_open_position }}"
-              # - "{{ is_ventilation_enabled and in_ventilate_position }}"
-              # - "{{ in_close_position }}"
-          - "{{ not (is_status_helper_enabled and is_cover_helper_manual and override_opening_after_manual) }}" # Ignore check
+          - "{{ not (is_status_helper_enabled and is_cover_helper_manual and override_opening_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_opening_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != is_cover_helper_open_ts|timestamp_custom('%-d')|int) }}"
+          - or: # Resident
+              - "{{ resident_sensor == [] }}"
+              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - and:
+                  - "{{ trigger.id == 't_open_6' }}"
+                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+                  - "{{ resident_opening_enabled }}"
           - or: # Now we have to check different opening scenarios
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
               - and: # Opening - Up late reached
                   - "{{ is_time_field_enabled }}"
                   - "{{ now() >= today_at(time_up_late_today) }}"
-                  - "{{ now() <= today_at(time_down_early_today) - timedelta(seconds = 5) }}"
+                  - "{{ now() <= today_at(time_down_late_today) - timedelta(seconds = 5) }}"
               - and: # Opening - Scheduler changes to on
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
-                  - condition: trigger
-                    id:
-                      - "t_open_3" # Scheduler -> true
-                      - "t_open_6" # Resident -> false
+                  - "{{ trigger.id in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false
               - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                   - or:
                       - and:
@@ -2393,12 +2388,6 @@ action:
                       - or:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
                           - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
-              - and: # Opening - due to resident waking up
-                  - condition: trigger
-                    id: t_open_6
-                  - "{{ resident_sensor != [] }}"
-                  - "{{ is_state(resident_sensor, ['false', 'off']) }}"
-                  - "{{ resident_opening_enabled }}"
 
         sequence:
           - delay:
@@ -2534,18 +2523,10 @@ action:
 
       - alias: "Check for closing cover"
         conditions:
-          - "{{ trigger.id is defined }}"
-          # - "{{ this.attributes.current | int(99) == 0 }}"
           - "{{ is_down_enabled }}"
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id | regex_match('^(t_close)') }}"
           - condition: !input auto_down_condition
-          - condition: trigger
-            id:
-              - "t_close_1"
-              - "t_close_2"
-              - "t_close_3"
-              - "t_close_4"
-              - "t_close_5"
-              - "t_close_6" # Resident sensor
           - and:
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
@@ -2554,7 +2535,7 @@ action:
               - "{{ is_status_helper_enabled and not is_cover_helper_closed }}"
               - "{{ not in_close_position }}"
               # - "{{ in_open_position }}"
-          - "{{ not (is_status_helper_enabled and is_cover_helper_manual and override_closing_after_manual) }}" # Ignore check
+          - "{{ not (is_status_helper_enabled and is_cover_helper_manual and override_closing_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_closing_multiple_times }}"
@@ -2569,8 +2550,7 @@ action:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
-                  - condition: trigger
-                    id: "t_close_3"
+                  - "{{ trigger.id == 't_close_3' }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
                   - or:
                       - and: # Control via times disabled
@@ -2593,8 +2573,7 @@ action:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
                           - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down) }}"
               - and: # Closing - due to resident goes sleeping
-                  - condition: trigger
-                    id: t_close_6
+                  - "{{ trigger.id == 't_close_6' }}"
                   - "{{ resident_sensor != [] }}"
                   - "{{ is_state(resident_sensor, ['true', 'on']) }}"
                   - "{{ resident_closing_enabled }}"
@@ -2814,20 +2793,11 @@ action:
 
       - alias: "Check for shading start"
         conditions:
-          - "{{ trigger.id is defined }}"
           - "{{ is_shading_enabled }}"
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_start_condition
-          - condition: trigger
-            id:
-              - "t_shading_start_pending_1"
-              - "t_shading_start_pending_2"
-              - "t_shading_start_pending_3"
-              - "t_shading_start_pending_4"
-              - "t_shading_start_pending_5"
-              - "t_shading_start_execution"
-              - "t_open_1" # time_up_early
-              - "t_open_3" # schedule helper state change
           - and:
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
@@ -2837,7 +2807,7 @@ action:
           - or: # Check the current positions
               - "{{ not is_cover_helper_shaded }}"
               - "{{ not (is_cover_helper_partially_ventilated or is_cover_helper_fully_ventilated) }}"
-          - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Ignore check
+          - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d')|int) }}"
@@ -3020,18 +2990,11 @@ action:
 
       - alias: "Check for shading end"
         conditions:
-          - "{{ trigger.id is defined }}"
           - "{{ is_shading_enabled }}"
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id | regex_match('^(t_shading_end)') }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_end_condition
-          - condition: trigger
-            id:
-              - "t_shading_end_pending_1"
-              - "t_shading_end_pending_2"
-              - "t_shading_end_pending_3"
-              - "t_shading_end_pending_4"
-              - "t_shading_end_pending_5"
-              - "t_shading_end_execution"
           - and:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
@@ -3048,7 +3011,7 @@ action:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
-          - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Ignore check
+          - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Override check
           - or:
               - "{{ is_cover_helper_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
@@ -3259,27 +3222,17 @@ action:
 
       - alias: "Contact sensor opened"
         conditions:
-          - "{{ trigger.id is defined }}"
           - "{{ is_ventilation_enabled }}"
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on'] }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_condition
-          - condition: trigger
-            id:
-              - "t_contact_tilted_on"
-              - "t_contact_opened_on"
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - and:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
-          # - or: # TODO WHY?
-          #     - or: # Source: Close
-          #         - "{{ is_cover_helper_closed }}"
-          #         - "{{ in_close_position }}"
-          #     - or: # Source: Shading
-          #         - "{{ is_cover_helper_shaded }}"
-          #         - "{{ in_shading_position }}"
         sequence:
           - delay:
               seconds: 3 # Wait for possible further handle changes of the contact sensors.
@@ -3291,9 +3244,7 @@ action:
                 conditions:
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
-                  - condition: trigger
-                    id:
-                      - "t_contact_opened_on"
+                  - "{{ trigger.id == 't_contact_opened_on' }}"
                   - "{{ not in_open_position }}" # TODO necessary?
                 sequence:
                   - action: input_text.set_value
@@ -3352,14 +3303,10 @@ action:
                 conditions:
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
-                  - condition: trigger
-                    id:
-                      - "t_contact_tilted_on"
+                  - "{{ trigger.id == 't_contact_tilted_on' }}"
                   - or:
                       - "{{ (current_position | int(default=101) < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
-                  # - or:
-                  # - "{{ is_cover_helper_fully_ventilated }}" # TODO New, but why?
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -3414,8 +3361,8 @@ action:
 
       - alias: "Contact sensor closed"
         conditions:
-          - "{{ trigger.id is defined }}"
           - "{{ is_ventilation_enabled }}"
+          - "{{ trigger.id is defined }}"
           - "{{ is_status_helper_enabled }}"
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
@@ -3424,19 +3371,17 @@ action:
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
               - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-          - "{{ not (is_cover_helper_manual and override_ventilation_after_manual) }}" # Ignore check
+          - "{{ not (is_cover_helper_manual and override_ventilation_after_manual) }}" # Override check
           - or:
               - and:
-                  - condition: trigger
-                    id: "t_contact_tilted_off"
+                  - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
                   - or:
                       - "{{ is_cover_helper_partially_ventilated }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
-                  - condition: trigger
-                    id: "t_contact_opened_off"
+                  - "{{ trigger.id == 't_contact_opened_off' }}"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
                   - "{{ is_cover_helper_fully_ventilated }}"
@@ -3510,9 +3455,6 @@ action:
               - alias: "Contact sensor closed. Activate shading"
                 conditions:
                   - "{{ is_cover_helper_shaded }}"
-                  # - not: # TODO: Do I really need this here or should I just always correct the status?
-                  #     - "{{ in_shading_position }}"
-                  #     - "{{ (current_position | int(default=101) == shading_position) }}"
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -3568,10 +3510,6 @@ action:
                 conditions:
                   - "{{ is_cover_helper_open }}"
                   - "{{ not is_cover_helper_shaded }}"
-                  # - not: # TODO: Do I really need this here or should I just always correct the status?
-                  #     - "{{ in_open_position }}"
-                  #     - "{{ (current_position | int(default=101) >= open_position) }}"
-                  #     - "{{ (current_position | int(default=101) == 100) }}"
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -3635,10 +3573,6 @@ action:
               - alias: "Contact sensor closed. Close the cover"
                 conditions:
                   - "{{ is_cover_helper_closed }}"
-                  # - not: # TODO: Do I really need this here or should I just always correct the status?
-                  #     - "{{ in_close_position }}"
-                  #     - "{{ (current_position | int(default=101) <= close_position) }}"
-                  #     - "{{ (current_position | int(default=101) == 0) }}"
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -3705,8 +3639,7 @@ action:
       - alias: "Forced opening of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - condition: trigger
-            id: "t_open_force"
+          - "{{ trigger.id == 't_force_open' }}"
           - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
         sequence:
           - if:
@@ -3777,8 +3710,7 @@ action:
       - alias: "Forced closing of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - condition: trigger
-            id: "t_close_force"
+          - "{{ trigger.id == 't_force_close' }}"
           - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
         sequence:
           - if:
@@ -3849,8 +3781,7 @@ action:
       - alias: "Forced ventilation of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - condition: trigger
-            id: "t_vent_force"
+          - "{{ trigger.id == 't_force_vent' }}"
           - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
@@ -3910,8 +3841,7 @@ action:
       - alias: "Forced activating of the sun shading"
         conditions:
           - "{{ trigger.id is defined }}"
-          - condition: trigger
-            id: "t_shading_start_force"
+          - "{{ trigger.id == 't_force_shading_start' }}"
           - "{{ auto_shading_start_force != [] and is_state(auto_shading_start_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
@@ -3975,8 +3905,7 @@ action:
           - "{{ 'cover_helper_enabled' in cover_status_options }}" # Do not use 'is_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
           - "{{ cover_status_helper != [] }}"
           - "{{ as_timestamp(now()) > cover_status_time + drive_time + 60 }}" # Drive time + trigger waiting time
-          - condition: trigger
-            id: "t_manual_1"
+          - "{{ trigger.id == 't_manual_1' }}"
           - "{{ is_number(trigger.to_state.attributes.current_position) and is_number(trigger.from_state.attributes.current_position) }}" # Avoid status change from -unavailable- (common with Homematic)
           - "{{ trigger.to_state.attributes.current_position != trigger.from_state.attributes.current_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
@@ -4119,10 +4048,7 @@ action:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ not is_reset_disabled }}"
-          - condition: trigger
-            id:
-              - "t_manual_2"
-              - "t_manual_3"
+          - "{{ trigger.id in ['t_manual_2', 't_manual_3'] }}"
         sequence:
           - action: input_text.set_value
             data:
@@ -4145,11 +4071,9 @@ action:
       - alias: "Reset shading status that is no longer required - but still saved"
         conditions:
           - "{{ trigger.id is defined }}"
+          - "{{ trigger.id == 't_shading_reset' }}"
           - "{{ is_status_helper_enabled }}"
           - "{{ is_cover_helper_shaded }}"
-          - condition: trigger
-            id:
-              - "t_shading_reset"
         sequence:
           - delay:
               seconds: "{{ (range(0, 60)|random|int) }}"
