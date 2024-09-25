@@ -304,3 +304,8 @@
   - Fixed: Fixed some warnings in the log. No influence on functionality #141
   - Fixed: Brightness Down not working #144
   - Fixed: Shutter up after resident on not (always) functional #139
+
+2024.09.25:
+  - Fixed: Shutter up in the morning while Resident asleep #145
+  - Fixed: Some warnings
+  - Minor clean-up work
