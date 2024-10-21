@@ -309,3 +309,8 @@
   - Fixed: Shutter up in the morning while Resident asleep #145
   - Fixed: Some warnings
   - Minor clean-up work
+
+2024.10.21:
+  - Added: The delay values in relation to the contact sensors can now be configured individually
+  - Fixed: A problem with the scheduler in connection with the sun height/brightness has been fixed
+  - Updated: YAML-Syntax for automations. Minimum version of the core raised to 2024.10.
