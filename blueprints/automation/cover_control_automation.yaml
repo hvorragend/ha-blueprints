@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2024.10.21
+    **Version**: 2024.12.20
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -74,8 +74,13 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
+    2024.12.20:
+      - Added: Additional Condition For Disabling Ventilation
+      - Fixed: Small scheduler fix and description also updated
+      - Update: Update of the logic and documentation for the resident sensor #158
+
     2024.10.21:
-      - Added: The delay values in relation to the contact sensors can now be configured individually
+      - Added: The delay values in relation to the contact sensors can now be configured individually #149
       - Fixed: A problem with the scheduler in connection with the sun height/brightness has been fixed
       - Updated: YAML-Syntax for automations. Minimum version of the core raised to 2024.10.
 
@@ -402,7 +407,10 @@ blueprint:
 
         drive_time:
           name: "⏲️ Cover Drive Time"
-          description: "Can be used to recognise manual control. Please round up a little and do not adjust too precisely. Is used to delay the trigger if too much or incorrect position data is sent back."
+          description: >-
+            Can be used to recognise manual control. Please round up a little and do not adjust too precisely. Is used to delay the trigger if too much or incorrect position data is sent back.
+            <br /><br />
+            Within this time, it is assumed that CCA has carried out the last action. Otherwise, CCA would react to its own commands and recognize them as manual intervention.
           default: 90
           selector:
             number:
@@ -725,12 +733,12 @@ blueprint:
             The behaviour when using the schedule Helper is different to the pure time input.
 
               - <ins>Without brightness or sun elevation control:</ins>
-                As soon as the helper state is switched on, the cover is opened.
-                The cover is closed when the helper state changes from off to on.
+                As soon as the helper state is switched from <strong>OFF</strong> to <strong>ON</strong>, the cover is opened.
+                The cover is closed when the helper state changes from <strong>OFF</strong> to <strong>ON</strong>.
 
               - <ins>With brightness or sun elevation control:</ins>
-                The cover is opened when the threshold is exceeded and the helper is on.
-                The cover is closed when the threshold is undershot and the helper is off.
+                The cover opens when the threshold is exceeded and the helper is <strong>ON</strong>.
+                The cover closes when the level is below the threshold and the helper is <strong>ON</strong>.
 
             Unfortunately, the HA core currently only has a 30-minute time grid for the time configuration.
 
@@ -1292,18 +1300,23 @@ blueprint:
       name: "Resident Settings"
       description: >-
         <br />
-        <center><code>The resident mode can be used to override the automatic opening of the cover by the resident sensor.
-        The cover will not open automatically if the resident sensor (input_boolean or binary_sensor) is set to true/on.
-        And the cover will basically close (without checking the defined times) when this sensor switches to true/on (because the resident is asleep).</code></center><br />
+        <center><code>
+        (1) The purpose of resident mode is to the close the cover (without checking the defined times) when the resident sensor switches to ‘on/true’. For example, when a resident goes to sleep.
+        <br />
+        (2) The cover will stay closed as long as the sensor remains in this state.
+        <br />
+        (3) When the resident sensor switches to ‘off/false’, the cover is automatically opened in the morning.
+        <br />
+        (4) In addition, the usual automatic opening of the cover is prevented as long as the sensor is set to ‘on/true’ or the resident.
+        <br /><br />
+        All these settings are optional.
+        </code></center><br />
       icon: mdi:human-male-female
       collapsed: true
       input:
         resident_sensor:
-          name: "🛌 Resident Mode"
-          description: >-
-            This can be used, for example, to define a resident for the room. In this case, the cover will only be opened when the occupant is no longer asleep.
-            This requires the use of a boolean sensor that returns true|on for sleep and false/off for non-sleep.
-            <br /><br /><code>Optional</code>
+          name: "🛌 Resident Sensor"
+          description: "You can use this to define a resident (input_boolean or binary_sensor) for the room"
           default: []
           selector:
             entity:
@@ -1313,14 +1326,14 @@ blueprint:
 
         resident_config:
           name: "🛌 Resident Configuration"
-          description: "Some Resident Tweaks"
+          description: "Additional configuration options"
           default: []
           selector:
             select:
               options:
-                - label: "🔼 Automatic opening due to the resident sensor (false/off)"
+                - label: "🔼 Open the cover immediately when the sensor goes to 'off/false'?"
                   value: "resident_opening_enabled"
-                - label: "🔻 Automatic closing due to the resident sensor (true/on)"
+                - label: "🔻 Close the cover immediately when the sensor goes to 'on/true'?"
                   value: "resident_closing_enabled"
                 - label: "🥵 Allow sun protection when resident is still present"
                   value: "resident_shading_enabled"
@@ -1510,9 +1523,17 @@ blueprint:
             condition: {}
 
         auto_ventilate_condition:
-          name: "💨 Additional Condition For Ventilation"
+          name: "💨 Additional Condition For Activating Ventilation"
           description: >-
             This condition can be used to dynamically control the <ins>start of the ventilation</ins> of the cover.
+          default: []
+          selector:
+            condition: {}
+
+        auto_ventilate_end_condition:
+          name: "💨 Additional Condition For Disabling Ventilation"
+          description: >-
+            This condition can be used to dynamically control the <ins>end of the ventilation</ins> of the cover.
           default: []
           selector:
             condition: {}
@@ -1555,7 +1576,7 @@ blueprint:
       collapsed: true
       input:
         auto_up_force:
-          name: "🔼 Force Immediate Opening"
+          name: "🔼 Force Immediate Opening via Entity"
           description: >-
             If the status of this entity changes to on or true, the cover is opened immediately and without further checking.
           default: []
@@ -1565,8 +1586,16 @@ blueprint:
                 - input_boolean
                 - binary_sensor
 
+        # auto_up_force_trigger:
+        #   name: "🔼 Force Immediate Opening via Custom Triggers"
+        #   description: >-
+        #     If this trigger is activated, the cover is opened immediately and without further testing.
+        #   default: []
+        #   selector:
+        #     trigger:
+
         auto_down_force:
-          name: "🔻 Force Immediate Closing"
+          name: "🔻 Force Immediate Closing via Entity"
           description: >-
             If the status of this entity changes to on or true, the cover is closed immediately and without further checking.
           default: []
@@ -1576,8 +1605,16 @@ blueprint:
                 - input_boolean
                 - binary_sensor
 
+        # auto_down_force_trigger:
+        #   name: "🔻 Force Immediate Closing via Custom Triggers"
+        #   description: >-
+        #     If this trigger is activated, the cover is closed immediately and without further checking.
+        #   default: []
+        #   selector:
+        #     trigger:
+
         auto_ventilate_force:
-          name: "💨 Force Immediate Ventilation"
+          name: "💨 Force Immediate Ventilation via Entity"
           description: >-
             If the status of this entity changes to on or true, the cover is immediately set to ventilation mode and without further checking.
           default: []
@@ -1587,8 +1624,16 @@ blueprint:
                 - input_boolean
                 - binary_sensor
 
+        # auto_ventilate_force_trigger:
+        #   name: "💨 Force Immediate Ventilation via Custom Triggers"
+        #   description: >-
+        #     If this trigger is activated, the cover is immediately set to ventilation mode and without further checking.
+        #   default: []
+        #   selector:
+        #     trigger:
+
         auto_shading_start_force:
-          name: "🥵 Force Activation Sun Shading"
+          name: "🥵 Force Activation Sun Shading via Entity"
           description: >-
             If the status of this entity changes to on or true, the shading is immediately activated and without further checking.
           default: []
@@ -1597,6 +1642,14 @@ blueprint:
               domain:
                 - input_boolean
                 - binary_sensor
+
+        # auto_shading_start_force_trigger:
+        #   name: "🥵 Force Activation Sun Shading via Custom Triggers"
+        #   description: >-
+        #     If this trigger is activated, the shading is immediately activated and without further checking.
+        #   default: []
+        #   selector:
+        #     trigger:
 
     actions_section:
       name: "Additional Actions"
@@ -1773,7 +1826,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2024.10.21"
+  version: "2024.12.20"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -2055,6 +2108,9 @@ triggers:
     to: "on"
     id: "t_force_open"
 
+  # - triggers: !input auto_up_force_trigger
+  #   id: "t_force_open"
+
   ########################################
   # Trigger for closing cover
   ########################################
@@ -2118,6 +2174,9 @@ triggers:
     to: "on"
     id: "t_force_close"
 
+  # - triggers: !input auto_down_force_trigger
+  #   id: "t_force_close"
+
   #################################################
   # Trigger for ventilation
   #################################################
@@ -2155,6 +2214,9 @@ triggers:
     from: "off"
     to: "on"
     id: "t_force_vent"
+
+  # - triggers: !input auto_ventilate_force_trigger
+  #   id: "t_force_vent"
 
   ########################################
   # Triggers for shading start
@@ -2209,6 +2271,9 @@ triggers:
     from: "off"
     to: "on"
     id: "t_force_shading_start"
+
+  # - triggers: !input auto_shading_start_force_trigger
+  #   id: "t_force_shading_start"
 
   ########################################
   # Triggers for shading end
@@ -2394,13 +2459,12 @@ actions:
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_opening_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != is_cover_helper_open_ts|timestamp_custom('%-d')|int) }}"
-          - or: # Resident
+          - or: # Check whether the resident trigger is allowed
+              - "{{ trigger.id != 't_open_6' }}" # Continue if other trigger
+              - "{{ trigger.id == 't_open_6' and resident_opening_enabled }}" # Only continue if permitted
+          - or: # Resident status must always be checked
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
-              - and:
-                  - "{{ trigger.id == 't_open_6' }}"
-                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
-                  - "{{ resident_opening_enabled }}"
           - or: # Now we have to check different opening scenarios
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
@@ -2597,6 +2661,8 @@ actions:
               - and: # Closing - Scheduler changes to off
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
+                  - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
+                  - "{{ not is_sun_elevation_enabled }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
                   - "{{ trigger.id == 't_close_3' }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
@@ -2610,7 +2676,7 @@ actions:
                       - and:
                           - "{{ is_schedule_helper_enabled }}"
                           - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}"
+                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
                           - "{{ now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) }}"
                           - "{{ now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5) }}"
                   - or:
@@ -3293,7 +3359,7 @@ actions:
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
                   - "{{ trigger.id == 't_contact_opened_on' }}"
-                  - "{{ not in_open_position }}" # TODO necessary?
+                  - "{{ not in_open_position }}"
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -3412,6 +3478,7 @@ actions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
           - "{{ is_status_helper_enabled }}"
+          - condition: !input auto_ventilate_end_condition
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - and:
@@ -3688,7 +3755,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_open' }}"
-          - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
+          # - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
         sequence:
           - if:
               - "{{ is_status_helper_enabled }}"
@@ -3759,7 +3826,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_close' }}"
-          - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
+          # - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
         sequence:
           - if:
               - "{{ is_status_helper_enabled }}"
@@ -3830,7 +3897,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_vent' }}"
-          - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
+          # - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
           - action: input_text.set_value
@@ -3890,7 +3957,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_shading_start' }}"
-          - "{{ auto_shading_start_force != [] and is_state(auto_shading_start_force, ['true', 'on']) }}"
+          # - "{{ auto_shading_start_force != [] and is_state(auto_shading_start_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
           - action: input_text.set_value
