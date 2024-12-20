@@ -314,3 +314,8 @@
   - Added: The delay values in relation to the contact sensors can now be configured individually
   - Fixed: A problem with the scheduler in connection with the sun height/brightness has been fixed
   - Updated: YAML-Syntax for automations. Minimum version of the core raised to 2024.10.
+
+2024.12.20:
+  - Added: Additional Condition For Disabling Ventilation
+  - Fixed: Small scheduler fix and description also updated
+  - Update: Update of the logic and documentation for the resident sensor #158
