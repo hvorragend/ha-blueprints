@@ -319,3 +319,16 @@
   - Added: Additional Condition For Disabling Ventilation
   - Fixed: Small scheduler fix and description also updated
   - Update: Update of the logic and documentation for the resident sensor #158
+
+2025.04.18:
+  - Updated: Just to be more bulletproof, the tilt position control can now be specifically switched on or off. Please activate if necessary. #163
+  - Updated: There is no default value for "Sun Shading Forecast Temperature" here now. To not compare the forecast temperature, leave this field empty. #179
+  - Added: Allow entities of the switch domain as resident sensor or with the force entities #167
+  - Added: New additional actions: Commands can now be executed before opening, closing, shading and ventilation #166
+  - Fixed: Fixed problems resetting manual override #184
+  - Fixed: Make sure that the reset of the manual override is only executed once #178
+  - Fixed: Problems with lockout protection and partial ventilation solved #181
+  - Fixed: There was no latest time for closing the cover when the scheduler was used with sun/brightness #170
+  - Added: Added Sun elevation examples into the description #175
+  - Added: New feature 'Allow opening the cover when resident is still present' #192
+  - Breaking change: Please reconfigure "Allow sun protection when resident is still present" ('resident_shading_enabled' was renamed)
