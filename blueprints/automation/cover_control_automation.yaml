@@ -75,11 +75,17 @@ blueprint:
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
     2025.04.18:
+      - Updated: Just to be more bulletproof, the tilt position control can now be specifically switched on or off. Please activate if necessary. #163
+      - Updated: There is no default value for "Sun Shading Forecast Temperature" here now. To not compare the forecast temperature, leave this field empty. #179
       - Added: Allow entities of the switch domain as resident sensor or with the force entities #167
-      - Update: Just to be more bulletproof, the tilt position control can now be specifically switched on or off. Please activate if necessary. #163
-      - Update: There is no default value for "Sun Shading Forecast Temperature" here now. To not compare the forecast temperature, leave this field empty. #179
+      - Added: New additional actions: Commands can now be executed before opening, closing, shading and ventilation #166
       - Fixed: Fixed problems resetting manual override #184
       - Fixed: Make sure that the reset of the manual override is only executed once #178
+      - Fixed: Problems with lockout protection and partial ventilation solved #181
+      - Fixed: There was no latest time for closing the cover when the scheduler was used with sun/brightness #170
+      - Added: Added Sun elevation examples into the description #175
+      - Added: New feature 'Allow opening the cover when resident is still present' #192
+      - Breaking change: Please reconfigure "Allow sun protection when resident is still present" ('resident_shading_enabled' was renamed)
 
     2024.12.20:
       - Added: Additional Condition For Disabling Ventilation
@@ -722,11 +728,11 @@ blueprint:
 
               - <ins>Without brightness or sun elevation control:</ins>
                 As soon as the helper state is switched from <strong>OFF</strong> to <strong>ON</strong>, the cover is opened.
-                The cover is closed when the helper state changes from <strong>OFF</strong> to <strong>ON</strong>.
+                The cover is closed when the helper state changes from <strong>ON</strong> to <strong>OFF</strong>.
 
               - <ins>With brightness or sun elevation control:</ins>
                 The cover opens when the threshold is exceeded and the helper is <strong>ON</strong>.
-                The cover closes when the level is below the threshold and the helper is <strong>ON</strong>.
+                The cover closes when the level is below the threshold and the helper is <strong>ON</strong>, or when the schedule helper changes from <strong>ON</strong> to <strong>OFF</strong> (Latest time for closing the cover).
 
             Unfortunately, the HA core currently only has a 30-minute time grid for the time configuration.
 
@@ -827,9 +833,19 @@ blueprint:
             Which sensors provides attributes with current azimuth and elevation of sun.
             I strongly suggest to use sun.sun ([Sun integration](https://www.home-assistant.io/integrations/sun/)).
             Please make sure that the integration is activated and provides the attributes.
-            <br />
             This sensor is also used for sun protection / sunshade control.
-            <br /><br />`Optional` / `Shading`
+            <br /><br />
+            <ins>A few examples of threshold values:</ins>
+            <ul>
+            <li>+18° Astronomical Dusk</li>
+            <li>+12° Nautical Dusk</li>
+            <li>+6° Dusk</li>
+            <li>0° Sunrise/Sunset</li>
+            <li>-6° Civil Dawn</li>
+            <li>-12° Nautical Dawn</li>
+            <li>-18° Astronomical Dawn/Night</li>
+            </ul>
+            <br />`Optional` / `Shading`
           default: "sun.sun"
           selector:
             entity:
@@ -1331,7 +1347,9 @@ blueprint:
                 - label: "🔻 Close the cover immediately when the sensor goes to 'on/true'?"
                   value: "resident_closing_enabled"
                 - label: "🥵 Allow sun protection when resident is still present"
-                  value: "resident_shading_enabled"
+                  value: "resident_allow_shading"
+                - label: "🔼 Allow opening the cover when resident is still present"
+                  value: "resident_allow_opening"
               multiple: true
               sort: false
               custom_value: false
@@ -1663,37 +1681,72 @@ blueprint:
       icon: mdi:run
       collapsed: true
       input:
+        auto_up_action_before:
+          name: "🔼 Additional Actions Before Opening The Cover"
+          description: "Additional actions to run <ins>before</ins> opening the cover"
+          default: []
+          selector:
+            action: {}
+
         auto_up_action:
           name: "🔼 Additional Actions After Opening The Cover"
-          description: "Additional actions to run after opening the cover"
+          description: "Additional actions to run <ins>after</ins> opening the cover"
+          default: []
+          selector:
+            action: {}
+
+        auto_down_action_before:
+          name: "🔻 Additional Actions Before Closing The Cover"
+          description: "Additional actions to run <ins>before</ins> closing the cover"
           default: []
           selector:
             action: {}
 
         auto_down_action:
           name: "🔻 Additional Actions After Closing The Cover"
-          description: "Additional actions to run after closing the cover"
+          description: "Additional actions to run <ins>after</ins> closing the cover"
+          default: []
+          selector:
+            action: {}
+
+        auto_ventilate_action_before:
+          name: "💨 Additional Actions Before Ventilating The Cover"
+          description: "Additional actions to run <ins>before</ins> ventilating the cover"
           default: []
           selector:
             action: {}
 
         auto_ventilate_action:
           name: "💨 Additional Actions After Ventilating The Cover"
-          description: "Additional actions to run after ventilating the cover"
+          description: "Additional actions to run <ins>after</ins> ventilating the cover"
+          default: []
+          selector:
+            action: {}
+
+        auto_shading_start_action_before:
+          name: "🥵 Additional Actions Before Activating Sun Shading"
+          description: "Additional actions to run <ins>before</ins> activating sun shading"
           default: []
           selector:
             action: {}
 
         auto_shading_start_action:
           name: "🥵 Additional Actions After Activating Sun Shading"
-          description: "Additional actions to run after activating sun shading"
+          description: "Additional actions to run <ins>after</ins> activating sun shading"
+          default: []
+          selector:
+            action: {}
+
+        auto_shading_end_action_before:
+          name: "🥵 Additional Actions Before Disabling Sun Shading"
+          description: "Additional actions to run <ins>before</ins> disabling sun shading"
           default: []
           selector:
             action: {}
 
         auto_shading_end_action:
           name: "🥵 Additional Actions After Disabling Sun Shading"
-          description: "Additional actions to run after disabling sun shading"
+          description: "Additional actions to run <ins>after</ins> disabling sun shading"
           default: []
           selector:
             action: {}
@@ -2034,7 +2087,8 @@ variables:
   resident_config: !input resident_config
   resident_opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
   resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
-  resident_shading_enabled: "{{ 'resident_shading_enabled' in resident_config }}"
+  resident_allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
+  resident_allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
 
   ignore_after_manual_config: !input ignore_after_manual_config
   override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
@@ -2475,6 +2529,9 @@ actions:
           - or: # Resident status must always be checked
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - and:
+                  - "{{ resident_allow_opening }}"
+                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
           - or: # Now we have to check different opening scenarios
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
@@ -2488,7 +2545,7 @@ actions:
                   - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
                   - "{{ not is_sun_elevation_enabled }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
-                  - "{{ trigger.id in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false
+                  - "{{ trigger.id in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false # TODO Why is the resident trigger here?
               - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                   - or:
                       - and:
@@ -2524,6 +2581,9 @@ actions:
                   - "{{ is_cover_helper_shaded }}"
                   - "{{ is_status_helper_enabled }}"
                 sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+
                   - action: input_text.set_value # Set shading to true, but do not overwrite shading time
                     data:
                       entity_id: !input cover_status_helper
@@ -2576,6 +2636,9 @@ actions:
             # Cover should be opened
             ###################################
             default:
+              - choose: []
+                default: !input auto_up_action_before
+
               - alias: "Normal opening of the cover"
                 if:
                   - "{{ is_status_helper_enabled }}"
@@ -2673,8 +2736,11 @@ actions:
               - and: # Closing - Scheduler changes to off
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
-                  - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
-                  - "{{ not is_sun_elevation_enabled }}"
+                  # Commented out due to #170.
+                  # Always shut down when the scheduler becomes inactive. This is effectively the “at the latest at” time.
+                  # Otherwise it could happen that the blind does not close if it is still too bright.
+                  # - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
+                  # - "{{ not is_sun_elevation_enabled }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
                   - "{{ trigger.id == 't_close_3' }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
@@ -2754,6 +2820,9 @@ actions:
                       - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
 
                 sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
@@ -2847,6 +2916,9 @@ actions:
             # Normal closing of the cover
             ###################################
             default:
+              - choose: []
+                default: !input auto_down_action_before
+
               - alias: "Normal closing of the cover"
                 delay:
                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -2963,7 +3035,7 @@ actions:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
               - and: # Issue 131
-                  - "{{ resident_shading_enabled }}"
+                  - "{{ resident_allow_shading }}"
                   - "{{ is_state(resident_sensor, ['true', 'on']) }}"
 
         sequence:
@@ -3040,6 +3112,8 @@ actions:
                 sequence:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - choose: []
+                    default: !input auto_shading_start_action_before
 
                   - action: input_text.set_value
                     data:
@@ -3227,6 +3301,9 @@ actions:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+
                   - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -3284,6 +3361,9 @@ actions:
                 sequence:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+
+                  - choose: []
+                    default: !input auto_shading_end_action_before
 
                   - alias: "Move cover to open position"
                     action: input_text.set_value
@@ -3440,6 +3520,9 @@ actions:
                       - "{{ (current_position | int(default=101) < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
                 sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+
                   - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -3515,6 +3598,17 @@ actions:
                       - "{{ is_cover_helper_partially_ventilated }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
+               # Workaround for #181
+               # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
+               # 'vfull' is set in the helper.
+               # This must remain the case because the position of the cover remains at 100.
+               # But the return from this must be taken into account somehow.
+                  - "{{ trigger.id == 't_contact_tilted_off' }}"
+                  - "{{ contact_window_tilted != [] }}"
+                  - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
+                  - "{{ lockout_tilted_when_closing }}"
+                  - "{{ is_cover_helper_fully_ventilated }}"
+              - and:
                   - "{{ trigger.id == 't_contact_opened_off' }}"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
@@ -3540,6 +3634,9 @@ actions:
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
                 sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+
                   - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -3591,6 +3688,9 @@ actions:
                 conditions:
                   - "{{ is_cover_helper_shaded }}"
                 sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+
                   - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -3647,6 +3747,9 @@ actions:
                   - "{{ is_cover_helper_open }}"
                   - "{{ not is_cover_helper_shaded }}"
                 sequence:
+                  - choose: []
+                    default: !input auto_up_action_before
+
                   - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -3711,6 +3814,9 @@ actions:
                 conditions:
                   - "{{ is_cover_helper_closed }}"
                 sequence:
+                  - choose: []
+                    default: !input auto_down_action_before
+
                   - action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
@@ -3780,6 +3886,9 @@ actions:
           - "{{ trigger.id == 't_force_open' }}"
           # - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
         sequence:
+          - choose: []
+            default: !input auto_up_action_before
+
           - if:
               - "{{ is_status_helper_enabled }}"
             then:
@@ -3852,6 +3961,9 @@ actions:
           - "{{ trigger.id == 't_force_close' }}"
           # - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
         sequence:
+          - choose: []
+            default: !input auto_down_action_before
+
           - if:
               - "{{ is_status_helper_enabled }}"
             then:
@@ -3925,6 +4037,9 @@ actions:
           # - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
+          - choose: []
+            default: !input auto_ventilate_action_before
+
           - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper
@@ -3986,6 +4101,9 @@ actions:
           # - "{{ auto_shading_start_force != [] and is_state(auto_shading_start_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
+          - choose: []
+            default: !input auto_shading_start_action_before
+
           - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper # ‘Open’ is not additionally set to True, because we don't know where it should actually go after forcing.
