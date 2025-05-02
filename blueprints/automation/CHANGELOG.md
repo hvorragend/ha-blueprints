@@ -338,3 +338,4 @@
   - Fixed: Removed protocol error that occurs during manual execution.
   - Added: Catching an incorrect weather configuration
   - Added: Ability to specify an existing sensor if it already provides daily maximum temperature forecast instead of weather entity #199
+  - Added: Add hysteresis for temperature sensor based shading #189
