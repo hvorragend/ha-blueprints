@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.05.02-01
+    **Version**: 2025.05.02-02
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,9 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.05.02-02:
+      - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
 
     2025.05.02-01:
       - Fixed: Also take into account for shading that a door contact only needs to be tested when ventilation mode is switched on #197
@@ -1188,7 +1191,7 @@ blueprint:
               step: 0.1
               mode: slider
               unit_of_measurement: "°C"
-              
+
         shading_temperature_hysteresis2:
           name: "🥵 Sun Shading Temperature Sensor 2 Hysteresis Value"
           description: "Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles."
@@ -1919,7 +1922,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.05.02-01"
+  version: "2025.05.02-02"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -3050,6 +3053,7 @@ actions:
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d')|int) }}"
+              - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
           - or:
               - "{{ shading_temperatur_sensor1 == [] }}"
               - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
@@ -3081,15 +3085,15 @@ actions:
               - "{{ shading_forecast_sensor == [] }}"
               - "{{ shading_weather_conditions == [] }}"
               - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-              - >
-                {{ shading_forecast_sensor.startswith('weather.') and
-                   prevent_forecast_service and
-                   states(shading_forecast_sensor) in shading_weather_conditions }}
-              - >
-                {{ shading_forecast_sensor.startswith('weather.') and
-                   not prevent_forecast_service and
-                   weather_forecast is defined and
-                   weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}
+              - and:
+                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                  - "{{ prevent_forecast_service }}"
+                  - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
+              - and:
+                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                  - "{{ not prevent_forecast_service }}"
+                  - "{{ weather_forecast is defined }}"
+                  - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
