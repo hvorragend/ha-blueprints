@@ -337,3 +337,4 @@
   - Fixed: Also take into account for shading that a door contact only needs to be tested when ventilation mode is switched on #197
   - Fixed: Removed protocol error that occurs during manual execution.
   - Added: Catching an incorrect weather configuration
+  - Added: Ability to specify an existing sensor if it already provides daily maximum temperature forecast instead of weather entity #199
