@@ -332,3 +332,8 @@
   - Added: Added Sun elevation examples into the description #175
   - Added: New feature 'Allow opening the cover when resident is still present' #192
   - Breaking change: Please reconfigure "Allow sun protection when resident is still present" ('resident_shading_enabled' was renamed)
+
+2025.05.02-01:
+  - Fixed: Also take into account for shading that a door contact only needs to be tested when ventilation mode is switched on #197
+  - Fixed: Removed protocol error that occurs during manual execution.
+  - Added: Catching an incorrect weather configuration
