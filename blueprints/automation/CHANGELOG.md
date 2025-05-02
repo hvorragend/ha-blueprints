@@ -339,3 +339,6 @@
   - Added: Catching an incorrect weather configuration
   - Added: Ability to specify an existing sensor if it already provides daily maximum temperature forecast instead of weather entity #199
   - Added: Add hysteresis for temperature sensor based shading #189
+
+2025.05.02-02:
+  - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
