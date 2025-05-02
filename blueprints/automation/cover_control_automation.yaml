@@ -1189,6 +1189,8 @@ blueprint:
             However, in spring you may not want shading, but the solar radiation as a welcome, free heating is desired.
             So you can define via the forecast sensor that shading is only started at an expected daily maximum temperature.
 
+            You can also specify an existing sensor if it already provides the forecast for the maximum daily temperature. In this case set "Sun Shading Forecast Type" to "Do not use a weather forecast, but the current weather attributes".
+
             </details>
           default: []
           selector:
@@ -1196,6 +1198,7 @@ blueprint:
               filter:
                 - domain:
                     - weather
+                    - sensor
 
         shading_forecast_type:
           name: "🥵 Sun Shading Forecast Type"
@@ -2450,6 +2453,7 @@ actions:
       - "{{ states(shading_forecast_sensor) not in ['unavailable', 'unknown', 'query failed']  }}"
       - "{{ trigger.id is defined }}"
       - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}" # Important: All triggers for shading start necessary!
+      - "{{ shading_forecast_sensor.startswith('weather.') }}"
     then:
       - action: weather.get_forecasts
         target:
@@ -3027,17 +3031,37 @@ actions:
           - or:
               - "{{ shading_brightness_sensor == [] }}"
               - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+
           - or:
               - "{{ shading_forecast_sensor == [] }}"
               - "{{ shading_forecast_temp == [] }}"
-              - "{{ prevent_forecast_service and state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp) > shading_forecast_temp }}"
-              - "{{ (not prevent_forecast_service) and weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp) > shading_forecast_temp }}"
-              - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}" # Continue even if the actual temperature is higher than the forecast value. Occasionally the forecast is wrong.
+              - >
+                {{ shading_forecast_sensor.startswith('sensor.') and
+                  states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}
+              - >
+                {{ shading_forecast_sensor.startswith('weather.') and
+                  prevent_forecast_service and
+                  state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}
+              - >
+                {{ shading_forecast_sensor.startswith('weather.') and
+                  not prevent_forecast_service and
+                  weather_forecast is defined and
+                  weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}
+              - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2)
+                | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
           - or:
               - "{{ shading_forecast_sensor == [] }}"
               - "{{ shading_weather_conditions == [] }}"
-              - "{{ prevent_forecast_service and states(shading_forecast_sensor) in shading_weather_conditions }}"
-              - "{{ (not prevent_forecast_service) and weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
+              - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+              - >
+                {{ shading_forecast_sensor.startswith('weather.') and
+                   prevent_forecast_service and
+                   states(shading_forecast_sensor) in shading_weather_conditions }}
+              - >
+                {{ shading_forecast_sensor.startswith('weather.') and
+                   not prevent_forecast_service and
+                   weather_forecast is defined and
+                   weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
