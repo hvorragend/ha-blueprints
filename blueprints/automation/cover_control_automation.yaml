@@ -75,6 +75,7 @@ blueprint:
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
     2025.05.04:
+      - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
       - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
 
     2025.05.02-02:
@@ -1346,6 +1347,15 @@ blueprint:
               max: 3600
               unit_of_measurement: seconds
 
+        is_shading_end_immediate_by_sun_position:
+          name: "🥵 End Sun Shading Immediately When Out Of Range"
+          description: >-
+            If enabled, shading will end immediately when sun position moves outside the defined azimuth or elevation range.
+            If disabled, the configured waiting time will be used before ending the shading.
+          default: false
+          selector:
+            boolean: {}
+
         shading_end_behavior:
           name: "🥵 Sun Shading End Behavior"
           description: >-
@@ -1943,7 +1953,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.05.02-02"
+  version: "2025.05.04"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -2009,6 +2019,7 @@ variables:
   shading_tilt_position: !input shading_tilt_position
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
+  is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
 
   # Cover Status Helper
   is_status_helper_enabled: >-
@@ -3323,9 +3334,13 @@ actions:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
+                        {% set local_waitingtime_end = shading_waitingtime_end %}
+                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
+                          {% set local_waitingtime_end = 0 %} # Immediately end shading when sun position out of range
+                        {% endif %}
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':0, 'q':(as_timestamp(now()) + shading_waitingtime_end) | round(0) },
+                          'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':0, 'q':(as_timestamp(now()) + local_waitingtime_end) | round(0) },
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
