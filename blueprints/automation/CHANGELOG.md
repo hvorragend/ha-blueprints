@@ -342,3 +342,6 @@
 
 2025.05.02-02:
   - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
+
+2025.05.04:
+  - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
