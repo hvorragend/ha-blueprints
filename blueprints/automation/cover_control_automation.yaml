@@ -76,6 +76,7 @@ blueprint:
 
     2025.05.04:
       - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
+      - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
 
     2025.05.02-02:
       - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
@@ -1354,6 +1355,24 @@ blueprint:
           default: false
           selector:
             boolean: {}
+
+        shading_end_behavior:
+          name: "🥵 Sun Shading End Behavior"
+          description: >-
+            Configure how the cover should behave when sun shading ends.
+            Choose "Move to close position" for awnings to retract when shading ends.
+          default: "open_position"
+          selector:
+            select:
+              options:
+                - label: "🔼 Move to open position (default for blinds / roller shutters)"
+                  value: "open_position"
+                - label: "🔻 Move to close position (for awnings)"
+                  value: "close_position"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
 
     resident_section:
       name: "Resident Settings"
@@ -3434,9 +3453,9 @@ actions:
                     default: !input auto_ventilate_action
 
               ###############################################
-              # Move cover to open position after shading end
+              # Move cover after shading end
               ###############################################
-              - alias: "Move cover to open position after shading end"
+              - alias: "Move cover after shading end"
                 conditions:
                   - "{{ is_cover_helper_shading_end_pending }}"
                 sequence:
@@ -3446,15 +3465,20 @@ actions:
                   - choose: []
                     default: !input auto_shading_end_action_before
 
-                  - alias: "Move cover to open position"
+                  - variables:
+                      target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
+                      target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
+                      target_tilt_position: "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
+
+                  - alias: "Move cover to {{ target_status }} position"
                     action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'open':{'a':1,'t':as_timestamp(now()) | round(0)},
-                          'close':{'a':0,'t':dict_var.close.t},
+                          'open':{'a': 0 if shading_end_behavior == 'close_position' else 1,'t': dict_var.open.t if shading_end_behavior == 'close_position' else as_timestamp(now()) | round(0)},
+                          'close':{'a': 1 if shading_end_behavior == 'close_position' else 0,'t': as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else dict_var.close.t},
                           'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
                           'vpart':{'a':0,'t':dict_var.vpart.t},
                           'vfull':{'a':0,'t':dict_var.vfull.t},
@@ -3471,18 +3495,18 @@ actions:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
                             - if:
-                                - "{{ open_position == 100 }}"
+                                - "{{ target_position == 0 or target_position == 100 }}"
                               then:
-                                - alias: "Moving the cover to open position"
-                                  action: cover.open_cover
+                                - alias: "Moving the cover to {{ target_status }} position"
+                                  action: "cover.{{ 'close' if target_position == 0 else 'open' }}_cover"
                                   data: {}
                                   target:
                                     entity_id: "{{ repeat.item }}"
                               else:
-                                - alias: "Moving the cover to open position"
+                                - alias: "Moving the cover to {{ target_status }} position"
                                   action: cover.set_cover_position
                                   data:
-                                    position: !input open_position
+                                    position: "{{ target_position }}"
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - if:
@@ -3495,7 +3519,7 @@ actions:
                                 - alias: "Moving the cover to tilt position"
                                   action: cover.set_cover_tilt_position
                                   data:
-                                    tilt_position: !input open_tilt_position
+                                    tilt_position: "{{ target_tilt_position }}"
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - delay:
