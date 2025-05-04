@@ -346,3 +346,4 @@
 2025.05.04:
   - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
   - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
+  - Updated: Note that the weather sensor specification is optional #198
