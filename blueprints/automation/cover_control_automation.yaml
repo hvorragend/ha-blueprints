@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.05.02-02
+    **Version**: 2025.05.04
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,9 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.05.04:
+      - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
 
     2025.05.02-02:
       - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
@@ -1343,6 +1346,15 @@ blueprint:
               max: 3600
               unit_of_measurement: seconds
 
+        is_shading_end_immediate_by_sun_position:
+          name: "🥵 End Sun Shading Immediately When Out Of Range"
+          description: >-
+            If enabled, shading will end immediately when sun position moves outside the defined azimuth or elevation range.
+            If disabled, the configured waiting time will be used before ending the shading.
+          default: false
+          selector:
+            boolean: {}
+
     resident_section:
       name: "Resident Settings"
       description: >-
@@ -1922,7 +1934,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.05.02-02"
+  version: "2025.05.04"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
@@ -1988,6 +2000,7 @@ variables:
   shading_tilt_position: !input shading_tilt_position
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
+  is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
 
   # Cover Status Helper
   is_status_helper_enabled: >-
@@ -3302,6 +3315,9 @@ actions:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
+                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
+                          {% set shading_waitingtime_end = 0 %} # Immediately end shading when sun position out of range
+                        {% endif %}
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
                           'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':0, 'q':(as_timestamp(now()) + shading_waitingtime_end) | round(0) },
