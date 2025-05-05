@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.04.18
+    **Version**: 2025.05.04
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,21 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.05.04:
+      - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
+      - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
+      - Updated: Note that the weather sensor specification is optional #198
+
+    2025.05.02-02:
+      - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
+
+    2025.05.02-01:
+      - Fixed: Also take into account for shading that a door contact only needs to be tested when ventilation mode is switched on #197
+      - Fixed: Removed protocol error that occurs during manual execution.
+      - Added: Catching an incorrect weather configuration
+      - Added: Ability to specify an existing sensor if it already provides daily maximum temperature forecast instead of weather entity #199
+      - Added: Add hysteresis for temperature sensor based shading #189
 
     2025.04.18:
       - Updated: Just to be more bulletproof, the tilt position control can now be specifically switched on or off. Please activate if necessary. #163
@@ -1223,6 +1238,18 @@ blueprint:
               mode: slider
               unit_of_measurement: "°C"
 
+        shading_temperature_hysteresis1:
+          name: "🥵 Sun Shading Temperature Sensor 1 Hysteresis Value"
+          description: "Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles."
+          default: 0.2
+          selector:
+            number:
+              min: 0
+              max: 5.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+
         shading_temperatur_sensor2:
           name: "🥵 Sun Shading Temperature Sensor 2 (eg. outdoor)"
           description: "This is a secondary temperature sensor. (Here, for example, the current outdoor temperature can be used as a condition). This sensor has another function. Please read the notes in the <ins>Sun Shading Forecast Temperature Value</ins> entry below."
@@ -1245,10 +1272,23 @@ blueprint:
               mode: slider
               unit_of_measurement: "°C"
 
+        shading_temperature_hysteresis2:
+          name: "🥵 Sun Shading Temperature Sensor 2 Hysteresis Value"
+          description: "Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles."
+          default: 0.2
+          selector:
+            number:
+              min: 0
+              max: 5.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+
         shading_forecast_sensor:
           name: "🥵 Sun Shading (Forecast) Weather Sensor"
           description: >-
-            Another temperature sensor. In this case, however, explicitly for use with a forecast (by default).
+            This weather sensor ( ideally based on a weather integration) is used for further temperature comparisons based on the forecast.
+            This sensor is also used to compare weather conditions. Leave empty if the forecast is not to be used in any case.
 
             <details>
             <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
@@ -1259,6 +1299,8 @@ blueprint:
             However, in spring you may not want shading, but the solar radiation as a welcome, free heating is desired.
             So you can define via the forecast sensor that shading is only started at an expected daily maximum temperature.
 
+            You can also specify an existing sensor if it already provides the forecast for the maximum daily temperature. In this case set "Sun Shading Forecast Type" to "Do not use a weather forecast, but the current weather attributes".
+
             </details>
           default: []
           selector:
@@ -1266,6 +1308,7 @@ blueprint:
               filter:
                 - domain:
                     - weather
+                    - sensor
 
         shading_forecast_type:
           name: "🥵 Sun Shading Forecast Type"
@@ -1380,6 +1423,33 @@ blueprint:
               min: 0
               max: 3600
               unit_of_measurement: seconds
+
+        is_shading_end_immediate_by_sun_position:
+          name: "🥵 End Sun Shading Immediately When Out Of Range"
+          description: >-
+            If enabled, shading will end immediately when sun position moves outside the defined azimuth or elevation range.
+            If disabled, the configured waiting time will be used before ending the shading.
+          default: false
+          selector:
+            boolean: {}
+
+        shading_end_behavior:
+          name: "🥵 Sun Shading End Behavior"
+          description: >-
+            Configure how the cover should behave when sun shading ends.
+            Choose "Move to close position" for awnings to retract when shading ends.
+          default: "open_position"
+          selector:
+            select:
+              options:
+                - label: "🔼 Move to open position (default for blinds / roller shutters)"
+                  value: "open_position"
+                - label: "🔻 Move to close position (for awnings)"
+                  value: "close_position"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
 
     resident_section:
       name: "Resident Settings"
@@ -1944,6 +2014,8 @@ trigger_variables:
   shading_temperatur_sensor2: !input shading_temperatur_sensor2
   shading_min_temperatur1: !input shading_min_temperatur1
   shading_min_temperatur2: !input shading_min_temperatur2
+  shading_temperature_hysteresis1: !input shading_temperature_hysteresis1
+  shading_temperature_hysteresis2: !input shading_temperature_hysteresis2
   shading_azimuth_start: !input shading_azimuth_start
   shading_azimuth_end: !input shading_azimuth_end
   shading_elevation_min: !input shading_elevation_min
@@ -1979,7 +2051,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.04.18"
+  version: "2025.05.04"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   blind_supports_tilting: "{{ state_attr(blind, 'current_tilt_position') != none }}"
@@ -2059,6 +2131,7 @@ variables:
   #shading_tilt_position: !input shading_tilt_position
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
+  is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
 
   # Cover Status Helper
   is_status_helper_enabled: >-
@@ -2503,12 +2576,12 @@ triggers:
   ########################################
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < shading_min_temperatur1 }}"
+    value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_end_pending_1"
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < shading_min_temperatur2 }}"
+    value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_end_pending_2"
 
@@ -2611,7 +2684,10 @@ actions:
       - "{{ is_shading_enabled }}"
       - "{{ not prevent_forecast_service }}"
       - "{{ (shading_forecast_sensor != [] ) }}"
+      - "{{ states(shading_forecast_sensor) not in ['unavailable', 'unknown', 'query failed']  }}"
+      - "{{ trigger.id is defined }}"
       - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}" # Important: All triggers for shading start necessary!
+      - "{{ shading_forecast_sensor.startswith('weather.') }}"
     then:
       - action: weather.get_forecasts
         target:
@@ -3180,6 +3256,7 @@ actions:
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d')|int) }}"
+              - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
           - or:
               - "{{ shading_temperatur_sensor1 == [] }}"
               - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
@@ -3189,17 +3266,37 @@ actions:
           - or:
               - "{{ shading_brightness_sensor == [] }}"
               - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+
           - or:
               - "{{ shading_forecast_sensor == [] }}"
               - "{{ shading_forecast_temp == [] }}"
-              - "{{ prevent_forecast_service and state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp) > shading_forecast_temp }}"
-              - "{{ (not prevent_forecast_service) and weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp) > shading_forecast_temp }}"
-              - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}" # Continue even if the actual temperature is higher than the forecast value. Occasionally the forecast is wrong.
+              - >
+                {{ shading_forecast_sensor.startswith('sensor.') and
+                  states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}
+              - >
+                {{ shading_forecast_sensor.startswith('weather.') and
+                  prevent_forecast_service and
+                  state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}
+              - >
+                {{ shading_forecast_sensor.startswith('weather.') and
+                  not prevent_forecast_service and
+                  weather_forecast is defined and
+                  weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}
+              - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2)
+                | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
           - or:
               - "{{ shading_forecast_sensor == [] }}"
               - "{{ shading_weather_conditions == [] }}"
-              - "{{ prevent_forecast_service and states(shading_forecast_sensor) in shading_weather_conditions }}"
-              - "{{ (not prevent_forecast_service) and weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
+              - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+              - and:
+                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                  - "{{ prevent_forecast_service }}"
+                  - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
+              - and:
+                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                  - "{{ not prevent_forecast_service }}"
+                  - "{{ weather_forecast is defined }}"
+                  - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
@@ -3234,6 +3331,7 @@ actions:
               - alias: "Consider lockout protection when shading starts"
                 conditions:
                   - "{{ is_cover_helper_shading_start_pending }}"
+                  - "{{ is_ventilation_enabled }}"
                   - or:
                       - and:
                           - "{{ contact_window_opened != [] }}"
@@ -3492,9 +3590,13 @@ actions:
                     data:
                       entity_id: !input cover_status_helper
                       value: |
+                        {% set local_waitingtime_end = shading_waitingtime_end %}
+                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
+                          {% set local_waitingtime_end = 0 %} # Immediately end shading when sun position out of range
+                        {% endif %}
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':0, 'q':(as_timestamp(now()) + shading_waitingtime_end) | round(0) },
+                          'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':0, 'q':(as_timestamp(now()) + local_waitingtime_end) | round(0) },
                           't':as_timestamp(now()) | round(0)
                           })
                         %}
@@ -3607,9 +3709,9 @@ actions:
                     default: !input auto_ventilate_action
 
               ###############################################
-              # Move cover to open position after shading end
+              # Move cover after shading end
               ###############################################
-              - alias: "Move cover to open position after shading end"
+              - alias: "Move cover after shading end"
                 conditions:
                   - "{{ is_cover_helper_shading_end_pending }}"
                 sequence:
@@ -3619,15 +3721,20 @@ actions:
                   - choose: []
                     default: !input auto_shading_end_action_before
 
-                  - alias: "Move cover to open position"
+                  - variables:
+                      target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
+                      target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
+                      target_tilt_position: "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
+
+                  - alias: "Move cover to {{ target_status }} position"
                     action: input_text.set_value
                     data:
                       entity_id: !input cover_status_helper
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'open':{'a':1,'t':as_timestamp(now()) | round(0)},
-                          'close':{'a':0,'t':dict_var.close.t},
+                          'open':{'a': 0 if shading_end_behavior == 'close_position' else 1,'t': dict_var.open.t if shading_end_behavior == 'close_position' else as_timestamp(now()) | round(0)},
+                          'close':{'a': 1 if shading_end_behavior == 'close_position' else 0,'t': as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else dict_var.close.t},
                           'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
                           'vpart':{'a':0,'t':dict_var.vpart.t},
                           'vfull':{'a':0,'t':dict_var.vfull.t},
@@ -3645,18 +3752,18 @@ actions:
                           for_each: "{{ blind_entities|list }}"
                           sequence:
                             - if:
-                                - "{{ open_position == 100 }}"
+                                - "{{ target_position == 0 or target_position == 100 }}"
                               then:
-                                - alias: "Moving the cover to open position"
-                                  action: cover.open_cover
+                                - alias: "Moving the cover to {{ target_status }} position"
+                                  action: "cover.{{ 'close' if target_position == 0 else 'open' }}_cover"
                                   data: {}
                                   target:
                                     entity_id: "{{ repeat.item }}"
                               else:
-                                - alias: "Moving the cover to open position"
+                                - alias: "Moving the cover to {{ target_status }} position"
                                   action: cover.set_cover_position
                                   data:
-                                    position: !input open_position
+                                    position: "{{ target_position }}"
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - if:
@@ -3669,7 +3776,7 @@ actions:
                                 - alias: "Moving the cover to tilt position"
                                   action: cover.set_cover_tilt_position
                                   data:
-                                    tilt_position: !input open_tilt_position
+                                    tilt_position: "{{ target_tilt_position }}"
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - delay:
@@ -3857,11 +3964,11 @@ actions:
                       - "{{ is_cover_helper_partially_ventilated }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
-               # Workaround for #181
-               # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
-               # 'vfull' is set in the helper.
-               # This must remain the case because the position of the cover remains at 100.
-               # But the return from this must be taken into account somehow.
+                  # Workaround for #181
+                  # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
+                  # 'vfull' is set in the helper.
+                  # This must remain the case because the position of the cover remains at 100.
+                  # But the return from this must be taken into account somehow.
                   - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
