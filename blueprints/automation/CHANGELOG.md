@@ -332,3 +332,18 @@
   - Added: Added Sun elevation examples into the description #175
   - Added: New feature 'Allow opening the cover when resident is still present' #192
   - Breaking change: Please reconfigure "Allow sun protection when resident is still present" ('resident_shading_enabled' was renamed)
+
+2025.05.02-01:
+  - Fixed: Also take into account for shading that a door contact only needs to be tested when ventilation mode is switched on #197
+  - Fixed: Removed protocol error that occurs during manual execution.
+  - Added: Catching an incorrect weather configuration
+  - Added: Ability to specify an existing sensor if it already provides daily maximum temperature forecast instead of weather entity #199
+  - Added: Add hysteresis for temperature sensor based shading #189
+
+2025.05.02-02:
+  - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
+
+2025.05.04:
+  - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
+  - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
+  - Updated: Note that the weather sensor specification is optional #198
