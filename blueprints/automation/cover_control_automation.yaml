@@ -526,6 +526,26 @@ blueprint:
               custom_value: false
               mode: list
 
+        cover_tilt_reposition_config:
+          name: "📐 Tilt Reposition Feature"
+          description: >-
+            If Tilt Position Feature is enabled you can choose if the blinds are closed before tilting to a new position.
+            In some cases tilting the blinds in small steps can lead to false positions. This is because of the minumum time the motor needs to run.
+            If the runtime between current tilt position and target tilt position is to small the motor will not stop at the right position.
+            Thus the blinds will be preclosed to 0 and then run to the target position. 
+          default: cover_tilt_reposition_disabled
+          selector:
+            select:
+              options:
+                - label: "✅ Enable Tilt Reposition Control"
+                  value: "cover_tilt_reposition_enabled"
+                - label: "❌ Disable Tilt Reposition Control"
+                  value: "cover_tilt_reposition_disabled"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
+
         open_tilt_position:
           name: "🔼 Open Tilt Position"
           description: "To which tilt position should the cover be moved when opening?"
@@ -1872,6 +1892,14 @@ trigger_variables:
   shading_position: !input shading_position
   position_tolerance: !input position_tolerance
 
+  # Tilt
+  shading_tilt_elevation_1: !input shading_tilt_elevation_1
+  shading_tilt_elevation_2: !input shading_tilt_elevation_2
+  shading_tilt_elevation_3: !input shading_tilt_elevation_3
+  shading_tilt_position_1: !input shading_tilt_position_1
+  shading_tilt_position_2: !input shading_tilt_position_2
+  shading_tilt_position_3: !input shading_tilt_position_3
+
   # Modes
   auto_options: !input auto_options
 
@@ -1929,6 +1957,8 @@ trigger_variables:
 
   # Internal code helper
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
+  cover_tilt_config: !input cover_tilt_config
+  is_cover_tilt_enabled: "{{ 'cover_tilt_enabled' in cover_tilt_config }}"
   is_up_enabled: "{{ 'auto_up_enabled' in auto_options }}"
   is_down_enabled: "{{ 'auto_down_enabled' in auto_options }}"
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
@@ -2004,8 +2034,10 @@ variables:
   close_tilt_position: !input close_tilt_position
   ventilate_position: !input ventilate_position
   ventilate_tilt_position: !input ventilate_tilt_position
-  cover_tilt_config: !input cover_tilt_config
-  is_cover_tilt_enabled: "{{ 'cover_tilt_enabled' in cover_tilt_config }}"
+  #cover_tilt_config: !input cover_tilt_config
+  #is_cover_tilt_enabled: "{{ 'cover_tilt_enabled' in cover_tilt_config }}"
+  cover_tilt_reposition_config: !input cover_tilt_reposition_config
+  is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
 
   # Force
   auto_up_force: !input auto_up_force
@@ -2014,12 +2046,6 @@ variables:
   auto_shading_start_force: !input auto_shading_start_force
 
   # Shading
-  shading_tilt_elevation_1: !input shading_tilt_elevation_1
-  shading_tilt_elevation_2: !input shading_tilt_elevation_2
-  shading_tilt_elevation_3: !input shading_tilt_elevation_3
-  shading_tilt_position_1: !input shading_tilt_position_1
-  shading_tilt_position_2: !input shading_tilt_position_2
-  shading_tilt_position_3: !input shading_tilt_position_3
   shading_tilt_position: >-
     {%- if state_attr(default_sun_sensor, 'elevation') |int(default=0) >= shading_tilt_elevation_3 |int -%}
       {{ shading_tilt_position_3 |int }}
@@ -2447,50 +2473,30 @@ triggers:
   ########################################
 
   - platform: template
-    value_template: "{{ state_attr(blind, 'current_tilt_position') != none and
-    state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1 and
+    value_template: "{{ state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1 and
     (states(cover_status_helper)|from_json).shading.a == 1 }}"
-    enabled: '{{ is_shading_enabled and default_sun_sensor != [] }}'
-    id: t_shading_tilt__1_1
+    enabled: '{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}'
+    id: t_shading_tilt__1
 
   - platform: template
-    value_template: "{{ state_attr(blind, 'current_tilt_position') != none and
-    state_attr(default_sun_sensor, 'elevation') > shading_tilt_elevation_1 and
-    state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_2 and
+    value_template: "{{ state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_2 and
+    state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_1 and
     (states(cover_status_helper)|from_json).shading.a == 1 }}"
-    enabled: '{{ is_shading_enabled and default_sun_sensor != [] }}'
-    id: t_shading_tilt__1_2
+    enabled: '{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}'
+    id: t_shading_tilt__2
 
   - platform: template
-    value_template: "{{ state_attr(blind, 'current_tilt_position') != none and
-    state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_2 and
-    state_attr(default_sun_sensor, 'elevation') > shading_tilt_elevation_1 and
+    value_template: "{{ state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_3 and
+    state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_2 and
     (states(cover_status_helper)|from_json).shading.a == 1 }}"
-    enabled: '{{ is_shading_enabled and default_sun_sensor != [] }}'
-    id: t_shading_tilt__2_1
+    enabled: '{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}'
+    id: t_shading_tilt__3
 
   - platform: template
-    value_template: "{{ state_attr(blind, 'current_tilt_position') != none and
-    state_attr(default_sun_sensor, 'elevation') > shading_tilt_elevation_2 and
-    state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_3 and
+    value_template: "{{ state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_3 and
     (states(cover_status_helper)|from_json).shading.a == 1 }}"
-    enabled: '{{ is_shading_enabled and default_sun_sensor != [] }}'
-    id: t_shading_tilt__2_2
-
-  - platform: template
-    value_template: "{{ state_attr(blind, 'current_tilt_position') != none and
-    state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_3 and
-    state_attr(default_sun_sensor, 'elevation') > shading_tilt_elevation_2 and
-    (states(cover_status_helper)|from_json).shading.a == 1 }}"
-    enabled: '{{ is_shading_enabled and default_sun_sensor != [] }}'
-    id: t_shading_tilt__3_1
-
-  - platform: template
-    value_template: "{{ state_attr(blind, 'current_tilt_position') != none and
-    state_attr(default_sun_sensor, 'elevation') > shading_tilt_elevation_3 and
-    (states(cover_status_helper)|from_json).shading.a == 1 }}"
-    enabled: '{{ is_shading_enabled and default_sun_sensor != [] }}'
-    id: t_shading_tilt__3_2
+    enabled: '{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}'
+    id: t_shading_tilt__4
 
   ########################################
   # Triggers for shading end
@@ -2786,7 +2792,7 @@ actions:
                                 - alias: "Moving the cover to tilt position"
                                   action: cover.set_cover_tilt_position
                                   data:
-                                    tilt_position: shading_tilt_position
+                                    tilt_position: "{{ shading_tilt_position |int }}"
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - delay:
@@ -3260,7 +3266,13 @@ actions:
               - alias: "Start Shading"
                 conditions:
                   - "{{ is_cover_helper_shading_start_pending }}"
-                  - "{{ current_position | int(default=101) > shading_position }}"
+                  - or:
+                    - and:
+                      - "{{ not is_cover_tilt_enabled }}"
+                      - "{{ current_position | int(default=101) > shading_position }}"
+                    - and:
+                      - "{{ is_cover_tilt_enabled }}"
+                      - "{{ current_position | int(default=101) >= shading_position }}"
                   - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
                       - and:
                           - "{{ is_time_control_disabled }}"
@@ -3317,7 +3329,7 @@ actions:
                                 - alias: "Moving the cover to tilt position"
                                   action: cover.set_cover_tilt_position
                                   data:
-                                    tilt_position: shading_tilt_position
+                                    tilt_position: "{{ shading_tilt_position |int }}"
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - delay:
@@ -3360,7 +3372,10 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_tilt)') }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ is_cover_helper_shaded }}"
+          - and:
+            - "{{ is_cover_helper_shaded }}"
+            - "{{ not is_cover_helper_shading_start_pending }}"
+          - "{{ is_cover_tilt_enabled }}"
           - condition: !input auto_shading_tilt_condition
           - and:
             - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
@@ -3378,13 +3393,19 @@ actions:
           - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper
-              value: "{% set dict_var = states(cover_status_helper) | from_json %}\n{%
-                set dict_new = dict(dict_var, **{\n  'open':{'a':1,'t':as_timestamp(now())
-                | round(0)},\n  'close':{'a':0,'t':dict_var.close.t},\n  'shading':{'a':1,'t':as_timestamp(now())
-                | round(0),'p':0,'q':0 },\n  'vpart':{'a':0,'t':dict_var.vpart.t},\n
-                \ 'vfull':{'a':0,'t':dict_var.vfull.t},\n  'manual':{'a':0,'t':dict_var.manual.t},\n
-                \ 't':as_timestamp(now()) | round(0)\n  })\n%}\n{{ dict_new | to_json
-                }}\n"
+              value: |
+                {% set dict_var = states(cover_status_helper) | from_json %}
+                {% set dict_new = dict(dict_var, **{
+                  'open':{'a':dict_var.open.a,'t':dict_var.open.t},
+                  'close':{'a':dict_var.close.a,'t':dict_var.close.t},
+                  'shading':{'a':dict_var.shading.a,'t':dict_var.shading.t,'p':dict_var.shading.p,'q':dict_var.shading.q},
+                  'vpart':{'a':dict_var.vpart.a,'t':dict_var.vpart.t},
+                  'vfull':{'a':dict_var.vfull.a,'t':dict_var.vfull.t},
+                  'manual':{'a':dict_var.manual.a,'t':dict_var.manual.t},
+                  't':as_timestamp(now()) | round(0)
+                  })
+                %}
+                {{ dict_new | to_json }}
           - if:
             - "{{ not prevent_default_cover_actions}}"
             then:
@@ -3396,19 +3417,22 @@ actions:
                       - "{{ is_cover_tilt_enabled }}"
                       - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                     then:
-                      - alias: "tilt the cover to close position"
-                        action: cover.set_cover_tilt_position
-                        data:
-                          tilt_position: "{{ 0 |int }}"
-                        target:
-                          entity_id: "{{ repeat.item }}"
-                      - alias: Tilt Delay
-                        delay:
-                          seconds: !input tilt_delay
+                      - if:
+                          - "{{ is_cover_tilt_reposition_enabled }}"
+                        then:
+                          - alias: "tilt the cover to close position"
+                            action: cover.set_cover_tilt_position
+                            data:
+                              tilt_position: "{{ 0 |int }}"
+                            target:
+                              entity_id: "{{ repeat.item }}"
+                          - alias: Tilt Delay
+                            delay:
+                              seconds: !input tilt_delay
                       - alias: "Moving the cover to tilt position"
                         action: cover.set_cover_tilt_position
                         data:
-                          tilt_position: "{{ shading_tilt_position }}"
+                          tilt_position: "{{ shading_tilt_position |int }}"
                         target:
                           entity_id: "{{ repeat.item }}"
                   - delay:
@@ -3751,7 +3775,7 @@ actions:
                       - "{{ (current_position | int(default=101) < ventilate_position) }}"
                       - and:
                         - "{{ blind_supports_tilting }}"
-                        - "{{ (current_position | int(default=101) == ventilate_position) }}"
+                        - "{{ (current_position | int(default=101) <= ventilate_position) }}"
                         - "{{ (current_tilt_position | int(default=101) <= ventilate_tilt_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
                 sequence:
@@ -3965,7 +3989,7 @@ actions:
                                 - alias: "Moving the cover to tilt position"
                                   action: cover.set_cover_tilt_position
                                   data:
-                                    tilt_position: shading_tilt_position
+                                    tilt_position: "{{ shading_tilt_position |int }}"
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - delay:
@@ -4379,7 +4403,7 @@ actions:
                         - alias: "Moving the cover to tilt position"
                           action: cover.set_cover_tilt_position
                           data:
-                            tilt_position: shading_tilt_position
+                            tilt_position: "{{ shading_tilt_position |int }}"
                           target:
                             entity_id: "{{ repeat.item }}"
                     - delay:
@@ -4413,6 +4437,28 @@ actions:
 
         sequence:
           - choose:
+              - conditions: # Manually tilted
+                  - "{{ trigger.id == 't_manual4_' }}"
+                sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':dict_var.open.a,'t':dict_var.open.t},
+                          'close':{'a':dict_var.close.a,'t':dict_var.close.t},
+                          'shading':{'a':dict_var.shading.a,'t':dict_var.shading.t,'p':dict_var.shading.p,'q':dict_var.shading.q},
+                          'vpart':{'a':dict_var.vpart.a,'t':dict_var.vpart.t},
+                          'vfull':{'a':dict_var.vfull.a,'t':dict_var.vfull.t},
+                          'manual':{'a':1,'t':as_timestamp(now()) | round(0)},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+                  - choose: []
+                    default: !input auto_manual_action
+
               - conditions: # Manually opened
                   - "{{ is_up_enabled }}"
                   - or:
