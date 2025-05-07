@@ -347,3 +347,10 @@
   - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
   - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
   - Updated: Note that the weather sensor specification is optional #198
+
+2025.05.07:
+  - Fixed: Shading is now also recognized and temporarily stored in the helper if the resident sensor contains the value true. #131
+  - Added: Tilt Reposition Feature (Thanks for the pull request, Astado) #196
+  - Update: Better textual clarification of what the result of the additional condition should look like #204
+  - Update: Only shade the cover when it is not in the shading position. Purely as a precautionary measure in case the target state and actual state do not match.
+
