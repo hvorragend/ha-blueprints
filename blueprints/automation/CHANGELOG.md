@@ -354,3 +354,5 @@
   - Update: Better textual clarification of what the result of the additional condition should look like #204
   - Update: Only shade the cover when it is not in the shading position. Purely as a precautionary measure in case the target state and actual state do not match.
 
+2025.05.11:
+  - Fixed: Fixed bug that the cover can be opened again by the time-up-late-trigger despite existing shading.
