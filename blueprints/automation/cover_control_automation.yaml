@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.05.11
+    **Version**: 2025.05.12
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,9 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.05.12:
+      - Fixed: Multiple triggering of a detected shading has skipped the waiting time until execution #206
 
     2025.05.11:
       - Fixed: Fixed bug that the cover can be opened again by the time-up-late-trigger despite existing shading.
@@ -2079,7 +2082,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.05.11"
+  version: "2025.05.12"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   blind_supports_tilting: "{{ state_attr(blind, 'current_tilt_position') != none }}"
@@ -2579,7 +2582,7 @@ triggers:
         (states(cover_status_helper)|from_json).shading.a == 1
       }}
     enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt__1
+    id: t_shading_tilt_1
 
   - platform: template
     value_template: >-
@@ -2589,7 +2592,7 @@ triggers:
         (states(cover_status_helper)|from_json).shading.a == 1
       }}
     enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt__2
+    id: t_shading_tilt_2
 
   - platform: template
     value_template: >-
@@ -2599,7 +2602,7 @@ triggers:
         (states(cover_status_helper)|from_json).shading.a == 1
       }}
     enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt__3
+    id: t_shading_tilt_3
 
   - platform: template
     value_template: >-
@@ -2608,7 +2611,7 @@ triggers:
         (states(cover_status_helper)|from_json).shading.a == 1
       }}
     enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt__4
+    id: t_shading_tilt_4
 
   ########################################
   # Triggers for shading end
@@ -3346,6 +3349,7 @@ actions:
               #####################################################################
               - alias: "Shading detected. Save next execution time and pending status"
                 conditions:
+                  - "{{ not trigger.id | regex_match('^(t_shading_start_execution)') }}"
                   - "{{ not is_cover_helper_shading_start_pending }}"
                 sequence:
                   - action: input_text.set_value
@@ -3365,6 +3369,7 @@ actions:
               ##################################################
               - alias: "Consider lockout protection when shading starts"
                 conditions:
+                  - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                   - "{{ is_cover_helper_shading_start_pending }}"
                   - "{{ is_ventilation_enabled }}"
                   - or:
@@ -3398,6 +3403,7 @@ actions:
               ###################################
               - alias: "Start Shading"
                 conditions:
+                  - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                   - "{{ is_cover_helper_shading_start_pending }}"
                   - or:
                       - and:
@@ -3482,6 +3488,7 @@ actions:
               ####################################
               - alias: "Save shading state for the future"
                 conditions:
+                  - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                   - "{{ is_cover_helper_shading_start_pending }}"
                   - "{{ is_cover_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                 sequence:
@@ -3522,12 +3529,6 @@ actions:
               - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
           - "{{ not (is_cover_helper_partially_ventilated or is_cover_helper_fully_ventilated) }}"
           - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Override check
-          # - or:
-          #     - "{{ resident_sensor == [] }}"
-          #     - "{{ is_state(resident_sensor, ['false', 'off']) }}"
-          #     - and: # Issue 131
-          #         - "{{ resident_shading_enabled }}"
-          #         - "{{ is_state(resident_sensor, ['true', 'on']) }}"
         sequence:
           - action: input_text.set_value
             data:
@@ -3625,6 +3626,7 @@ actions:
               #####################################################################
               - alias: "Shading end detected. Save next execution time and pending status"
                 conditions:
+                  - "{{ not trigger.id | regex_match('^(t_shading_end_execution)') }}"
                   - "{{ not is_cover_helper_shading_end_pending }}"
                 sequence:
                   - action: input_text.set_value
@@ -3648,6 +3650,7 @@ actions:
               ######################################
               - alias: "Lockout protection when shading ends"
                 conditions:
+                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                   - "{{ is_cover_helper_shading_end_pending }}"
                   - "{{ is_ventilation_enabled }}"
                   - "{{ (current_position | int(default=101) < ventilate_position) }}"
@@ -3682,6 +3685,7 @@ actions:
               ################################
               - alias: "Ventilation after shading ends"
                 conditions:
+                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                   - "{{ is_cover_helper_shading_end_pending }}"
                   - "{{ is_ventilation_enabled }}"
                   - "{{ ventilation_after_shading_end }}"
@@ -3754,6 +3758,7 @@ actions:
               ###############################################
               - alias: "Move cover after shading end"
                 conditions:
+                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                   - "{{ is_cover_helper_shading_end_pending }}"
                 sequence:
                   - delay:
