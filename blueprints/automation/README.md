@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/a31ad36d-fcf9-49bd-81ed-5be19b435ead)# ☀️ Cover Control Automation (CCA)
+# ☀️ Cover Control Automation (CCA)
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://community-assets.home-assistant.io/original/4X/d/7/6/d7625545838a4970873f3a996172212440b7e0ae.svg
 )](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fhvorragend%2Fha-blueprints%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fcover_control_automation.yaml)
