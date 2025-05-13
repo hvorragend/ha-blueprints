@@ -356,3 +356,9 @@
 
 2025.05.11:
   - Fixed: Fixed bug that the cover can be opened again by the time-up-late-trigger despite existing shading.
+  - 
+2025.05.12:
+  - Fixed: Multiple triggering of a detected shading has skipped the waiting time until execution #206
+
+2025.05.13
+  - Fixed: The nightly shading reset has changed the timestamp and therefore a new shading with active 'prevent_shading_multiple_times' can never be executed.
