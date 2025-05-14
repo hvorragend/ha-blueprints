@@ -362,3 +362,7 @@
 
 2025.05.13
   - Fixed: The nightly shading reset has changed the timestamp and therefore a new shading with active 'prevent_shading_multiple_times' can never be executed.
+
+2025.05.14
+  - Added: Falling below shading_elevation_max now also triggers Shading Start #193
+  - Fixed: When detecting manual position changes, values greater than Ventilation were incorrectly assumed to be Open. This was too This was too wide-ranging.
