@@ -365,4 +365,4 @@
 
 2025.05.14
   - Added: Falling below shading_elevation_max now also triggers Shading Start #193
-  - Fixed: When detecting manual position changes, values greater than Ventilation were incorrectly assumed to be Open. This was too This was too wide-ranging.
+  - Fixed: When detecting manual position changes, values greater than Ventilation were incorrectly assumed to be Open. This was too wide-ranging.
