@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.05.13
+    **Version**: 2025.05.14
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,10 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.05.14
+      - Added: Falling below shading_elevation_max now also triggers Shading Start #193
+      - Fixed: When detecting manual position changes, values greater than Ventilation were incorrectly assumed to be Open. This was too This was too wide-ranging.
 
     2025.05.13
       - Fixed: The nightly shading reset has changed the timestamp and therefore a new shading with active 'prevent_shading_multiple_times' can never be executed.
@@ -2085,7 +2089,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.05.13"
+  version: "2025.05.14"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   blind_supports_tilting: "{{ state_attr(blind, 'current_tilt_position') != none }}"
@@ -2527,7 +2531,8 @@ triggers:
       {{
         state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_start) > shading_azimuth_start and
         state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) < shading_azimuth_end and
-        state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) > shading_elevation_min
+        state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) > shading_elevation_min and
+        state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) < shading_elevation_max
       }}
     enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
     id: "t_shading_start_pending_1"
@@ -4661,9 +4666,11 @@ actions:
                   - "{{ is_up_enabled }}"
                   - or:
                       - "{{ in_open_position }}"
-                      - "{{ (current_position | int(default=101) > ventilate_position) }}"
                       - "{{ (current_position | int(default=101) >= open_position) }}"
                       - "{{ (current_position | int(default=101) == 100) }}"
+                      # - and:
+                      #     - "{{ (current_position | int(default=101) > ventilate_position) }}"
+                      #     - "{{ (current_position | int(default=101) > shading_position) }}"
                 sequence:
                   - action: input_text.set_value
                     data:
