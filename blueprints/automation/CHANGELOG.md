@@ -369,3 +369,7 @@
 
 2025.05.20
   - Fixed: Wrong default value for shading_forecast_temp
+
+2025.05.27
+  - Updated: Revised information text for configuring the position configuration
+  - Added: The schedule helper state has been added as a variable. This is just for debugging purposes. #214
