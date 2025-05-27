@@ -1468,8 +1468,6 @@ blueprint:
                   value: "open_position"
                 - label: "🔻 Move to close position (for awnings)"
                   value: "close_position"
-                - label: "🚫 Keep shading position (for office usecase)"
-                  value: "keep_position"
               multiple: false
               sort: false
               custom_value: false
@@ -1519,6 +1517,8 @@ blueprint:
                   value: "resident_allow_shading"
                 - label: "🔼 Allow opening the cover when resident is still present"
                   value: "resident_allow_opening"
+                - label: "💨 Allow ventilation when resident is still present"
+                  value: "resident_allow_ventilation"
               multiple: true
               sort: false
               custom_value: false
@@ -2338,6 +2338,7 @@ variables:
   resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
   resident_allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
   resident_allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
+  resident_allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
 
   ignore_after_manual_config: !input ignore_after_manual_config
   override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
@@ -3650,7 +3651,7 @@ actions:
                       value: |
                         {% set local_waitingtime_end = shading_waitingtime_end %}
                         {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
-                          {% set local_waitingtime_end = 0 %} # Immediately end shading when sun position out of range
+                          {% set local_waitingtime_end = 0 %}
                         {% endif %}
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
@@ -3907,6 +3908,12 @@ actions:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
+          - or:
+              - "{{ resident_sensor == [] }}"
+              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - and:
+                - "{{ resident_allow_ventilation }}"
+                - "{{ is_state(resident_sensor, ['true', 'on']) }}"
         sequence:
           - delay:
               seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
