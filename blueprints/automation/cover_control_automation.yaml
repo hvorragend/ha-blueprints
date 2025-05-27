@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.05.20
+    **Version**: 2025.05.27
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -50,7 +50,7 @@ blueprint:
     <details>
     <summary><strong>Important notes</strong></summary>
 
-    - <strong>It is <ins>not</ins> possible to execute this automation manually!</strong>
+    - <strong>It is <ins>not</ins> not possible to execute this automation manually! Unless you use it exclusively for the configuration check!!</strong>
     - If you want to use sun elevation and/or azimuth it's strongly advised to use sun.sun. And please make sure your sun.sun entity is enabled!
     - `time_up_early` should be earlier than `time_up_late`
     - `time_up_early_non_workday` should be earlier than `time_up_late_non_workday`
@@ -73,6 +73,10 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.05.27
+      - Updated: Revised information text for configuring the position configuration
+      - Added: The schedule helper state has been added as a variable. This is just for debugging purposes. #214
 
     2025.05.20
       - Fixed: Wrong default value for shading_forecast_temp
@@ -470,6 +474,22 @@ blueprint:
     position_section:
       name: "Cover Position Settings"
       icon: mdi:window-shutter-settings
+      description: >-
+        <br /><center>
+          <details>
+              <summary><code><strong>CLICK HERE:</strong> Important notes on configuring the position values</code></summary>
+              <code>
+              Please ensure that all position values are unique and do not conflict with each other.<br />
+              Correct position values are essential (e.g. open_position must be greater than closed_position).<br />
+              The shading and ventilation positions must also be unique, i.e. they must not match any other values.<br />
+              For more information, please refer to the important notes at the top of the blueprint description or the second post in the CCA community thread.<br /><br />
+              Attention: Bear in mind that, if you include the tolerance, the other positions are not too close to each other.<br />
+              The following would cause problems and be incorrect:<br />
+              Open Position = 100 / Ventilate Position = 99 / Tolerance >= 1<br />
+            </code>
+          </details>
+        </center><br />
+
       collapsed: true
       input:
         open_position:
@@ -520,19 +540,6 @@ blueprint:
           description: >-
             Tolerance to be applied when comparing the current position with the to be position.
             These are absolute values. Not relative to the previous position values.
-
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
-
-            Attention: Bear in mind that the other positions are not too close to each other if you include the tolerance.
-            The following could cause problems and would then be <ins>incorrect</ins>:
-            <br />
-            - Open Position = 100<br />
-            - Ventilate Position = 99<br />
-            - Tolerance >= 1<br />
-
-            </details>
           default: 0
           selector:
             number:
@@ -2092,7 +2099,7 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.05.20"
+  version: "2025.05.27"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   blind_supports_tilting: "{{ state_attr(blind, 'current_tilt_position') != none }}"
@@ -3362,8 +3369,8 @@ actions:
               #####################################################################
               - alias: "Shading detected. Save next execution time and pending status"
                 conditions:
-                  - "{{ not trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                  - "{{ not is_cover_helper_shading_start_pending }}"
+                  - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
+                  - "{{ not is_cover_helper_shading_start_pending }}" # Not if a pending is already active
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -3383,7 +3390,7 @@ actions:
               - alias: "Consider lockout protection when shading starts"
                 conditions:
                   - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                  - "{{ is_cover_helper_shading_start_pending }}"
+                  - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
                   - "{{ is_ventilation_enabled }}"
                   - or:
                       - and:
@@ -3417,7 +3424,7 @@ actions:
               - alias: "Start Shading"
                 conditions:
                   - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                  - "{{ is_cover_helper_shading_start_pending }}"
+                  - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
                   - or:
                       - and:
                           - "{{ not is_cover_tilt_enabled }}"
@@ -3502,7 +3509,7 @@ actions:
               - alias: "Save shading state for the future"
                 conditions:
                   - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                  - "{{ is_cover_helper_shading_start_pending }}"
+                  - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
                   - "{{ is_cover_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                 sequence:
                   - action: input_text.set_value
