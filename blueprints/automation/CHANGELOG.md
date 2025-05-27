@@ -369,3 +369,13 @@
 
 2025.05.20
   - Fixed: Wrong default value for shading_forecast_temp
+
+2025.05.27
+  - Updated: Revised information text for configuring the position configuration
+  - Added: The schedule helper state has been added as a variable. This is just for debugging purposes. #214
+  - Fixed: The problems with the start of shading have been corrected. #212 #211
+    If the shading conditions were not still fulfilled after the end of the waiting time, the sun protection was sometimes not activated correctly.
+    Now we have a new feature and we can select the following options:
+      - If the conditions were not permanently fulfilled, we can wait for another trigger to be executed. The previous pending status is now successfully reset.
+      - And much better: CCA can be configured so that we can periodically check the shading during the day. The system then checks again and again until the conditions are valid again.
+
