@@ -3313,17 +3313,19 @@ actions:
               - "{{ not prevent_shading_multiple_times }}"
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d') | int) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
-          - or:
-              - "{{ shading_temperatur_sensor1 == [] }}"
-              - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-          - or:
-              - "{{ shading_temperatur_sensor2 == [] }}"
-              - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-          - or:
+          # Conditions sorted by trigger sequence
+          - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}" # t_shading_start_pending_1
+          - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}" # t_shading_start_pending_1
+          - or: # t_shading_start_pending_2
               - "{{ shading_brightness_sensor == [] }}"
               - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-
-          - or:
+          - or: # t_shading_start_pending_3
+              - "{{ shading_temperatur_sensor1 == [] }}"
+              - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
+          - or: # t_shading_start_pending_4
+              - "{{ shading_temperatur_sensor2 == [] }}"
+              - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
+          - or: # t_shading_start_pending_5
               - "{{ shading_forecast_sensor == [] }}"
               - "{{ shading_forecast_temp == [] }}"
               - and:
@@ -3339,7 +3341,7 @@ actions:
                   - "{{ weather_forecast is defined }}"
                   - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
               - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
-          - or:
+          - or: # t_shading_start_pending_5
               - "{{ shading_forecast_sensor == [] }}"
               - "{{ shading_weather_conditions == [] }}"
               - "{{ shading_forecast_sensor.startswith('sensor.') }}"
