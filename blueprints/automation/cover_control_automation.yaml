@@ -77,6 +77,11 @@ blueprint:
     2025.05.27
       - Updated: Revised information text for configuring the position configuration
       - Added: The schedule helper state has been added as a variable. This is just for debugging purposes. #214
+      - Fixed: The problems with the start of shading have been corrected. #212 #211
+        If the shading conditions were not still fulfilled after the end of the waiting time, the sun protection was sometimes not activated correctly.
+        Now we have a new feature and we can select the following options:
+          - If the conditions were not permanently fulfilled, we can wait for another trigger to be executed. The previous pending status is now successfully reset.
+          - And much better: CCA can be configured so that we can periodically check the shading during the day. The system then checks again and again until the conditions are valid again.
 
     2025.05.20
       - Fixed: Wrong default value for shading_forecast_temp
@@ -1434,14 +1439,28 @@ blueprint:
           description: >-
             To avoid overloading the motor, a waiting time can be defined here for the start of shading.
             The shade will then only start if <ins>all</ins> mandatory conditions are fulfilled for the entire waiting time.
-            <br /><br />
-            Note: The automated system only waits for the time when the cover is above the ventilation position.
           default: 300
           selector:
             number:
               min: 0
               max: 3600
               unit_of_measurement: seconds
+
+        shading_start_behavior:
+          name: "🥵 Sun Shading Start Behavior"
+          description: "Behavior if the shading conditions were not permanently met over the period."
+          default: "trigger_periodic"
+          selector:
+            select:
+              options:
+                - label: "Reset the detected shading start and wait for another trigger"
+                  value: "trigger_reset"
+                - label: "Check again periodically during the day after another waiting period"
+                  value: "trigger_periodic"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
 
         shading_waitingtime_end:
           name: "🥵 Waiting Time For Sun Shading End"
@@ -2179,6 +2198,9 @@ variables:
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
   is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
+  shading_start_behavior: !input shading_start_behavior
+  start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
+  start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
 
   # Cover Status Helper
   is_status_helper_enabled: >-
@@ -3320,211 +3342,268 @@ actions:
               - "{{ not prevent_shading_multiple_times }}"
               - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d') | int) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
-          # Conditions sorted by trigger sequence
-          - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}" # t_shading_start_pending_1
-          - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}" # t_shading_start_pending_1
-          - or: # t_shading_start_pending_2
-              - "{{ shading_brightness_sensor == [] }}"
-              - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-          - or: # t_shading_start_pending_3
-              - "{{ shading_temperatur_sensor1 == [] }}"
-              - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-          - or: # t_shading_start_pending_4
-              - "{{ shading_temperatur_sensor2 == [] }}"
-              - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-          - or: # t_shading_start_pending_5
-              - "{{ shading_forecast_sensor == [] }}"
-              - "{{ shading_forecast_temp == [] }}"
-              - and:
-                  - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                  - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-              - and:
-                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                  - "{{ prevent_forecast_service }}"
-                  - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-              - and:
-                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                  - "{{ not prevent_forecast_service }}"
-                  - "{{ weather_forecast is defined }}"
-                  - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-              - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
-          - or: # t_shading_start_pending_5
-              - "{{ shading_forecast_sensor == [] }}"
-              - "{{ shading_weather_conditions == [] }}"
-              - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-              - and:
-                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                  - "{{ prevent_forecast_service }}"
-                  - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
-              - and:
-                  - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                  - "{{ not prevent_forecast_service }}"
-                  - "{{ weather_forecast is defined }}"
-                  - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
 
         sequence:
-          - choose:
-              #####################################################################
-              # Shading start detected. Save next execution time and pending status
-              #####################################################################
-              - alias: "Shading detected. Save next execution time and pending status"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
-                  - "{{ not is_cover_helper_shading_start_pending }}" # Not if a pending is already active
-                sequence:
-                  - action: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':(as_timestamp(now()) + shading_waitingtime_start) | round(0),'q':0 },
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
+          - if: # Conditions sorted by trigger sequence
+              - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}" # t_shading_start_pending_1
+              - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}" # t_shading_start_pending_1
+              - or: # t_shading_start_pending_2
+                  - "{{ shading_brightness_sensor == [] }}"
+                  - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+              - or: # t_shading_start_pending_3
+                  - "{{ shading_temperatur_sensor1 == [] }}"
+                  - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
+              - or: # t_shading_start_pending_4
+                  - "{{ shading_temperatur_sensor2 == [] }}"
+                  - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
+              - or: # t_shading_start_pending_5
+                  - "{{ shading_forecast_sensor == [] }}"
+                  - "{{ shading_forecast_temp == [] }}"
+                  - and:
+                      - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                      - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                  - and:
+                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                      - "{{ prevent_forecast_service }}"
+                      - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                  - and:
+                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                      - "{{ not prevent_forecast_service }}"
+                      - "{{ weather_forecast is defined }}"
+                      - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                  - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
+              - or: # t_shading_start_pending_5
+                  - "{{ shading_forecast_sensor == [] }}"
+                  - "{{ shading_weather_conditions == [] }}"
+                  - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                  - and:
+                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                      - "{{ prevent_forecast_service }}"
+                      - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
+                  - and:
+                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                      - "{{ not prevent_forecast_service }}"
+                      - "{{ weather_forecast is defined }}"
+                      - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
+            then:
+              - choose:
+                  #####################################################################
+                  # Shading start detected. Save next execution time and pending status
+                  #####################################################################
+                  - alias: "Shading detected. Save next execution time and pending status"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
+                      - "{{ not is_cover_helper_shading_start_pending }}" # Not if a pending is already active
+                    sequence:
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':(as_timestamp(now()) + shading_waitingtime_start) | round(0),'q':0 },
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
 
-              ##################################################
-              # Consider lockout protection when shading starts
-              ##################################################
-              - alias: "Consider lockout protection when shading starts"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                  - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
-                  - "{{ is_ventilation_enabled }}"
-                  - or:
-                      - and:
-                          - "{{ contact_window_opened != [] }}"
-                          - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
-                      - and:
-                          - "{{ lockout_tilted_when_shading_starts }}"
-                          - "{{ contact_window_tilted != [] }}"
-                          - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
-                sequence:
-                  - action: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'open':{'a':1,'t':as_timestamp(now()) | round(0)},
-                          'close':{'a':0,'t':dict_var.close.t},
-                          'shading':{'a':1,'t':as_timestamp(now()) | round(0),'p':0,'q':0 },
-                          'vpart':{'a':0,'t':dict_var.vpart.t},
-                          'vfull':{'a':1,'t':as_timestamp(now()) | round(0)},
-                          'manual':{'a':0,'t':dict_var.manual.t},
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
+                  ##################################################
+                  # Consider lockout protection when shading starts
+                  ##################################################
+                  - alias: "Consider lockout protection when shading starts"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
+                      - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
+                      - "{{ is_ventilation_enabled }}"
+                      - or:
+                          - and:
+                              - "{{ contact_window_opened != [] }}"
+                              - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+                          - and:
+                              - "{{ lockout_tilted_when_shading_starts }}"
+                              - "{{ contact_window_tilted != [] }}"
+                              - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                    sequence:
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':1,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':0,'t':dict_var.close.t},
+                              'shading':{'a':1,'t':as_timestamp(now()) | round(0),'p':0,'q':0 },
+                              'vpart':{'a':0,'t':dict_var.vpart.t},
+                              'vfull':{'a':1,'t':as_timestamp(now()) | round(0)},
+                              'manual':{'a':0,'t':dict_var.manual.t},
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
 
-              ###################################
-              # Start Shading
-              ###################################
-              - alias: "Start Shading"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                  - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
-                  - or:
-                      - and:
-                          - "{{ not is_cover_tilt_enabled }}"
-                          - "{{ current_position | int(default=101) > shading_position }}"
-                      - and:
-                          - "{{ is_cover_tilt_enabled }}"
-                          - "{{ current_position | int(default=101) >= shading_position }}"
-                  - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
-                      - and:
-                          - "{{ is_time_control_disabled }}"
-                      - and:
-                          - "{{ is_time_field_enabled }}"
-                          - "{{ now() >= today_at(time_up_early_today) }}"
-                          - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-                      - and:
-                          - "{{ is_schedule_helper_enabled }}"
-                          - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}"
-                  - or:
-                      - "{{ resident_sensor == [] }}"
-                      - "{{ is_state(resident_sensor, ['false', 'off']) }}"
-                      - and: # Issue 131
-                          - "{{ resident_allow_shading }}"
-                          - "{{ is_state(resident_sensor, ['true', 'on']) }}"
-                sequence:
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
-                  - choose: []
-                    default: !input auto_shading_start_action_before
+                  ###################################
+                  # Start Shading
+                  ###################################
+                  - alias: "Start Shading"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
+                      - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
+                      - or:
+                          - and:
+                              - "{{ not is_cover_tilt_enabled }}"
+                              - "{{ current_position | int(default=101) > shading_position }}"
+                          - and:
+                              - "{{ is_cover_tilt_enabled }}"
+                              - "{{ current_position | int(default=101) >= shading_position }}"
+                      - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
+                          - and:
+                              - "{{ is_time_control_disabled }}"
+                          - and:
+                              - "{{ is_time_field_enabled }}"
+                              - "{{ now() >= today_at(time_up_early_today) }}"
+                              - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
+                          - and:
+                              - "{{ is_schedule_helper_enabled }}"
+                              - "{{ time_schedule_helper != [] }}"
+                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                      - or:
+                          - "{{ resident_sensor == [] }}"
+                          - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+                          - and: # Issue 131
+                              - "{{ resident_allow_shading }}"
+                              - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+                    sequence:
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
+                      - choose: []
+                        default: !input auto_shading_start_action_before
 
-                  - action: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'open':{'a':1,'t':as_timestamp(now()) | round(0)},
-                          'close':{'a':0,'t':dict_var.close.t},
-                          'shading':{'a':1,'t':as_timestamp(now()) | round(0),'p':0,'q':0 },
-                          'vpart':{'a':0,'t':dict_var.vpart.t},
-                          'vfull':{'a':0,'t':dict_var.vfull.t},
-                          'manual':{'a':0,'t':dict_var.manual.t},
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':1,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':0,'t':dict_var.close.t},
+                              'shading':{'a':1,'t':as_timestamp(now()) | round(0),'p':0,'q':0 },
+                              'vpart':{'a':0,'t':dict_var.vpart.t},
+                              'vfull':{'a':0,'t':dict_var.vfull.t},
+                              'manual':{'a':0,'t':dict_var.manual.t},
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
 
-                  - if:
-                      - "{{ not prevent_default_cover_actions}}"
-                    then:
-                      - repeat:
-                          for_each: "{{ blind_entities|list }}"
-                          sequence:
-                            - alias: "Moving the cover to shading position"
-                              action: cover.set_cover_position
-                              data:
-                                position: !input shading_position
-                              target:
-                                entity_id: "{{ repeat.item }}"
-                            - if:
-                                - "{{ is_cover_tilt_enabled }}"
-                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
-                              then:
-                                - alias: "Tilt Delay"
-                                  delay:
-                                    seconds: !input tilt_delay
-                                - alias: "Moving the cover to tilt position"
-                                  action: cover.set_cover_tilt_position
+                      - if:
+                          - "{{ not prevent_default_cover_actions}}"
+                        then:
+                          - repeat:
+                              for_each: "{{ blind_entities|list }}"
+                              sequence:
+                                - alias: "Moving the cover to shading position"
+                                  action: cover.set_cover_position
                                   data:
-                                    tilt_position: "{{ shading_tilt_position | int }}"
+                                    position: !input shading_position
                                   target:
                                     entity_id: "{{ repeat.item }}"
-                            - delay:
-                                seconds: "{{ (range(1, 3) | random | int) }}"
+                                - if:
+                                    - "{{ is_cover_tilt_enabled }}"
+                                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                                  then:
+                                    - alias: "Tilt Delay"
+                                      delay:
+                                        seconds: !input tilt_delay
+                                    - alias: "Moving the cover to tilt position"
+                                      action: cover.set_cover_tilt_position
+                                      data:
+                                        tilt_position: "{{ shading_tilt_position | int }}"
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                                - delay:
+                                    seconds: "{{ (range(1, 3) | random | int) }}"
 
-                  - choose: []
-                    default: !input auto_shading_start_action
+                      - choose: []
+                        default: !input auto_shading_start_action
 
-              ####################################
-              # Save shading state for the future
-              ####################################
-              - alias: "Save shading state for the future"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                  - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
-                  - "{{ is_cover_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
-                sequence:
-                  - action: input_text.set_value
-                    data:
-                      entity_id: !input cover_status_helper
-                      value: |
-                        {% set dict_var = states(cover_status_helper) | from_json %}
-                        {% set dict_new = dict(dict_var, **{
-                          'shading':{'a':1,'t':as_timestamp(now()) | round(0),'p':0,'q':0 },
-                          't':as_timestamp(now()) | round(0)
-                          })
-                        %}
-                        {{ dict_new | to_json }}
+                  ####################################
+                  # Save shading state for the future
+                  ####################################
+                  - alias: "Save shading state for the future"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
+                      - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
+                      - "{{ is_cover_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                    sequence:
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'shading':{'a':1,'t':as_timestamp(now()) | round(0),'p':0,'q':0 },
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
 
-          - stop: "Stop automation: SHADING START"
+              - stop: "Stop automation: SHADING START"
+
+            else: # Shading conditions were no longer met or not met again.
+              - choose:
+                  #####################################################################
+                  # Shading conditions were not met consistently and it should be checked again periodically in a few seconds
+                  #####################################################################
+                  - alias: "Shading conditions were not met consistently and it should be checked again periodically in a few seconds"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
+                      - "{{ is_cover_helper_shading_start_pending }}"
+                      - "{{ start_shading_trigger_periodic }}"
+                      - or: # Periodic checks only within a limited time frame. Not all day
+                          - and:
+                              - "{{ is_time_control_disabled }}" # Not recommended on its own, otherwise it will trigger for 24 hours.
+                              - "{{ is_cover_helper_open }}" # Not nice, but necessary if you don't use time control.
+                          - and:
+                              - "{{ is_time_field_enabled }}"
+                              - "{{ now() >= today_at(time_up_early_today) }}"
+                              - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
+                          - and:
+                              - "{{ is_schedule_helper_enabled }}"
+                              - "{{ time_schedule_helper != [] }}"
+                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                    sequence:
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'shading':{'a':1,'t':as_timestamp(now()) | round(0), 'p':(as_timestamp(now()) + shading_waitingtime_start) | round(0),'q':0 },
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+
+                  ######################################
+                  # Shading conditions were not consistently met and the next new trigger should be waited for
+                  ######################################
+                  - alias: "Shading conditions were not consistently met and the next new trigger should be waited for"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
+                      - "{{ is_cover_helper_shading_start_pending }}"
+                      - "{{ start_shading_trigger_reset }}"
+                    sequence:
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'shading':{'a':0,'t':as_timestamp(now()) | round(0), 'p':0 ,'q':0 },
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
 
       ############################################################
       # ANCHOR (3): SHADING Tilt
@@ -3610,7 +3689,7 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_end)') }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ is_cover_helper_shaded}}"
+          - "{{ is_cover_helper_shaded }}"
           - condition: !input auto_shading_end_condition
           - and:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
