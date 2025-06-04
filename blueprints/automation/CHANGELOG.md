@@ -337,3 +337,45 @@
   - Fixed: Also take into account for shading that a door contact only needs to be tested when ventilation mode is switched on #197
   - Fixed: Removed protocol error that occurs during manual execution.
   - Added: Catching an incorrect weather configuration
+  - Added: Ability to specify an existing sensor if it already provides daily maximum temperature forecast instead of weather entity #199
+  - Added: Add hysteresis for temperature sensor based shading #189
+
+2025.05.02-02:
+  - Fixed: A bug has been fixed that caused the shading to be recognized but not executed. But only if shading was only allowed to be executed once a day.
+
+2025.05.04:
+  - Added: Allow immediate ending of shading if the sun is out of the defined azimuth or elevation range.
+  - Added: Option to close cover instead of opening when shading ends (ideal for awnings)
+  - Updated: Note that the weather sensor specification is optional #198
+
+2025.05.07:
+  - Fixed: Shading is now also recognized and temporarily stored in the helper if the resident sensor contains the value true. #131
+  - Added: Tilt Reposition Feature (Thanks for the pull request, Astado) #196
+  - Update: Better textual clarification of what the result of the additional condition should look like #204
+  - Update: Only shade the cover when it is not in the shading position. Purely as a precautionary measure in case the target state and actual state do not match.
+
+2025.05.11:
+  - Fixed: Fixed bug that the cover can be opened again by the time-up-late-trigger despite existing shading.
+  - 
+2025.05.12:
+  - Fixed: Multiple triggering of a detected shading has skipped the waiting time until execution #206
+
+2025.05.13
+  - Fixed: The nightly shading reset has changed the timestamp and therefore a new shading with active 'prevent_shading_multiple_times' can never be executed.
+
+2025.05.14
+  - Added: Falling below shading_elevation_max now also triggers Shading Start #193
+  - Fixed: When detecting manual position changes, values greater than Ventilation were incorrectly assumed to be Open. This was too wide-ranging.
+
+2025.05.20
+  - Fixed: Wrong default value for shading_forecast_temp
+
+2025.05.27
+  - Updated: Revised information text for configuring the position configuration
+  - Added: The schedule helper state has been added as a variable. This is just for debugging purposes. #214
+  - Fixed: The problems with the start of shading have been corrected. #212 #211
+    If the shading conditions were not still fulfilled after the end of the waiting time, the sun protection was sometimes not activated correctly.
+    Now we have a new feature and we can select the following options:
+      - If the conditions were not permanently fulfilled, we can wait for another trigger to be executed. The previous pending status is now successfully reset.
+      - And much better: CCA can be configured so that we can periodically check the shading during the day. The system then checks again and again until the conditions are valid again.
+
