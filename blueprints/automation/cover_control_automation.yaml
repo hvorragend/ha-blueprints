@@ -1543,6 +1543,8 @@ blueprint:
                   value: "resident_allow_shading"
                 - label: "🔼 Allow opening the cover when resident is still present"
                   value: "resident_allow_opening"
+                - label: "💨 Allow ventilation when resident is still present"
+                  value: "resident_allow_ventilation"
               multiple: true
               sort: false
               custom_value: false
@@ -2367,6 +2369,7 @@ variables:
   resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
   resident_allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
   resident_allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
+  resident_allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
 
   ignore_after_manual_config: !input ignore_after_manual_config
   override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
@@ -2387,6 +2390,8 @@ variables:
       {{ state_attr(cover_status_helper, 'max') }}
     {% endif %}
 mode: restart
+trace:
+  stored_traces: 50
 max_exceeded: silent
 
 triggers:
@@ -3734,7 +3739,7 @@ actions:
                       value: |
                         {% set local_waitingtime_end = shading_waitingtime_end %}
                         {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
-                          {% set local_waitingtime_end = 10 %} # Almost immediately end shading when sun position out of range
+                          {% set local_waitingtime_end = 0 %}
                         {% endif %}
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
@@ -3744,6 +3749,46 @@ actions:
                         %}
                         {{ dict_new | to_json }}
 
+              ######################################
+              # Only tilt open after shading ends
+              ######################################
+              - alias: "Only tilt open after shading ends"
+                conditions:
+                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                  - "{{ is_cover_helper_shading_end_pending }}"
+                  - "{{ is_cover_tilt_enabled }}"
+                  - "{{ prevent_opening_after_shading_end}}"
+                sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':0,'t':dict_var.open.t},
+                          'close':{'a':0,'t':dict_var.close.t},
+                          'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
+                          'vpart':{'a':0,'t':dict_var.vpart.t},
+                          'vfull':{'a':0,'t':dict_var.vfull.t},
+                          'manual':{'a':0,'t':dict_var.manual.t},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to open tilt position"
+                              action: cover.set_cover_tilt_position
+                              data:
+                                tilt_position: 50
+                              target:
+                                entity_id: "{{ repeat.item }}"
+              
               ######################################
               # Lockout protection when shading ends
               ######################################
@@ -3878,7 +3923,7 @@ actions:
                       value: |
                         {% set dict_var = states(cover_status_helper) | from_json %}
                         {% set dict_new = dict(dict_var, **{
-                          'open':{'a': 0 if shading_end_behavior == 'close_position' else 1,'t': dict_var.open.t if shading_end_behavior == 'close_position' else as_timestamp(now()) | round(0)},
+                          'open':{'a': 1 if shading_end_behavior == 'open_position' else 0,'t': as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else dict_var.open.t},
                           'close':{'a': 1 if shading_end_behavior == 'close_position' else 0,'t': as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else dict_var.close.t},
                           'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
                           'vpart':{'a':0,'t':dict_var.vpart.t},
@@ -3951,6 +3996,12 @@ actions:
               - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
               - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
               - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
+          - or:
+              - "{{ resident_sensor == [] }}"
+              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - and:
+                - "{{ resident_allow_ventilation }}"
+                - "{{ is_state(resident_sensor, ['true', 'on']) }}"
         sequence:
           - delay:
               seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
