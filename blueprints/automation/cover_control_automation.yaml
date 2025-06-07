@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.05.27
+    **Version**: 2025.06.07
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,18 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.06.07
+      - Added: Resident check for ventilation #216 (Thanks for the pull request, Astado)
+      - Fixed: Solve Issue with sun shading end if Tilt Position Control is enabled #216 (Thanks for the pull request, Astado)
+      - Fixed: local_waitingtime_end = 10
+      - Fixed: Shades are being opened or closed even if they are already #219
+      - Added: Better description for shading_forecast_sensor (Thanks you, Eimeel)
+      - Updated: Code optimizations
+      - Updated:
+        Automation mode changed to 'single' as a test, because otherwise new triggers in the delay would interfere with processing.
+        In the worst case, I will have to work with {{ state_attr('automation.cca_automation', 'current') > 0 }} as before to be able
+        to intercept the reciprocal triggers.
 
     2025.05.27
       - Updated: Revised information text for configuring the position configuration
@@ -454,7 +466,7 @@ blueprint:
         cover_status_helper:
           name: "🦮 Cover Status Helper"
           description: >-
-            Helper used to store the last cover event.
+            Helper used to store the last cover event. A separate helper must be created for each CCA automation.
             *Attention:* You will need to manually create a [input_text](https://my.home-assistant.io/redirect/helpers/) entity with a <ins>length of 254 chars</ins> for this.
           default: []
           selector:
@@ -579,7 +591,7 @@ blueprint:
           name: "📐 Tilt Reposition Feature"
           description: >-
             If Tilt Position Feature is enabled you can choose if the blinds are closed before tilting to a new position.
-            In some cases tilting the blinds in small steps can lead to false positions. This is because of the minumum time the motor needs to run.
+            In some cases tilting the blinds in small steps can lead to false positions. This is because of the minimum time the motor needs to run.
             If the runtime between current tilt position and target tilt position is to small the motor will not stop at the right position.
             Thus the blinds will be preclosed to 0 and then run to the target position.
           default: cover_tilt_reposition_disabled
@@ -1321,9 +1333,24 @@ blueprint:
         shading_forecast_sensor:
           name: "🥵 Sun Shading (Forecast) Weather Sensor"
           description: >-
-            This weather sensor ( ideally based on a weather integration) is used for further temperature comparisons based on the forecast.
+            This weather sensor (ideally based on a weather integration) is used for further temperature comparisons based on the forecast.
             This sensor is also used to compare weather conditions. Leave empty if the forecast is not to be used in any case.
-
+            <p>
+            Select either a weather entity (e.g., weather.your_weather_service)
+            or a sensor that provides the forecasted daily maximum temperature.
+            </p>
+            <p>
+            **Weather Entity:** If you select a weather entity, the maximum temperature
+            will be automatically determined from its forecast attributes. This is necessary
+            if your installed weather integration does not provide its own sensors for the forecast.
+            </p>
+            <p>
+            **Sensor Entity:** If you already have your own sensor for the daily maximum
+            temperature (forecast) (e.g., a template sensor), you can specify it directly here.
+            This can improve performance and avoid unnecessary queries, as the value
+            is read directly from the sensor. Such a sensor is provided, for example, by
+            the Pirate Weather integration (sensor.pirateweather_daytime_high_apparent_temperature_0d).
+            </p>
             <details>
             <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
 
@@ -1448,14 +1475,23 @@ blueprint:
 
         shading_start_behavior:
           name: "🥵 Sun Shading Start Behavior"
-          description: "Behavior if the shading conditions were not permanently met over the period."
+          description: >-
+            Behavior if the shading conditions were not permanently met over the period.
+            <p>
+            Reset the detected shading start and wait for another trigger
+            The system discards the current shading start detection and waits for a new valid trigger condition.
+            </p><p>
+            Checks every few seconds, only during the day, as defined in 'Waiting Time for Sun Shading Start'
+            The system continues to check periodically—every few seconds during daytime—based on the interval specified in the 'Waiting Time for Sun Shading Start' setting.
+            However, this only applies if the shading conditions have changed negatively between the initial trigger (pending) and the next check (execution).
+            </p>
           default: "trigger_periodic"
           selector:
             select:
               options:
                 - label: "Reset the detected shading start and wait for another trigger"
                   value: "trigger_reset"
-                - label: "Check again periodically during the day after another waiting period"
+                - label: "Checks every few seconds, only during the day, as defined in 'Waiting Time for Sun Shading Start'"
                   value: "trigger_periodic"
               multiple: false
               sort: false
@@ -1830,14 +1866,6 @@ blueprint:
                 - binary_sensor
                 - switch
 
-        # auto_up_force_trigger:
-        #   name: "🔼 Force Immediate Opening via Custom Triggers"
-        #   description: >-
-        #     If this trigger is activated, the cover is opened immediately and without further testing.
-        #   default: []
-        #   selector:
-        #     trigger:
-
         auto_down_force:
           name: "🔻 Force Immediate Closing via Entity"
           description: >-
@@ -1849,14 +1877,6 @@ blueprint:
                 - input_boolean
                 - binary_sensor
                 - switch
-
-        # auto_down_force_trigger:
-        #   name: "🔻 Force Immediate Closing via Custom Triggers"
-        #   description: >-
-        #     If this trigger is activated, the cover is closed immediately and without further checking.
-        #   default: []
-        #   selector:
-        #     trigger:
 
         auto_ventilate_force:
           name: "💨 Force Immediate Ventilation via Entity"
@@ -1870,14 +1890,6 @@ blueprint:
                 - binary_sensor
                 - switch
 
-        # auto_ventilate_force_trigger:
-        #   name: "💨 Force Immediate Ventilation via Custom Triggers"
-        #   description: >-
-        #     If this trigger is activated, the cover is immediately set to ventilation mode and without further checking.
-        #   default: []
-        #   selector:
-        #     trigger:
-
         auto_shading_start_force:
           name: "🥵 Force Activation Sun Shading via Entity"
           description: >-
@@ -1889,14 +1901,6 @@ blueprint:
                 - input_boolean
                 - binary_sensor
                 - switch
-
-        # auto_shading_start_force_trigger:
-        #   name: "🥵 Force Activation Sun Shading via Custom Triggers"
-        #   description: >-
-        #     If this trigger is activated, the shading is immediately activated and without further checking.
-        #   default: []
-        #   selector:
-        #     trigger:
 
     actions_section:
       name: "Additional Actions"
@@ -2028,10 +2032,14 @@ trigger_variables:
   # Positions
   open_position: !input open_position
   close_position: !input close_position
+  ventilate_position: !input ventilate_position
   shading_position: !input shading_position
   position_tolerance: !input position_tolerance
 
   # Tilt
+  open_tilt_position: !input open_tilt_position
+  close_tilt_position: !input close_tilt_position
+  ventilate_tilt_position: !input ventilate_tilt_position
   shading_tilt_elevation_1: !input shading_tilt_elevation_1
   shading_tilt_elevation_2: !input shading_tilt_elevation_2
   shading_tilt_elevation_3: !input shading_tilt_elevation_3
@@ -2120,12 +2128,11 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.05.27"
+  version: "2025.06.07"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
-  blind_supports_tilting: "{{ state_attr(blind, 'current_tilt_position') != none }}"
   current_tilt_position: "{{ state_attr(blind,'current_tilt_position') }}"
-  current_position: "{{ state_attr(blind, 'current_position') if state_attr(blind, 'current_position') is not none else state_attr(blind, 'position') }}"
+  current_position: "{{ state_attr(blind, 'current_position') }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
 
@@ -2170,186 +2177,127 @@ variables:
       {{ time_down_late }}
     {% endif %}
 
-  time_schedule_helper_state: "{{ states(time_schedule_helper) if is_schedule_helper_enabled is true }}"
-
-  # Positions
-  open_tilt_position: !input open_tilt_position
-  close_tilt_position: !input close_tilt_position
-  ventilate_position: !input ventilate_position
-  ventilate_tilt_position: !input ventilate_tilt_position
-  cover_tilt_reposition_config: !input cover_tilt_reposition_config
-  is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
-
   # Force
   auto_up_force: !input auto_up_force
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
+  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and is_state(auto_up_force, ['false', 'off'])) }}"
+  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and is_state(auto_down_force, ['false', 'off'])) }}"
+  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off'])) }}"
+  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off'])) }}"
+
+  # Tilt
+  is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
+  cover_tilt_reposition_config: !input cover_tilt_reposition_config
+  is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
 
   # Shading
   shading_tilt_position: >-
-    {%- if state_attr(default_sun_sensor, 'elevation') | int(default=0) >= shading_tilt_elevation_3 | int -%}
+    {% set elevation = current_sun_elevation | int(default=0) %}
+    {% if elevation >= shading_tilt_elevation_3 | int %}
       {{ shading_tilt_position_3 | int }}
-    {%- elif state_attr(default_sun_sensor, 'elevation') | int(default=0) >= shading_tilt_elevation_2 | int -%}
+    {% elif elevation >= shading_tilt_elevation_2 | int %}
       {{ shading_tilt_position_2 | int }}
-    {%- elif state_attr(default_sun_sensor, 'elevation') | int(default=0) >= shading_tilt_elevation_1 | int -%}
+    {% elif elevation >= shading_tilt_elevation_1 | int %}
       {{ shading_tilt_position_1 | int }}
-    {%- else -%}
+    {% else %}
       {{ 0 | int }}
     {% endif %}
+
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
   is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
   shading_start_behavior: !input shading_start_behavior
+  shading_end_behavior: !input shading_end_behavior
   start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
   start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
 
-  # Cover Status Helper
   is_status_helper_enabled: >-
     {{
       'cover_helper_enabled' in cover_status_options and
       cover_status_helper != [] and
       states(cover_status_helper) != [] and
       states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-      states(cover_status_helper) not in ["unavailable", "none", "unknown"]
+      states(cover_status_helper) not in ['unavailable', 'none', 'unknown']
     }}
-
-  cover_status: >-
-    {% if is_status_helper_enabled %}
-      {{ states(cover_status_helper)|from_json }}
-    {% endif %}
-
-  cover_status_time: >-
-    {% if is_status_helper_enabled %}
-      {{ cover_status.t }}
-    {% endif %}
-
+  helper_state_json: "{{ states(cover_status_helper) | from_json if is_status_helper_enabled else {} }}"
+  #
   # Cover status assignments
-  is_cover_helper_open: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('open') and cover_status.open.a is defined %}
-      {{ cover_status.open.a | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
+  is_helper_open: "{{ is_status_helper_enabled and (helper_state_json | regex_search('open')) and (helper_state_json.open.a | default(false) | bool) }}"
+  is_helper_closed: "{{ is_status_helper_enabled and (helper_state_json | regex_search('close')) and (helper_state_json.close.a | default(false) | bool) }}"
+  is_helper_shaded: >-
+    {{
+      'shading' in helper_state_json and
+      helper_state_json.shading.a | default(false) | bool and
+      not (helper_state_json.shading.p | default(false) | bool and
+          helper_state_json.shading.q | default(false) | bool)
+    }}
+  is_helper_shading_start: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.p | default(false) | bool) }}"
+  is_helper_shading_end: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.q | default(false) | bool) }}"
+  is_helper_vent_partial: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vpart')) and (helper_state_json.vpart.a | default(false) | bool) }}"
+  is_helper_vent_full: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vfull')) and (helper_state_json.vfull.a | default(false) | bool) }}"
+  is_helper_manual: "{{ is_status_helper_enabled and (helper_state_json | regex_search('manual')) and (helper_state_json.manual.a | default(false) | bool) }}"
 
-  is_cover_helper_open_ts: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('open') and cover_status.open.t is defined %}
-      {{ cover_status.open.t }}
-    {% else %}
-      {{ 0 }}
-    {% endif %}
-
-  is_cover_helper_closed: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('close') and cover_status.close.a is defined %}
-      {{ cover_status.close.a | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_closed_ts: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('close') and cover_status.close.t is defined %}
-      {{ cover_status.close.t }}
-    {% else %}
-      {{ 0 }}
-    {% endif %}
-
-  is_cover_helper_shaded: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('shading') and cover_status.shading.a is defined %}
-      {{ cover_status.shading.a | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_shaded_ts: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('shading') and cover_status.shading.t is defined %}
-      {{ cover_status.shading.t }}
-    {% else %}
-      {{ 0 }}
-    {% endif %}
-
-  is_cover_helper_shading_start_pending: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('shading') and cover_status.shading.p is defined %}
-      {{ cover_status.shading.p | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_shading_end_pending: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('shading') and cover_status.shading.q is defined %}
-      {{ cover_status.shading.q | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_partially_ventilated: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('vpart') and cover_status.vpart.a is defined %}
-      {{ cover_status.vpart.a | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_partially_ventilated_ts: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('vpart') and cover_status.vpart.t is defined %}
-      {{ cover_status.vpart.t }}
-    {% else %}
-      {{ 0 }}
-    {% endif %}
-
-  is_cover_helper_fully_ventilated: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('vfull') and cover_status.vfull.a is defined %}
-      {{ cover_status.vfull.a | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_fully_ventilated_ts: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('vfull') and cover_status.vfull.t is defined %}
-      {{ cover_status.vfull.t }}
-    {% else %}
-      {{ 0 }}
-    {% endif %}
-
-  is_cover_helper_manual: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('manual') and cover_status.manual.a is defined %}
-      {{ cover_status.manual.a | bool }}
-    {% else %}
-      {{ false }}
-    {% endif %}
-
-  is_cover_helper_manual_ts: >-
-    {% if is_status_helper_enabled and cover_status|regex_search('manual') and cover_status.manual.t is defined %}
-      {{ cover_status.manual.t }}
-    {% else %}
-      {{ 0 }}
-    {% endif %}
+  ts_helper_open: "{{ helper_state_json.open.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('open'))) else 0 }}"
+  ts_helper_closed: "{{ helper_state_json.close.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('close'))) else 0 }}"
+  ts_helper_shaded: "{{ helper_state_json.shading.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('shading'))) else 0 }}"
+  ts_helper_vent_partial: "{{ helper_state_json.vpart.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vpart'))) else 0 }}"
+  ts_helper_vent_full: "{{ helper_state_json.vfull.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vfull'))) else 0 }}"
+  ts_helper_manual: "{{ helper_state_json.manual.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('manual'))) else 0 }}"
 
   in_open_position: >-
+    {% set pos = current_position | int(default=101) %}
+    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set min = open_position - position_tolerance %}
+    {% set max = open_position + position_tolerance %}
     {{
-      ((not blind_supports_tilting) and (current_position | int(default=101) <= open_position + position_tolerance)
-      and (current_position | int(default=101) >= open_position - position_tolerance))
-      or (blind_supports_tilting and (current_position | int(default=101) <= open_position + position_tolerance)
-      and (current_position | int(default=101) >= open_position - position_tolerance) and (current_tilt_position | int(default=101) == open_tilt_position))
+      (pos >= min and pos <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (is_cover_tilt_enabled_and_possible and tilt == open_tilt_position)
+      )
     }}
+
   in_close_position: >-
+    {% set pos = current_position | int(default=101) %}
+    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set min = close_position - position_tolerance %}
+    {% set max = close_position + position_tolerance %}
     {{
-      ((not blind_supports_tilting) and (current_position | int(default=101) <= close_position + position_tolerance)
-      and (current_position | int(default=101) >= close_position - position_tolerance))
-      or (blind_supports_tilting and (current_position | int(default=101) <= close_position + position_tolerance)
-      and (current_position | int(default=101) >= close_position - position_tolerance) and (current_tilt_position | int(default=101) == close_tilt_position))
+      (pos >= min and pos <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (is_cover_tilt_enabled_and_possible and tilt == close_tilt_position)
+      )
     }}
+
   in_shading_position: >-
+    {% set pos = current_position | int(default=101) %}
+    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set min = shading_position - position_tolerance %}
+    {% set max = shading_position + position_tolerance %}
     {{
-      ((not blind_supports_tilting) and (current_position | int(default=101) <= shading_position + position_tolerance)
-      and (current_position | int(default=101) >= shading_position - position_tolerance))
-      or (blind_supports_tilting and (current_position | int(default=101) <= shading_position + position_tolerance)
-      and (current_position | int(default=101) >= shading_position - position_tolerance) and (current_tilt_position | int(default=101) == shading_tilt_position))
+      is_shading_enabled
+      and (pos >= min and pos <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (tilt == shading_tilt_position)
+      )
     }}
+
   in_ventilate_position: >-
+    {% set pos = current_position | int(default=101) %}
+    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set min = ventilate_position - position_tolerance %}
+    {% set max = ventilate_position + position_tolerance %}
     {{
-      ((not blind_supports_tilting) and (current_position | int(default=101) <= ventilate_position + position_tolerance)
-      and (current_position | int(default=101) >= ventilate_position - position_tolerance))
-      or (blind_supports_tilting and (current_position | int(default=101) <= ventilate_position + position_tolerance)
-      and (current_position | int(default=101) >= ventilate_position - position_tolerance) and (current_tilt_position | int(default=101) == ventilate_tilt_position))
+      is_ventilation_enabled
+      and (pos >= min and pos <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (tilt ==  ventilate_tilt_position)
+      )
     }}
 
   individual_config: !input individual_config
@@ -2385,13 +2333,9 @@ variables:
   # Config check
   check_config: !input check_config
   check_config_debuglevel: !input check_config_debuglevel
-  check_status_helper_length: >-
-    {% if is_status_helper_enabled %}
-      {{ state_attr(cover_status_helper, 'max') }}
-    {% endif %}
-mode: restart
-trace:
-  stored_traces: 50
+  check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if is_status_helper_enabled else None }}"
+
+mode: single
 max_exceeded: silent
 
 triggers:
@@ -2401,21 +2345,18 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% if workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-        {{ now() >= today_at(time_up_early_non_workday) }}
-      {% else %}
-        {{ now() >= today_at(time_up_early) }}
-      {% endif %}
+      {% set is_non_workday = (workday_sensor_today != [] and is_state(workday_sensor_today, 'off')) %}
+      {% set early = time_up_early_non_workday if is_non_workday else time_up_early %}
+      {{ now() >= today_at(early) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_open_1"
 
   - platform: template # comparing the times to avoid double triggering if early+late are identical
     value_template: >-
-      {% if workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-        {{ time_up_early_non_workday != time_up_late_non_workday and now() >= today_at(time_up_late_non_workday) }}
-      {% else %}
-        {{ time_up_early != time_up_late and now() >= today_at(time_up_late) }}
-      {% endif %}
+      {% set is_non_workday = (workday_sensor_today != [] and is_state(workday_sensor_today, 'off')) %}
+      {% set early = time_up_early_non_workday if is_non_workday else time_up_early %}
+      {% set late = time_up_late_non_workday if is_non_workday else time_up_late %}
+      {{ early != late and now() >= today_at(late) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_open_2"
 
@@ -2450,38 +2391,31 @@ triggers:
     to: "on"
     id: "t_force_open"
 
-  # - triggers: !input auto_up_force_trigger
-  #   id: "t_force_open"
-
   ########################################
   # Trigger for closing cover
   ########################################
 
   - platform: template
     value_template: >-
-      {% if workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') %}
-        {{ now() >= today_at(time_down_early_non_workday) }}
-      {% elif workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') %}
-        {{ now() >= today_at(time_down_early) }}
-      {% elif workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-        {{ now() >= today_at(time_down_early_non_workday) }}
-      {% else %}
-        {{ now() >= today_at(time_down_early) }}
-      {% endif %}
+      {% set is_tomorrow = workday_sensor_tomorrow != [] %}
+      {% set is_today = workday_sensor_today != [] %}
+      {% set tomorrow_off = is_tomorrow and is_state(workday_sensor_tomorrow, 'off') %}
+      {% set today_off = is_today and is_state(workday_sensor_today, 'off') %}
+      {% set early = time_down_early_non_workday if tomorrow_off or today_off else time_down_early %}
+      {{ now() >= today_at(early) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_close_1"
 
-  - platform: template # comparing the times to avoid double triggering if early+late are identical
+  - platform: template # Avoid double triggering if early and late times are identical
     value_template: >-
-      {% if workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') %}
-        {{ time_down_early_non_workday != time_down_late_non_workday and now() >= today_at(time_down_late_non_workday) }}
-      {% elif workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') %}
-        {{ time_down_early != time_down_late and now() >= today_at(time_down_late) }}
-      {% elif workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-        {{ time_down_early_non_workday != time_down_late_non_workday and now() >= today_at(time_down_late_non_workday) }}
-      {% else %}
-        {{ time_down_early != time_down_late and now() >= today_at(time_down_late) }}
-      {% endif %}
+      {% set is_tomorrow = workday_sensor_tomorrow != [] %}
+      {% set is_today = workday_sensor_today != [] %}
+      {% set tomorrow_off = is_tomorrow and is_state(workday_sensor_tomorrow, 'off') %}
+      {% set today_off = is_today and is_state(workday_sensor_today, 'off') %}
+      {% set is_non_workday = today_off or tomorrow_off %}
+      {% set early = time_down_early_non_workday if is_non_workday else time_down_early %}
+      {% set late = time_down_late_non_workday if is_non_workday else time_down_late %}
+      {{ early != late and now() >= today_at(late) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_close_2"
 
@@ -2515,9 +2449,6 @@ triggers:
     from: "off"
     to: "on"
     id: "t_force_close"
-
-  # - triggers: !input auto_down_force_trigger
-  #   id: "t_force_close"
 
   #################################################
   # Trigger for ventilation
@@ -2557,9 +2488,6 @@ triggers:
     to: "on"
     id: "t_force_vent"
 
-  # - triggers: !input auto_ventilate_force_trigger
-  #   id: "t_force_vent"
-
   ########################################
   # Triggers for shading start
   ########################################
@@ -2594,6 +2522,20 @@ triggers:
     enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
     id: "t_shading_start_pending_5"
 
+  # TODO: Alternative code. Will be tested later.
+  #
+  # - platform: template # TODO
+  #   value_template: >-
+  #     {% set helper_state = states(cover_status_helper) %}
+  #     {% if helper_state not in ['unavailable', 'none', 'unknown', ''] and
+  #           helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") %}
+  #       {% set shading_data = helper_state | from_json %}
+  #       {{ shading_data.shading.p is defined and shading_data.shading.p > 0 and
+  #         now() >= (shading_data.shading.p | as_datetime | as_local) }}
+  #     {% endif %}
+  #   enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
+  #   id: "t_shading_start_execution"
+
   - platform: template
     value_template: >-
       {% if
@@ -2614,9 +2556,6 @@ triggers:
     from: "off"
     to: "on"
     id: "t_force_shading_start"
-
-  # - triggers: !input auto_shading_start_force_trigger
-  #   id: "t_force_shading_start"
 
   ########################################
   # Triggers for shading tilt
@@ -2663,11 +2602,27 @@ triggers:
   ########################################
   # Triggers for shading end
   ########################################
-
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_end_pending_1"
+
+    # TODO
+    # I would like to avoid triggering Shading End. But without creating my own triggers.
+    # And with the limited templates, I have hardly any options for querying the helper.
+    #
+    # {% set helper_state = states(cover_status_helper) %}
+    # {% set shaded = (
+    #   helper_state not in ['unavailable', 'none', 'unknown'] and
+    #   helper | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
+    #   'shading' in helper_state | from_json and
+    #   (helper_state | from_json).shading.a | default(false) | bool and
+    #   not (
+    #     (helper_state | from_json).shading.p | default(false) | bool and
+    #     (helper_state | from_json).shading.q | default(false) | bool
+    #   )
+    # )
+    # %}
 
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
@@ -2820,14 +2775,14 @@ actions:
           entity_id: !input cover_status_helper
           value: |
             {% set dict_var = {
-              'open':{'a':is_cover_helper_open|int,'t':is_cover_helper_open_ts},
-              'close':{'a':is_cover_helper_closed|int,'t':is_cover_helper_closed_ts},
-              'shading':{'a':is_cover_helper_shaded|int,'t':is_cover_helper_shaded_ts,'p':0,'q':0},
-              'vpart':{'a':is_cover_helper_partially_ventilated|int,'t':is_cover_helper_partially_ventilated_ts},
-              'vfull':{'a':is_cover_helper_fully_ventilated|int,'t':is_cover_helper_fully_ventilated_ts},
-              'manual':{'a':is_cover_helper_manual|int,'t':is_cover_helper_manual_ts},
+              'open':{'a':is_helper_open|int,'t':ts_helper_open},
+              'close':{'a':is_helper_closed|int,'t':ts_helper_closed},
+              'shading':{'a':is_helper_shaded|int,'t':ts_helper_shaded,'p':0,'q':0},
+              'vpart':{'a':is_helper_vent_partial|int,'t':ts_helper_vent_partial},
+              'vfull':{'a':is_helper_vent_full|int,'t':ts_helper_vent_full},
+              'manual':{'a':is_helper_manual|int,'t':ts_helper_manual},
               'v':5,
-              't':cover_status_time | round(0)
+              't':helper_state_json.t | round(0)
               }
             %}
             {{ dict_var | to_json }}
@@ -2846,14 +2801,14 @@ actions:
           - "{{ trigger.id | regex_match('^(t_open)') }}"
           - condition: !input auto_up_condition
           - and:
-              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
-          - "{{ not (is_status_helper_enabled and is_cover_helper_manual and override_opening_after_manual) }}" # Override check
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+              - "{{ auto_shading_start_force_disabled }}"
+          - "{{ not (is_status_helper_enabled and is_helper_manual and override_opening_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_opening_multiple_times }}"
-              - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != is_cover_helper_open_ts|timestamp_custom('%-d')|int) }}"
+              - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != ts_helper_open|timestamp_custom('%-d')|int) }}"
           - or: # Check whether the resident trigger is allowed
               - "{{ trigger.id != 't_open_6' }}" # Continue if other trigger
               - "{{ trigger.id == 't_open_6' and resident_opening_enabled }}" # Only continue if permitted
@@ -2910,7 +2865,7 @@ actions:
               - alias: "Shading detected. Move to shading position"
                 conditions:
                   - "{{ is_status_helper_enabled }}"
-                  - "{{ is_cover_helper_shaded }}"
+                  - "{{ is_helper_shaded }}"
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                 sequence:
                   - choose: []
@@ -2946,7 +2901,7 @@ actions:
                               target:
                                 entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -2971,7 +2926,7 @@ actions:
                 conditions:
                   - "{{ not in_shading_position }}" # In this part, there is no plan for an open roller blind to switch from Shading to Open. I cannot check the helper here because Open+Shading could be set to true there.
                   - or:
-                      - "{{ is_status_helper_enabled and not is_cover_helper_open }}" # including ventilation, window open-status and more possibilities
+                      - "{{ is_status_helper_enabled and not is_helper_open }}" # including ventilation, window open-status and more possibilities
                       - "{{ not in_open_position }}"
                 sequence:
                   - choose: []
@@ -3019,7 +2974,7 @@ actions:
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -3052,18 +3007,18 @@ actions:
           - "{{ trigger.id | regex_match('^(t_close)') }}"
           - condition: !input auto_down_condition
           - and:
-              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
-          - or: # Check the current positions
-              - "{{ is_status_helper_enabled and not is_cover_helper_closed }}"
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+              - "{{ auto_shading_start_force_disabled }}"
+          - or: # Check the helper status or the target status
+              - "{{ is_status_helper_enabled and not is_helper_closed }}"
               - "{{ not in_close_position }}"
               # - "{{ in_open_position }}"
-          - "{{ not (is_status_helper_enabled and is_cover_helper_manual and override_closing_after_manual) }}" # Override check
+          - "{{ not (is_status_helper_enabled and is_helper_manual and override_closing_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_closing_multiple_times }}"
-              - "{{ is_status_helper_enabled and prevent_closing_multiple_times and (is_cover_helper_closed_ts < today_at(time_down_early_today) | as_timestamp) }}"
+              - "{{ is_status_helper_enabled and prevent_closing_multiple_times and (ts_helper_closed < today_at(time_down_early_today) | as_timestamp) }}"
           - or:
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
@@ -3193,7 +3148,7 @@ actions:
                               target:
                                 entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -3220,7 +3175,7 @@ actions:
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ is_status_helper_enabled }}"
                           - "{{ prevent_lowering_when_closing_if_shaded }}"
-                          - "{{ is_cover_helper_shaded }}"
+                          - "{{ is_helper_shaded }}"
                           - "{{ close_position > shading_position }}"
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ prevent_lowering_when_closing_if_shaded }}"
@@ -3302,7 +3257,7 @@ actions:
                               target:
                                 entity_id: "{{ repeat.item }}"
                         - if:
-                            - "{{ is_cover_tilt_enabled }}"
+                            - "{{ is_cover_tilt_enabled_and_possible }}"
                             - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                           then:
                             - alias: "Tilt Delay"
@@ -3324,7 +3279,7 @@ actions:
 
       ############################################################
       # ANCHOR (2): SHADING START
-      #   Source: Open (all gt shading_position)
+      #   Source: Open
       #   Target: Shading, Lockout
       ############################################################
 
@@ -3336,16 +3291,23 @@ actions:
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_start_condition
           - and:
-              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-          - or: # Check the current positions
-              - "{{ not is_cover_helper_shaded }}"
-              - "{{ not (is_cover_helper_partially_ventilated or is_cover_helper_fully_ventilated) }}"
-          - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Override check
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+          - or: # Check the helper status or the target status
+              - "{{ not is_helper_shaded }}"
+              - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
+          - or: # Try to avoid starting the shading several times TODO / FIXME
+              - and:
+                  - "{{ not is_cover_tilt_enabled_and_possible }}"
+                  - "{{ not in_shading_position }}"
+              - and:
+                  - "{{ is_cover_tilt_enabled_and_possible }}"
+                  - "{{ current_position | int(default=101) >= shading_position }}"
+          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
-              - "{{ prevent_shading_multiple_times and (now().day != is_cover_helper_shaded_ts|timestamp_custom('%-d') | int) }}"
+              - "{{ prevent_shading_multiple_times and (now().day != ts_helper_shaded|timestamp_custom('%-d') | int) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
 
         sequence:
@@ -3398,7 +3360,7 @@ actions:
                   - alias: "Shading detected. Save next execution time and pending status"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
-                      - "{{ not is_cover_helper_shading_start_pending }}" # Not if a pending is already active
+                      - "{{ not is_helper_shading_start }}" # Not if a pending is already active
                     sequence:
                       - action: input_text.set_value
                         data:
@@ -3418,7 +3380,7 @@ actions:
                   - alias: "Consider lockout protection when shading starts"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
+                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
                       - "{{ is_ventilation_enabled }}"
                       - or:
                           - and:
@@ -3452,13 +3414,13 @@ actions:
                   - alias: "Start Shading"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
+                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
                       - or:
                           - and:
-                              - "{{ not is_cover_tilt_enabled }}"
+                              - "{{ not is_cover_tilt_enabled_and_possible }}"
                               - "{{ current_position | int(default=101) > shading_position }}"
                           - and:
-                              - "{{ is_cover_tilt_enabled }}"
+                              - "{{ is_cover_tilt_enabled_and_possible }}"
                               - "{{ current_position | int(default=101) >= shading_position }}"
                       - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
                           - and:
@@ -3513,7 +3475,7 @@ actions:
                                   target:
                                     entity_id: "{{ repeat.item }}"
                                 - if:
-                                    - "{{ is_cover_tilt_enabled }}"
+                                    - "{{ is_cover_tilt_enabled_and_possible }}"
                                     - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                                   then:
                                     - alias: "Tilt Delay"
@@ -3537,8 +3499,8 @@ actions:
                   - alias: "Save shading state for the future"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_cover_helper_shading_start_pending }}" # Only when it comes back from pending status
-                      - "{{ is_cover_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
+                      - "{{ is_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                     sequence:
                       - action: input_text.set_value
                         data:
@@ -3562,12 +3524,12 @@ actions:
                   - alias: "Shading conditions were not met consistently and it should be checked again periodically in a few seconds"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_cover_helper_shading_start_pending }}"
+                      - "{{ is_helper_shading_start }}"
                       - "{{ start_shading_trigger_periodic }}"
                       - or: # Periodic checks only within a limited time frame. Not all day
                           - and:
                               - "{{ is_time_control_disabled }}" # Not recommended on its own, otherwise it will trigger for 24 hours.
-                              - "{{ is_cover_helper_open }}" # Not nice, but necessary if you don't use time control.
+                              - "{{ is_helper_open }}" # Not nice, but necessary if you don't use time control.
                           - and:
                               - "{{ is_time_field_enabled }}"
                               - "{{ now() >= today_at(time_up_early_today) }}"
@@ -3595,7 +3557,7 @@ actions:
                   - alias: "Shading conditions were not consistently met and the next new trigger should be waited for"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_cover_helper_shading_start_pending }}"
+                      - "{{ is_helper_shading_start }}"
                       - "{{ start_shading_trigger_reset }}"
                     sequence:
                       - action: input_text.set_value
@@ -3612,8 +3574,6 @@ actions:
 
       ############################################################
       # ANCHOR (3): SHADING Tilt
-      #   Source: Shading?
-      #   Target: Shading?
       ############################################################
 
       - alias: "Check for shading tilt"
@@ -3623,16 +3583,16 @@ actions:
           - "{{ trigger.id | regex_match('^(t_shading_tilt)') }}"
           - "{{ is_status_helper_enabled }}"
           - and:
-              - "{{ is_cover_helper_shaded }}"
-              - "{{ not is_cover_helper_shading_start_pending }}"
-          - "{{ is_cover_tilt_enabled }}"
+              - "{{ is_helper_shaded }}"
+              - "{{ not is_helper_shading_start }}"
+          - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
           - and:
-              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-          - "{{ not (is_cover_helper_partially_ventilated or is_cover_helper_fully_ventilated) }}"
-          - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Override check
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+          - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
+          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
         sequence:
           - action: input_text.set_value
             data:
@@ -3658,7 +3618,7 @@ actions:
                   sequence:
                     - alias: "Tilt blind to new shading position"
                       if:
-                        - "{{ is_cover_tilt_enabled }}"
+                        - "{{ is_cover_tilt_enabled_and_possible }}"
                         - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                       then:
                         - if:
@@ -3694,13 +3654,13 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_end)') }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ is_cover_helper_shaded }}"
+          - "{{ is_helper_shaded }}"
           - condition: !input auto_shading_end_condition
           - and:
-              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
-              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+              - "{{ auto_shading_start_force_disabled }}"
           - or:
               - and:
                   - "{{ is_time_control_disabled }}"
@@ -3712,9 +3672,9 @@ actions:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
-          - "{{ not (is_cover_helper_manual and override_shading_after_manual) }}" # Override check
+          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
           - or:
-              - "{{ is_cover_helper_shaded }}"
+              - "{{ is_helper_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
           - or: # Optional: Continue if cover is not already closed
               - "{{ not prevent_shading_end_if_closed }}"
@@ -3730,8 +3690,8 @@ actions:
               #####################################################################
               - alias: "Shading end detected. Save next execution time and pending status"
                 conditions:
-                  - "{{ not trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ not is_cover_helper_shading_end_pending }}"
+                  - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
+                  - "{{ not is_helper_shading_end }}"
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -3755,8 +3715,8 @@ actions:
               - alias: "Only tilt open after shading ends"
                 conditions:
                   - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_cover_helper_shading_end_pending }}"
-                  - "{{ is_cover_tilt_enabled }}"
+                  - "{{ is_helper_shading_end }}"
+                  - "{{ is_cover_tilt_enabled_and_possible }}"
                   - "{{ prevent_opening_after_shading_end}}"
                 sequence:
                   - action: input_text.set_value
@@ -3788,14 +3748,14 @@ actions:
                                 tilt_position: 50
                               target:
                                 entity_id: "{{ repeat.item }}"
-              
+
               ######################################
               # Lockout protection when shading ends
               ######################################
               - alias: "Lockout protection when shading ends"
                 conditions:
                   - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_cover_helper_shading_end_pending }}"
+                  - "{{ is_helper_shading_end }}"
                   - "{{ is_ventilation_enabled }}"
                   - "{{ (current_position | int(default=101) < ventilate_position) }}"
                   - or:
@@ -3830,7 +3790,7 @@ actions:
               - alias: "Ventilation after shading ends"
                 conditions:
                   - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_cover_helper_shading_end_pending }}"
+                  - "{{ is_helper_shading_end }}"
                   - "{{ is_ventilation_enabled }}"
                   - "{{ ventilation_after_shading_end }}"
                   - "{{ contact_window_tilted != [] }}"
@@ -3879,7 +3839,7 @@ actions:
                               target:
                                 entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -3903,7 +3863,7 @@ actions:
               - alias: "Move cover after shading end"
                 conditions:
                   - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_cover_helper_shading_end_pending }}"
+                  - "{{ is_helper_shading_end }}"
                 sequence:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -3957,7 +3917,7 @@ actions:
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -3993,15 +3953,15 @@ actions:
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - and:
-              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_shading_start_force_disabled }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ is_state(resident_sensor, ['false', 'off']) }}"
               - and:
-                - "{{ resident_allow_ventilation }}"
-                - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+                  - "{{ resident_allow_ventilation }}"
+                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
         sequence:
           - delay:
               seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
@@ -4051,7 +4011,7 @@ actions:
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -4077,7 +4037,7 @@ actions:
                   - or:
                       - "{{ (current_position | int(default=101) < ventilate_position) }}"
                       - and:
-                          - "{{ blind_supports_tilting }}"
+                          - "{{ is_cover_tilt_enabled_and_possible }}"
                           - "{{ (current_position | int(default=101) <= ventilate_position) }}"
                           - "{{ (current_tilt_position | int(default=101) <= ventilate_tilt_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
@@ -4111,7 +4071,7 @@ actions:
                               target:
                                 entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -4146,18 +4106,18 @@ actions:
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
           - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
           - and:
-              - "{{ auto_down_force == [] or auto_down_force != [] and is_state(auto_down_force, ['false', 'off']) }}"
-              - "{{ auto_up_force == [] or auto_up_force != [] and is_state(auto_up_force, ['false', 'off']) }}"
-              - "{{ auto_shading_start_force == [] or auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off']) }}"
-              - "{{ auto_ventilate_force == [] or auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off']) }}"
-          - "{{ not (is_cover_helper_manual and override_ventilation_after_manual) }}" # Override check
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+              - "{{ auto_shading_start_force_disabled }}"
+          - "{{ not (is_helper_manual and override_ventilation_after_manual) }}" # Override check
           - or:
               - and:
                   - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
                   - or:
-                      - "{{ is_cover_helper_partially_ventilated }}" # Status check
+                      - "{{ is_helper_vent_partial }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
                   # Workaround for #181
@@ -4169,12 +4129,12 @@ actions:
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
                   - "{{ lockout_tilted_when_closing }}"
-                  - "{{ is_cover_helper_fully_ventilated }}"
+                  - "{{ is_helper_vent_full }}"
               - and:
                   - "{{ trigger.id == 't_contact_opened_off' }}"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
-                  - "{{ is_cover_helper_fully_ventilated }}"
+                  - "{{ is_helper_vent_full }}"
 
         sequence:
           - if:
@@ -4192,7 +4152,7 @@ actions:
               #####################################################
               - alias: "Contact sensor closed. Activate partial ventilation"
                 conditions:
-                  - "{{ is_cover_helper_fully_ventilated }}" # Was fully ventilated before :-)
+                  - "{{ is_helper_vent_full }}" # Was fully ventilated before :-)
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
                 sequence:
@@ -4225,7 +4185,7 @@ actions:
                               target:
                                 entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -4248,7 +4208,7 @@ actions:
               ##########################################
               - alias: "Contact sensor closed. Activate shading"
                 conditions:
-                  - "{{ is_cover_helper_shaded }}"
+                  - "{{ is_helper_shaded }}"
                 sequence:
                   - choose: []
                     default: !input auto_shading_start_action_before
@@ -4283,7 +4243,7 @@ actions:
                               target:
                                 entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -4306,8 +4266,8 @@ actions:
               ########################################
               - alias: "Contact sensor closed. Open the cover"
                 conditions:
-                  - "{{ is_cover_helper_open }}"
-                  - "{{ not is_cover_helper_shaded }}"
+                  - "{{ is_helper_open }}"
+                  - "{{ not is_helper_shaded }}"
                 sequence:
                   - choose: []
                     default: !input auto_up_action_before
@@ -4352,7 +4312,7 @@ actions:
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -4375,7 +4335,7 @@ actions:
               ########################################
               - alias: "Contact sensor closed. Close the cover"
                 conditions:
-                  - "{{ is_cover_helper_closed }}"
+                  - "{{ is_helper_closed }}"
                 sequence:
                   - choose: []
                     default: !input auto_down_action_before
@@ -4419,7 +4379,7 @@ actions:
                                   target:
                                     entity_id: "{{ repeat.item }}"
                             - if:
-                                - "{{ is_cover_tilt_enabled }}"
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
                                 - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                               then:
                                 - alias: "Tilt Delay"
@@ -4447,7 +4407,6 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_open' }}"
-          # - "{{ auto_up_force != [] and is_state(auto_up_force, ['true', 'on']) }}"
         sequence:
           - choose: []
             default: !input auto_up_action_before
@@ -4494,7 +4453,7 @@ actions:
                           target:
                             entity_id: "{{ repeat.item }}"
                     - if:
-                        - "{{ is_cover_tilt_enabled }}"
+                        - "{{ is_cover_tilt_enabled_and_possible }}"
                         - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                       then:
                         - alias: "Tilt Delay"
@@ -4522,7 +4481,6 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_close' }}"
-          # - "{{ auto_down_force != [] and is_state(auto_down_force, ['true', 'on']) }}"
         sequence:
           - choose: []
             default: !input auto_down_action_before
@@ -4569,7 +4527,7 @@ actions:
                           target:
                             entity_id: "{{ repeat.item }}"
                     - if:
-                        - "{{ is_cover_tilt_enabled }}"
+                        - "{{ is_cover_tilt_enabled_and_possible }}"
                         - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                       then:
                         - alias: "Tilt Delay"
@@ -4597,7 +4555,6 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_vent' }}"
-          # - "{{ auto_ventilate_force != [] and is_state(auto_ventilate_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
           - choose: []
@@ -4633,7 +4590,7 @@ actions:
                       target:
                         entity_id: "{{ repeat.item }}"
                     - if:
-                        - "{{ is_cover_tilt_enabled }}"
+                        - "{{ is_cover_tilt_enabled_and_possible }}"
                         - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                       then:
                         - alias: "Tilt Delay"
@@ -4661,7 +4618,6 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_shading_start' }}"
-          # - "{{ auto_shading_start_force != [] and is_state(auto_shading_start_force, ['true', 'on']) }}"
           - "{{ is_status_helper_enabled }}"
         sequence:
           - choose: []
@@ -4697,7 +4653,7 @@ actions:
                       target:
                         entity_id: "{{ repeat.item }}"
                     - if:
-                        - "{{ is_cover_tilt_enabled }}"
+                        - "{{ is_cover_tilt_enabled_and_possible }}"
                         - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
                       then:
                         - alias: "Tilt Delay"
@@ -4727,7 +4683,7 @@ actions:
           - "{{ this.attributes.current | int(99) == 0 }}" # Avoid multiple triggering. Problem: A recognised position change can interrupt ongoing delays (contact changes).
           - "{{ 'cover_helper_enabled' in cover_status_options }}" # Do not use 'is_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
           - "{{ cover_status_helper != [] }}"
-          - "{{ as_timestamp(now()) > cover_status_time + drive_time + 60 }}" # Drive time + trigger waiting time
+          - "{{ as_timestamp(now()) > helper_state_json.t + drive_time + 60 }}" # Drive time + trigger waiting time
           - "{{ trigger.id in ['t_manual_1', 't_manual_4'] }}"
           - or:
               - "{{ is_number(trigger.to_state.attributes.current_position) and is_number(trigger.from_state.attributes.current_position) }}" # Avoid status change from -unavailable- (common with Homematic)
@@ -4768,9 +4724,6 @@ actions:
                       - "{{ in_open_position }}"
                       - "{{ (current_position | int(default=101) >= open_position) }}"
                       - "{{ (current_position | int(default=101) == 100) }}"
-                      # - and:
-                      #     - "{{ (current_position | int(default=101) > ventilate_position) }}"
-                      #     - "{{ (current_position | int(default=101) > shading_position) }}"
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -4924,7 +4877,7 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_shading_reset' }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ is_cover_helper_shaded }}"
+          - "{{ is_helper_shaded }}"
         sequence:
           - delay:
               seconds: "{{ (range(0, 60) | random | int) }}"
