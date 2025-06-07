@@ -2131,8 +2131,8 @@ variables:
   version: "2025.06.07"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
-  current_tilt_position: "{{ state_attr(blind,'current_tilt_position') }}"
-  current_position: "{{ state_attr(blind, 'current_position') }}"
+  current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
+  current_tilt_position: "{{ state_attr(blind,'current_tilt_position') | int(default=101) }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
 
@@ -2247,8 +2247,8 @@ variables:
   ts_helper_manual: "{{ helper_state_json.manual.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('manual'))) else 0 }}"
 
   in_open_position: >-
-    {% set pos = current_position | int(default=101) %}
-    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set pos = current_position %}
+    {% set tilt = current_tilt_position %}
     {% set min = open_position - position_tolerance %}
     {% set max = open_position + position_tolerance %}
     {{
@@ -2260,8 +2260,8 @@ variables:
     }}
 
   in_close_position: >-
-    {% set pos = current_position | int(default=101) %}
-    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set pos = current_position %}
+    {% set tilt = current_tilt_position %}
     {% set min = close_position - position_tolerance %}
     {% set max = close_position + position_tolerance %}
     {{
@@ -2273,8 +2273,8 @@ variables:
     }}
 
   in_shading_position: >-
-    {% set pos = current_position | int(default=101) %}
-    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set pos = current_position %}
+    {% set tilt = current_tilt_position %}
     {% set min = shading_position - position_tolerance %}
     {% set max = shading_position + position_tolerance %}
     {{
@@ -2287,8 +2287,8 @@ variables:
     }}
 
   in_ventilate_position: >-
-    {% set pos = current_position | int(default=101) %}
-    {% set tilt = current_tilt_position | int(default=101) %}
+    {% set pos = current_position %}
+    {% set tilt = current_tilt_position %}
     {% set min = ventilate_position - position_tolerance %}
     {% set max = ventilate_position + position_tolerance %}
     {{
@@ -3183,7 +3183,7 @@ actions:
                           - "{{ close_position > shading_position }}"
                       - and: # Stop if close-position is higher than the current position
                           - "{{ prevent_higher_position_closing }}"
-                          - "{{ (current_position | int(default=101) <= close_position) }}"
+                          - "{{ (current_position <= close_position) }}"
                 sequence:
                   - if:
                       - "{{ is_status_helper_enabled }}"
@@ -3303,7 +3303,7 @@ actions:
                   - "{{ not in_shading_position }}"
               - and:
                   - "{{ is_cover_tilt_enabled_and_possible }}"
-                  - "{{ current_position | int(default=101) >= shading_position }}"
+                  - "{{ current_position >= shading_position }}"
           - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
@@ -3418,10 +3418,10 @@ actions:
                       - or:
                           - and:
                               - "{{ not is_cover_tilt_enabled_and_possible }}"
-                              - "{{ current_position | int(default=101) > shading_position }}"
+                              - "{{ current_position > shading_position }}"
                           - and:
                               - "{{ is_cover_tilt_enabled_and_possible }}"
-                              - "{{ current_position | int(default=101) >= shading_position }}"
+                              - "{{ current_position >= shading_position }}"
                       - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
                           - and:
                               - "{{ is_time_control_disabled }}"
@@ -3757,7 +3757,7 @@ actions:
                   - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                   - "{{ is_helper_shading_end }}"
                   - "{{ is_ventilation_enabled }}"
-                  - "{{ (current_position | int(default=101) < ventilate_position) }}"
+                  - "{{ (current_position < ventilate_position) }}"
                   - or:
                       - and:
                           - "{{ contact_window_opened != [] }}"
@@ -3800,8 +3800,8 @@ actions:
                       - "{{ contact_window_opened == [] }}"
                       - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
                   - or:
-                      - "{{ (current_position | int(default=101) < ventilate_position) }}"
-                      - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
+                      - "{{ (current_position < ventilate_position) }}"
+                      - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
                 sequence:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -4035,12 +4035,12 @@ actions:
                   - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
                   - "{{ trigger.id == 't_contact_tilted_on' }}"
                   - or:
-                      - "{{ (current_position | int(default=101) < ventilate_position) }}"
+                      - "{{ (current_position < ventilate_position) }}"
                       - and:
                           - "{{ is_cover_tilt_enabled_and_possible }}"
-                          - "{{ (current_position | int(default=101) <= ventilate_position) }}"
-                          - "{{ (current_tilt_position | int(default=101) <= ventilate_tilt_position) }}"
-                      - "{{ ventilation_if_lower_enabled and (current_position | int(default=101) >= ventilate_position) }}"
+                          - "{{ (current_position <= ventilate_position) }}"
+                          - "{{ (current_tilt_position <= ventilate_tilt_position) }}"
+                      - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
@@ -4722,8 +4722,8 @@ actions:
                   - "{{ is_up_enabled }}"
                   - or:
                       - "{{ in_open_position }}"
-                      - "{{ (current_position | int(default=101) >= open_position) }}"
-                      - "{{ (current_position | int(default=101) == 100) }}"
+                      - "{{ (current_position >= open_position) }}"
+                      - "{{ (current_position == 100) }}"
                 sequence:
                   - action: input_text.set_value
                     data:
@@ -4796,8 +4796,8 @@ actions:
                   - "{{ not in_shading_position }}"
                   - or:
                       - "{{ in_close_position }}"
-                      - "{{ (current_position | int(default=101) <= close_position) }}"
-                      - "{{ (current_position | int(default=101) == 0) }}"
+                      - "{{ (current_position <= close_position) }}"
+                      - "{{ (current_position == 0) }}"
                 sequence:
                   - action: input_text.set_value
                     data:
