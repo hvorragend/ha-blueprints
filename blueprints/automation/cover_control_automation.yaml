@@ -2995,6 +2995,9 @@ actions:
                   - "{{ is_status_helper_enabled }}"
                   - "{{ is_helper_shaded }}"
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
+                  - or:
+                      - "{{ auto_prevent_opening_force_disabled }}"
+                      - "{{ not auto_prevent_opening_force_disabled and (current_position >= shading_position) }}"
                 sequence:
                   - choose: []
                     default: !input auto_shading_start_action_before
@@ -3021,10 +3024,12 @@ actions:
               - alias: "Normal opening of the cover"
                 conditions:
                   - "{{ not in_shading_position }}" # In this part, there is no plan for an open roller blind to switch from Shading to Open. I cannot check the helper here because Open+Shading could be set to true there.
-                  - "{{ auto_prevent_opening_force_disabled }}"
                   - or:
                       - "{{ is_status_helper_enabled and not is_helper_open }}" # including ventilation, window open-status and more possibilities
                       - "{{ not in_open_position }}"
+                  - or:
+                      - "{{ auto_prevent_opening_force_disabled }}"
+                      - "{{ not auto_prevent_opening_force_disabled and (current_position >= open_position)  }}"
                 sequence:
                   - choose: []
                     default: !input auto_up_action_before
@@ -3631,6 +3636,9 @@ actions:
                   - or:
                       - "{{ (current_position < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
+                  - or:
+                      - "{{ auto_prevent_opening_force_disabled }}"
+                      - "{{ not auto_prevent_opening_force_disabled and (current_position >= ventilate_position)  }}"
                 sequence:
                   - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                       seconds: >
@@ -3719,7 +3727,6 @@ actions:
               - "{{ auto_up_force_disabled }}"
               - "{{ auto_down_force_disabled }}"
               - "{{ auto_shading_start_force_disabled }}"
-              - "{{ auto_prevent_opening_force_disabled }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -3739,7 +3746,9 @@ actions:
                   - "{{ states(contact_window_opened) in  ['true', 'on'] }}"
                   - "{{ trigger.id == 't_contact_opened_on' }}"
                   - "{{ not in_open_position }}"
-                  - "{{ auto_prevent_opening_force_disabled }}"
+                  - or:
+                      - "{{ auto_prevent_opening_force_disabled }}"
+                      - "{{ not auto_prevent_opening_force_disabled and (current_position >= open_position) }}"
                 sequence:
                   - variables:
                       target_position: !input open_position
@@ -3871,6 +3880,9 @@ actions:
               - alias: "Contact sensor closed. Activate shading"
                 conditions:
                   - "{{ is_helper_shaded }}"
+                  - or:
+                      - "{{ auto_prevent_opening_force_disabled }}"
+                      - "{{ not auto_prevent_opening_force_disabled and (current_position >= shading_position) }}"
                 sequence:
                   - choose: []
                     default: !input auto_shading_start_action_before
@@ -3957,7 +3969,9 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_open' }}"
-          - "{{ auto_prevent_opening_force_disabled }}"
+          - or:
+              - "{{ auto_prevent_opening_force_disabled }}"
+              - "{{ not auto_prevent_opening_force_disabled and (current_position >= open_position)  }}"
         sequence:
           - choose: []
             default: !input auto_up_action_before
@@ -4017,6 +4031,9 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_vent' }}"
           - "{{ is_status_helper_enabled }}"
+          - or:
+              - "{{ auto_prevent_opening_force_disabled }}"
+              - "{{ not auto_prevent_opening_force_disabled and (current_position >= ventilate_position) }}"
         sequence:
           - choose: []
             default: !input auto_ventilate_action_before
@@ -4047,6 +4064,9 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_shading_start' }}"
           - "{{ is_status_helper_enabled }}"
+          - or:
+              - "{{ auto_prevent_opening_force_disabled }}"
+              - "{{ not auto_prevent_opening_force_disabled and (current_position >= shading_position) }}"
         sequence:
           - choose: []
             default: !input auto_shading_start_action_before
