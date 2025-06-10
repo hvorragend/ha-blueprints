@@ -393,4 +393,5 @@
     In the worst case, I will have to work with {{ state_attr('automation.cca_automation', 'current') > 0 }} as before to be able
     to intercept the reciprocal triggers.
 
-    
+2025.06.10
+  - Fixed: The detection of weekdays and weekends is working again.
