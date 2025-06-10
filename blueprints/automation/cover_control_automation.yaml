@@ -1935,10 +1935,10 @@ blueprint:
                 - binary_sensor
                 - switch
 
-        auto_prevent_cover_to_up_position_force:
+        auto_prevent_opening_force:
           name: "🚫🔼 Force prevent opening of cover via Entity"
           description: >-
-            If the status of this entity changes to on or true, the cover can only move to a more closed position and will skip all opening movements.
+            If the status of this entity changes to on or true, the cover can only move to a more closed position and will skip all opening movements. Note that this also implicitly means that all tilt changes after opening will also be skipped.
           default: []
           selector:
             entity:
@@ -2220,13 +2220,13 @@ variables:
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
-  auto_prevent_cover_to_up_position_force: !input auto_prevent_cover_to_up_position_force
+  auto_prevent_opening_force: !input auto_prevent_opening_force
 
   auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
   auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
   auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
   auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
-  auto_prevent_cover_to_up_position_force_disabled: "{{ auto_prevent_cover_to_up_position_force == [] or (auto_prevent_cover_to_up_position_force != [] and is_state(auto_prevent_cover_to_up_position_force, ['false', 'off'])) }}"
+  auto_prevent_opening_force_disabled: "{{ auto_prevent_opening_force == [] or (auto_prevent_opening_force != [] and is_state(auto_prevent_opening_force, ['false', 'off'])) }}"
 
   # Tilt
   is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
@@ -3021,7 +3021,7 @@ actions:
               - alias: "Normal opening of the cover"
                 conditions:
                   - "{{ not in_shading_position }}" # In this part, there is no plan for an open roller blind to switch from Shading to Open. I cannot check the helper here because Open+Shading could be set to true there.
-                  - "{{ auto_prevent_cover_to_up_position_force_disabled }}"
+                  - "{{ auto_prevent_opening_force_disabled }}"
                   - or:
                       - "{{ is_status_helper_enabled and not is_helper_open }}" # including ventilation, window open-status and more possibilities
                       - "{{ not in_open_position }}"
@@ -3719,7 +3719,7 @@ actions:
               - "{{ auto_up_force_disabled }}"
               - "{{ auto_down_force_disabled }}"
               - "{{ auto_shading_start_force_disabled }}"
-              - "{{ auto_prevent_cover_to_up_position_force_disabled }}"
+              - "{{ auto_prevent_opening_force_disabled }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -3739,7 +3739,7 @@ actions:
                   - "{{ states(contact_window_opened) in  ['true', 'on'] }}"
                   - "{{ trigger.id == 't_contact_opened_on' }}"
                   - "{{ not in_open_position }}"
-                  - "{{ auto_prevent_cover_to_up_position_force_disabled }}"
+                  - "{{ auto_prevent_opening_force_disabled }}"
                 sequence:
                   - variables:
                       target_position: !input open_position
@@ -3957,7 +3957,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_open' }}"
-          - "{{ auto_prevent_cover_to_up_position_force_disabled }}"
+          - "{{ auto_prevent_opening_force_disabled }}"
         sequence:
           - choose: []
             default: !input auto_up_action_before
