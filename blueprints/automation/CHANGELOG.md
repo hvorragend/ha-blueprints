@@ -379,3 +379,18 @@
       - If the conditions were not permanently fulfilled, we can wait for another trigger to be executed. The previous pending status is now successfully reset.
       - And much better: CCA can be configured so that we can periodically check the shading during the day. The system then checks again and again until the conditions are valid again.
 
+2025.06.07
+  - Added: Resident check for ventilation #216 (Thanks for the pull request, Astado)
+  - Added: Better description for shading_forecast_sensor (Thanks you, Eimeel)
+  - Fixed: Solve Issue with sun shading end if Tilt Position Control is enabled #216 (Thanks for the pull request, Astado)
+  - Fixed: Shades are being opened or closed even if they are already #219
+  - Fixed:
+    When the “End Sun Shading Immediately When Out Of Range” mode was activated, the shading of the cover was not canceled.
+    This was because the new waiting time was set to 0 seconds and CCA could not trigger itself in the same second via a helper.
+  - Updated: Extensive code refactoring
+  - Updated:
+    Automation mode changed to 'single' as a test, because otherwise new triggers in the delay would interfere with processing.
+    In the worst case, I will have to work with {{ state_attr('automation.cca_automation', 'current') > 0 }} as before to be able
+    to intercept the reciprocal triggers.
+
+    
