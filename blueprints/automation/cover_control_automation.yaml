@@ -74,8 +74,11 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
+    2025.06.1x
+      - Fixed: Delay increased to 60sec for the “End Sun Shading Immediately When Out Of Range” feature. Hoping that the new trigger will then be executed successfully. HA seems to ignore shorter values.
+
     2025.06.11
-      - Fixed: The detection of weekdays and weekends is working again.
+      - Fixed: Error fixed if the Workday Tomorrow sensor was not specified
 
     2025.06.10
       - Fixed: The detection of weekdays and weekends is working again.
@@ -1519,7 +1522,7 @@ blueprint:
         is_shading_end_immediate_by_sun_position:
           name: "🥵 End Sun Shading Immediately When Out Of Range"
           description: >-
-            If enabled, shading will end immediately when sun position moves outside the defined azimuth or elevation range.
+            If enabled, shading will end immediately (60 seconds later) when sun position moves outside the defined azimuth or elevation range.
             If disabled, the configured waiting time will be used before ending the shading.
           default: false
           selector:
@@ -2143,10 +2146,9 @@ variables:
   current_tilt_position: "{{ state_attr(blind,'current_tilt_position') | int(default=101) }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
-  is_today_off: "{{ is_state(workday_sensor_today, 'off') }}"
-  is_tomorrow_off: "{{ is_state(workday_sensor_tomorrow, 'off') }}"
-  is_tomorrow_on: "{{ is_state(workday_sensor_tomorrow, 'on') }}"
-  current_time: "{{ as_timestamp(now()) | round(0) }}"
+  is_today_off: "{{ is_state('workday_sensor_today', 'off') }}"
+  is_tomorrow_off: "{{ is_state('workday_sensor_tomorrow', 'off') }}"
+  is_tomorrow_on: "{{ is_state('workday_sensor_tomorrow', 'on') }}"
 
   # Delays
   drive_delay_fix: !input drive_delay_fix
@@ -2175,10 +2177,10 @@ variables:
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
-  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and is_state(auto_up_force, ['false', 'off'])) }}"
-  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and is_state(auto_down_force, ['false', 'off'])) }}"
-  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and is_state(auto_ventilate_force, ['false', 'off'])) }}"
-  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and is_state(auto_shading_start_force, ['false', 'off'])) }}"
+  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and is_state('auto_up_force', ['false', 'off'])) }}"
+  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and is_state('auto_down_force', ['false', 'off'])) }}"
+  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and is_state('auto_ventilate_force', ['false', 'off'])) }}"
+  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and is_state('auto_shading_start_force', ['false', 'off'])) }}"
 
   # Tilt
   is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
@@ -2330,7 +2332,7 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
+      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
       {% set time_compare = time_up_early_non_workday if is_today_off else time_up_early %}
       {{ now() >= today_at(time_compare) }}
     enabled: "{{ is_time_field_enabled }}"
@@ -2338,7 +2340,7 @@ triggers:
 
   - platform: template # comparing the times to avoid double triggering if early+late are identical
     value_template: >-
-      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
+      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
       {% set early = time_up_early_non_workday if is_today_off else time_up_early %}
       {% set late = time_up_late_non_workday if is_today_off else time_up_late %}
       {{ early != late and now() >= today_at(late) }}
@@ -2346,7 +2348,7 @@ triggers:
     id: "t_open_2"
 
   - platform: template
-    value_template: "{{ is_state(time_schedule_helper, ['true', 'on']) }}"
+    value_template: "{{ is_state('time_schedule_helper', ['true', 'on']) }}"
     enabled: "{{ is_schedule_helper_enabled and time_schedule_helper != [] }}"
     id: "t_open_3"
 
@@ -2382,9 +2384,9 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% set is_tomorrow_off = is_state(workday_sensor_tomorrow, 'off') %}
-      {% set is_tomorrow_on = is_state(workday_sensor_tomorrow, 'on') %}
-      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
+      {% set is_tomorrow_off = is_state('workday_sensor_tomorrow', 'off') %}
+      {% set is_tomorrow_on = is_state('workday_sensor_tomorrow', 'on') %}
+      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
       {% set time_compare =
         time_down_early_non_workday if is_tomorrow_off else
         time_down_early if is_tomorrow_on else
@@ -2396,9 +2398,9 @@ triggers:
 
   - platform: template # Avoid double triggering with 'early != late' if early and late times are identical
     value_template: >-
-      {% set is_tomorrow_off = is_state(workday_sensor_tomorrow, 'off') %}
-      {% set is_tomorrow_on = is_state(workday_sensor_tomorrow, 'on') %}
-      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
+      {% set is_tomorrow_off = is_state('workday_sensor_tomorrow', 'off') %}
+      {% set is_tomorrow_on = is_state('workday_sensor_tomorrow', 'on') %}
+      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
       {% set time_compare =
         time_down_late_non_workday if is_tomorrow_off else
         time_down_late if is_tomorrow_on else
@@ -2409,7 +2411,7 @@ triggers:
     id: "t_close_2"
 
   - platform: template
-    value_template: "{{ is_state(time_schedule_helper, ['false', 'off']) }}"
+    value_template: "{{ is_state('time_schedule_helper', ['false', 'off']) }}"
     enabled: "{{ is_schedule_helper_enabled and time_schedule_helper != [] }}"
     id: "t_close_3"
 
@@ -2444,28 +2446,28 @@ triggers:
   #################################################
 
   - platform: template
-    value_template: "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+    value_template: "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
     id: "t_contact_tilted_on"
     for:
       seconds: !input contact_delay_trigger
 
   - platform: template
-    value_template: "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
+    value_template: "{{ is_state('contact_window_tilted', ['false', 'off']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
     id: "t_contact_tilted_off"
     for:
       seconds: !input contact_delay_trigger
 
   - platform: template
-    value_template: "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+    value_template: "{{ is_state('contact_window_opened', ['true', 'on']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
     id: "t_contact_opened_on"
     for:
       seconds: !input contact_delay_trigger
 
   - platform: template
-    value_template: "{{ is_state(contact_window_opened, ['false', 'off']) }}"
+    value_template: "{{ is_state('contact_window_opened', ['false', 'off']) }}"
     enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
     id: "t_contact_opened_off"
     for:
@@ -2882,10 +2884,10 @@ actions:
               - "{{ trigger.id == 't_open_6' and resident_opening_enabled }}" # Only continue if permitted
           - or: # Resident status must always be checked
               - "{{ resident_sensor == [] }}"
-              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - "{{ is_state('resident_sensor', ['false', 'off']) }}"
               - and:
                   - "{{ resident_allow_opening }}"
-                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+                  - "{{ is_state('resident_sensor', ['true', 'on']) }}"
           - or: # Now we have to check different opening scenarios
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
@@ -2898,7 +2900,7 @@ actions:
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
                   - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state(time_schedule_helper, 'on') }}"
+                  - "{{ is_state('time_schedule_helper', 'on') }}"
                   - "{{ trigger.id in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false # TODO Why is the resident trigger here?
               - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                   - or:
@@ -2911,7 +2913,7 @@ actions:
                       - and:
                           - "{{ is_schedule_helper_enabled }}"
                           - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
+                          - "{{ is_state('time_schedule_helper', 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
                           - "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) }}"
                           - "{{ now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5) }}"
                   - or:
@@ -2942,13 +2944,13 @@ actions:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       update_values:
-                        open: { a: 1, t: "{{ current_time }}" }
+                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 1, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 } # Set shading to true, but do not overwrite shading time
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -2971,13 +2973,13 @@ actions:
                       target_position: !input open_position
                       target_tilt_position: "{{ open_tilt_position | int }}"
                       update_values:
-                        open: { a: 1, t: "{{ current_time }}" }
+                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3025,7 +3027,7 @@ actions:
                   # Otherwise it could happen that the blind does not close if it is still too bright.
                   # - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
                   # - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state(time_schedule_helper, 'off') }}"
+                  - "{{ is_state('time_schedule_helper', 'off') }}"
                   - "{{ trigger.id == 't_close_3' }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
                   - or:
@@ -3038,7 +3040,7 @@ actions:
                       - and:
                           - "{{ is_schedule_helper_enabled }}"
                           - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
+                          - "{{ is_state('time_schedule_helper', 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
                           - "{{ now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) }}"
                           - "{{ now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5) }}"
                   - or:
@@ -3051,7 +3053,7 @@ actions:
               - and: # Closing - due to resident goes sleeping
                   - "{{ trigger.id == 't_close_6' }}"
                   - "{{ resident_sensor != [] }}"
-                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+                  - "{{ is_state('resident_sensor', ['true', 'on']) }}"
                   - "{{ resident_closing_enabled }}"
 
         sequence:
@@ -3066,21 +3068,21 @@ actions:
                   - or:
                       - and:
                           - "{{ contact_window_opened != [] }}"
-                          - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+                          - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
                       - and:
                           - "{{ lockout_tilted_when_closing }}"
                           - "{{ contact_window_tilted != [] }}"
-                          - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                          - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
                 sequence:
                   - variables:
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ current_time }}" }
+                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 1, t: "{{ current_time }}" }
+                        vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
 
               ############################################################################
@@ -3091,11 +3093,11 @@ actions:
                   - "{{ is_ventilation_enabled }}"
                   - "{{ is_status_helper_enabled }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
                   - "{{ not lockout_tilted_when_closing }}"
                   - or:
                       - "{{ contact_window_opened == [] }}"
-                      - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
+                      - "{{ is_state('contact_window_opened', ['false', 'off']) }}"
 
                 sequence:
                   - choose: []
@@ -3107,12 +3109,12 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ current_time }}" }
+                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 1, t: "{{ current_time }}" }
+                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3141,12 +3143,12 @@ actions:
                   - variables:
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ current_time }}" }
+                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         # manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
 
             ###################################
@@ -3163,12 +3165,12 @@ actions:
                   target_tilt_position: !input close_tilt_position
                   update_values:
                     open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                    close: { a: 1, t: "{{ current_time }}" }
+                    close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                     shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                     vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                     vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                     manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                    t: "{{ current_time }}"
+                    t: "{{ as_timestamp(now()) | round(0) }}"
               - *cover_move_action
               - *tilt_move_action
               - *helper_update
@@ -3264,8 +3266,8 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            shading: { a: 1, t: "{{ current_time }}", p: "{{ (current_time + shading_waitingtime_start) | round(0) }}", q: 0 }
-                            t: "{{ current_time }}"
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + shading_waitingtime_start) | round(0) }}", q: 0 }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
                   ##################################################
@@ -3279,21 +3281,21 @@ actions:
                       - or:
                           - and:
                               - "{{ contact_window_opened != [] }}"
-                              - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+                              - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
                           - and:
                               - "{{ lockout_tilted_when_shading_starts }}"
                               - "{{ contact_window_tilted != [] }}"
-                              - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                              - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
                     sequence:
                       - variables:
                           update_values:
-                            open: { a: 1, t: "{{ current_time }}" }
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                            shading: { a: 1, t: "{{ current_time }}", p: 0, q: 0 }
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
                             vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                            vfull: { a: 1, t: "{{ current_time }}" }
+                            vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                            t: "{{ current_time }}"
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
                   ###################################
@@ -3320,13 +3322,13 @@ actions:
                           - and:
                               - "{{ is_schedule_helper_enabled }}"
                               - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                              - "{{ is_state('time_schedule_helper', 'on') }}"
                       - or:
                           - "{{ resident_sensor == [] }}"
-                          - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+                          - "{{ is_state('resident_sensor', ['false', 'off']) }}"
                           - and: # Issue 131
                               - "{{ resident_allow_shading }}"
-                              - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+                              - "{{ is_state('resident_sensor', ['true', 'on']) }}"
                     sequence:
                       - delay:
                           seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
@@ -3336,13 +3338,13 @@ actions:
                           target_position: !input shading_position
                           target_tilt_position: "{{ shading_tilt_position | int }}"
                           update_values:
-                            open: { a: 1, t: "{{ current_time }}" }
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                            shading: { a: 1, t: "{{ current_time }}", p: 0, q: 0 }
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
                             vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                             vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                             manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                            t: "{{ current_time }}"
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *cover_move_action
                       - *tilt_move_action
                       - *helper_update
@@ -3360,8 +3362,8 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            shading: { a: 1, t: "{{ current_time }}", p: 0, q: 0 }
-                            t: "{{ current_time }}"
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
               - stop: "Stop automation: SHADING START"
@@ -3387,12 +3389,12 @@ actions:
                           - and:
                               - "{{ is_schedule_helper_enabled }}"
                               - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                              - "{{ is_state('time_schedule_helper', 'on') }}"
                     sequence:
                       - variables:
                           update_values:
-                            shading: { a: 1, t: "{{ current_time }}", p: "{{ (current_time + shading_waitingtime_start) | round(0) }}", q: 0 }
-                            t: "{{ current_time }}"
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + shading_waitingtime_start) | round(0) }}", q: 0 }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
                   ######################################
@@ -3406,8 +3408,8 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            shading: { a: 0, t: "{{ current_time }}", p: 0, q: 0 }
-                            t: "{{ current_time }}"
+                            shading: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
       ############################################################
@@ -3436,7 +3438,7 @@ actions:
               target_tilt_position: "{{ shading_tilt_position | int }}"
               tilt_first: true # tilt the cover to close position before
               update_values:
-                t: "{{ current_time }}"
+                t: "{{ as_timestamp(now()) | round(0) }}"
           - *tilt_move_action
           - *helper_update
 
@@ -3469,7 +3471,7 @@ actions:
               - and:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
-                  - "{{ is_state(time_schedule_helper, 'on') }}"
+                  - "{{ is_state('time_schedule_helper', 'on') }}"
           - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
           - or:
               - "{{ is_helper_shaded }}"
@@ -3479,7 +3481,7 @@ actions:
               - "{{ prevent_shading_end_if_closed and not in_close_position}}"
           - or: # Issue #116
               - "{{ resident_sensor == [] }}"
-              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - "{{ is_state('resident_sensor', ['false', 'off']) }}"
 
         sequence:
           - choose:
@@ -3495,12 +3497,12 @@ actions:
                       local_waitingtime_end: >
                         {% set local_waitingtime_end = shading_waitingtime_end %}
                         {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
-                        {% set local_waitingtime_end = 10 %} # Almost immediately end shading when sun position out of range
+                        {% set local_waitingtime_end = 60 %} # Almost immediately end shading when sun position out of range. Earlier triggers do not work.
                         {% endif %}
                         {{ local_waitingtime_end }}
                       update_values:
-                        shading: { a: 1, t: "{{ current_time }}", p: 0, q: "{{ (current_time + local_waitingtime_end) | round(0) }}" }
-                        t: "{{ current_time }}"
+                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + local_waitingtime_end) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
 
               ######################################
@@ -3517,7 +3519,7 @@ actions:
                   - variables:
                       target_tilt_position: 50 # Moving the cover to open tilt position
                       update_values:
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *tilt_move_action
                   - *helper_update
 
@@ -3533,21 +3535,21 @@ actions:
                   - or:
                       - and:
                           - "{{ contact_window_opened != [] }}"
-                          - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+                          - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
                       - and:
                           - "{{ contact_window_tilted != [] }}"
-                          - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                          - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
                           - "{{ lockout_tilted_when_shading_ends }}"
                 sequence:
                   - variables:
                       update_values:
-                        open: { a: 1, t: "{{ current_time }}" }
+                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 1, t: "{{ current_time }}" }
+                        vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
 
               ################################
@@ -3560,11 +3562,11 @@ actions:
                   - "{{ is_ventilation_enabled }}"
                   - "{{ ventilation_after_shading_end }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
                   - "{{ not lockout_tilted_when_closing }}"
                   - or:
                       - "{{ contact_window_opened == [] }}"
-                      - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
+                      - "{{ is_state('contact_window_opened', ['false', 'off']) }}"
                   - or:
                       - "{{ (current_position < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
@@ -3577,13 +3579,13 @@ actions:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
-                        open: { a: 1, t: "{{ current_time }}" }
+                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 1, t: "{{ current_time }}" }
+                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3607,13 +3609,13 @@ actions:
                       target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
                       target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
                       update_values:
-                        open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ current_time if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
-                        close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ current_time if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
+                        open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
+                        close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - if:
                       - "{{ not prevent_opening_after_shading_end}}"
@@ -3646,10 +3648,10 @@ actions:
               - "{{ auto_shading_start_force_disabled }}"
           - or:
               - "{{ resident_sensor == [] }}"
-              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - "{{ is_state('resident_sensor', ['false', 'off']) }}"
               - and:
                   - "{{ resident_allow_ventilation }}"
-                  - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+                  - "{{ is_state('resident_sensor', ['true', 'on']) }}"
         sequence:
           - delay:
               seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
@@ -3660,7 +3662,7 @@ actions:
               - alias: "Window handle to open. Open cover"
                 conditions:
                   - "{{ contact_window_opened != [] }}"
-                  - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+                  - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
                   - "{{ trigger.id == 't_contact_opened_on' }}"
                   - "{{ not in_open_position }}"
                 sequence:
@@ -3669,8 +3671,8 @@ actions:
                       target_tilt_position: !input open_tilt_position
                       update_values:
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 1, t: "{{ current_time }}" }
-                        t: "{{ current_time }}"
+                        vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3681,7 +3683,7 @@ actions:
               - alias: "Window handle to tilt. Move the cover to the partial ventilation position."
                 conditions:
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
                   - "{{ trigger.id == 't_contact_tilted_on' }}"
                   - or:
                       - "{{ (current_position < ventilate_position) }}"
@@ -3697,9 +3699,9 @@ actions:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
-                        vpart: { a: 1, t: "{{ current_time }}" }
+                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3732,7 +3734,7 @@ actions:
               - and:
                   - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
+                  - "{{ is_state('contact_window_tilted', ['false', 'off']) }}"
                   - or:
                       - "{{ is_helper_vent_partial }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
@@ -3744,13 +3746,13 @@ actions:
                   # But the return from this must be taken into account somehow.
                   - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state(contact_window_tilted, ['false', 'off']) }}"
+                  - "{{ is_state('contact_window_tilted', ['false', 'off']) }}"
                   - "{{ lockout_tilted_when_closing }}"
                   - "{{ is_helper_vent_full }}"
               - and:
                   - "{{ trigger.id == 't_contact_opened_off' }}"
                   - "{{ contact_window_opened != [] }}"
-                  - "{{ is_state(contact_window_opened, ['false', 'off']) }}"
+                  - "{{ is_state('contact_window_opened', ['false', 'off']) }}"
                   - "{{ is_helper_vent_full }}"
 
         sequence:
@@ -3771,7 +3773,7 @@ actions:
                 conditions:
                   - "{{ is_helper_vent_full }}" # Was fully ventilated before :-)
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
@@ -3779,9 +3781,9 @@ actions:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
-                        vpart: { a: 1, t: "{{ current_time }}" }
+                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3801,13 +3803,13 @@ actions:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       update_values:
-                        open: { a: 1, t: "{{ current_time }}" }
+                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 1, t: "{{ current_time }}", p: 0, q: 0 }
+                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3828,13 +3830,13 @@ actions:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
                       update_values:
-                        open: { a: 1, t: "{{ current_time }}" }
+                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ elper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - if:
                       - "{{ not prevent_opening_after_ventilation_end }}"
@@ -3858,12 +3860,12 @@ actions:
                       target_tilt_position: !input close_tilt_position
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ current_time }}" }
+                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ current_time }}"
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -3887,13 +3889,13 @@ actions:
               target_position: !input open_position
               target_tilt_position: !input open_tilt_position
               update_values:
-                open: { a: 1, t: "{{ current_time }}" }
+                open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                 shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                 vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                 vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ current_time }}"
+                t: "{{ as_timestamp(now()) | round(0) }}"
           - *cover_move_action
           - *tilt_move_action
           - *helper_update
@@ -3917,12 +3919,12 @@ actions:
               target_tilt_position: !input close_tilt_position
               update_values:
                 open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                close: { a: 1, t: "{{ current_time }}" }
+                close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                 shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                 vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                 vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ current_time }}"
+                t: "{{ as_timestamp(now()) | round(0) }}"
           - *cover_move_action
           - *tilt_move_action
           - *helper_update
@@ -3949,10 +3951,10 @@ actions:
                 open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                 shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                vpart: { a: 1, t: "{{ current_time }}" }
+                vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                 vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ current_time }}"
+                t: "{{ as_timestamp(now()) | round(0) }}"
           - *cover_move_action
           - *tilt_move_action
           - *helper_update
@@ -3978,11 +3980,11 @@ actions:
               update_values:
                 open: { a: 0, t: "{{ helper_state_json.open.t }}" } # ‘Open’ is not additionally set to True, because we don't know where it should actually go after forcing.
                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                shading: { a: 1, t: "{{ current_time }}", p: 0, q: 0 }
+                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
                 vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                 vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ current_time }}"
+                t: "{{ as_timestamp(now()) | round(0) }}"
           - *cover_move_action
           - *tilt_move_action
           - *helper_update
@@ -4018,8 +4020,8 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        manual: { a: 1, t: "{{ current_time }}" }
-                        t: "{{ current_time }}"
+                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -4033,13 +4035,13 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        open: { a: 1, t: "{{ current_time }}" }
+                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ current_time }}" }
-                        t: "{{ current_time }}"
+                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -4054,10 +4056,10 @@ actions:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 1, t: "{{ current_time }}" }
+                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ current_time }}" }
-                        t: "{{ current_time }}"
+                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -4070,11 +4072,11 @@ actions:
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 1, t: "{{ current_time }}", p: 0, q: 0 }
+                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ current_time }}" }
-                        t: "{{ current_time }}"
+                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -4090,12 +4092,12 @@ actions:
                   - variables:
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ current_time }}" }
+                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ current_time }}" }
-                        t: "{{ current_time }}"
+                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -4114,8 +4116,8 @@ actions:
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ current_time }}" }
-                        t: "{{ current_time }}"
+                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                        t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -4132,8 +4134,8 @@ actions:
         sequence:
           - variables:
               update_values:
-                manual: { a: 0, t: "{{ current_time }}" }
-                t: "{{ current_time }}"
+                manual: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}" }
+                t: "{{ as_timestamp(now()) | round(0) }}"
           - *helper_update
           - choose: []
             default: !input auto_override_reset_action
@@ -4154,7 +4156,7 @@ actions:
           - variables:
               update_values:
                 shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                t: "{{ current_time }}"
+                t: "{{ as_timestamp(now()) | round(0) }}"
           - *helper_update
 
     ############################################################
@@ -4200,7 +4202,7 @@ actions:
                   message: "Please revise the position values and take the tolerance values into account. The values must not overlap"
 
                 # Sensor and attribute checks
-                - condition: "{{ (resident_sensor != [] ) and (not is_state(resident_sensor, ['false', 'off','true', 'on'])) }}"
+                - condition: "{{ (resident_sensor != [] ) and (not is_state('resident_sensor', ['false', 'off','true', 'on'])) }}"
                   message: "resident_sensor is only allowed to be on/off/true/false"
                 - condition: "{{ state_attr(blind, 'current_position') is none }}"
                   message: "Cover is missing attribute current_position"
