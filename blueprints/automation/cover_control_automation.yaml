@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.06.07
+    **Version**: 2025.06.11
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,12 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.06.11
+      - Fixed: Error fixed if the Workday Tomorrow sensor was not specified
+
+    2025.06.10
+      - Fixed: The detection of weekdays and weekends is working again.
 
     2025.06.07
       - Added: Resident check for ventilation #216 (Thanks for the pull request, Astado)
@@ -2130,54 +2136,39 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 variables:
-  version: "2025.06.07"
+  version: "2025.06.11"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
   current_tilt_position: "{{ state_attr(blind,'current_tilt_position') | int(default=101) }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
+  is_today_off: "{{ is_state('workday_sensor_today', 'off') }}"
+  is_tomorrow_off: "{{ is_state('workday_sensor_tomorrow', 'off') }}"
+  is_tomorrow_on: "{{ is_state('workday_sensor_tomorrow', 'on') }}"
+  current_time: "{{ as_timestamp(now()) | round(0) }}"
 
   # Delays
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
   drive_time: !input drive_time
 
-  time_up_early_today: >-
-    {% if workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-      {{ time_up_early_non_workday }}
-    {% else %}
-      {{ time_up_early }}
-    {% endif %}
-
-  time_up_late_today: >-
-    {% if workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-      {{ time_up_late_non_workday }}
-    {% else %}
-      {{ time_up_late }}
-    {% endif %}
-
+  time_up_early_today: "{{ time_up_early_non_workday if is_today_off else time_up_early }}"
+  time_up_late_today: "{{ time_up_late_non_workday if is_today_off else time_up_late }}"
   time_down_early_today: >-
-    {% if workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') %}
-      {{ time_down_early_non_workday }}
-    {% elif workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') %}
-      {{ time_down_early }}
-    {% elif workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-      {{ time_down_early_non_workday }}
-    {% else %}
-      {{ time_down_early }}
-    {% endif %}
-
+    {{
+      time_down_early_non_workday if is_tomorrow_off else
+      time_down_early if is_tomorrow_on else
+      time_down_early_non_workday if is_today_off else
+      time_down_early
+    }}
   time_down_late_today: >-
-    {% if workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') %}
-      {{ time_down_late_non_workday }}
-    {% elif workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') %}
-      {{ time_down_late }}
-    {% elif workday_sensor_today != [] and is_state(workday_sensor_today, 'off') %}
-      {{ time_down_late_non_workday }}
-    {% else %}
-      {{ time_down_late }}
-    {% endif %}
+    {{
+      time_down_late_non_workday if is_tomorrow_off else
+      time_down_late if is_tomorrow_on else
+      time_down_late_non_workday if is_today_off else
+      time_down_late
+    }}
 
   # Force
   auto_up_force: !input auto_up_force
@@ -2347,17 +2338,17 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% set is_non_workday = (workday_sensor_today != [] and is_state(workday_sensor_today, 'off')) %}
-      {% set early = time_up_early_non_workday if is_non_workday else time_up_early %}
-      {{ now() >= today_at(early) }}
+      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
+      {% set time_compare = time_up_early_non_workday if is_today_off else time_up_early %}
+      {{ now() >= today_at(time_compare) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_open_1"
 
   - platform: template # comparing the times to avoid double triggering if early+late are identical
     value_template: >-
-      {% set is_non_workday = (workday_sensor_today != [] and is_state(workday_sensor_today, 'off')) %}
-      {% set early = time_up_early_non_workday if is_non_workday else time_up_early %}
-      {% set late = time_up_late_non_workday if is_non_workday else time_up_late %}
+      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
+      {% set early = time_up_early_non_workday if is_today_off else time_up_early %}
+      {% set late = time_up_late_non_workday if is_today_off else time_up_late %}
       {{ early != late and now() >= today_at(late) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_open_2"
@@ -2399,25 +2390,29 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% set is_tomorrow = workday_sensor_tomorrow != [] %}
-      {% set is_today = workday_sensor_today != [] %}
-      {% set tomorrow_off = is_tomorrow and is_state(workday_sensor_tomorrow, 'off') %}
-      {% set today_off = is_today and is_state(workday_sensor_today, 'off') %}
-      {% set early = time_down_early_non_workday if tomorrow_off or today_off else time_down_early %}
-      {{ now() >= today_at(early) }}
+      {% set is_tomorrow_off = is_state('workday_sensor_tomorrow', 'off') %}
+      {% set is_tomorrow_on = is_state('workday_sensor_tomorrow', 'on') %}
+      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
+      {% set time_compare =
+        time_down_early_non_workday if is_tomorrow_off else
+        time_down_early if is_tomorrow_on else
+        time_down_early_non_workday if is_today_off else
+        time_down_early %}
+      {{ now() >= today_at(time_compare) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_close_1"
 
-  - platform: template # Avoid double triggering if early and late times are identical
+  - platform: template # Avoid double triggering with 'early != late' if early and late times are identical
     value_template: >-
-      {% set is_tomorrow = workday_sensor_tomorrow != [] %}
-      {% set is_today = workday_sensor_today != [] %}
-      {% set tomorrow_off = is_tomorrow and is_state(workday_sensor_tomorrow, 'off') %}
-      {% set today_off = is_today and is_state(workday_sensor_today, 'off') %}
-      {% set is_non_workday = today_off or tomorrow_off %}
-      {% set early = time_down_early_non_workday if is_non_workday else time_down_early %}
-      {% set late = time_down_late_non_workday if is_non_workday else time_down_late %}
-      {{ early != late and now() >= today_at(late) }}
+      {% set is_tomorrow_off = is_state('workday_sensor_tomorrow', 'off') %}
+      {% set is_tomorrow_on = is_state('workday_sensor_tomorrow', 'on') %}
+      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
+      {% set time_compare =
+        time_down_late_non_workday if is_tomorrow_off else
+        time_down_late if is_tomorrow_on else
+        time_down_late_non_workday if is_today_off else
+        time_down_late %}
+      {{ (time_down_early_non_workday != time_compare and time_down_early != time_compare) and now() >= today_at(time_compare) }}
     enabled: "{{ is_time_field_enabled }}"
     id: "t_close_2"
 
