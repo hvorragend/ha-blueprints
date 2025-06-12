@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.06.1x
+    **Version**: 2025.06.12
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -74,10 +74,11 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    2025.06.1x
-      - Fixed: Delay increased to 60sec for the “End Sun Shading Immediately When Out Of Range” feature. Hoping that the new trigger will then be executed successfully. HA seems to ignore shorter values.
-      - Updated: Refactor- Added robust fallback to helper_state_json
-      - Updated: Refactored shading end triggers to activate only when shading is currently active
+    2025.06.12
+      - Fixed: Increased the delay to 20 seconds for the “End Sun Shading Immediately When Out Of Range” feature. This change aims to ensure the new trigger executes reliably, as Home Assistant appears to ignore shorter delay values.
+      - Updated: Refactored helper_state_json to include a more robust fallback mechanism.
+      - Improved: Shading end triggers have been restructured to activate only when shading is currently active.
+      - Refactored: Codebase has been restructured to use YAML anchors, improving maintainability and reducing redundancy.
 
     2025.06.11
       - Fixed: Error fixed if the Workday Tomorrow sensor was not specified
@@ -2039,6 +2040,10 @@ blueprint:
                 - "info"
                 - "warning"
 
+################################################################################
+# TRIGGER VARIABLES
+################################################################################
+
 trigger_variables:
   blind: !input blind
 
@@ -2140,8 +2145,12 @@ trigger_variables:
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
 
+################################################################################
+# VARIABLES
+################################################################################
+
 variables:
-  version: "2025.06.1x"
+  version: "2025.06.12"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2214,9 +2223,8 @@ variables:
     {{
       'cover_helper_enabled' in cover_status_options and
       cover_status_helper != [] and
-      states(cover_status_helper) != [] and
-      states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-      states(cover_status_helper) not in ['unavailable', 'none', 'unknown']
+      states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none', []] and
+      states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")
     }}
 
   helper_state_json: >
@@ -2344,7 +2352,12 @@ variables:
 mode: single
 max_exceeded: silent
 
+################################################################################
+# TRIGGERS
+################################################################################
+
 triggers:
+
   ########################################
   # Trigger for opening cover
   ########################################
@@ -2532,26 +2545,11 @@ triggers:
     enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
     id: "t_shading_start_pending_5"
 
-  # TODO: Alternative code. Will be tested later.
-  #
-  # - platform: template # TODO
-  #   value_template: >-
-  #     {% set helper_state = states(cover_status_helper) %}
-  #     {% if helper_state not in ['unavailable', 'none', 'unknown', ''] and
-  #           helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") %}
-  #       {% set shading_data = helper_state | from_json %}
-  #       {{ shading_data.shading.p is defined and shading_data.shading.p > 0 and
-  #         now() >= (shading_data.shading.p | as_datetime | as_local) }}
-  #     {% endif %}
-  #   enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
-  #   id: "t_shading_start_execution"
-
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) != [] and
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none', []] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-        states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
         states(cover_status_helper)|from_json|regex_search('shading') and
         (states(cover_status_helper)|from_json).shading.p is defined and
         (states(cover_status_helper)|from_json).shading.p > 0 and
@@ -2616,11 +2614,6 @@ triggers:
   # Triggers for shading end
   ########################################
 
-  # - platform: template
-  #   value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
-  #   enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
-  #   id: "t_shading_end_pending_1"
-
   - platform: template
     value_template: >-
       {{
@@ -2632,11 +2625,6 @@ triggers:
       }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_end_pending_1"
-
-  # - platform: template
-  #   value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
-  #   enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
-  #   id: "t_shading_end_pending_2"
 
   - platform: template
     value_template: >-
@@ -2650,11 +2638,6 @@ triggers:
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_end_pending_2"
 
-  # - platform: template
-  #   value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
-  #   enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
-  #   id: "t_shading_end_pending_3"
-
   - platform: template
     value_template: >-
       {{
@@ -2667,11 +2650,6 @@ triggers:
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_brightness_sensor != [] }}"
     id: "t_shading_end_pending_3"
 
-  # - platform: template
-  #   value_template: "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
-  #   enabled: "{{ is_shading_enabled and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
-  #   id: "t_shading_end_pending_4"
-
   - platform: template
     value_template: >-
       {{
@@ -2683,16 +2661,6 @@ triggers:
       }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
     id: "t_shading_end_pending_4"
-
-  # - platform: template
-  #   value_template: >-
-  #     {{
-  #         (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
-  #         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
-  #         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
-  #     }}
-  #   enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
-  #   id: "t_shading_end_pending_5"
 
   - platform: template
     value_template: >-
@@ -2713,9 +2681,8 @@ triggers:
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) != [] and
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none', []] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-        states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
         states(cover_status_helper)|from_json|regex_search('shading') and
         (states(cover_status_helper)|from_json).shading.q is defined and
         (states(cover_status_helper)|from_json).shading.q > 0 and
@@ -2748,9 +2715,8 @@ triggers:
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) != [] and
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none', []] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-        states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
         states(cover_status_helper)|from_json|regex_search('manual') and
         (states(cover_status_helper)|from_json).manual.t is defined and
         (states(cover_status_helper)|from_json).manual.a is defined and
@@ -2767,9 +2733,9 @@ triggers:
     id: "t_manual_4"
     for: "00:01:00"
 
-########################################
-# Global conditions
-########################################
+################################################################################
+# GLOBAL CONDITIONS
+################################################################################
 
 conditions:
   - condition: !input auto_global_condition
@@ -2777,15 +2743,13 @@ conditions:
       - "{{ trigger.to_state is not defined }}" # for "platform: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger
 
-########################################
-# Action
-########################################
+################################################################################
+# ACTIONS
+################################################################################
 
 actions:
 
-  ############################################################
-  # YAML Anchors
-  ############################################################
+  # YAML Anchors ###############################################################
   - variables:
       cover_move_action: &cover_move_action
         sequence:
@@ -2865,7 +2829,7 @@ actions:
                 {% set dict_new = dict(dict_var, **(update_values | default({})) ) %}
                 {{ dict_new | to_json }}
 
-  # Querying the weather forecast
+  # Querying the weather forecast  #############################################
   - if:
       - "{{ is_shading_enabled }}"
       - "{{ not prevent_forecast_service }}"
@@ -2882,20 +2846,20 @@ actions:
           type: !input shading_forecast_type
         response_variable: weather_forecast
 
-  # Initialise empty helper with JSON default values
+  # Initialise empty helper with JSON default values ###########################
   - if:
       - "{{ 'cover_helper_enabled' in cover_status_options }}"
       - "{{ cover_status_helper != [] }}"
       - or:
+          - "{{ states(cover_status_helper) in ['', 'unknown', 'unavailable', 'none'] }}"
           - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
-          - '{{ states(cover_status_helper) in ["unavailable", "none", "unknown"] }}'
     then:
       - action: input_text.set_value # I cannot use update_values here, because is is is_status_helper_enabled before
         data:
           entity_id: !input cover_status_helper
           value: "{{ helper_state_json | to_json }}"
 
-  # Upgrade JSON-helper to current version
+  # Upgrade JSON-helper to current version #####################################
   - if:
       - "{{ is_status_helper_enabled }}"
       - "{{ helper_state_json.v != 5 }}"
@@ -2913,6 +2877,7 @@ actions:
       - *helper_update
 
   - choose:
+
       ############################################################
       # ANCHOR (0): OPEN
       #   Source: All (Open, Close, Ventilation, Shading)
@@ -3041,7 +3006,7 @@ actions:
                   - choose: []
                     default: !input auto_up_action
 
-          - stop: "Stop automation: OPEN"
+          # - stop: "Stop automation: OPEN"
 
       ############################################################
       # ANCHOR (1): CLOSE
@@ -3232,7 +3197,7 @@ actions:
               - choose: []
                 default: !input auto_down_action
 
-          - stop: "Stop automation: CLOSE"
+          # - stop: "Stop automation: CLOSE"
 
       ############################################################
       # ANCHOR (2): SHADING START
@@ -3421,10 +3386,11 @@ actions:
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
-              - stop: "Stop automation: SHADING START"
+              # - stop: "Stop automation: SHADING START"
 
             else: # Shading conditions were no longer met or not met again.
               - choose:
+
                   #####################################################################
                   # Shading conditions were not met consistently and it should be checked again periodically in a few seconds
                   #####################################################################
@@ -3553,7 +3519,7 @@ actions:
                         {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
                         {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
                         {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
-                        {% set local_waitingtime_end = 60 %}
+                        {% set local_waitingtime_end = 20 %}
                         {% endif %}
                         {{ local_waitingtime_end }}
                       update_values:
@@ -3627,8 +3593,14 @@ actions:
                       - "{{ (current_position < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
                 sequence:
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                      seconds: >
+                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                          {{ range(0, 2) | random }}
+                        {% else %}
+                          {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                        {% endif %}
+
                   - choose: []
                     default: !input auto_ventilate_action_before
                   - variables:
@@ -3656,8 +3628,14 @@ actions:
                   - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                   - "{{ is_helper_shading_end }}"
                 sequence:
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                      seconds: >
+                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                          {{ range(0, 2) | random }}
+                        {% else %}
+                          {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                        {% endif %}
+
                   - choose: []
                     default: !input auto_shading_end_action_before
                   - variables:
@@ -3681,7 +3659,7 @@ actions:
                   - choose: []
                     default: !input auto_shading_end_action
 
-          - stop: "Stop automation: SHADING END"
+          # - stop: "Stop automation: SHADING END"
 
       ############################################################
       # ANCHOR (5): CONTACT OPEN
@@ -3764,7 +3742,7 @@ actions:
                   - choose: []
                     default: !input auto_ventilate_action
 
-          - stop: "Stop automation: CONTACT OPEN"
+          # - stop: "Stop automation: CONTACT OPEN"
 
       ############################################################
       # ANCHOR (6): CONTACT CLOSED
@@ -3928,7 +3906,7 @@ actions:
                   - choose: []
                     default: !input auto_down_action
 
-          - stop: "Stop automation: CONTACT CLOSED"
+          # - stop: "Stop automation: CONTACT CLOSED"
 
       ############################################################
       # ANCHOR (7): FORCE OPEN
@@ -3957,7 +3935,7 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_up_action
-          - stop: "Stop automation: FORCE OPEN"
+          # - stop: "Stop automation: FORCE OPEN"
 
       ############################################################
       # ANCHOR (8): FORCE CLOSE
@@ -3986,7 +3964,7 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_down_action
-          - stop: "Stop automation: FORCE CLOSE"
+          # - stop: "Stop automation: FORCE CLOSE"
 
       ############################################################
       # ANCHOR (9): FORCE VENTILATION
@@ -4016,7 +3994,7 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_ventilate_action
-          - stop: "Stop automation: FORCE VENTILATION"
+          # - stop: "Stop automation: FORCE VENTILATION"
 
       ############################################################
       # ANCHOR (10): FORCE SHADING START
@@ -4046,7 +4024,7 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_shading_start_action
-          - stop: "Stop automation: FORCE SHADING START"
+          # - stop: "Stop automation: FORCE SHADING START"
 
       ############################################################
       # ANCHOR (11): MANUAL
@@ -4287,4 +4265,4 @@ actions:
                         message: "CCA Config issue: {{ repeat.item.message }} - {{ this.entity_id }}"
                         logger: "blueprints.hvorragend.cca"
 
-      - stop: "Stopping the automation - DEFAULT"
+      # - stop: "Stopping the automation - DEFAULT"
