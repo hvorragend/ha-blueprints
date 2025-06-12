@@ -76,7 +76,8 @@ blueprint:
 
     2025.06.1x
       - Fixed: Delay increased to 60sec for the “End Sun Shading Immediately When Out Of Range” feature. Hoping that the new trigger will then be executed successfully. HA seems to ignore shorter values.
-      - Updated: Refactor. Added robust fallback to helper_state_json
+      - Updated: Refactor- Added robust fallback to helper_state_json
+      - Updated: Refactored shading end triggers to activate only when shading is currently active
 
     2025.06.11
       - Fixed: Error fixed if the Workday Tomorrow sensor was not specified
@@ -2547,16 +2548,15 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% if
+      {{
         states(cover_status_helper) != [] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
         states(cover_status_helper)|from_json|regex_search('shading') and
         (states(cover_status_helper)|from_json).shading.p is defined and
-        (states(cover_status_helper)|from_json).shading.p > 0
-      %}
-        {{ now() >= ( (states(cover_status_helper)|from_json).shading.p) | as_datetime | as_local }}
-      {% endif %}
+        (states(cover_status_helper)|from_json).shading.p > 0 and
+        now() >= ( (states(cover_status_helper)|from_json).shading.p) | as_datetime | as_local
+      }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_start_execution"
 
@@ -2573,103 +2573,154 @@ triggers:
   - platform: template
     value_template: >-
       {{
-        state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1 and
-        (states(cover_status_helper)|from_json).shading.a == 1
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
     id: t_shading_tilt_1
 
   - platform: template
     value_template: >-
       {{
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_2 and
-        state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_1 and
-        (states(cover_status_helper)|from_json).shading.a == 1
+        state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_1
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
     id: t_shading_tilt_2
 
   - platform: template
     value_template: >-
       {{
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_3 and
-        state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_2 and
-        (states(cover_status_helper)|from_json).shading.a == 1
+        state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_2
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
     id: t_shading_tilt_3
 
   - platform: template
     value_template: >-
       {{
-        state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_3 and
-        (states(cover_status_helper)|from_json).shading.a == 1
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_3
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
     id: t_shading_tilt_4
 
   ########################################
   # Triggers for shading end
   ########################################
-  - platform: template
-    value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
-    enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
-    id: "t_shading_end_pending_1"
 
-    # TODO
-    # I would like to avoid triggering Shading End. But without creating my own triggers.
-    # And with the limited templates, I have hardly any options for querying the helper.
-    #
-    # {% set helper_state = states(cover_status_helper) %}
-    # {% set shaded = (
-    #   helper_state not in ['unavailable', 'none', 'unknown'] and
-    #   helper | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-    #   'shading' in helper_state | from_json and
-    #   (helper_state | from_json).shading.a | default(false) | bool and
-    #   not (
-    #     (helper_state | from_json).shading.p | default(false) | bool and
-    #     (helper_state | from_json).shading.q | default(false) | bool
-    #   )
-    # )
-    # %}
-
-  - platform: template
-    value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
-    enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
-    id: "t_shading_end_pending_2"
-
-  - platform: template
-    value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
-    enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
-    id: "t_shading_end_pending_3"
-
-  - platform: template
-    value_template: "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
-    enabled: "{{ is_shading_enabled and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
-    id: "t_shading_end_pending_4"
+  # - platform: template
+  #   value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+  #   enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
+  #   id: "t_shading_end_pending_1"
 
   - platform: template
     value_template: >-
       {{
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
+        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1)
+      }}
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor1 != [] }}"
+    id: "t_shading_end_pending_1"
+
+  # - platform: template
+  #   value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+  #   enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
+  #   id: "t_shading_end_pending_2"
+
+  - platform: template
+    value_template: >-
+      {{
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
+        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2)
+      }}
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor2 != [] }}"
+    id: "t_shading_end_pending_2"
+
+  # - platform: template
+  #   value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
+  #   enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
+  #   id: "t_shading_end_pending_3"
+
+  - platform: template
+    value_template: >-
+      {{
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
+        states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end
+      }}
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_brightness_sensor != [] }}"
+    id: "t_shading_end_pending_3"
+
+  # - platform: template
+  #   value_template: "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
+  #   enabled: "{{ is_shading_enabled and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
+  #   id: "t_shading_end_pending_4"
+
+  - platform: template
+    value_template: >-
+      {{
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
+        states(shading_forecast_sensor) not in shading_weather_conditions
+      }}
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
+    id: "t_shading_end_pending_4"
+
+  # - platform: template
+  #   value_template: >-
+  #     {{
+  #         (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
+  #         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
+  #         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
+  #     }}
+  #   enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
+  #   id: "t_shading_end_pending_5"
+
+  - platform: template
+    value_template: >-
+      {{
+        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
+        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
+        (
           (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
           (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
           (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
+        )
       }}
-    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and default_sun_sensor != [] }}"
     id: "t_shading_end_pending_5"
 
   - platform: template
     value_template: >-
-      {% if
+      {{
         states(cover_status_helper) != [] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
         states(cover_status_helper)|from_json|regex_search('shading') and
         (states(cover_status_helper)|from_json).shading.q is defined and
-        (states(cover_status_helper)|from_json).shading.q > 0
-      %}
-        {{ now() >= ( (states(cover_status_helper)|from_json).shading.q) | as_datetime | as_local }}
-      {% endif %}
+        (states(cover_status_helper)|from_json).shading.q > 0 and
+        now() >= ( (states(cover_status_helper)|from_json).shading.q) | as_datetime | as_local
+      }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_end_execution"
 
@@ -2696,17 +2747,16 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% if
+      {{
         states(cover_status_helper) != [] and
         states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         states(cover_status_helper) not in ["unavailable", "none", "unknown"] and
         states(cover_status_helper)|from_json|regex_search('manual') and
         (states(cover_status_helper)|from_json).manual.t is defined and
         (states(cover_status_helper)|from_json).manual.a is defined and
-        (states(cover_status_helper)|from_json).manual.a | bool is true
-      %}
-        {{ now() >= ( (states(cover_status_helper)|from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local }}
-      {% endif %}
+        (states(cover_status_helper)|from_json).manual.a | bool is true and
+         now() >= ( (states(cover_status_helper)|from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local
+       }}
     enabled: "{{ is_reset_timeout and cover_status_helper != [] }}"
     id: "t_manual_3"
     for: "00:00:02"
@@ -2732,7 +2782,11 @@ conditions:
 ########################################
 
 actions:
-  - variables: # YAML Anchors
+
+  ############################################################
+  # YAML Anchors
+  ############################################################
+  - variables:
       cover_move_action: &cover_move_action
         sequence:
           - repeat:
@@ -3267,7 +3321,7 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + shading_waitingtime_start) | round(0) }}", q: 0 }
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + (shading_waitingtime_start | int)) | round(0) }}", q: 0 }
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
@@ -3344,7 +3398,7 @@ actions:
                             shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
                             vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                             vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" } # TODO: Do I really want to overwrite the status here?
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *cover_move_action
                       - *tilt_move_action
@@ -3394,7 +3448,7 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + shading_waitingtime_start) | round(0) }}", q: 0 }
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + (shading_waitingtime_start | int)) | round(0) }}", q: 0 }
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
@@ -3496,13 +3550,14 @@ actions:
                 sequence:
                   - variables:
                       local_waitingtime_end: >
-                        {% set local_waitingtime_end = shading_waitingtime_end %}
+                        {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
                         {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
-                        {% set local_waitingtime_end = 60 %} # Almost immediately end shading when sun position out of range. Earlier triggers do not work.
+                        {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
+                        {% set local_waitingtime_end = 60 %}
                         {% endif %}
                         {{ local_waitingtime_end }}
                       update_values:
-                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + local_waitingtime_end) | round(0) }}" }
+                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + (local_waitingtime_end | int)) | round(0) }}" }
                         t: "{{ as_timestamp(now()) | round(0) }}"
                   - *helper_update
 
