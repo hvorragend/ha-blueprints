@@ -395,3 +395,13 @@
 
 2025.06.10
   - Fixed: The detection of weekdays and weekends is working again.
+
+2025.06.11
+  - Fixed: Error fixed if the Workday Tomorrow sensor was not specified
+
+2025.06.12
+  - Fixed: Increased the delay to 20 seconds for the “End Sun Shading Immediately When Out Of Range” feature. This change aims to ensure the new trigger executes reliably, as Home Assistant appears to ignore shorter delay values.
+  - Updated: Refactored helper_state_json to include a more robust fallback mechanism.
+  - Improved: Shading end triggers have been restructured to activate only when shading is currently active.
+  - Refactored: Codebase has been restructured to use YAML anchors, improving maintainability and reducing redundancy.
+
