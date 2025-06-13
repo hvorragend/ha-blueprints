@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.06.12
+    **Version**: 2025.06.13
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,9 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.06.13
+      - Quick fixes
 
     2025.06.12
       - Fixed: Increased the delay to 20 seconds for the “End Sun Shading Immediately When Out Of Range” feature. This change aims to ensure the new trigger executes reliably, as Home Assistant appears to ignore shorter delay values.
@@ -1492,10 +1495,10 @@ blueprint:
           description: >-
             Behavior if the shading conditions were not permanently met over the period.
             <p>
-            Reset the detected shading start and wait for another trigger
+            Option 1: Reset the detected shading start and wait for another trigger
             The system discards the current shading start detection and waits for a new valid trigger condition.
             </p><p>
-            Checks every few seconds, only during the day, as defined in 'Waiting Time for Sun Shading Start'
+            Option 2: Checks every few seconds, only during the day, as defined in 'Waiting Time for Sun Shading Start'
             The system continues to check periodically—every few seconds during daytime—based on the interval specified in the 'Waiting Time for Sun Shading Start' setting.
             However, this only applies if the shading conditions have changed negatively between the initial trigger (pending) and the next check (execution).
             </p>
@@ -2150,16 +2153,16 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.06.12"
+  version: "2025.06.13"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
   current_tilt_position: "{{ state_attr(blind,'current_tilt_position') | int(default=101) }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
-  is_today_off: "{{ is_state('workday_sensor_today', 'off') }}"
-  is_tomorrow_off: "{{ is_state('workday_sensor_tomorrow', 'off') }}"
-  is_tomorrow_on: "{{ is_state('workday_sensor_tomorrow', 'on') }}"
+  is_today_off: "{{ is_state(workday_sensor_today, 'off') }}"
+  is_tomorrow_off: "{{ is_state(workday_sensor_tomorrow, 'off') }}"
+  is_tomorrow_on: "{{ is_state(workday_sensor_tomorrow, 'on') }}"
 
   # Delays
   drive_delay_fix: !input drive_delay_fix
@@ -2188,10 +2191,10 @@ variables:
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
-  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and is_state('auto_up_force', ['false', 'off'])) }}"
-  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and is_state('auto_down_force', ['false', 'off'])) }}"
-  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and is_state('auto_ventilate_force', ['false', 'off'])) }}"
-  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and is_state('auto_shading_start_force', ['false', 'off'])) }}"
+  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
+  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
+  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
+  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
 
   # Tilt
   is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
@@ -2364,7 +2367,7 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
+      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
       {% set time_compare = time_up_early_non_workday if is_today_off else time_up_early %}
       {{ now() >= today_at(time_compare) }}
     enabled: "{{ is_time_field_enabled }}"
@@ -2372,7 +2375,7 @@ triggers:
 
   - platform: template # comparing the times to avoid double triggering if early+late are identical
     value_template: >-
-      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
+      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
       {% set early = time_up_early_non_workday if is_today_off else time_up_early %}
       {% set late = time_up_late_non_workday if is_today_off else time_up_late %}
       {{ early != late and now() >= today_at(late) }}
@@ -2380,7 +2383,7 @@ triggers:
     id: "t_open_2"
 
   - platform: template
-    value_template: "{{ is_state('time_schedule_helper', ['true', 'on']) }}"
+    value_template: "{{ is_state(time_schedule_helper, ['true', 'on']) }}"
     enabled: "{{ is_schedule_helper_enabled and time_schedule_helper != [] }}"
     id: "t_open_3"
 
@@ -2416,9 +2419,9 @@ triggers:
 
   - platform: template
     value_template: >-
-      {% set is_tomorrow_off = is_state('workday_sensor_tomorrow', 'off') %}
-      {% set is_tomorrow_on = is_state('workday_sensor_tomorrow', 'on') %}
-      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
+      {% set is_tomorrow_off = is_state(workday_sensor_tomorrow, 'off') %}
+      {% set is_tomorrow_on = is_state(workday_sensor_tomorrow, 'on') %}
+      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
       {% set time_compare =
         time_down_early_non_workday if is_tomorrow_off else
         time_down_early if is_tomorrow_on else
@@ -2430,9 +2433,9 @@ triggers:
 
   - platform: template # Avoid double triggering with 'early != late' if early and late times are identical
     value_template: >-
-      {% set is_tomorrow_off = is_state('workday_sensor_tomorrow', 'off') %}
-      {% set is_tomorrow_on = is_state('workday_sensor_tomorrow', 'on') %}
-      {% set is_today_off = is_state('workday_sensor_today', 'off') %}
+      {% set is_tomorrow_off = is_state(workday_sensor_tomorrow, 'off') %}
+      {% set is_tomorrow_on = is_state(workday_sensor_tomorrow, 'on') %}
+      {% set is_today_off = is_state(workday_sensor_today, 'off') %}
       {% set time_compare =
         time_down_late_non_workday if is_tomorrow_off else
         time_down_late if is_tomorrow_on else
@@ -2443,7 +2446,7 @@ triggers:
     id: "t_close_2"
 
   - platform: template
-    value_template: "{{ is_state('time_schedule_helper', ['false', 'off']) }}"
+    value_template: "{{ states(time_schedule_helper) in ['false', 'off'] }}"
     enabled: "{{ is_schedule_helper_enabled and time_schedule_helper != [] }}"
     id: "t_close_3"
 
@@ -2478,28 +2481,28 @@ triggers:
   #################################################
 
   - platform: template
-    value_template: "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+    value_template: "{{ states(contact_window_tilted) in ['true', 'on'] }}"
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
     id: "t_contact_tilted_on"
     for:
       seconds: !input contact_delay_trigger
 
   - platform: template
-    value_template: "{{ is_state('contact_window_tilted', ['false', 'off']) }}"
+    value_template: "{{ states(contact_window_tilted) in ['false', 'off'] }}"
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
     id: "t_contact_tilted_off"
     for:
       seconds: !input contact_delay_trigger
 
   - platform: template
-    value_template: "{{ is_state('contact_window_opened', ['true', 'on']) }}"
+    value_template: "{{ states(contact_window_opened) in ['true', 'on'] }}"
     enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
     id: "t_contact_opened_on"
     for:
       seconds: !input contact_delay_trigger
 
   - platform: template
-    value_template: "{{ is_state('contact_window_opened', ['false', 'off']) }}"
+    value_template: "{{ states(contact_window_opened) in ['false', 'off'] }}"
     enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
     id: "t_contact_opened_off"
     for:
@@ -2904,10 +2907,10 @@ actions:
               - "{{ trigger.id == 't_open_6' and resident_opening_enabled }}" # Only continue if permitted
           - or: # Resident status must always be checked
               - "{{ resident_sensor == [] }}"
-              - "{{ is_state('resident_sensor', ['false', 'off']) }}"
+              - "{{ states(resident_sensor) in ['false', 'off'] }}"
               - and:
                   - "{{ resident_allow_opening }}"
-                  - "{{ is_state('resident_sensor', ['true', 'on']) }}"
+                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
           - or: # Now we have to check different opening scenarios
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
@@ -2920,7 +2923,7 @@ actions:
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
                   - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state('time_schedule_helper', 'on') }}"
+                  - "{{ is_state(time_schedule_helper, 'on') }}"
                   - "{{ trigger.id in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false # TODO Why is the resident trigger here?
               - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                   - or:
@@ -2933,7 +2936,7 @@ actions:
                       - and:
                           - "{{ is_schedule_helper_enabled }}"
                           - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state('time_schedule_helper', 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
+                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
                           - "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) }}"
                           - "{{ now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5) }}"
                   - or:
@@ -3047,7 +3050,7 @@ actions:
                   # Otherwise it could happen that the blind does not close if it is still too bright.
                   # - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
                   # - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state('time_schedule_helper', 'off') }}"
+                  - "{{ is_state(time_schedule_helper, 'off') }}"
                   - "{{ trigger.id == 't_close_3' }}"
               - and: # Closing - Down early reached and brightness/sun below minimum
                   - or:
@@ -3060,7 +3063,7 @@ actions:
                       - and:
                           - "{{ is_schedule_helper_enabled }}"
                           - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state('time_schedule_helper', 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
+                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
                           - "{{ now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) }}"
                           - "{{ now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5) }}"
                   - or:
@@ -3073,7 +3076,7 @@ actions:
               - and: # Closing - due to resident goes sleeping
                   - "{{ trigger.id == 't_close_6' }}"
                   - "{{ resident_sensor != [] }}"
-                  - "{{ is_state('resident_sensor', ['true', 'on']) }}"
+                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
                   - "{{ resident_closing_enabled }}"
 
         sequence:
@@ -3088,11 +3091,11 @@ actions:
                   - or:
                       - and:
                           - "{{ contact_window_opened != [] }}"
-                          - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
+                          - "{{ states(contact_window_opened) in ['true', 'on'] }}"
                       - and:
                           - "{{ lockout_tilted_when_closing }}"
                           - "{{ contact_window_tilted != [] }}"
-                          - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+                          - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                 sequence:
                   - variables:
                       update_values:
@@ -3113,11 +3116,11 @@ actions:
                   - "{{ is_ventilation_enabled }}"
                   - "{{ is_status_helper_enabled }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                   - "{{ not lockout_tilted_when_closing }}"
                   - or:
                       - "{{ contact_window_opened == [] }}"
-                      - "{{ is_state('contact_window_opened', ['false', 'off']) }}"
+                      - "{{ states(contact_window_opened) in ['false', 'off'] }}"
 
                 sequence:
                   - choose: []
@@ -3301,11 +3304,11 @@ actions:
                       - or:
                           - and:
                               - "{{ contact_window_opened != [] }}"
-                              - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
+                              - "{{ states(contact_window_opened) in ['true', 'on'] }}"
                           - and:
                               - "{{ lockout_tilted_when_shading_starts }}"
                               - "{{ contact_window_tilted != [] }}"
-                              - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+                              - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                     sequence:
                       - variables:
                           update_values:
@@ -3342,13 +3345,13 @@ actions:
                           - and:
                               - "{{ is_schedule_helper_enabled }}"
                               - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state('time_schedule_helper', 'on') }}"
+                              - "{{ is_state(time_schedule_helper, 'on') }}"
                       - or:
                           - "{{ resident_sensor == [] }}"
-                          - "{{ is_state('resident_sensor', ['false', 'off']) }}"
+                          - "{{ states(resident_sensor) in ['false', 'off'] }}"
                           - and: # Issue 131
                               - "{{ resident_allow_shading }}"
-                              - "{{ is_state('resident_sensor', ['true', 'on']) }}"
+                              - "{{ states(resident_sensor) in ['true', 'on'] }}"
                     sequence:
                       - delay:
                           seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
@@ -3410,7 +3413,7 @@ actions:
                           - and:
                               - "{{ is_schedule_helper_enabled }}"
                               - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state('time_schedule_helper', 'on') }}"
+                              - "{{ is_state(time_schedule_helper, 'on') }}"
                     sequence:
                       - variables:
                           update_values:
@@ -3492,7 +3495,7 @@ actions:
               - and:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
-                  - "{{ is_state('time_schedule_helper', 'on') }}"
+                  - "{{ is_state(time_schedule_helper, 'on') }}"
           - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
           - or:
               - "{{ is_helper_shaded }}"
@@ -3502,7 +3505,7 @@ actions:
               - "{{ prevent_shading_end_if_closed and not in_close_position}}"
           - or: # Issue #116
               - "{{ resident_sensor == [] }}"
-              - "{{ is_state('resident_sensor', ['false', 'off']) }}"
+              - "{{ states(resident_sensor) in ['false', 'off'] }}"
 
         sequence:
           - choose:
@@ -3557,10 +3560,10 @@ actions:
                   - or:
                       - and:
                           - "{{ contact_window_opened != [] }}"
-                          - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
+                          - "{{ states(contact_window_opened) in ['true', 'on'] }}"
                       - and:
                           - "{{ contact_window_tilted != [] }}"
-                          - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+                          - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                           - "{{ lockout_tilted_when_shading_ends }}"
                 sequence:
                   - variables:
@@ -3584,11 +3587,11 @@ actions:
                   - "{{ is_ventilation_enabled }}"
                   - "{{ ventilation_after_shading_end }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                   - "{{ not lockout_tilted_when_closing }}"
                   - or:
                       - "{{ contact_window_opened == [] }}"
-                      - "{{ is_state('contact_window_opened', ['false', 'off']) }}"
+                      - "{{ states(contact_window_opened) in ['false', 'off'] }}"
                   - or:
                       - "{{ (current_position < ventilate_position) }}"
                       - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
@@ -3682,10 +3685,10 @@ actions:
               - "{{ auto_shading_start_force_disabled }}"
           - or:
               - "{{ resident_sensor == [] }}"
-              - "{{ is_state('resident_sensor', ['false', 'off']) }}"
+              - "{{ states(resident_sensor) in ['false', 'off'] }}"
               - and:
                   - "{{ resident_allow_ventilation }}"
-                  - "{{ is_state('resident_sensor', ['true', 'on']) }}"
+                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
         sequence:
           - delay:
               seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
@@ -3696,7 +3699,7 @@ actions:
               - alias: "Window handle to open. Open cover"
                 conditions:
                   - "{{ contact_window_opened != [] }}"
-                  - "{{ is_state('contact_window_opened', ['true', 'on']) }}"
+                  - "{{ states(contact_window_opened) in  ['true', 'on'] }}"
                   - "{{ trigger.id == 't_contact_opened_on' }}"
                   - "{{ not in_open_position }}"
                 sequence:
@@ -3717,7 +3720,7 @@ actions:
               - alias: "Window handle to tilt. Move the cover to the partial ventilation position."
                 conditions:
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                   - "{{ trigger.id == 't_contact_tilted_on' }}"
                   - or:
                       - "{{ (current_position < ventilate_position) }}"
@@ -3768,7 +3771,7 @@ actions:
               - and:
                   - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state('contact_window_tilted', ['false', 'off']) }}"
+                  - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
                   - or:
                       - "{{ is_helper_vent_partial }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
@@ -3780,13 +3783,13 @@ actions:
                   # But the return from this must be taken into account somehow.
                   - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state('contact_window_tilted', ['false', 'off']) }}"
+                  - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
                   - "{{ lockout_tilted_when_closing }}"
                   - "{{ is_helper_vent_full }}"
               - and:
                   - "{{ trigger.id == 't_contact_opened_off' }}"
                   - "{{ contact_window_opened != [] }}"
-                  - "{{ is_state('contact_window_opened', ['false', 'off']) }}"
+                  - "{{ states(contact_window_opened) in ['false', 'off'] }}"
                   - "{{ is_helper_vent_full }}"
 
         sequence:
@@ -3807,7 +3810,7 @@ actions:
                 conditions:
                   - "{{ is_helper_vent_full }}" # Was fully ventilated before :-)
                   - "{{ contact_window_tilted != [] }}"
-                  - "{{ is_state('contact_window_tilted', ['true', 'on']) }}"
+                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
@@ -4236,7 +4239,7 @@ actions:
                   message: "Please revise the position values and take the tolerance values into account. The values must not overlap"
 
                 # Sensor and attribute checks
-                - condition: "{{ (resident_sensor != [] ) and (not is_state('resident_sensor', ['false', 'off','true', 'on'])) }}"
+                - condition: "{{ (resident_sensor != [] ) and (not states(resident_sensor) in ['false', 'off','true', 'on']) }}"
                   message: "resident_sensor is only allowed to be on/off/true/false"
                 - condition: "{{ state_attr(blind, 'current_position') is none }}"
                   message: "Cover is missing attribute current_position"
