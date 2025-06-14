@@ -2873,12 +2873,12 @@ actions:
                 {% set dict_new = dict(dict_var, **(update_values | default({})) ) %}
                 {{ dict_new | to_json }}
 
-      ######################################################################################
+      #########################################################################################
       # What target positions and how the helper should be updated is defined in all actions
-      # In this step there is an additional check whether the cover should move and tilt
-      # In some case the cover should NOT move/tilt, but the helper should be still updated
-      # This is regulated via should_cover_move_and_tilt
-      ######################################################################################
+      # In this anchor there is an additional check whether the cover should move and tilt for
+      # feature prevent_opening_movement. In some case the cover should NOT move/tilt, but the 
+      # helper should still be updated,the variable should_cover_move_and_tilt is used for this
+      #########################################################################################
       cover_move_and_tilt_and_update_helper: &cover_move_and_tilt_and_update_helper
         - if:
             - and:
@@ -2887,11 +2887,26 @@ actions:
                     - "{{ not prevent_opening_movement_disabled and (current_position >= target_position) }}"
                 - or:
                     - "{{ should_cover_move_and_tilt is not defined }}"
-                    - "{{ should_cover_move_and_tilt is defined and should_cover_move_and_tilt }}" 
+                    - "{{ should_cover_move_and_tilt is defined and should_cover_move_and_tilt }}"
           then:
             - *cover_move_action
             - *tilt_move_action
-        - *helper_update
+       # The helper should be updated if the cover was moved or tilted
+       # OR if we have created a variable in the action block should_cover_move_and_tilt
+       # This is only done when the update of the helper should happen independent of the evaluation
+       # of that expression
+        - if:
+            - or:
+                - and:
+                    - or:
+                        - "{{ prevent_opening_movement_disabled }}"
+                        - "{{ not prevent_opening_movement_disabled and (current_position >= target_position) }}"
+                    - or:
+                        - "{{ should_cover_move_and_tilt is not defined }}"
+                        - "{{ should_cover_move_and_tilt is defined and should_cover_move_and_tilt }}"
+                - "{{ should_cover_move_and_tilt is defined }}"
+          then:
+            - *helper_update
 
   # Querying the weather forecast  #############################################
   - if:
