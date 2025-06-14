@@ -2130,6 +2130,7 @@ trigger_variables:
   lockout_tilted_when_closing: "{{ 'lockout_tilted_closing' in lockout_tilted_options }}"
   lockout_tilted_when_shading_starts: "{{ 'lockout_tilted_shading_start' in lockout_tilted_options }}"
   lockout_tilted_when_shading_ends: "{{ 'lockout_tilted_shading_end' in lockout_tilted_options }}"
+  prevent_opening_movement: !input prevent_opening_movement
 
   # Time controls
   time_control: !input time_control
@@ -2438,6 +2439,12 @@ triggers:
     from: "on"
     to: "off"
     id: "t_open_6"
+
+  - platform: state
+    entity_id: !input prevent_opening_movement
+    from: "on"
+    to: "off"
+    id: "t_open_7"
 
   - platform: state
     entity_id: !input auto_up_force
@@ -3515,7 +3522,7 @@ actions:
         conditions:
           - "{{ is_shading_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_shading_end)') }}"
+          - "{{ trigger.id | regex_match('^(t_shading_end|t_open_7)') }}" # If opening movement was not allowed upfront but shading was finished while all opening movements were blocked this needs to be triggered again
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_end_condition
           - and:
@@ -3707,7 +3714,7 @@ actions:
         conditions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on'] }}"
+          - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on', 't_open_7'] }}" # If window was opened and the cover was not allowed to move to a more open position then we need to retrigger this part
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_condition
           - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
@@ -4260,6 +4267,8 @@ actions:
                   message: "Sun sensor is missing attribute azimuth"
                 - condition: "{{ is_brightness_enabled and (default_brightness_sensor == [] or not is_number(states(default_brightness_sensor))) }}"
                   message: "Brightness sensor not defined or state is not numeric"
+                - condition: "{{ (prevent_opening_movement != [] ) and (not states(prevent_opening_movement) in ['false', 'off','true', 'on']) }}"
+                  message: "prevent_opening_movement is only allowed to be on/off/true/false"
 
                 # Helper checks
                 - condition: "{{ 'cover_helper_enabled' in cover_status_options and state_attr(cover_status_helper, 'max') < 254 }}"
