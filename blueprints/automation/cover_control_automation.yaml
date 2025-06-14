@@ -440,6 +440,18 @@ blueprint:
               custom_value: false
               mode: list
 
+        prevent_opening_movement:
+          name: "🚫🔼 Prevent opening of cover via Entity"
+          description: >-
+            If the status of this entity changes to on or true, the cover can only move to a more closed position and will skip all opening movements. Note that this also implicitly means that all tilt changes after opening will also be skipped. A typical use case will be when it is raining outside and you want to make sure your cover does not close while it is raining (or even a little after it stopped raining) to let the cover dry out.
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
+                - switch
+
     helper_section:
       name: "Cover Status Helper"
       icon: mdi:form-textbox
@@ -1935,18 +1947,6 @@ blueprint:
                 - binary_sensor
                 - switch
 
-        auto_prevent_opening_force:
-          name: "🚫🔼 Force prevent opening of cover via Entity"
-          description: >-
-            If the status of this entity changes to on or true, the cover can only move to a more closed position and will skip all opening movements. Note that this also implicitly means that all tilt changes after opening will also be skipped.
-          default: []
-          selector:
-            entity:
-              domain:
-                - input_boolean
-                - binary_sensor
-                - switch
-
     actions_section:
       name: "Additional Actions"
       description: >-
@@ -2220,13 +2220,11 @@ variables:
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
-  auto_prevent_opening_force: !input auto_prevent_opening_force
 
   auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
   auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
   auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
   auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
-  auto_prevent_opening_force_disabled: "{{ auto_prevent_opening_force == [] or (auto_prevent_opening_force != [] and is_state(auto_prevent_opening_force, ['false', 'off'])) }}"
 
   # Tilt
   is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
@@ -2360,6 +2358,8 @@ variables:
   prevent_shading_multiple_times: "{{ 'prevent_shading_multiple_times' in individual_config }}"
   prevent_opening_multiple_times: "{{ 'prevent_opening_multiple_times' in individual_config }}"
   prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
+  prevent_opening_movement: !input prevent_opening_movement
+  prevent_opening_movement_disabled: "{{ prevent_opening_movement == [] or (prevent_opening_movement != [] and is_state(prevent_opening_movement, ['false', 'off'])) }}"
 
   resident_config: !input resident_config
   resident_opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
@@ -2871,11 +2871,11 @@ actions:
         - if:
             - and:
                 - or:
-                    - "{{ auto_prevent_opening_force_disabled }}"
-                    - "{{ not auto_prevent_opening_force_disabled and (current_position >= target_position) }}"
+                    - "{{ prevent_opening_movement_disabled }}"
+                    - "{{ not prevent_opening_movement_disabled and (current_position >= target_position) }}"
                 - or:
-                    - "{{ should_cover_and_tilt_be_applied is not defined }}"
-                    - "{{ should_cover_and_tilt_be_applied is defined and should_cover_and_tilt_be_applied }}" 
+                    - "{{ should_cover_move_and_tilt is not defined }}"
+                    - "{{ should_cover_move_and_tilt is defined and should_cover_move_and_tilt }}" 
           then:
             - *cover_move_action
             - *tilt_move_action
@@ -3690,7 +3690,7 @@ actions:
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                         t: "{{ as_timestamp(now()) | round(0) }}"
-                      should_cover_and_tilt_be_applied: "{{ not prevent_opening_after_shading_end }}"  
+                      should_cover_move_and_tilt: "{{ not prevent_opening_after_shading_end }}"  
                   - *cover_move_and_tilt_and_update_helper
                   - choose: []
                     default: !input auto_shading_end_action
@@ -3899,7 +3899,7 @@ actions:
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                         t: "{{ as_timestamp(now()) | round(0) }}"
-                      should_cover_and_tilt_be_applied: "{{ not prevent_opening_after_ventilation_end }}"  
+                      should_cover_move_and_tilt: "{{ not prevent_opening_after_ventilation_end }}"  
                   - *cover_move_and_tilt_and_update_helper
                   - choose: []
                     default: !input auto_up_action
