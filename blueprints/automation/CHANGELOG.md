@@ -409,3 +409,8 @@
   - Fixed incorrect use of is_state() with potentially invalid inputs
   - Improved robustness using states() with type checks
   - Handled optional workday sensor inputs gracefully
+
+2025.06.19:
+  - Fixed: Tilt Delay added again
+  - Fixed: Even though no shading was explicitly applied, the shading has ended for a closed cover #226
+  - Added: Add sun shading minimum tilt position (Thank you for the pull request, julianwachholz) #230
