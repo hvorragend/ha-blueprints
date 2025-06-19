@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.06.13-02
+    **Version**: 2025.06.19
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,10 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.06.19:
+      - Fixed: Tilt Delay added again
+      - Fixed: Even though no shading was explicitly applied, the shading has ended for a closed cover #226
 
     2025.06.13-02
       - Fixed incorrect use of is_state() with potentially invalid inputs
@@ -609,7 +613,7 @@ blueprint:
         cover_tilt_reposition_config:
           name: "📐 Tilt Reposition Feature"
           description: >-
-            If Tilt Reposition Feature is enabled you can choose if the blinds are closed before tilting to a new position.
+            If Tilt Position Feature is enabled you can choose if the blinds are closed before tilting to a new position.
             In some cases tilting the blinds in small steps can lead to false positions. This is because of the minimum time the motor needs to run.
             If the runtime between current tilt position and target tilt position is to small the motor will not stop at the right position.
             Thus the blinds will be preclosed to 0 and then run to the target position.
@@ -653,18 +657,9 @@ blueprint:
               min: 0
               max: 100
               unit_of_measurement: "%"
-        shading_tilt_position_0:
-          name: "🥵 Sun Shading Tilt Position"
-          description: "Minimum tilt position for shading. The cover will be tilted to this position if the sun elevation is below the value of elevation 1."
-          default: 0
-          selector:
-            number:
-              min: 0
-              max: 100
-              unit_of_measurement: "%"
         shading_tilt_position_1:
           name: "🥵 Sun Shading Tilt Position 1"
-          description: "To which tilt position should the cover be moved for shading when the sun is above elevation 1?"
+          description: "To which tilt position should the cover be moved for shading?"
           default: 20
           selector:
             number:
@@ -673,7 +668,7 @@ blueprint:
               unit_of_measurement: "%"
         shading_tilt_elevation_1:
           name: "🥵 Sun Shading Tilt Elevation 1"
-          description: "Sun elevation for tilt position 1."
+          description: Sun elevationn for tilt position 1.
           default: 20
           selector:
             number:
@@ -684,7 +679,7 @@ blueprint:
               step: 1.0
         shading_tilt_position_2:
           name: "🥵 Sun Shading Tilt Position 2"
-          description: "To which tilt position should the cover be moved for shading when the sun is above elevation 2?"
+          description: "To which tilt position should the cover be moved for shading?"
           default: 37
           selector:
             number:
@@ -693,7 +688,7 @@ blueprint:
               unit_of_measurement: "%"
         shading_tilt_elevation_2:
           name: "🥵 Sun Shading Tilt Elevation 2"
-          description: "Sun elevation for tilt position 2."
+          description: Sun elevationn for tilt position 2.
           default: 30
           selector:
             number:
@@ -704,7 +699,7 @@ blueprint:
               step: 1.0
         shading_tilt_position_3:
           name: "🥵 Sun Shading Tilt Position 3"
-          description: "To which tilt position should the cover be moved for shading when the sun is above elevation 3?"
+          description: "To which tilt position should the cover be moved for shading?"
           default: 50
           selector:
             number:
@@ -713,7 +708,7 @@ blueprint:
               unit_of_measurement: "%"
         shading_tilt_elevation_3:
           name: "🥵 Sun Shading Tilt Elevation 3"
-          description: "Sun elevation for tilt position 3."
+          description: Sun elevationn for tilt position 3.
           default: 48
           selector:
             number:
@@ -1004,7 +999,7 @@ blueprint:
             <li>+18° Astronomical Dusk</li>
             <li>+12° Nautical Dusk</li>
             <li>+6° Dusk</li>
-            <li>0° Sunrise/Sunset</li>
+            <li>0° Sunrise/Sunset (Default)</li>
             <li>-6° Civil Dawn</li>
             <li>-12° Nautical Dawn</li>
             <li>-18° Astronomical Dawn/Night</li>
@@ -2075,7 +2070,6 @@ trigger_variables:
   shading_tilt_elevation_1: !input shading_tilt_elevation_1
   shading_tilt_elevation_2: !input shading_tilt_elevation_2
   shading_tilt_elevation_3: !input shading_tilt_elevation_3
-  shading_tilt_position_0: !input shading_tilt_position_0
   shading_tilt_position_1: !input shading_tilt_position_1
   shading_tilt_position_2: !input shading_tilt_position_2
   shading_tilt_position_3: !input shading_tilt_position_3
@@ -2165,7 +2159,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.06.13-02"
+  version: "2025.06.19"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2223,7 +2217,7 @@ variables:
     {% elif elevation >= shading_tilt_elevation_1 | int %}
       {{ shading_tilt_position_1 | int }}
     {% else %}
-      {{ shading_tilt_position_0 | int }}
+      {{ 0 | int }}
     {% endif %}
 
   shading_waitingtime_start: !input shading_waitingtime_start
@@ -2811,6 +2805,9 @@ actions:
               - repeat:
                   for_each: "{{ blind_entities | list }}"
                   sequence:
+                    - alias: "Tilt Delay"
+                      delay:
+                        seconds: !input tilt_delay
                     - if:
                         - "{{ tilt_first | default(false) }}"
                       then:
@@ -3490,7 +3487,6 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_end)') }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ is_helper_shaded }}"
           - condition: !input auto_shading_end_condition
           - and:
               - "{{ auto_up_force_disabled }}"
@@ -3509,6 +3505,7 @@ actions:
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
           - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
+          - "{{ not is_helper_closed }}"
           - or:
               - "{{ is_helper_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
