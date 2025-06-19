@@ -405,3 +405,7 @@
   - Improved: Shading end triggers have been restructured to activate only when shading is currently active.
   - Refactored: Codebase has been restructured to use YAML anchors, improving maintainability and reducing redundancy.
 
+2025.06.13-02
+  - Fixed incorrect use of is_state() with potentially invalid inputs
+  - Improved robustness using states() with type checks
+  - Handled optional workday sensor inputs gracefully
