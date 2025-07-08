@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.06.19
+    **Version**: 2025.07.03
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,14 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.07.03:
+      - Fixed: Fixed problem when activating shading when tilt mode was active.
+      - Fixed: Shading starts suddenly although the sun is on the opposite side of the building #244
+      - Fixed: Lockout-protection failed #225
+      - Fixed: Skip forced tilt reset when changing tilt positions #241
+      - Fixed: Check the conditions before the end of shading #229
+      - Memo: Calculation of is_helper_shaded slightly changed. No consideration of shading end pending.
 
     2025.06.19:
       - Fixed: Tilt Delay added again
@@ -1219,38 +1227,6 @@ blueprint:
       icon: mdi:shield-sun-outline
       collapsed: true
       input:
-        shading_brightness_sensor:
-          name: "🥵 Brightness Sensor For Sun Shading"
-          description: "This sensor is only used for shading."
-          default: []
-          selector:
-            entity:
-              filter:
-                - domain:
-                    - sensor
-
-        shading_sun_brightness_start:
-          name: "🥵 Sun Shading Brightness Start Value"
-          description: "The minimum brightness value from which shading should start. (Must be above the value of brightness end!)"
-          default: 35000
-          selector:
-            number:
-              min: 0.0
-              max: 100000.0
-              unit_of_measurement: lx
-              step: 1.0
-
-        shading_sun_brightness_end:
-          name: "🥵 Sun Shading Brightness End Value"
-          description: "The brightness value from which shading is no longer necessary. (Must be below the value of brightness start!)."
-          default: 25000
-          selector:
-            number:
-              min: 0.0
-              max: 100000.0
-              unit_of_measurement: lx
-              step: 1.0
-
         shading_azimuth_start:
           name: "🥵 Sun Shading Azimuth Start Value"
           description: "What is the minimum azimuth at which the sun hits the window? (Shading will start)"
@@ -1294,6 +1270,38 @@ blueprint:
               unit_of_measurement: °
               step: 0.1
               mode: slider
+
+        shading_brightness_sensor:
+          name: "🥵 Sun Shading Brightness Sensor"
+          description: "This sensor is only used for shading."
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - sensor
+
+        shading_sun_brightness_start:
+          name: "🥵 Sun Shading Brightness Start Value"
+          description: "The minimum brightness value from which shading should start. (Must be above the value of brightness end!)"
+          default: 35000
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
+
+        shading_sun_brightness_end:
+          name: "🥵 Sun Shading Brightness End Value"
+          description: "The brightness value from which shading is no longer necessary. (Must be below the value of brightness start!)."
+          default: 25000
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
 
         shading_temperatur_sensor1:
           name: "🥵 Sun Shading Temperature Sensor 1 (eg. indoor)"
@@ -1465,9 +1473,7 @@ blueprint:
 
         shading_weather_conditions:
           name: "🥵 Sun Shading Weather Conditions"
-          description: >-
-            Check the following weather conditions when activating the shading.
-            **NOTE**: Forecast sensor needs to be defined
+          description: "Check the following weather conditions when activating the shading."
           default:
             - sunny
             - partlycloudy
@@ -1495,7 +1501,7 @@ blueprint:
                 - "exceptional"
 
         shading_waitingtime_start:
-          name: "🥵 Waiting Time For Sun Shading Start"
+          name: "🥵 Sun Shading Start Waiting Time"
           description: >-
             To avoid overloading the motor, a waiting time can be defined here for the start of shading.
             The shade will then only start if <ins>all</ins> mandatory conditions are fulfilled for the entire waiting time.
@@ -1532,7 +1538,7 @@ blueprint:
               mode: list
 
         shading_waitingtime_end:
-          name: "🥵 Waiting Time For Sun Shading End"
+          name: "🥵 Sun Shading End Waiting Time"
           description: "To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended. Shading ends if <ins>one</ins> of the conditions is <ins>not</ins> fulfilled for the entire waiting time."
           default: 300
           selector:
@@ -1544,7 +1550,7 @@ blueprint:
         is_shading_end_immediate_by_sun_position:
           name: "🥵 End Sun Shading Immediately When Out Of Range"
           description: >-
-            If enabled, shading will end immediately (20 seconds later) when sun position moves outside the defined azimuth or elevation range.
+            If enabled, shading will end immediately (only a few seconds later) when sun position moves outside the defined azimuth or elevation range.
             If disabled, the configured waiting time will be used before ending the shading.
           default: false
           selector:
@@ -2170,7 +2176,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.06.19"
+  version: "2025.07.03"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2272,8 +2278,7 @@ variables:
     {{
       'shading' in helper_state_json and
       helper_state_json.shading.a | default(false) | bool and
-      not (helper_state_json.shading.p | default(false) | bool and
-          helper_state_json.shading.q | default(false) | bool)
+      not (helper_state_json.shading.p | default(false) | bool)
     }}
   is_helper_shading_start: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.p | default(false) | bool) }}"
   is_helper_shading_end: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.q | default(false) | bool) }}"
@@ -2917,6 +2922,9 @@ actions:
               - "{{ auto_down_force_disabled }}"
               - "{{ auto_ventilate_force_disabled }}"
               - "{{ auto_shading_start_force_disabled }}"
+          - or: # Check the helper status or the target status (issue #244)
+              - "{{ is_status_helper_enabled and not is_helper_open }}"
+              - "{{ not in_open_position }}"
           - "{{ not (is_status_helper_enabled and is_helper_manual and override_opening_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
@@ -3242,13 +3250,9 @@ actions:
           - or: # Check the helper status or the target status
               - "{{ not is_helper_shaded }}"
               - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
-          - or: # Try to avoid starting the shading several times TODO / FIXME
-              - and:
-                  - "{{ not is_cover_tilt_enabled_and_possible }}"
-                  - "{{ not in_shading_position }}"
-              - and:
-                  - "{{ is_cover_tilt_enabled_and_possible }}"
-                  - "{{ current_position >= shading_position }}"
+          - or: # Try to avoid starting the shading several times TODO / FIXME?
+              - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
+              - "{{ is_cover_tilt_enabled_and_possible }}"
           - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
@@ -3256,19 +3260,19 @@ actions:
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
 
         sequence:
-          - if: # Conditions sorted by trigger sequence
-              - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}" # t_shading_start_pending_1
-              - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}" # t_shading_start_pending_1
-              - or: # t_shading_start_pending_2
+          - if:
+              - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+              - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
+              - or:
                   - "{{ shading_brightness_sensor == [] }}"
                   - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-              - or: # t_shading_start_pending_3
+              - or:
                   - "{{ shading_temperatur_sensor1 == [] }}"
                   - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-              - or: # t_shading_start_pending_4
+              - or:
                   - "{{ shading_temperatur_sensor2 == [] }}"
                   - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-              - or: # t_shading_start_pending_5
+              - or:
                   - "{{ shading_forecast_sensor == [] }}"
                   - "{{ shading_forecast_temp == [] }}"
                   - and:
@@ -3284,7 +3288,7 @@ actions:
                       - "{{ weather_forecast is defined }}"
                       - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
                   - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
-              - or: # t_shading_start_pending_5
+              - or:
                   - "{{ shading_forecast_sensor == [] }}"
                   - "{{ shading_weather_conditions == [] }}"
                   - "{{ shading_forecast_sensor.startswith('sensor.') }}"
@@ -3480,7 +3484,7 @@ actions:
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
-              tilt_first: true # tilt the cover to close position before
+              tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
               update_values:
                 t: "{{ as_timestamp(now()) | round(0) }}"
           - *tilt_move_action
@@ -3526,163 +3530,182 @@ actions:
           - or: # Issue #116
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
-
         sequence:
-          - choose:
-              #####################################################################
-              # Shading end detected. Save next execution time and pending status
-              #####################################################################
-              - alias: "Shading end detected. Save next execution time and pending status"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
-                  - "{{ not is_helper_shading_end }}"
-                sequence:
-                  - variables:
-                      local_waitingtime_end: >
-                        {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
-                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
-                        {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
-                        {% set local_waitingtime_end = 20 %}
-                        {% endif %}
-                        {{ local_waitingtime_end }}
-                      update_values:
-                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + (local_waitingtime_end | int)) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
+          - if:
+              - or:
+                - "{{ current_sun_azimuth > shading_azimuth_end }}"
+                - "{{ current_sun_elevation > shading_elevation_max }}"
+                - "{{ current_sun_elevation < shading_elevation_min}}"
+                - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
+                - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+                - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+                - or:
+                    - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                    - and:
+                        - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                        - "{{ prevent_forecast_service }}"
+                        - "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
+                    - and:
+                        - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                        - "{{ not prevent_forecast_service }}"
+                        - "{{ weather_forecast is defined }}"
+                        - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition not in shading_weather_conditions }}"
+            then:
+              - choose:
+                  #####################################################################
+                  # Shading end detected. Save next execution time and pending status
+                  #####################################################################
+                  - alias: "Shading end detected. Save next execution time and pending status"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
+                      - "{{ not is_helper_shading_end }}"
+                    sequence:
+                      - variables:
+                          local_waitingtime_end: >
+                            {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
+                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
+                            {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
+                            {% set local_waitingtime_end = 20 %}
+                            {% endif %}
+                            {{ local_waitingtime_end }}
+                          update_values:
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + (local_waitingtime_end | int)) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
 
-              ######################################
-              # Only tilt open after shading ends
-              ######################################
-              - alias: "Only tilt open after shading ends"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                  - "{{ is_cover_tilt_enabled_and_possible }}"
-                  - "{{ prevent_opening_after_shading_end}}"
-                sequence:
+                  ######################################
+                  # Only tilt open after shading ends
+                  ######################################
+                  - alias: "Only tilt open after shading ends"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                      - "{{ is_cover_tilt_enabled_and_possible }}"
+                      - "{{ prevent_opening_after_shading_end}}"
+                    sequence:
 
-                  - variables:
-                      target_tilt_position: 50 # Moving the cover to open tilt position
-                      update_values:
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *tilt_move_action
-                  - *helper_update
+                      - variables:
+                          target_tilt_position: 50 # Moving the cover to open tilt position
+                          update_values:
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *tilt_move_action
+                      - *helper_update
 
-              ######################################
-              # Lockout protection when shading ends
-              ######################################
-              - alias: "Lockout protection when shading ends"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ (current_position < ventilate_position) }}"
-                  - or:
-                      - and:
-                          - "{{ contact_window_opened != [] }}"
-                          - "{{ states(contact_window_opened) in ['true', 'on'] }}"
-                      - and:
-                          - "{{ contact_window_tilted != [] }}"
-                          - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                          - "{{ lockout_tilted_when_shading_ends }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-
-              ################################
-              # Ventilation after shading ends
-              ################################
-              - alias: "Ventilation after shading ends"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ ventilation_after_shading_end }}"
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                  - "{{ not lockout_tilted_when_closing }}"
-                  - or:
-                      - "{{ contact_window_opened == [] }}"
-                      - "{{ states(contact_window_opened) in ['false', 'off'] }}"
-                  - or:
+                  ######################################
+                  # Lockout protection when shading ends
+                  ######################################
+                  - alias: "Lockout protection when shading ends"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                      - "{{ is_ventilation_enabled }}"
                       - "{{ (current_position < ventilate_position) }}"
-                      - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
-                sequence:
-                  - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
-                      seconds: >
-                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
-                          {{ range(0, 2) | random }}
-                        {% else %}
-                          {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
-                        {% endif %}
+                      - or:
+                          - and:
+                              - "{{ contact_window_opened != [] }}"
+                              - "{{ states(contact_window_opened) in ['true', 'on'] }}"
+                          - and:
+                              - "{{ contact_window_tilted != [] }}"
+                              - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                              - "{{ lockout_tilted_when_shading_ends }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
 
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
+                  ################################
+                  # Ventilation after shading ends
+                  ################################
+                  - alias: "Ventilation after shading ends"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                      - "{{ is_ventilation_enabled }}"
+                      - "{{ ventilation_after_shading_end }}"
+                      - "{{ contact_window_tilted != [] }}"
+                      - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                      - "{{ not lockout_tilted_when_closing }}"
+                      - or:
+                          - "{{ contact_window_opened == [] }}"
+                          - "{{ states(contact_window_opened) in ['false', 'off'] }}"
+                      - or:
+                          - "{{ (current_position < ventilate_position) }}"
+                          - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
+                    sequence:
+                      - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                          seconds: >
+                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                              {{ range(0, 2) | random }}
+                            {% else %}
+                              {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                            {% endif %}
 
-              ###############################################
-              # Move cover after shading end
-              ###############################################
-              - alias: "Move cover after shading end"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                sequence:
-                  - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
-                      seconds: >
-                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
-                          {{ range(0, 2) | random }}
-                        {% else %}
-                          {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
-                        {% endif %}
-
-                  - choose: []
-                    default: !input auto_shading_end_action_before
-                  - variables:
-                      target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
-                      target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
-                      target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
-                      update_values:
-                        open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
-                        close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - if:
-                      - "{{ not prevent_opening_after_shading_end}}"
-                    then:
+                      - choose: []
+                        default: !input auto_ventilate_action_before
+                      - variables:
+                          target_position: !input ventilate_position
+                          target_tilt_position: !input ventilate_tilt_position
+                          update_values:
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *cover_move_action
                       - *tilt_move_action
-                  - choose: []
-                    default: !input auto_shading_end_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_ventilate_action
 
-          # - stop: "Stop automation: SHADING END"
+                  ###############################################
+                  # Move cover after shading end
+                  ###############################################
+                  - alias: "Move cover after shading end"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                    sequence:
+                      - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                          seconds: >
+                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                              {{ range(0, 2) | random }}
+                            {% else %}
+                              {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                            {% endif %}
+
+                      - choose: []
+                        default: !input auto_shading_end_action_before
+                      - variables:
+                          target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
+                          target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
+                          target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
+                          update_values:
+                            open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
+                            close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - if:
+                          - "{{ not prevent_opening_after_shading_end}}"
+                        then:
+                          - *cover_move_action
+                          - *tilt_move_action
+                      - choose: []
+                        default: !input auto_shading_end_action
+
+              # - stop: "Stop automation: SHADING END"
 
       ############################################################
       # ANCHOR (5): CONTACT OPEN
@@ -3796,7 +3819,7 @@ actions:
                       - "{{ is_helper_vent_partial }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
-                  # Workaround for #181
+                  # TODO: Workaround for #181
                   # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
                   # 'vfull' is set in the helper.
                   # This must remain the case because the position of the cover remains at 100.
