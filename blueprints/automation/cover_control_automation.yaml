@@ -75,12 +75,15 @@ blueprint:
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
     2025.07.03:
-      - Fixed: Fixed problem when activating shading when tilt mode was active.
-      - Fixed: Shading starts suddenly although the sun is on the opposite side of the building #244
-      - Fixed: Lockout-protection failed #225
-      - Fixed: Skip forced tilt reset when changing tilt positions #241
-      - Fixed: Check the conditions before the end of shading #229
-      - Memo: Calculation of is_helper_shaded slightly changed. No consideration of shading end pending.
+      - Fixed an issue where shading could not be activated while tilt mode was active
+      - Fixed a bug where shading would start unexpectedly even though the sun was on the opposite side of the building (#244)
+      - Fixed a failure in the lockout protection mechanism (#225)
+      - Fixed an issue where forced tilt reset was not skipped when changing tilt positions (#241)
+      - Fixed a bug where shading end conditions were not properly checked (#229)
+      - UNFINISHED/TODO Fixed: Redesigned the logic for shading temperature and forecast sensors. (#238)
+      - Added: Option to additionally allow forecast-only shading (#238)
+      - Added: Configuration option to compare forecast temperature with Sensor 2 (#238)
+      - Memo: Slight adjustment to the calculation of is_helper_shaded: pending shading end is no longer considered.
 
     2025.06.19:
       - Fixed: Tilt Delay added again
@@ -388,17 +391,17 @@ blueprint:
           selector:
             select:
               options:
-                - label: "🔼 - Enable generic automatic opening of the day in the morning"
+                - label: "🔼 - Automatically open cover in the morning based on configured time"
                   value: "auto_up_enabled"
-                - label: "🔻 - Enable generic automatic daily closing at the end of the day"
+                - label: "🔻 - Automatically close cover in the evening based on configured time"
                   value: "auto_down_enabled"
-                - label: "🔅 - Enable brightness control (in addition to daily opening and closing)"
+                - label: "🔅 - Add brightness-based control to time-based opening and closing"
                   value: "auto_brightness_enabled"
-                - label: "☀️ - Enable sun elevation control (in addition to daily opening and closing)"
+                - label: "☀️ - Add sun elevation-based control to time-based opening and closing"
                   value: "auto_sun_enabled"
-                - label: "💨 - Enable ventilation mode and lockout protection (helper required)"
+                - label: "💨 - Enable ventilation mode and lockout protection (requires helper)"
                   value: "auto_ventilate_enabled"
-                - label: "🥵 - Enable automatic sun protection / sunshade control (helper required)"
+                - label: "🥵 - Enable automatic sun protection and shading control (requires helper)"
                   value: "auto_shading_enabled"
               multiple: true
               sort: false
@@ -1227,6 +1230,32 @@ blueprint:
       icon: mdi:shield-sun-outline
       collapsed: true
       input:
+
+        shading_config:
+          name: "🥵 Shading Configuration"
+          description: >-
+            If <strong>Additionally allow forecast-only shading</strong> is enabled, the system may trigger shading based solely on the temperature forecast — even if no other conditions are met.
+            <br /><br />
+            If <strong>Compare forecast temperature additionally with Sensor 2</strong> is also enabled, the forecast temperature is compared not only with the configured threshold, but also with the value from Temperature Sensor 2.
+            <br /><br />
+            Shading will be triggered if either:<br />
+            - the forecast temperature exceeds the configured threshold, or<br />
+            - Sensor 2 reports a higher temperature than the forecast.<br />
+            <br />
+            This dual-check mechanism improves reliability, especially when forecast data may be inaccurate.
+          default: []
+          selector:
+            select:
+              options:
+                - label: "Additionally allow forecast-only shading"
+                  value: "shading_independent_forecast"
+                - label: "Additionally compare forecast temperature with Sensor 2"
+                  value: "shading_compare_forecast_with_sensor2"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
         shading_azimuth_start:
           name: "🥵 Sun Shading Azimuth Start Value"
           description: "What is the minimum azimuth at which the sun hits the window? (Shading will start)"
@@ -2244,6 +2273,9 @@ variables:
   shading_end_behavior: !input shading_end_behavior
   start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
   start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
+  shading_config: !input shading_config
+  shading_independent_forecast: "{{ 'shading_independent_forecast' in shading_config }}"
+  shading_compare_forecast_with_sensor2: "{{ 'shading_compare_forecast_with_sensor2' in shading_config }}"
 
   is_status_helper_enabled: >-
     {{
@@ -2569,6 +2601,11 @@ triggers:
     value_template: "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
     enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
     id: "t_shading_start_pending_5"
+
+  - platform: template # Required to recognize the maximum temperature value of the weather forecast before opening.
+    value_template: "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(hours = 1) }}"
+    enabled: "{{ is_shading_enabled }}"
+    id: "t_shading_start_pending_6"
 
   - platform: template
     value_template: >-
@@ -3261,46 +3298,64 @@ actions:
 
         sequence:
           - if:
-              - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
-              - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
               - or:
-                  - "{{ shading_brightness_sensor == [] }}"
-                  - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-              - or:
-                  - "{{ shading_temperatur_sensor1 == [] }}"
-                  - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-              - or:
-                  - "{{ shading_temperatur_sensor2 == [] }}"
-                  - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-              - or:
-                  - "{{ shading_forecast_sensor == [] }}"
-                  - "{{ shading_forecast_temp == [] }}"
-                  - and:
+                - and:
+                    - "{{ shading_independent_forecast }}"
+                    - or:
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ prevent_forecast_service }}"
+                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ not prevent_forecast_service }}"
+                          - "{{ weather_forecast is defined }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - "{{ shading_compare_forecast_with_sensor2 and shading_temperatur_sensor2 != [] and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
+                - and:
+                  - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+                  - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
+                  - or:
+                      - "{{ shading_brightness_sensor == [] }}"
+                      - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+                  - or:
+                      - "{{ shading_temperatur_sensor1 == [] }}"
+                      - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
+                  - or:
+                      - "{{ shading_temperatur_sensor2 == [] }}"
+                      - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
+                  - or: # Forecast Temperature
+                      - "{{ shading_forecast_sensor == [] }}"
+                      - "{{ shading_forecast_temp == [] }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ prevent_forecast_service }}"
+                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ not prevent_forecast_service }}"
+                          - "{{ weather_forecast is defined }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - "{{ shading_compare_forecast_with_sensor2 and shading_temperatur_sensor2 != [] and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
+                  - or: # Forecast Weather Conditions
+                      - "{{ shading_forecast_sensor == [] }}"
+                      - "{{ shading_weather_conditions == [] }}"
                       - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                      - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ prevent_forecast_service }}"
-                      - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ not prevent_forecast_service }}"
-                      - "{{ weather_forecast is defined }}"
-                      - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                  - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
-              - or:
-                  - "{{ shading_forecast_sensor == [] }}"
-                  - "{{ shading_weather_conditions == [] }}"
-                  - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ prevent_forecast_service }}"
-                      - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ not prevent_forecast_service }}"
-                      - "{{ weather_forecast is defined }}"
-                      - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ prevent_forecast_service }}"
+                          - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ not prevent_forecast_service }}"
+                          - "{{ weather_forecast is defined }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
             then:
               - choose:
                   #####################################################################
