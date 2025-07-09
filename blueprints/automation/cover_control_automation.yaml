@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.08.15
+    **Version**: 2025.09.14
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,9 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.09.14:
+      - Added: Recover the cover position after a force state is disabled to the last known state #241
 
     2025.08.15:
       - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
@@ -1966,6 +1969,30 @@ blueprint:
       icon: mdi:arm-flex
       collapsed: true
       input:
+        force_recovery_options:
+          name: "🦮 Force recovery of the cover"
+          description: >
+            In case you want to automatically recover from a forced cover position, whenever the forced state transitions from "on" to "off" you should enable this.
+
+          default: force_recovery_helper_disabled
+          selector:
+            select:
+              options:
+                - label: "🙅 Do not change the current position, until a neew trigger is received"
+                  value: "force_recovery_helper_disabled"
+                - label: "🦮 Use an external recovery helper to automatically transition to the right state"
+                  value: "force_recovery_helper_enabled"
+
+        force_recovery_helper:
+          name: "🦮 Force Recovery Helper"
+          description: >-
+            Helper used to store the last cover event. A separate helper must be created for each CCA automation.
+            *Attention:* You will need to manually create a [input_text](https://my.home-assistant.io/redirect/helpers/) entity with a <ins>length of at least 25 chars</ins> for this.
+          default: []
+          selector:
+            entity:
+              domain: input_text
+
         auto_up_force:
           name: "🔼 Force Immediate Opening via Entity"
           description: >-
@@ -2244,12 +2271,15 @@ trigger_variables:
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
 
+  force_recovery_options: !input force_recovery_options
+  force_recovery_helper: !input force_recovery_helper
+
 ################################################################################
 # VARIABLES
 ################################################################################
 
 variables:
-  version: "2025.08.15"
+  version: "2025.09.14"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2346,6 +2376,11 @@ variables:
         } | to_json | from_json
       }}
     {% endif %}
+
+  is_force_recovery_helper_enabled: >-
+    {{
+      'force_recovery_helper_enabled' in force_recovery_options and force_recovery_helper != []
+    }}
 
   # Cover status assignments
   is_helper_open: "{{ is_status_helper_enabled and (helper_state_json | regex_search('open')) and (helper_state_json.open.a | default(false) | bool) }}"
@@ -2511,6 +2546,12 @@ triggers:
     to: "on"
     id: "t_force_open"
 
+  - platform: state
+    entity_id: !input auto_up_force
+    from: "on"
+    to: "off"
+    id: "t_force_recovery"
+
   ########################################
   # Trigger for closing cover
   ########################################
@@ -2574,6 +2615,12 @@ triggers:
     to: "on"
     id: "t_force_close"
 
+  - platform: state
+    entity_id: !input auto_down_force
+    from: "on"
+    to: "off"
+    id: "t_force_recovery"
+
   #################################################
   # Trigger for ventilation
   #################################################
@@ -2611,6 +2658,12 @@ triggers:
     from: "off"
     to: "on"
     id: "t_force_vent"
+
+  - platform: state
+    entity_id: !input auto_ventilate_force
+    from: "on"
+    to: "off"
+    id: "t_force_recovery"
 
   ########################################
   # Triggers for shading start
@@ -2669,6 +2722,12 @@ triggers:
     from: "off"
     to: "on"
     id: "t_force_shading_start"
+
+  - platform: state
+    entity_id: !input auto_shading_start_force
+    from: "on"
+    to: "off"
+    id: "t_force_recovery"
 
   ########################################
   # Triggers for shading tilt
@@ -2972,6 +3031,23 @@ actions:
             v: 5
             t: "{{ helper_state_json.t | round(0) }}"
       - *helper_update
+
+  # Update force_recovery-helper to current version #####################################
+  - if:
+      - "{{ is_force_recovery_helper_enabled }}"
+      - "{{ cover_action is defined }}"
+      - condition: not
+        conditions:
+          - or:
+            - "{{ cover_action | regex_match('^(t_force_|t_manual)') }}" # Do not update the helper for manual and force operations
+            - "{{ cover_action == 't_shading_reset' }}" # Do not update the helper for shading reset operation
+
+    then:
+      - alias: "Update cover force recovery helper"
+        service: input_text.set_value
+        data:
+          entity_id: !input force_recovery_helper
+          value: "{{ cover_action }}"
 
   - repeat:
       while: "{{ repeat_actions }}"
@@ -4350,6 +4426,21 @@ actions:
                     shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                     t: "{{ as_timestamp(now()) | round(0) }}"
               - *helper_update
+
+          ############################################################
+          # ANCHOR (14): FORCE RECOVERY
+          ############################################################
+          - alias: "Force recovery of the cover status"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action == 't_force_recovery' }}"
+              - "{{ is_force_recovery_helper_enabled }}"
+              - "{{ states(force_recovery_helper) not in ['', 'unknown', 'unavailable', 'none', []] }}"
+              - "{{ states(force_recovery_helper) | regex_match('^t_.*') }}"
+            sequence:
+              - variables:
+                  cover_action: "{{ states(force_recovery_helper) }}"
+                  repeat_actions: "{{ states(force_recovery_helper) != 't_force_recovery' }}"
 
         ############################################################
         # DEFAULT BRANCH - CONFIG CHECK
