@@ -1348,7 +1348,7 @@ blueprint:
             <br />
             It can serve as an additional condition for sun shading logic.
             <br /><br />
-            ⚠️ This sensor also plays a role in the calculation of the <ins>Sun Shading Forecast - Temperature Value</ins>. Please refer to that section for more details.
+            ⚠️ This sensor also plays a role in the calculation of the <ins>Sun Shading - Forecast Temperature Value</ins>. Please refer to that section for more details.
           default: []
           selector:
             entity:
@@ -1471,31 +1471,31 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_config:
-          name: "🥵 Shading Configuration"
+          name: "🥵 Sun Shading - Configuration"
           description: >-
-            These options allow you to fine-tune how the system responds to forecasted temperatures.
+            These options allow you to fine-tune how the system handles temperature-based shading.
             <br /><br />
-            <strong>Additionally allow shading based on temperature forecast only:</strong><br />
-              Enables shading even if no other conditions are met — based solely on the forecasted temperature.
+            <strong>Independent Shading via Temperature Comparison:</strong><br />
+              Enables shading based solely on temperature — independently of other conditions like brightness, sun position, or time.
+              - By default, only the <ins>forecasted temperature</ins> is compared with the configured threshold in <em>"Forecast Temperature Value"</em>.
+              - Optionally, you can enable a comparison with <ins>Temperature Sensor 2</ins> (e.g. outdoor) via the checkbox below.
 
-              This is especially useful in the early morning: the system can already determine whether shading will be needed later in the day.
-              Instead of opening the cover fully, it can move them directly into the shading position.
-            <br />
+              If either value exceeds the threshold, shading will be activated — even if all other shading conditions are false.
+              This is especially useful in the early morning: the system can already determine whether shading will be needed later in the day. Instead of fully opening the blinds, it can move them directly into the shading position.
+
             <strong>Additionally compare forecast temperature with Sensor 2:</strong><br />
-              Compares the forecasted temperature not only with the configured threshold, but also with the value from Sensor 2.
-            <br />
-            Shading will be triggered if either:<br />
-            - The forecast temperature exceeds the configured threshold, or<br />
-            - Sensor 2 reports a higher temperature than the forecast.
-            <br /><br />
-            <strong>Why this matters:</strong><br />
-            Weather forecasts can be imprecise. By evaluating multiple temperature sources, the system ensures more accurate and dependable shading decisions.
+              Activates an extended comparison: not only is the forecasted temperature checked against the configured threshold, but also the current reading from <ins>Temperature Sensor 2</ins> (e.g. outdoor).
+              Shading will be triggered if <strong>either</strong> of the following conditions is met:<br />
+              - The forecasted temperature exceeds the configured threshold in <em>"Forecast Temperature Value"</em>, or<br />
+              - Sensor 2 reports a higher temperature than the forecast.
+
+            This mechanism allows for a more responsive and reliable shading system even when forecast data is uncertain by using real-time sensor input as an additional trigger.
           default: []
           selector:
             select:
               options:
-                - label: "Additionally allow shading based on temperature forecast only"
-                  value: "shading_independent_forecast"
+                - label: "Independent Shading via Temperature Comparison (Additional Trigger)"
+                  value: "shading_temp_comparison_independent"
                 - label: "Additionally compare forecast temperature with Sensor 2"
                   value: "shading_compare_forecast_with_sensor2"
               multiple: true
@@ -2277,7 +2277,7 @@ variables:
   start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
   start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
   shading_config: !input shading_config
-  shading_independent_forecast: "{{ 'shading_independent_forecast' in shading_config }}"
+  shading_temp_comparison_independent: "{{ 'shading_temp_comparison_independent' in shading_config }}"
   shading_compare_forecast_with_sensor2: "{{ 'shading_compare_forecast_with_sensor2' in shading_config }}"
 
   is_status_helper_enabled: >-
@@ -3303,7 +3303,7 @@ actions:
           - if:
               - or:
                 - and:
-                    - "{{ shading_independent_forecast }}"
+                    - "{{ shading_temp_comparison_independent }}"
                     - or:
                       - and:
                           - "{{ shading_forecast_sensor.startswith('sensor.') }}"
