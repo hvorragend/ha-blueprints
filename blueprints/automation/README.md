@@ -30,7 +30,7 @@
 12. **Position Management**: Manages multiple positions for different states such as open, close, ventilate, and shading. Added the option to save the current status in a helper. This has the advantage that the roller blind can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
 13. **Sun Shading / Sun Protection**: Extensive automatic sun shading with many different setting options: Sun azimuth, Sun elevation, Solar irradiation/Light intensity/Illuminance,  Weather Conditions, Temperature sensors (compare thresholds for indoor and/or outdoor sensors), weather forecast comparison
 
-## ❓ [u]FAQ[/u]
+## ❓ FAQ
 
 ### General Questions
 
@@ -62,7 +62,7 @@
    - The blueprint includes a feature to detect manual overrides and adjust automation accordingly.
 
 - **How do the shading start conditions work?**
-   - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until [u]all[/u] criteria are met.
+   - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until all criteria are met.
 
 - **How can I use additional conditions like vacation mode or party mode?**
    - Activate vacation mode to keep covers closed during vacations.
@@ -90,7 +90,7 @@ The CCA blueprint is powerful but requires precise configuration. Below are typi
 - Azimuth values (e.g., `shading_azimuth_start` and `shading_azimuth_end`) must form a valid range.
 - Missing required fields can cause the automation to fail silently.
 
-[details="👁️ More important configuration notes"]
+👁️ More important configuration notes
 - `time_up_early` should be earlier `than time_up_late`
 - `time_up_early_non_workday` should be earlier than `time_up_late`
 - `time_down_early` should be earlier than `time_down_late`
@@ -104,7 +104,6 @@ The CCA blueprint is powerful but requires precise configuration. Below are typi
 - `shading_cover_position` should be lower than `open_position`
 - `resident` is only allowed to be on/off/true/false
 - cover must have a `current_position` attribute
-[/details]
 
 
 ### Why is my trigger sequence not executed even though all conditions are met?
@@ -223,7 +222,7 @@ trace:
 2. Click on the relevant CCA automation.
 3. Select the **Traces** tab to view execution steps.
 4. Use the arrow symbols to switch back and forth between the traces and search for the trigger (see trigger table) that should actually trigger something.
-5. Please note that traces for the trigger “`t_manual_x`” are not relevant for debugging. Traces are only required in very rare cases. Then I would also point this out. These triggers are reactions to manual position changes or the attempt to recognize previous actions from the blueprint. If there are problems, then rarely with this trigger, but with the trigger directly [u]before[/u] it.
+5. Please note that traces for the trigger “`t_manual_x`” are not relevant for debugging. Traces are only required in very rare cases. Then I would also point this out. These triggers are reactions to manual position changes or the attempt to recognize previous actions from the blueprint. If there are problems, then rarely with this trigger, but with the trigger directly before it.
 6. Download the trace and make the file available in the thread via filehosters such as Pastebin.
 
 #### Uploading the JSON File
