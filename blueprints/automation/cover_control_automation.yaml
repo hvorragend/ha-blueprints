@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.06.19
+    **Version**: 2025.07.10
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,16 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.07.10:
+      - Fixed an issue where shading could not be activated while tilt mode was active
+      - Fixed a bug where shading would start unexpectedly even though the sun was on the opposite side of the building (#244)
+      - Fixed a failure in the lockout protection mechanism (#225)
+      - Fixed an issue where forced tilt reset was not skipped when changing tilt positions (#241)
+      - Fixed a bug where shading end conditions were not properly checked (#229)
+      - Added: Option to additionally allow temperature+forecast-only shading (#238)
+      - Added: Configuration option to compare forecast temperature with Sensor 2 (#238)
+      - Memo: Slight adjustment to the calculation of is_helper_shaded: pending shading end is no longer considered.
 
     2025.06.19:
       - Fixed: Tilt Delay added again
@@ -380,17 +390,17 @@ blueprint:
           selector:
             select:
               options:
-                - label: "🔼 - Enable generic automatic opening of the day in the morning"
+                - label: "🔼 - Automatically open cover in the morning based on configured time"
                   value: "auto_up_enabled"
-                - label: "🔻 - Enable generic automatic daily closing at the end of the day"
+                - label: "🔻 - Automatically close cover in the evening based on configured time"
                   value: "auto_down_enabled"
-                - label: "🔅 - Enable brightness control (in addition to daily opening and closing)"
+                - label: "🔅 - Add brightness-based control to time-based opening and closing"
                   value: "auto_brightness_enabled"
-                - label: "☀️ - Enable sun elevation control (in addition to daily opening and closing)"
+                - label: "☀️ - Add sun elevation-based control to time-based opening and closing"
                   value: "auto_sun_enabled"
-                - label: "💨 - Enable ventilation mode and lockout protection (helper required)"
+                - label: "💨 - Enable ventilation mode and lockout protection (requires helper)"
                   value: "auto_ventilate_enabled"
-                - label: "🥵 - Enable automatic sun protection / sunshade control (helper required)"
+                - label: "🥵 - Enable automatic sun protection and shading control (requires helper)"
                   value: "auto_shading_enabled"
               multiple: true
               sort: false
@@ -1219,40 +1229,8 @@ blueprint:
       icon: mdi:shield-sun-outline
       collapsed: true
       input:
-        shading_brightness_sensor:
-          name: "🥵 Brightness Sensor For Sun Shading"
-          description: "This sensor is only used for shading."
-          default: []
-          selector:
-            entity:
-              filter:
-                - domain:
-                    - sensor
-
-        shading_sun_brightness_start:
-          name: "🥵 Sun Shading Brightness Start Value"
-          description: "The minimum brightness value from which shading should start. (Must be above the value of brightness end!)"
-          default: 35000
-          selector:
-            number:
-              min: 0.0
-              max: 100000.0
-              unit_of_measurement: lx
-              step: 1.0
-
-        shading_sun_brightness_end:
-          name: "🥵 Sun Shading Brightness End Value"
-          description: "The brightness value from which shading is no longer necessary. (Must be below the value of brightness start!)."
-          default: 25000
-          selector:
-            number:
-              min: 0.0
-              max: 100000.0
-              unit_of_measurement: lx
-              step: 1.0
-
         shading_azimuth_start:
-          name: "🥵 Sun Shading Azimuth Start Value"
+          name: "🥵 Sun Shading - Azimuth Start Value"
           description: "What is the minimum azimuth at which the sun hits the window? (Shading will start)"
           default: 95
           selector:
@@ -1262,7 +1240,7 @@ blueprint:
               unit_of_measurement: "°"
 
         shading_azimuth_end:
-          name: "🥵 Sun Shading Azimuth End Value"
+          name: "🥵 Sun Shading - Azimuth End Value"
           description: "What is the maximum azimuth at which the sun hits the window? (Shading will stop)"
           default: 265
           selector:
@@ -1272,7 +1250,7 @@ blueprint:
               unit_of_measurement: "°"
 
         shading_elevation_min:
-          name: "🥵 Sun Shading Elevation Minimum Value"
+          name: "🥵 Sun Shading - Elevation Minimum Value"
           description: "Starting from which elevation of the sun should the window be shaded? (Here it makes sense to consider surrounding buildings, trees, etc.)."
           default: 25
           selector:
@@ -1284,7 +1262,7 @@ blueprint:
               mode: slider
 
         shading_elevation_max:
-          name: "🥵 Sun Shading Elevation Maximum Value"
+          name: "🥵 Sun Shading - Elevation Maximum Value"
           description: "What is the maximal elevation for elevation? (In most cases, 90 degrees is probably the most reasonable value. However, this can also be different due to surrounding buildings, etc.)."
           default: 90
           selector:
@@ -1295,9 +1273,43 @@ blueprint:
               step: 0.1
               mode: slider
 
+        shading_brightness_sensor:
+          name: "🥵 Sun Shading - Brightness Sensor"
+          description: "This sensor is only used for shading."
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - sensor
+
+        shading_sun_brightness_start:
+          name: "🥵 Sun Shading - Brightness Start Value"
+          description: "The minimum brightness value from which shading should start. (Must be above the value of brightness end!)"
+          default: 35000
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
+
+        shading_sun_brightness_end:
+          name: "🥵 Sun Shading - Brightness End Value"
+          description: "The brightness value from which shading is no longer necessary. (Must be below the value of brightness start!)."
+          default: 25000
+          selector:
+            number:
+              min: 0.0
+              max: 100000.0
+              unit_of_measurement: lx
+              step: 1.0
+
         shading_temperatur_sensor1:
-          name: "🥵 Sun Shading Temperature Sensor 1 (eg. indoor)"
-          description: "This is the main temperature sensor. (Here, for example, the current indoor temperature can be used as a condition)."
+          name: "🥵 Sun Shading - Temperature Sensor 1 (eg. indoor)"
+          description: >-
+            This is the first temperature sensor used for sun shading logic.<br />
+            For example, you can use the current **indoor temperature** as a condition to trigger shading.
           selector:
             entity:
               filter:
@@ -1306,7 +1318,7 @@ blueprint:
           default: []
 
         shading_min_temperatur1:
-          name: "🥵 Sun Shading Temperature Sensor 1 Minimum Value"
+          name: "🥵 Sun Shading - Temperature Sensor 1 Minimum Value"
           description: "Minimum temperature for sensor 1 above which shading should occur."
           default: 18
           selector:
@@ -1318,7 +1330,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_temperature_hysteresis1:
-          name: "🥵 Sun Shading Temperature Sensor 1 Hysteresis Value"
+          name: "🥵 Sun Shading - Temperature Sensor 1 Hysteresis Value"
           description: "Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles."
           default: 0.2
           selector:
@@ -1330,8 +1342,13 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_temperatur_sensor2:
-          name: "🥵 Sun Shading Temperature Sensor 2 (eg. outdoor)"
-          description: "This is a secondary temperature sensor. (Here, for example, the current outdoor temperature can be used as a condition). This sensor has another function. Please read the notes in the <ins>Sun Shading Forecast Temperature Value</ins> entry below."
+          name: "🥵 Sun Shading - Temperature Sensor 2 (eg. outdoor)"
+          description: >-
+            This is an optional secondary temperature sensor, typically used for **outdoor temperature**.
+            <br />
+            It can serve as an additional condition for sun shading logic.
+            <br /><br />
+            ⚠️ This sensor also plays a role in the calculation of the <ins>Sun Shading - Forecast Temperature Value</ins>. Please refer to that section for more details.
           default: []
           selector:
             entity:
@@ -1340,7 +1357,7 @@ blueprint:
                     - sensor
 
         shading_min_temperatur2:
-          name: "🥵 Sun Shading Temperature Sensor 2 Minimum Value"
+          name: "🥵 Sun Shading - Temperature Sensor 2 Minimum Value"
           description: "Minimum temperature for sensor 2 above which shading should occur."
           default: 18
           selector:
@@ -1352,7 +1369,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_temperature_hysteresis2:
-          name: "🥵 Sun Shading Temperature Sensor 2 Hysteresis Value"
+          name: "🥵 Sun Shading - Temperature Sensor 2 Hysteresis Value"
           description: "Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles."
           default: 0.2
           selector:
@@ -1364,7 +1381,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_forecast_sensor:
-          name: "🥵 Sun Shading (Forecast) Weather Sensor"
+          name: "🥵 Sun Shading - Forecast Weather Sensor"
           description: >-
             This weather sensor (ideally based on a weather integration) is used for further temperature comparisons based on the forecast.
             This sensor is also used to compare weather conditions. Leave empty if the forecast is not to be used in any case.
@@ -1405,17 +1422,18 @@ blueprint:
                     - sensor
 
         shading_forecast_type:
-          name: "🥵 Sun Shading Forecast Type"
+          name: "🥵 Sun Shading - Forecast Source"
           description: >-
-            Please choose whether you want to use the daily forecast or the hourly forecast.
+            Please select whether you want to use the **daily** or **hourly** weather forecast.
             <br />
-            The first array member of the weather forecast is always used. This means the current day or the current hour.
-            The weather sensor must support weather.get_forecasts which has been introduced with HA 2023.9.
+            The first entry in the forecast array will always be used — this corresponds to the current day or current hour.
             <br /><br />
-            You also have the option of <ins>not using</ins> the weather <ins>forecast</ins> service here.
-            The current attributes of the weather sensor are then used.
-            <br />
-            This is the successor to the old option: <em>Prevent the use of the 'get_forecasts' service</em>
+            Note: Your weather entity must support `weather.get_forecasts`, which was introduced in Home Assistant 2023.9.
+            <br /><br />
+            Alternatively, you can choose **not to use** the forecast service at all.
+            In that case, the current weather attributes from the weather entity will be used instead.
+            <br /><br />
+            **Recommendation:** Using the **daily forecast** is generally preferred for sun shading purposes.
           default: daily
           selector:
             select:
@@ -1428,32 +1446,21 @@ blueprint:
                   value: "weather_attributes"
 
         shading_forecast_temp:
-          name: "🥵 Sun Shading Forecast Temperature Value"
+          name: "🥵 Sun Shading - Forecast Temperature Value"
           description: >-
-            This is the minimum temperature at which shading should be activated.
-            When the forecasted temperature rises above this threshold, the shading mechanism will engage.
-            There is a special feature when comparing the shading forecast temperature. Please continue reading!
-            <br /><br />
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Special Feature</code></summary>
-
-            To enhance the reliability of the shading response, the system includes a comparison mechanism.
-            The forecasted shading temperature is evaluated against two temperature sensors to ensure optimal performance.
-            <br /><br />
-            <strong>Comparison Mechanism:</strong> The forecast value is evaluated in relation to:
-            <br />- <ins>Shading Forecast Temperature Value (this input field)</ins>
-            <br />- <ins>Shading Temperature Sensor 2 (e.g. outdoor)</ins>
-            <br /><br />
-            For shading to be triggered, it suffices for either of the two sensor values to exceed the
-            configured shading forecast temperature value.
-            There is no default temperature value here since February 2025.
-            To <ins>not</ins> compare the forecast temperature, leave this field empty.
-            <br /><br />
-            <strong>Important Notes:</strong>
-            Weather forecasts are not always accurate.
-            Therefore, incorporating multiple temperature sensors allows for a more dependable reading before activating the shading system.
-
-            </details>
+              This setting defines the <strong>minimum temperature threshold</strong> based on the weather forecast at which shading should be activated.
+              <br />
+              If the forecasted temperature exceeds this value, the shading system will respond accordingly.
+              <br /><br />
+              To enhance reliability, the system compares this threshold against two sources:
+              <br />
+              - The forecasted temperature (this comparison is always active)<br />
+              - Temperature Sensor 2 (e.g. outdoor) (can be enabled via the checkbox in the next configuration field)
+              <br /><br />
+              Shading will be triggered if <strong>either</strong> of these values exceeds the configured threshold.
+              <br /><br />
+              <strong>Note:</strong> Since February 2025, this field no longer has a default value.
+              To disable forecast temperature comparison entirely, simply leave this field empty or deactivate the related option below.
           default: []
           selector:
             number:
@@ -1463,11 +1470,42 @@ blueprint:
               mode: slider
               unit_of_measurement: "°C"
 
-        shading_weather_conditions:
-          name: "🥵 Sun Shading Weather Conditions"
+        shading_config:
+          name: "🥵 Sun Shading - Configuration"
           description: >-
-            Check the following weather conditions when activating the shading.
-            **NOTE**: Forecast sensor needs to be defined
+            These options allow you to fine-tune how the system handles temperature-based shading.
+            <br /><br />
+            <strong>Independent Shading via Temperature Comparison:</strong><br />
+              Enables shading based solely on temperature — independently of other conditions like brightness, sun position, or time.
+              - By default, only the <ins>forecasted temperature</ins> is compared with the configured threshold in <em>"Forecast Temperature Value"</em>.
+              - Optionally, you can enable a comparison with <ins>Temperature Sensor 2</ins> (e.g. outdoor) via the checkbox below.
+
+              If either value exceeds the threshold, shading will be activated — even if all other shading conditions are false.
+              This is especially useful in the early morning: the system can already determine whether shading will be needed later in the day. Instead of fully opening the blinds, it can move them directly into the shading position.
+
+            <strong>Additionally compare forecast temperature with Sensor 2:</strong><br />
+              Activates an extended comparison: not only is the forecasted temperature checked against the configured threshold, but also the current reading from <ins>Temperature Sensor 2</ins> (e.g. outdoor).
+              Shading will be triggered if <strong>either</strong> of the following conditions is met:<br />
+              - The forecasted temperature exceeds the configured threshold in <em>"Forecast Temperature Value"</em>, or<br />
+              - Sensor 2 reports a higher temperature than the forecast.
+
+            This mechanism allows for a more responsive and reliable shading system even when forecast data is uncertain by using real-time sensor input as an additional trigger.
+          default: []
+          selector:
+            select:
+              options:
+                - label: "Independent Shading via Temperature Comparison (Additional Trigger)"
+                  value: "shading_temp_comparison_independent"
+                - label: "Additionally compare forecast temperature with Sensor 2"
+                  value: "shading_compare_forecast_with_sensor2"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
+        shading_weather_conditions:
+          name: "🥵 Sun Shading - Weather Conditions"
+          description: "Check the following weather conditions when activating the shading."
           default:
             - sunny
             - partlycloudy
@@ -1495,7 +1533,7 @@ blueprint:
                 - "exceptional"
 
         shading_waitingtime_start:
-          name: "🥵 Waiting Time For Sun Shading Start"
+          name: "🥵 Sun Shading - Start Waiting Time"
           description: >-
             To avoid overloading the motor, a waiting time can be defined here for the start of shading.
             The shade will then only start if <ins>all</ins> mandatory conditions are fulfilled for the entire waiting time.
@@ -1507,7 +1545,7 @@ blueprint:
               unit_of_measurement: seconds
 
         shading_start_behavior:
-          name: "🥵 Sun Shading Start Behavior"
+          name: "🥵 Sun Shading - Start Behavior"
           description: >-
             Behavior if the shading conditions were not permanently met over the period.
             <p>
@@ -1532,7 +1570,7 @@ blueprint:
               mode: list
 
         shading_waitingtime_end:
-          name: "🥵 Waiting Time For Sun Shading End"
+          name: "🥵 Sun Shading - End Waiting Time"
           description: "To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended. Shading ends if <ins>one</ins> of the conditions is <ins>not</ins> fulfilled for the entire waiting time."
           default: 300
           selector:
@@ -1542,16 +1580,16 @@ blueprint:
               unit_of_measurement: seconds
 
         is_shading_end_immediate_by_sun_position:
-          name: "🥵 End Sun Shading Immediately When Out Of Range"
+          name: "🥵 End Sun Shading - Immediately When Out Of Range"
           description: >-
-            If enabled, shading will end immediately (20 seconds later) when sun position moves outside the defined azimuth or elevation range.
+            If enabled, shading will end immediately (only a few seconds later) when sun position moves outside the defined azimuth or elevation range.
             If disabled, the configured waiting time will be used before ending the shading.
           default: false
           selector:
             boolean: {}
 
         shading_end_behavior:
-          name: "🥵 Sun Shading End Behavior"
+          name: "🥵 Sun Shading - End Behavior"
           description: >-
             Configure how the cover should behave when sun shading ends.
             Choose "Move to close position" for awnings to retract when shading ends.
@@ -2170,7 +2208,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.06.19"
+  version: "2025.07.10"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2238,6 +2276,9 @@ variables:
   shading_end_behavior: !input shading_end_behavior
   start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
   start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
+  shading_config: !input shading_config
+  shading_temp_comparison_independent: "{{ 'shading_temp_comparison_independent' in shading_config }}"
+  shading_compare_forecast_with_sensor2: "{{ 'shading_compare_forecast_with_sensor2' in shading_config }}"
 
   is_status_helper_enabled: >-
     {{
@@ -2272,8 +2313,7 @@ variables:
     {{
       'shading' in helper_state_json and
       helper_state_json.shading.a | default(false) | bool and
-      not (helper_state_json.shading.p | default(false) | bool and
-          helper_state_json.shading.q | default(false) | bool)
+      not (helper_state_json.shading.p | default(false) | bool)
     }}
   is_helper_shading_start: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.p | default(false) | bool) }}"
   is_helper_shading_end: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.q | default(false) | bool) }}"
@@ -2564,6 +2604,11 @@ triggers:
     value_template: "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
     enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
     id: "t_shading_start_pending_5"
+
+  - platform: template # Required to recognize the maximum temperature value of the weather forecast before opening.
+    value_template: "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(hours = 1) }}"
+    enabled: "{{ is_shading_enabled }}"
+    id: "t_shading_start_pending_6"
 
   - platform: template
     value_template: >-
@@ -2917,6 +2962,9 @@ actions:
               - "{{ auto_down_force_disabled }}"
               - "{{ auto_ventilate_force_disabled }}"
               - "{{ auto_shading_start_force_disabled }}"
+          - or: # Check the helper status or the target status (issue #244)
+              - "{{ is_status_helper_enabled and not is_helper_open }}"
+              - "{{ not in_open_position }}"
           - "{{ not (is_status_helper_enabled and is_helper_manual and override_opening_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
@@ -3242,13 +3290,9 @@ actions:
           - or: # Check the helper status or the target status
               - "{{ not is_helper_shaded }}"
               - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
-          - or: # Try to avoid starting the shading several times TODO / FIXME
-              - and:
-                  - "{{ not is_cover_tilt_enabled_and_possible }}"
-                  - "{{ not in_shading_position }}"
-              - and:
-                  - "{{ is_cover_tilt_enabled_and_possible }}"
-                  - "{{ current_position >= shading_position }}"
+          - or: # Try to avoid starting the shading several times TODO / FIXME?
+              - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
+              - "{{ is_cover_tilt_enabled_and_possible }}"
           - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_shading_multiple_times }}"
@@ -3256,47 +3300,65 @@ actions:
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
 
         sequence:
-          - if: # Conditions sorted by trigger sequence
-              - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}" # t_shading_start_pending_1
-              - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}" # t_shading_start_pending_1
-              - or: # t_shading_start_pending_2
-                  - "{{ shading_brightness_sensor == [] }}"
-                  - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-              - or: # t_shading_start_pending_3
-                  - "{{ shading_temperatur_sensor1 == [] }}"
-                  - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-              - or: # t_shading_start_pending_4
-                  - "{{ shading_temperatur_sensor2 == [] }}"
-                  - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-              - or: # t_shading_start_pending_5
-                  - "{{ shading_forecast_sensor == [] }}"
-                  - "{{ shading_forecast_temp == [] }}"
-                  - and:
+          - if:
+              - or:
+                - and:
+                    - "{{ shading_temp_comparison_independent }}"
+                    - or:
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ prevent_forecast_service }}"
+                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ not prevent_forecast_service }}"
+                          - "{{ weather_forecast is defined }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - "{{ shading_compare_forecast_with_sensor2 and shading_temperatur_sensor2 != [] and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
+                - and:
+                  - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+                  - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
+                  - or:
+                      - "{{ shading_brightness_sensor == [] }}"
+                      - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+                  - or:
+                      - "{{ shading_temperatur_sensor1 == [] }}"
+                      - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
+                  - or:
+                      - "{{ shading_temperatur_sensor2 == [] }}"
+                      - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
+                  - or: # Forecast Temperature
+                      - "{{ shading_forecast_sensor == [] }}"
+                      - "{{ shading_forecast_temp == [] }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ prevent_forecast_service }}"
+                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ not prevent_forecast_service }}"
+                          - "{{ weather_forecast is defined }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                      - "{{ shading_compare_forecast_with_sensor2 and shading_temperatur_sensor2 != [] and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
+                  - or: # Forecast Weather Conditions
+                      - "{{ shading_forecast_sensor == [] }}"
+                      - "{{ shading_weather_conditions == [] }}"
                       - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                      - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ prevent_forecast_service }}"
-                      - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ not prevent_forecast_service }}"
-                      - "{{ weather_forecast is defined }}"
-                      - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                  - "{{ (shading_temperatur_sensor2 != [] ) and (states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp) }}"
-              - or: # t_shading_start_pending_5
-                  - "{{ shading_forecast_sensor == [] }}"
-                  - "{{ shading_weather_conditions == [] }}"
-                  - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ prevent_forecast_service }}"
-                      - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
-                  - and:
-                      - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                      - "{{ not prevent_forecast_service }}"
-                      - "{{ weather_forecast is defined }}"
-                      - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ prevent_forecast_service }}"
+                          - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
+                      - and:
+                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                          - "{{ not prevent_forecast_service }}"
+                          - "{{ weather_forecast is defined }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
             then:
               - choose:
                   #####################################################################
@@ -3480,7 +3542,7 @@ actions:
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
-              tilt_first: true # tilt the cover to close position before
+              tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
               update_values:
                 t: "{{ as_timestamp(now()) | round(0) }}"
           - *tilt_move_action
@@ -3526,163 +3588,182 @@ actions:
           - or: # Issue #116
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
-
         sequence:
-          - choose:
-              #####################################################################
-              # Shading end detected. Save next execution time and pending status
-              #####################################################################
-              - alias: "Shading end detected. Save next execution time and pending status"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
-                  - "{{ not is_helper_shading_end }}"
-                sequence:
-                  - variables:
-                      local_waitingtime_end: >
-                        {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
-                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
-                        {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
-                        {% set local_waitingtime_end = 20 %}
-                        {% endif %}
-                        {{ local_waitingtime_end }}
-                      update_values:
-                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + (local_waitingtime_end | int)) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
+          - if:
+              - or:
+                - "{{ current_sun_azimuth > shading_azimuth_end }}"
+                - "{{ current_sun_elevation > shading_elevation_max }}"
+                - "{{ current_sun_elevation < shading_elevation_min}}"
+                - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
+                - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+                - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+                - or:
+                    - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                    - and:
+                        - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                        - "{{ prevent_forecast_service }}"
+                        - "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
+                    - and:
+                        - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                        - "{{ not prevent_forecast_service }}"
+                        - "{{ weather_forecast is defined }}"
+                        - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition not in shading_weather_conditions }}"
+            then:
+              - choose:
+                  #####################################################################
+                  # Shading end detected. Save next execution time and pending status
+                  #####################################################################
+                  - alias: "Shading end detected. Save next execution time and pending status"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
+                      - "{{ not is_helper_shading_end }}"
+                    sequence:
+                      - variables:
+                          local_waitingtime_end: >
+                            {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
+                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
+                            {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
+                            {% set local_waitingtime_end = 20 %}
+                            {% endif %}
+                            {{ local_waitingtime_end }}
+                          update_values:
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + (local_waitingtime_end | int)) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
 
-              ######################################
-              # Only tilt open after shading ends
-              ######################################
-              - alias: "Only tilt open after shading ends"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                  - "{{ is_cover_tilt_enabled_and_possible }}"
-                  - "{{ prevent_opening_after_shading_end}}"
-                sequence:
+                  ######################################
+                  # Only tilt open after shading ends
+                  ######################################
+                  - alias: "Only tilt open after shading ends"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                      - "{{ is_cover_tilt_enabled_and_possible }}"
+                      - "{{ prevent_opening_after_shading_end}}"
+                    sequence:
 
-                  - variables:
-                      target_tilt_position: 50 # Moving the cover to open tilt position
-                      update_values:
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *tilt_move_action
-                  - *helper_update
+                      - variables:
+                          target_tilt_position: 50 # Moving the cover to open tilt position
+                          update_values:
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *tilt_move_action
+                      - *helper_update
 
-              ######################################
-              # Lockout protection when shading ends
-              ######################################
-              - alias: "Lockout protection when shading ends"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ (current_position < ventilate_position) }}"
-                  - or:
-                      - and:
-                          - "{{ contact_window_opened != [] }}"
-                          - "{{ states(contact_window_opened) in ['true', 'on'] }}"
-                      - and:
-                          - "{{ contact_window_tilted != [] }}"
-                          - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                          - "{{ lockout_tilted_when_shading_ends }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-
-              ################################
-              # Ventilation after shading ends
-              ################################
-              - alias: "Ventilation after shading ends"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ ventilation_after_shading_end }}"
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                  - "{{ not lockout_tilted_when_closing }}"
-                  - or:
-                      - "{{ contact_window_opened == [] }}"
-                      - "{{ states(contact_window_opened) in ['false', 'off'] }}"
-                  - or:
+                  ######################################
+                  # Lockout protection when shading ends
+                  ######################################
+                  - alias: "Lockout protection when shading ends"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                      - "{{ is_ventilation_enabled }}"
                       - "{{ (current_position < ventilate_position) }}"
-                      - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
-                sequence:
-                  - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
-                      seconds: >
-                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
-                          {{ range(0, 2) | random }}
-                        {% else %}
-                          {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
-                        {% endif %}
+                      - or:
+                          - and:
+                              - "{{ contact_window_opened != [] }}"
+                              - "{{ states(contact_window_opened) in ['true', 'on'] }}"
+                          - and:
+                              - "{{ contact_window_tilted != [] }}"
+                              - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                              - "{{ lockout_tilted_when_shading_ends }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
 
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
+                  ################################
+                  # Ventilation after shading ends
+                  ################################
+                  - alias: "Ventilation after shading ends"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                      - "{{ is_ventilation_enabled }}"
+                      - "{{ ventilation_after_shading_end }}"
+                      - "{{ contact_window_tilted != [] }}"
+                      - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                      - "{{ not lockout_tilted_when_closing }}"
+                      - or:
+                          - "{{ contact_window_opened == [] }}"
+                          - "{{ states(contact_window_opened) in ['false', 'off'] }}"
+                      - or:
+                          - "{{ (current_position < ventilate_position) }}"
+                          - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
+                    sequence:
+                      - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                          seconds: >
+                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                              {{ range(0, 2) | random }}
+                            {% else %}
+                              {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                            {% endif %}
 
-              ###############################################
-              # Move cover after shading end
-              ###############################################
-              - alias: "Move cover after shading end"
-                conditions:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ is_helper_shading_end }}"
-                sequence:
-                  - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
-                      seconds: >
-                        {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
-                          {{ range(0, 2) | random }}
-                        {% else %}
-                          {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
-                        {% endif %}
-
-                  - choose: []
-                    default: !input auto_shading_end_action_before
-                  - variables:
-                      target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
-                      target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
-                      target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
-                      update_values:
-                        open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
-                        close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - if:
-                      - "{{ not prevent_opening_after_shading_end}}"
-                    then:
+                      - choose: []
+                        default: !input auto_ventilate_action_before
+                      - variables:
+                          target_position: !input ventilate_position
+                          target_tilt_position: !input ventilate_tilt_position
+                          update_values:
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
                       - *cover_move_action
                       - *tilt_move_action
-                  - choose: []
-                    default: !input auto_shading_end_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_ventilate_action
 
-          # - stop: "Stop automation: SHADING END"
+                  ###############################################
+                  # Move cover after shading end
+                  ###############################################
+                  - alias: "Move cover after shading end"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                    sequence:
+                      - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                          seconds: >
+                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                              {{ range(0, 2) | random }}
+                            {% else %}
+                              {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                            {% endif %}
+
+                      - choose: []
+                        default: !input auto_shading_end_action_before
+                      - variables:
+                          target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
+                          target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
+                          target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
+                          update_values:
+                            open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
+                            close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - if:
+                          - "{{ not prevent_opening_after_shading_end}}"
+                        then:
+                          - *cover_move_action
+                          - *tilt_move_action
+                      - choose: []
+                        default: !input auto_shading_end_action
+
+              # - stop: "Stop automation: SHADING END"
 
       ############################################################
       # ANCHOR (5): CONTACT OPEN
@@ -3796,7 +3877,7 @@ actions:
                       - "{{ is_helper_vent_partial }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
-                  # Workaround for #181
+                  # TODO: Workaround for #181
                   # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
                   # 'vfull' is set in the helper.
                   # This must remain the case because the position of the cover remains at 100.

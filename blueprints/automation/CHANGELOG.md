@@ -414,3 +414,13 @@
   - Fixed: Tilt Delay added again
   - Fixed: Even though no shading was explicitly applied, the shading has ended for a closed cover #226
   - Added: Add sun shading minimum tilt position (Thank you for the pull request, julianwachholz) #230
+
+2025.07.10:
+  - Fixed an issue where shading could not be activated while tilt mode was active
+  - Fixed a bug where shading would start unexpectedly even though the sun was on the opposite side of the building (#244)
+  - Fixed a failure in the lockout protection mechanism (#225)
+  - Fixed an issue where forced tilt reset was not skipped when changing tilt positions (#241)
+  - Fixed a bug where shading end conditions were not properly checked (#229)
+  - Added: Option to additionally allow temperature+forecast-only shading (#238)
+  - Added: Configuration option to compare forecast temperature with Sensor 2 (#238)
+  - Memo: Slight adjustment to the calculation of is_helper_shaded: pending shading end is no longer considered.
