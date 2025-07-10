@@ -309,7 +309,7 @@ Each of these states is an object with at least two key values:
 |`t` | Timestamp of last global status change | – | Unix time|
 
 
-## 🪟 Cover Status Helper – State Overview
+## 🪟 Cover Status Helper - State Overview
 
 This table provides an overview of the different states used in the Cover Status Helper.
 Each row represents a specific scenario with corresponding binary values for each state variable.
