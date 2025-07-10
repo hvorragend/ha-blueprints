@@ -30,7 +30,7 @@
 12. **Position Management**: Manages multiple positions for different states such as open, close, ventilate, and shading. Added the option to save the current status in a helper. This has the advantage that the roller blind can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
 13. **Sun Shading / Sun Protection**: Extensive automatic sun shading with many different setting options: Sun azimuth, Sun elevation, Solar irradiation/Light intensity/Illuminance,  Weather Conditions, Temperature sensors (compare thresholds for indoor and/or outdoor sensors), weather forecast comparison
 
-## ❓ FAQ
+## ❓ [u]FAQ[/u]
 
 ### General Questions
 
@@ -62,7 +62,7 @@
    - The blueprint includes a feature to detect manual overrides and adjust automation accordingly.
 
 - **How do the shading start conditions work?**
-   - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until allcriteria are met.
+   - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until [u]all[/u] criteria are met.
 
 - **How can I use additional conditions like vacation mode or party mode?**
    - Activate vacation mode to keep covers closed during vacations.
@@ -90,7 +90,7 @@ The CCA blueprint is powerful but requires precise configuration. Below are typi
 - Azimuth values (e.g., `shading_azimuth_start` and `shading_azimuth_end`) must form a valid range.
 - Missing required fields can cause the automation to fail silently.
 
-👁️ <ins>More important configuration notes</ins>
+[details="👁️ More important configuration notes"]
 - `time_up_early` should be earlier `than time_up_late`
 - `time_up_early_non_workday` should be earlier than `time_up_late`
 - `time_down_early` should be earlier than `time_down_late`
@@ -104,6 +104,7 @@ The CCA blueprint is powerful but requires precise configuration. Below are typi
 - `shading_cover_position` should be lower than `open_position`
 - `resident` is only allowed to be on/off/true/false
 - cover must have a `current_position` attribute
+[/details]
 
 
 ### Why is my trigger sequence not executed even though all conditions are met?
@@ -225,9 +226,34 @@ trace:
 5. Please note that traces for the trigger “`t_manual_x`” are not relevant for debugging. Traces are only required in very rare cases. Then I would also point this out. These triggers are reactions to manual position changes or the attempt to recognize previous actions from the blueprint. If there are problems, then rarely with this trigger, but with the trigger directly [u]before[/u] it.
 6. Download the trace and make the file available in the thread via filehosters such as Pastebin.
 
+#### Uploading the JSON File
+
+Since the forum does not support uploading `.json` files directly, please use one of the following services to host your file and share the link in your post:
+
+|Service|Link|Account Required?|Notes|
+| --- | --- | --- | --- |
+|[Pastebin](https://pastebin.com)|✅ For "Unlisted" pastes|Supports syntax highlighting for JSON.||
+|[GitHub Gist](https://gist.github.com)|❌ Optional GitHub account|Ideal for structured files; public or secret.||
+|[Hastebin](https://hastebin.com)|❌ No|Fast & simple; may expire over time.||
+|[0bin](https://0bin.net)|❌ No|End-to-end encrypted; privacy-focused.||
+|[file.io](https://www.file.io)|❌ No|File auto-deletes after one download.||
+
 ---
 
-### 📬 Tips for Creating Helpful Support Requests
+#### 🧩 Pastebin Example
+
+1. Go to https://pastebin.com.
+2. Paste your **entire JSON content**.
+3. Set **Syntax Highlighting** to `json`.
+4. Set **Paste Exposure** to `Unlisted`.
+5. Click **“Create New Paste”**.
+6. Copy the generated link and include it in your forum reply.
+
+By providing the trace in this format, it’s much easier to identify bugs, unexpected behavior, or misconfigurations in your automation setup. Thank you!
+
+---
+
+## 📬 Tips for Creating Helpful Support Requests
 
 When asking for help on the forum, include:
 
@@ -261,7 +287,7 @@ When asking for help on the forum, include:
 
 ---
 
-## 📋 Cover Status Helper
+## 📋 Cover Status Helper - Contents
 
 The Cover Status Helper is the central control element in the latest version of the Cover Control Automation (CCA). It tracks the current state of the roller blinds.
 
@@ -282,3 +308,19 @@ Each of these states is an object with at least two key values:
 |`manual` | Manual operation detected (UI, switch, etc.) | `0` / `1` | Time intervention|
 |`v` | Version of the status format | – | –|
 |`t` | Timestamp of last global status change | – | Unix time|
+
+
+## 🪟 Cover Status Helper – State Overview
+
+This table provides an overview of the different states used in the Cover Status Helper for Home Assistant Blueprints. Each row represents a specific scenario with corresponding binary values for each state variable.
+
+|Scenario Description|`open`|`close`|`shading`|`vpart`|`vfull`|
+| --- | --- | --- | --- | --- | --- |
+|Cover is open|1|0|0|0|0|
+|Cover is closed|0|1|0|0|0|
+|Shading active, then returns to open|1|0|1|0|0|
+|Cover is still closed, then moves to shading instead of fully opening|0|1|1|0|0|
+|Lockout protection active when closing|0|1|0|0|1|
+|Window tilted – no lockout, cover moves to ventilation position instead of closing|0|1|0|1|0|
+
+---
