@@ -311,7 +311,8 @@ Each of these states is an object with at least two key values:
 
 ## 🪟 Cover Status Helper – State Overview
 
-This table provides an overview of the different states used in the Cover Status Helper for Home Assistant Blueprints. Each row represents a specific scenario with corresponding binary values for each state variable.
+This table provides an overview of the different states used in the Cover Status Helper.
+Each row represents a specific scenario with corresponding binary values for each state variable.
 
 |Scenario Description|`open`|`close`|`shading`|`vpart`|`vfull`|
 | --- | --- | --- | --- | --- | --- |
