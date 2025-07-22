@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.07.10
+    **Version**: 2025.07.22
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,11 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.07.22:
+      - Fixed: Prevent 'startswith' error by validating shading_forecast_sensor type
+      - Removed default weather condition presets for sun shading activation.
+      - Moved shading condition checks from trigger to condition block to prevent unintended triggering on cover_status_helper state changes.
 
     2025.07.10:
       - Fixed an issue where shading could not be activated while tilt mode was active
@@ -1505,12 +1510,8 @@ blueprint:
 
         shading_weather_conditions:
           name: "🥵 Sun Shading - Weather Conditions"
-          description: "Check the following weather conditions when activating the shading."
-          default:
-            - sunny
-            - partlycloudy
-            - cloudy
-            - clear
+          description: "Check the following weather conditions when activating the shading. Be cautious when making your selection, as weather forecasts may not always be accurate and could lead to incorrect shading decisions."
+          default: []
           selector:
             select:
               multiple: true
@@ -1642,9 +1643,9 @@ blueprint:
           selector:
             select:
               options:
-                - label: "🔼 Open the cover immediately when the sensor goes to 'off/false'?"
+                - label: "🔼 Open the cover shortly after the sensor switches to 'off/false'?"
                   value: "resident_opening_enabled"
-                - label: "🔻 Close the cover immediately when the sensor goes to 'on/true'?"
+                - label: "🔻 Close the cover shortly after the sensor switches to 'on/true'?"
                   value: "resident_closing_enabled"
                 - label: "🥵 Allow sun protection when resident is still present"
                   value: "resident_allow_shading"
@@ -2208,7 +2209,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.07.10"
+  version: "2025.07.22"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2680,65 +2681,31 @@ triggers:
   ########################################
 
   - platform: template
-    value_template: >-
-      {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
-        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1)
-      }}
+    value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_end_pending_1"
 
   - platform: template
-    value_template: >-
-      {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
-        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2)
-      }}
+    value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_end_pending_2"
 
   - platform: template
-    value_template: >-
-      {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
-        states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end
-      }}
+    value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_brightness_sensor != [] }}"
     id: "t_shading_end_pending_3"
 
   - platform: template
-    value_template: >-
-      {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
-        states(shading_forecast_sensor) not in shading_weather_conditions
-      }}
+    value_template: "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
     id: "t_shading_end_pending_4"
 
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0') and
-        (
-          (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
-          (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
-          (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
-        )
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
+        (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
       }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and default_sun_sensor != [] }}"
     id: "t_shading_end_pending_5"
@@ -2807,6 +2774,18 @@ conditions:
   - or:
       - "{{ trigger.to_state is not defined }}" # for "platform: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger
+  - condition: template
+    value_template: >-
+      {% if trigger.id is match('^t_shading_end_pending_[1-5]$') %}
+        {{
+          states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+          states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+          states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"p"\s*:\s*0') and
+          states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"q"\s*:\s*0')
+        }}
+      {% else %}
+        true
+      {% endif %}
 
 ################################################################################
 # ACTIONS
@@ -2905,6 +2884,7 @@ actions:
       - "{{ states(shading_forecast_sensor) not in ['unavailable', 'unknown', 'query failed']  }}"
       - "{{ trigger.id is defined }}"
       - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}" # Important: All triggers for shading start necessary!
+      - "{{ shading_forecast_sensor is string }}"
       - "{{ shading_forecast_sensor.startswith('weather.') }}"
     then:
       - action: weather.get_forecasts
@@ -3306,13 +3286,16 @@ actions:
                     - "{{ shading_temp_comparison_independent }}"
                     - or:
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('sensor.') }}"
                           - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ prevent_forecast_service }}"
                           - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ not prevent_forecast_service }}"
                           - "{{ weather_forecast is defined }}"
@@ -3334,13 +3317,16 @@ actions:
                       - "{{ shading_forecast_sensor == [] }}"
                       - "{{ shading_forecast_temp == [] }}"
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('sensor.') }}"
                           - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ prevent_forecast_service }}"
                           - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ not prevent_forecast_service }}"
                           - "{{ weather_forecast is defined }}"
@@ -3349,12 +3335,14 @@ actions:
                   - or: # Forecast Weather Conditions
                       - "{{ shading_forecast_sensor == [] }}"
                       - "{{ shading_weather_conditions == [] }}"
-                      - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                      - "{{ shading_forecast_sensor is string and shading_forecast_sensor.startswith('sensor.') }}"
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ prevent_forecast_service }}"
                           - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
                       - and:
+                          - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ not prevent_forecast_service }}"
                           - "{{ weather_forecast is defined }}"
@@ -3598,12 +3586,14 @@ actions:
                 - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
                 - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
                 - or:
-                    - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                    - "{{ shading_forecast_sensor is string and shading_forecast_sensor.startswith('sensor.') }}"
                     - and:
+                        - "{{ shading_forecast_sensor is string }}"
                         - "{{ shading_forecast_sensor.startswith('weather.') }}"
                         - "{{ prevent_forecast_service }}"
                         - "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
                     - and:
+                        - "{{ shading_forecast_sensor is string }}"
                         - "{{ shading_forecast_sensor.startswith('weather.') }}"
                         - "{{ not prevent_forecast_service }}"
                         - "{{ weather_forecast is defined }}"
