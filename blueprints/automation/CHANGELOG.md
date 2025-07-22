@@ -424,3 +424,8 @@
   - Added: Option to additionally allow temperature+forecast-only shading (#238)
   - Added: Configuration option to compare forecast temperature with Sensor 2 (#238)
   - Memo: Slight adjustment to the calculation of is_helper_shaded: pending shading end is no longer considered.
+
+2025.07.22:
+  - Fixed: Prevent 'startswith' error by validating shading_forecast_sensor type
+  - Removed default weather condition presets for sun shading activation.
+  - Moved shading condition checks from trigger to condition block to prevent unintended triggering on cover_status_helper state changes.
