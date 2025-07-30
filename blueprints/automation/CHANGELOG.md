@@ -429,3 +429,7 @@
   - Fixed: Prevent 'startswith' error by validating shading_forecast_sensor type
   - Removed default weather condition presets for sun shading activation.
   - Moved shading condition checks from trigger to condition block to prevent unintended triggering on cover_status_helper state changes.
+    
+2025.07.23:
+  - Removed default brightness-based control activation due to potential errors when the brightness sensor is not configured in the default blueprint. This feature can still be enabled manually as before.
+  - Editorial changes to the shading instructions
