@@ -433,3 +433,8 @@
 2025.07.23:
   - Removed default brightness-based control activation due to potential errors when the brightness sensor is not configured in the default blueprint. This feature can still be enabled manually as before.
   - Editorial changes to the shading instructions
+
+2025.07.30:
+  - Fixed: Shading not ending when condition changed in previous waiting time #258
+  - Fixed: Shading not ending because of general conditions #257
+  - Fix only tilt open is not ending shading #255
