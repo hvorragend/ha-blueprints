@@ -438,3 +438,6 @@
   - Fixed: Shading not ending when condition changed in previous waiting time #258
   - Fixed: Shading not ending because of general conditions #257
   - Fix only tilt open is not ending shading #255
+
+2025.08.07:
+  - Fixed a bug where shading was not disabled when the weather sensor or optional weather conditions were not set #258
