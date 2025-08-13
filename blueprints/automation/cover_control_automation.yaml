@@ -2838,65 +2838,51 @@ actions:
   - variables:
       cover_move_action: &cover_move_action
         sequence:
-          - repeat:
-              for_each: "{{ blind_entities | list }}"
-              sequence:
-                - choose:
-                    - conditions:
-                        - "{{ not prevent_default_cover_actions }}"
-                        - "{{ target_position | default(101)  == 0 }}"
-                        - "{{ target_position | default(101)  != current_position }}"
-                      sequence:
-                        - alias: "Close Cover"
-                          service: cover.close_cover
-                          target:
-                            entity_id: "{{ repeat.item if repeat is defined else '' }}"
-                        - wait_for_trigger:
-                            - trigger: state
-                              entity_id: !input blind
-                              attribute: current_position
-                              to: "{{ target_position | default(101) }}"
-                          timeout: !input tilt_delay
-                        - delay:
-                            seconds: "{{ (range(1, 3) | random | int) }}"
-                    - conditions:
-                        - "{{ not prevent_default_cover_actions }}"
-                        - "{{ target_position | default(101) == 100 }}"
-                        - "{{ target_position | default(101)  != current_position }}"
-                      sequence:
-                        - alias: "Open Cover"
-                          service: cover.open_cover
-                          target:
-                            entity_id: "{{ repeat.item if repeat is defined else '' }}"
-                        - wait_for_trigger:
-                            - trigger: state
-                              entity_id: !input blind
-                              attribute: current_position
-                              to: "{{ target_position | default(101) }}"
-                          timeout: !input tilt_delay
-                        - delay:
-                            seconds: "{{ (range(1, 3) | random | int) }}"
-                    - conditions:
-                        - "{{ not prevent_default_cover_actions }}"
-                        - "{{ target_position | default(101) not in [0, 100] }}"
-                        - "{{ target_position | default(101)  != current_position }}"
-                      sequence:
-                        - alias: "Moving the cover to target position"
-                          service: cover.set_cover_position
-                          data:
-                            position: "{{ target_position | default(101) }}"
-                          target:
-                            entity_id: "{{ repeat.item if repeat is defined else '' }}"
-                        - wait_for_trigger:
-                            - trigger: state
-                              entity_id: !input blind
-                              attribute: current_position
-                              to: "{{ target_position | default(101) }}"
-                          timeout: !input tilt_delay
-                        - delay:
-                            seconds: "{{ (range(1, 3) | random | int) }}"
-                #- delay:
-                #    seconds: "{{ (range(1, 3) | random | int) }}"
+          - if:
+              - "{{ target_position | default(101)  != current_position }}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities | list }}"
+                  sequence:
+                    - choose:
+                        - conditions:
+                            - "{{ not prevent_default_cover_actions }}"
+                            - "{{ target_position | default(101)  == 0 }}"
+                          sequence:
+                            - alias: "Close Cover"
+                              service: cover.close_cover
+                              target:
+                                entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+                        - conditions:
+                            - "{{ not prevent_default_cover_actions }}"
+                            - "{{ target_position | default(101) == 100 }}"
+                          sequence:
+                            - alias: "Open Cover"
+                              service: cover.open_cover
+                              target:
+                                entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+                        - conditions:
+                            - "{{ not prevent_default_cover_actions }}"
+                            - "{{ target_position | default(101) not in [0, 100] }}"
+                          sequence:
+                            - alias: "Moving the cover to target position"
+                              service: cover.set_cover_position
+                              data:
+                                position: "{{ target_position | default(101) }}"
+                              target:
+                                entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+              - wait_for_trigger:
+                  - trigger: state
+                    entity_id: !input blind
+                    attribute: current_position
+                    to: "{{ target_position | default(101) }}"
+                timeout: !input drive_time
 
       tilt_move_action: &tilt_move_action
         sequence:
@@ -2904,30 +2890,39 @@ actions:
               - "{{ not prevent_default_cover_actions }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
               - "{{ expand(blind_entities) | selectattr('attributes.current_tilt_position', 'defined') | list | count > 0 }}"
+              - "{{ target_tilt_position | default(101)  != current_tilt_position }}"
             then:
-              - repeat:
-                  for_each: "{{ blind_entities | list }}"
-                  sequence:
-                    - if:
-                        - "{{ tilt_first | default(false) }}"
-                      then:
+              - if:
+                  - "{{ tilt_first | default(false) }}"
+                then:
+                  - delay:
+                      seconds: !input tilt_delay
+                  - repeat:
+                      for_each: "{{ blind_entities | list }}"
+                      sequence:
                         - alias: "Reset Tilt"
                           service: cover.set_cover_tilt_position
                           data:
                             tilt_position: 0
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
-                        #- delay:
-                        #    seconds: !input tilt_delay
-                        - wait_for_trigger:
-                            - trigger: state
-                              entity_id: !input blind
-                              attribute: current_tilt_position
-                              to: 0
-                          timeout: !input tilt_delay
-                    #- alias: "Tilt Delay"
-                    #  delay:
-                    #    seconds: !input tilt_delay
+                        - delay:
+                            seconds: "{{ (range(1, 3) | random | int) }}" 
+                  - wait_for_trigger:
+                      - trigger: state
+                        entity_id: !input blind
+                        attribute: current_tilt_position
+                        to: 0
+                    timeout: !input drive_time
+              - alias: "Tilt Delay"
+                delay:
+                  seconds: !input tilt_delay
+              - repeat:
+                  for_each: "{{ blind_entities | list }}"
+                  sequence:
+                    - alias: "Tilt Delay"
+                      delay:
+                        seconds: !input tilt_delay
                     - alias: "Moving the cover to tilt position"
                       service: cover.set_cover_tilt_position
                       data:
