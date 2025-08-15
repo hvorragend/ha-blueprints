@@ -441,3 +441,9 @@
 
 2025.08.07:
   - Fixed a bug where shading was not disabled when the weather sensor or optional weather conditions were not set #258
+
+2025.08.10:
+  - Minor updates
+
+2025.08.15:
+  - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
