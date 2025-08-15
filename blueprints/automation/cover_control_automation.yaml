@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.08.10
+    **Version**: 2025.08.15
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,9 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.08.15:
+      - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
 
     2025.08.10:
       - Minor updates
@@ -2246,7 +2249,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.08.10"
+  version: "2025.08.15"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2445,7 +2448,7 @@ variables:
   # Config check
   check_config: !input check_config
   check_config_debuglevel: !input check_config_debuglevel
-  check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if is_status_helper_enabled else None }}"
+  check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
 
 mode: single
 max_exceeded: silent
@@ -2813,16 +2816,14 @@ conditions:
       - "{{ trigger.to_state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger
   - condition: template
     value_template: >-
-      {% if trigger.id is match('^t_shading_start_pending_[1-5]$') %}
-        {{
-          states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
-          states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*0')
-        }}
-      {% elif trigger.id is match('^t_shading_end_pending_[1-5]$') %}
-        {{
-          states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
-          states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1')
-        }}
+      {% if is_status_helper_enabled %}
+        {% if trigger.id is match('^t_shading_start_pending_[1-5]$') %}
+          {{ states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*0') }}
+        {% elif trigger.id is match('^t_shading_end_pending_[1-5]$') %}
+          {{ states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') }}
+        {% else %}
+          true
+        {% endif %}
       {% else %}
         true
       {% endif %}
