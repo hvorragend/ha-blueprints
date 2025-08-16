@@ -607,6 +607,16 @@ blueprint:
               min: 0.0
               max: 100.0
               unit_of_measurement: "%"
+        
+        rain_protection_position:
+          name: "🌧️ Rain Protection Position"
+          description: "To which position should the cover be moved for rain protection?"
+          default: 20
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              unit_of_measurement: "%"
 
         position_tolerance:
           name: "〰️ Position Tolerance"
@@ -759,6 +769,15 @@ blueprint:
               unit_of_measurement: °
               mode: slider
               step: 1.0
+        rain_protection_tilt_position:
+          name: "🌧️ Rain Protection Tilt Position"
+          description: "To which tilt position should the cover be moved for rain protection?"
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
 
     time_section:
       name: "Time Control Configuration"
@@ -1170,6 +1189,8 @@ blueprint:
                   value: "lockout_tilted_shading_start"
                 - label: "🛡️ Lockout protection when the sun shading is ended"
                   value: "lockout_tilted_shading_end"
+                - label: "🛡️ Lockout protection when rain protection is started"
+                  value: "lockout_rain_protection_start"
               sort: false
               multiple: true
               custom_value: false
@@ -1698,6 +1719,105 @@ blueprint:
               custom_value: false
               mode: list
 
+    rain_section:
+      name: "Rain Protection Settings"
+      description: "Rain settings"
+      icon: mdi:weather-rainy
+      collapsed: true
+      input:
+        rain_protection_config:
+          name: "🌧️ Rain Protection Feature"
+          description: "Rain protection config"
+          default: rain_protection_disabled
+          selector:
+            select:
+              options:
+                - label: "❌ Enable Rain Protection"
+                  value: "rain_protection_disabled"
+                - label: "✅ Disable Rain Protection"
+                  value: "rain_protection_enabled"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
+
+        rain_protection_type_option:
+          name: "🌧️ Define the type of cover you have"
+          description: >-
+            Shutters or Blinds will move down for rain protection. Awnings will move up (inside) to protect from rain.
+          default: rain_protect_cover
+          selector:
+            select:
+              options:
+                - label: "Cover type shutter or blind."
+                  value: "rain_protect_cover"
+                - label: "Cover type awning."
+                  value: "rain_protect_awning"
+              multiple: false
+
+        rain_sensor:
+          name: "🌧️ Rain Sensor"
+          description: "You can use this to define a rain sensor (input_boolean, binary_sensor or switch)."
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - binary_sensor
+                - switch
+
+        rain_intensity_sensor:
+          name: "🌧️ Sensor for rain intensity"
+          description: "You can use this sensor for the rain intensity (sensor)."
+          default: []
+          selector:
+            entity:
+              domain:
+                - sensor
+
+        rain_intensity_setting:
+          name: "🌧️ Rain intensity setting"
+          description: "Define the rain intensity above which the rain protection will start."
+          default: 1.0
+          selector:
+            number:
+              min: 0.0
+              max: 10.0
+              unit_of_measurement: mm/h
+              step: 0.1
+
+        wind_sensor:
+          name: "🌪️ Wind Sensor"
+          description: "You can use this sensor (sensor) for the wind direktion."
+          default: []
+          selector:
+            entity:
+              domain:
+                - sensor
+
+        wind_directions:
+          name: "🌪️ Wind direction setting"
+          description: "Define the condition values for your wind sensor."
+          default: []
+          selector:
+            select:
+              options:
+                - "W"
+                - "NW"
+                - "SW"
+                - "S"
+                - "O"
+                - "NO"
+                - "SO"
+                - "E"
+                - "NE"
+                - "SE"
+                - "N"
+              multiple: true
+              sort: true
+              custom_value: true
+              mode: list
+    
     override_section:
       name: "Manual Override"
       description: >-
@@ -1949,6 +2069,28 @@ blueprint:
           selector:
             condition: {}
 
+        auto_rain_condition:
+          name: "🌧️ Additional Condition For Activating Rain Protection"
+          description: >-
+            This condition can be used to dynamically control the <ins>start of the rain protection</ins> of the cover.
+            <br /><br />
+            If the result of this condition is <ins>true</ins>, the automation will continue.<br />
+            The result of the conditions must be <ins>false</ins>, for the automation to stop in this sequence.
+          default: []
+          selector:
+            condition: {}
+
+        auto_rain_end_condition:
+              name: "🌧️ Additional Condition For Ending Rain Protection"
+              description: >-
+                This condition can be used to dynamically control the <ins>end of the rain protection</ins> of the cover.
+                <br /><br />
+                If the result of this condition is <ins>true</ins>, the automation will continue.<br />
+                The result of the conditions must be <ins>false</ins>, for the automation to stop in this sequence.
+              default: []
+              selector:
+                condition: {}
+
     force_section:
       name: "Force Features"
       description: >-
@@ -2150,6 +2292,7 @@ trigger_variables:
   close_position: !input close_position
   ventilate_position: !input ventilate_position
   shading_position: !input shading_position
+  rain_protection_position: !input rain_protection_position
   position_tolerance: !input position_tolerance
 
   # Tilt
@@ -2163,6 +2306,7 @@ trigger_variables:
   shading_tilt_position_1: !input shading_tilt_position_1
   shading_tilt_position_2: !input shading_tilt_position_2
   shading_tilt_position_3: !input shading_tilt_position_3
+  rain_protection_tilt_position: !input rain_protection_tilt_position
 
   # Modes
   auto_options: !input auto_options
@@ -2197,6 +2341,7 @@ trigger_variables:
   lockout_tilted_when_closing: "{{ 'lockout_tilted_closing' in lockout_tilted_options }}"
   lockout_tilted_when_shading_starts: "{{ 'lockout_tilted_shading_start' in lockout_tilted_options }}"
   lockout_tilted_when_shading_ends: "{{ 'lockout_tilted_shading_end' in lockout_tilted_options }}"
+  lockout_tilted_when_rain_protection_start: "{{ 'lockout_rain_protection_start' in lockout_tilted_options }}"
 
   # Time controls
   time_control: !input time_control
@@ -2220,6 +2365,13 @@ trigger_variables:
   shading_forecast_type: !input shading_forecast_type
   shading_forecast_temp: !input shading_forecast_temp
   shading_weather_conditions: !input shading_weather_conditions
+
+  # rain protection
+  rain_protection_config: !input rain_protection_config
+  is_rain_protection_enabled: "{{ 'rain_protection_enabled' in rain_protection_config }}"
+  rain_sensor: !input rain_sensor
+  rain_intensity_sensor: !input rain_intensity_sensor
+  rain_intensity_setting: !input rain_intensity_setting
 
   # Internal code helper
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
@@ -2361,6 +2513,7 @@ variables:
   is_helper_vent_partial: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vpart')) and (helper_state_json.vpart.a | default(false) | bool) }}"
   is_helper_vent_full: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vfull')) and (helper_state_json.vfull.a | default(false) | bool) }}"
   is_helper_manual: "{{ is_status_helper_enabled and (helper_state_json | regex_search('manual')) and (helper_state_json.manual.a | default(false) | bool) }}"
+  is_helper_rain: "{{ is_status_helper_enabled and (helper_state_json | regex_search('rain')) and (helper_state_json.rain.a | default(false) | bool) }}"
 
   ts_helper_open: "{{ helper_state_json.open.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('open'))) else 0 }}"
   ts_helper_closed: "{{ helper_state_json.close.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('close'))) else 0 }}"
@@ -2368,6 +2521,7 @@ variables:
   ts_helper_vent_partial: "{{ helper_state_json.vpart.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vpart'))) else 0 }}"
   ts_helper_vent_full: "{{ helper_state_json.vfull.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vfull'))) else 0 }}"
   ts_helper_manual: "{{ helper_state_json.manual.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('manual'))) else 0 }}"
+  ts_helper_rain: "{{ helper_state_json.rain.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('rain'))) else 0 }}"
 
   in_open_position: >-
     {% set min = open_position - position_tolerance %}
@@ -2434,6 +2588,12 @@ variables:
   resident_allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
   resident_allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
 
+  wind_sensor: !input wind_sensor
+  wind_directions: !input wind_directions
+  rain_protection_type_option: !input rain_protection_type_option
+  rain_protect_cover: "{{ 'rain_protect_cover' in rain_protection_type_option }}"
+  rain_protect_awning: "{{ 'rain_protect_awning' in rain_protection_type_option }}"
+
   ignore_after_manual_config: !input ignore_after_manual_config
   override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
   override_closing_after_manual: "{{ 'ignore_closing_after_manual' in ignore_after_manual_config }}"
@@ -2452,6 +2612,8 @@ variables:
 
 mode: single
 max_exceeded: silent
+trace:
+  stored_traces: 50
 
 ################################################################################
 # TRIGGERS
@@ -2769,6 +2931,25 @@ triggers:
     enabled: "{{ is_shading_enabled }}"
 
   ########################################
+  # Triggers for rain protection
+  ########################################
+
+  - platform: template
+    value_template: "{{ states(rain_sensor) |bool == true and states(rain_intensity_sensor) |float >= rain_intensity_setting |float }}"
+    enabled: "{{ is_rain_protection_enabled and rain_sensor != [] and rain_intensity_sensor != [] and wind_sensor != [] and wind_directions != [] }}"
+    id: "t_rain_start_1"
+
+  - platform: template
+    value_template: "{{ states(rain_sensor) |bool == false }}"
+    enabled: "{{ is_rain_protection_enabled and rain_sensor != [] and rain_intensity_sensor != [] and wind_sensor != [] and wind_directions != [] }}"
+    id: "t_rain_end_1"
+
+  - platform: template
+    value_template: "{{ states(rain_sensor) |bool == true and states(rain_intensity_sensor) |float < rain_intensity_setting |float }}"
+    enabled: "{{ is_rain_protection_enabled and rain_sensor != [] and rain_intensity_sensor != [] and wind_sensor != [] and wind_directions != [] }}"
+    id: "t_rain_end_2"
+
+  ########################################
   # Trigger for manual cover controls
   ########################################
 
@@ -3041,6 +3222,60 @@ actions:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
           - choose:
+              ###################################
+              # Consider Rain Protection at opening
+              ###################################
+              - alias: "Consider Rain Protection at opening"
+                conditions:
+                  - "{{ is_status_helper_enabled }}"
+                  - "{{ is_helper_rain }}"
+                sequence:
+                  - action: input_text.set_value # Set shading to true, but do not overwrite shading time
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':1,'t':as_timestamp(now()) | round(0)},
+                          'close':{'a':0,'t':dict_var.close.t},
+                          'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
+                          'vpart':{'a':0,'t':dict_var.vpart.t},
+                          'vfull':{'a':0,'t':dict_var.vfull.t},
+                          'rain':{'a':1,'t':dict_var.rain.t},
+                          'manual':{'a':0,'t':dict_var.manual.t},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to rain protection position"
+                              action: cover.set_cover_position
+                              data:
+                                position: !input rain_protection_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: "{{ rain_protection_tilt_position | int }}"
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+                                
               ###################################
               # Cover should be shaded
               ###################################
@@ -3671,6 +3906,60 @@ actions:
                       - *helper_update
 
                   ######################################
+                  # Consider Rain Protection at shading end (for example when the shading end time is long enough so the rain started before shading ends).
+                  ######################################
+                  - alias: "Consider Rain Protection at shading end"
+                    conditions:
+                      - "{{ is_status_helper_enabled }}"
+                      - "{{ is_helper_rain }}"
+                    sequence:
+                      - action: input_text.set_value # Set shading to true, but do not overwrite shading time
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':dict_var.open.a,'t':dict_var.open.t},
+                              'close':{'a':dict_var.close.a,'t':dict_var.close.t},
+                              'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
+                              'vpart':{'a':dict_var.vpart.a,'t':dict_var.vpart.t},
+                              'vfull':{'a':dict_var.vfull.a,'t':dict_var.vfull.t},
+                              'rain':{'a':1,'t':dict_var.rain.t},
+                              'manual':{'a':dict_var.manual.a,'t':dict_var.manual.t},
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+
+                      - if:
+                          - "{{ not prevent_default_cover_actions}}"
+                        then:
+                          - repeat:
+                              for_each: "{{ blind_entities|list }}"
+                              sequence:
+                                - alias: "Moving the cover to rain protection position"
+                                  action: cover.set_cover_position
+                                  data:
+                                    position: !input rain_protection_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                                - if:
+                                    - "{{ is_cover_tilt_enabled_and_possible }}"
+                                    - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                                  then:
+                                    - alias: "Tilt Delay"
+                                      delay:
+                                        seconds: !input tilt_delay
+                                    - alias: "Moving the cover to tilt position"
+                                      action: cover.set_cover_tilt_position
+                                      data:
+                                        tilt_position: "{{ rain_protection_tilt_position | int }}"
+                                      target:
+                                        entity_id: "{{ repeat.item }}"
+                                - delay:
+                                    seconds: "{{ (range(1, 3) | random | int) }}"
+
+                  ######################################
                   # Only tilt open after shading ends
                   ######################################
                   - alias: "Only tilt open after shading ends"
@@ -3885,6 +4174,60 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_ventilate_action
+
+              ######################################
+              # Consider Rain Protection at contact open (if "Allow ventilation even if cover is already in a higher position" is not enabeld).
+              ######################################
+              - alias: "Consider Rain Protection at contact open."
+                conditions:
+                  - "{{ is_status_helper_enabled }}"
+                  - "{{ is_helper_rain }}"
+                sequence:
+                  - action: input_text.set_value # Set shading to true, but do not overwrite shading time
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':dict_var.open.a,'t':dict_var.open.t},
+                          'close':{'a':dict_var.close.a,'t':dict_var.close.t},
+                          'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
+                          'vpart':{'a':dict_var.vpart.a,'t':dict_var.vpart.t},
+                          'vfull':{'a':dict_var.vfull.a,'t':dict_var.vfull.t},
+                          'rain':{'a':1,'t':dict_var.rain.t},
+                          'manual':{'a':dict_var.manual.a,'t':dict_var.manual.t},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to rain protection position"
+                              action: cover.set_cover_position
+                              data:
+                                position: !input rain_protection_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: "{{ rain_protection_tilt_position | int }}"
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
 
           # - stop: "Stop automation: CONTACT OPEN"
 
@@ -4336,6 +4679,425 @@ actions:
                 shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                 t: "{{ as_timestamp(now()) | round(0) }}"
           - *helper_update
+
+      ############################################################
+      # ANCHOR (14): RAIN PROTECTION START
+      ############################################################
+
+      - alias: "Rain Protection Start"
+        conditions:
+          - "{{ is_rain_protection_enabled }}"
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id | regex_match('^(t_rain_start)') }}"
+          - "{{ is_status_helper_enabled }}"
+          - condition: !input auto_rain_condition
+          - "{{ not lockout_rain_protection_start }}"
+          - or:
+            - and:
+              - "{{ contact_window_opened != [] }}"
+              - "{{ is_state(contact_window_opened, ['true', 'on']) }}"
+            - and:
+              - "{{ contact_window_tilted != [] }}"
+              - "{{ is_state(contact_window_tilted, ['true', 'on']) }}"
+          - "{{ states(rain_intensity_sensor) |float >= rain_intensity_setting |float }}"
+          - "{{ states(wind_sensor) in wind_directions }}"
+          - and:
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+              - "{{ auto_shading_start_force_disabled }}"
+          - or:
+              - "{{ resident_sensor == [] }}"
+              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - and:
+                - "{{ resident_allow_rain_protection }}"
+                - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+        sequence:
+          - choose:
+              ###################################
+              # Cover in open position. Protect Window FROM RAIN.
+              ###################################
+              - alias: "Cover open. Protect window from rain"
+                conditions:
+                  - "{{ in_open_position }}"
+                sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'rain':{'a':1,'t':as_timestamp(now()) | round(0)},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to rain protection position"
+                              action: cover.set_cover_position
+                              data:
+                                position: !input rain_protection_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: "{{ rain_protection_tilt_position | int }}"
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+
+              ###################################
+              # COVER NOT IN OPEN POSITION. CHECK IF RAIN PROTECTION IS NEEDED.
+              ###################################
+              - alias: "Cover not in open position. Check if rain protection is needed."
+                conditions:
+                  - "{{ not in_close_position }}"
+                  - or:
+                    - and:
+                      - "{{ rain_protect_cover }}"
+                      - or:
+                        - and:
+                          - "{{ not is_cover_tilt_enabled_and_possible }}"
+                          - "{{ state_attr(blind, 'current_position') > rain_protection_position }}"
+                        - and:
+                          - "{{ is_cover_tilt_enabled_and_possible }}"
+                          - or:
+                            - "{{ state_attr(blind, 'current_position') > rain_protection_position }}"
+                            - and: #tilt covers even if current_position is below rain protection so the rain doens't get in.
+                              - "{{ state_attr(blind, 'current_position') != 100 }}"
+                              - "{{ state_attr(blind, 'current_tilt_position') > rain_protection_tilt_position }}"
+                    - and:
+                      - "{{ rain_protect_awning }}"
+                      - "{{ state_attr(blind, 'current_position') < rain_protection_position }}"
+                sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'rain':{'a':1,'t':as_timestamp(now()) | round(0)},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to rain protection position"
+                              action: cover.set_cover_position
+                              data:
+                                position: !input rain_protection_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: "{{ rain_protection_tilt_position | int }}"
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+
+              ###################################
+              # Cover. doesn't need protection. Set helper anyway (for example for openingin the morning)..
+              ###################################
+              - alias: "Cover not in open position. Check if rain protection is needed."
+                conditions: []
+                sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'rain':{'a':1,'t':as_timestamp(now()) | round(0)},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+      ############################################################
+      # ANCHOR (15): RAIN PROTECTION END
+      ############################################################
+
+      - alias: "Rain Protection End"
+        conditions:
+          - "{{ is_rain_protection_enabled }}"
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id | regex_match('^(t_rain_end)') }}"
+          - "{{ is_status_helper_enabled }}"
+          - condition: !input auto_rain_end_condition
+          - "{{ is_helper_rain }}"
+          - and:
+              - "{{ auto_up_force_disabled }}"
+              - "{{ auto_down_force_disabled }}"
+              - "{{ auto_ventilate_force_disabled }}"
+              - "{{ auto_shading_start_force_disabled }}"
+          - or:
+              - "{{ resident_sensor == [] }}"
+              - "{{ is_state(resident_sensor, ['false', 'off']) }}"
+              - and:
+                - "{{ resident_allow_rain_protection }}"
+                - "{{ is_state(resident_sensor, ['true', 'on']) }}"
+        sequence:
+          - choose:
+              ###################################
+              # SHADING ACTIVE. GO TO SHADING POSITION
+              ###################################
+              - alias: "Shading active. Go to shading position."
+                conditions:
+                  - "{{ is_helper_shaded }}"
+                sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'open':{'a':1,'t':as_timestamp(now()) | round(0)},
+                          'close':{'a':0,'t':dict_var.close.t},
+                          'shading':{'a':1,'t':as_timestamp(now()) | round(0),'p':0,'q':0 },
+                          'vpart':{'a':0,'t':dict_var.vpart.t},
+                          'vfull':{'a':0,'t':dict_var.vfull.t},
+                          'manual':{'a':0,'t':dict_var.manual.t},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to shading position"
+                              action: cover.set_cover_position
+                              data:
+                                position: !input shading_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: "{{ shading_tilt_position | int }}"
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+
+              ###################################
+              # WINDOW WAS OPEN. GO TO OPEN POSITION.
+              ###################################
+              - alias: "Window was open. Go to open position."
+                conditions:
+                  - "{{ is_helper_open or is_helper_vfull }}"
+                sequence:
+                  - if:
+                      - "{{ is_status_helper_enabled }}"
+                    then:
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':1,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':0,'t':dict_var.close.t},
+                              'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
+                              'vpart':{'a':0,'t':dict_var.vpart.t},
+                              'vfull':{'a':0,'t':dict_var.vfull.t},
+                              'rain':{'a':0,'t':0},
+                              'manual':{'a':0,'t':dict_var.manual.t},
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - if:
+                                - "{{ open_position == 100 }}"
+                              then:
+                                - alias: "Moving the cover to open position"
+                                  action: cover.open_cover
+                                  data: {}
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                              else:
+                                - alias: "Moving the cover to open position"
+                                  action: cover.set_cover_position
+                                  data:
+                                    position: !input open_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input open_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+
+              ###################################
+              # VENTILATION ACTIVE. GO TO VENTILATE POSITION
+              ###################################
+              - alias: "Ventilation active. Go to ventilate position."
+                conditions:
+                  - "{{ is_helper_vent_partial }}"
+                sequence:
+                  - action: input_text.set_value
+                    data:
+                      entity_id: !input cover_status_helper
+                      value: |
+                        {% set dict_var = states(cover_status_helper) | from_json %}
+                        {% set dict_new = dict(dict_var, **{
+                          'vpart':{'a':1,'t':as_timestamp(now()) | round(0)},
+                          'vfull':{'a':0,'t':dict_var.vfull.t},
+                          'rain':{'a':0,'t':0},
+                          't':as_timestamp(now()) | round(0)
+                          })
+                        %}
+                        {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - alias: "Moving the cover to the partial ventilation position"
+                              action: cover.set_cover_position
+                              data:
+                                position: !input ventilate_position
+                              target:
+                                entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input ventilate_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
+
+              ###################################
+              # WINDOW WAS IN MANUAL POSITION. OPEN COVER.
+              ###################################
+              - alias: "Window was in manual position. Open cover."
+                conditions:
+                  - "{{ not in_close_position }}"
+                sequence:
+                  - if:
+                      - "{{ is_status_helper_enabled }}"
+                    then:
+                      - action: input_text.set_value
+                        data:
+                          entity_id: !input cover_status_helper
+                          value: |
+                            {% set dict_var = states(cover_status_helper) | from_json %}
+                            {% set dict_new = dict(dict_var, **{
+                              'open':{'a':1,'t':as_timestamp(now()) | round(0)},
+                              'close':{'a':0,'t':dict_var.close.t},
+                              'shading':{'a':0,'t':dict_var.shading.t,'p':0,'q':0},
+                              'vpart':{'a':0,'t':dict_var.vpart.t},
+                              'vfull':{'a':0,'t':dict_var.vfull.t},
+                              'rain':{'a':0,'t':0},
+                              'manual':{'a':0,'t':dict_var.manual.t},
+                              't':as_timestamp(now()) | round(0)
+                              })
+                            %}
+                            {{ dict_new | to_json }}
+
+                  - if:
+                      - "{{ not prevent_default_cover_actions}}"
+                    then:
+                      - repeat:
+                          for_each: "{{ blind_entities|list }}"
+                          sequence:
+                            - if:
+                                - "{{ open_position == 100 }}"
+                              then:
+                                - alias: "Moving the cover to open position"
+                                  action: cover.open_cover
+                                  data: {}
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                              else:
+                                - alias: "Moving the cover to open position"
+                                  action: cover.set_cover_position
+                                  data:
+                                    position: !input open_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - if:
+                                - "{{ is_cover_tilt_enabled_and_possible }}"
+                                - "{{ state_attr(repeat.item, 'current_tilt_position') != none }}"
+                              then:
+                                - alias: "Tilt Delay"
+                                  delay:
+                                    seconds: !input tilt_delay
+                                - alias: "Moving the cover to tilt position"
+                                  action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: !input open_tilt_position
+                                  target:
+                                    entity_id: "{{ repeat.item }}"
+                            - delay:
+                                seconds: "{{ (range(1, 3) | random | int) }}"
 
     ############################################################
     # DEFAULT BRANCH - CONFIG CHECK
