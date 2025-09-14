@@ -447,3 +447,6 @@
 
 2025.08.15:
   - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
+
+2025.09.14:
+  - Added: Recover the cover position after a force state is disabled to the last known state #241
