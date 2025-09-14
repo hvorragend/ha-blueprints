@@ -2917,6 +2917,8 @@ actions:
                 {% set dict_new = dict(dict_var, **(update_values | default({})) ) %}
                 {{ dict_new | to_json }}
 
+      repeat_actions: true
+
   - if:
       - "{{ trigger.id is defined }}"
     then:
@@ -2971,513 +2973,97 @@ actions:
             t: "{{ helper_state_json.t | round(0) }}"
       - *helper_update
 
-  - choose:
+  - repeat:
+      while: "{{ repeat_actions }}"
+      sequence:
+      - variables:
+          repeat_actions: false # Prevent infinite loop
 
-      ############################################################
-      # ANCHOR (0): OPEN
-      #   Source: All (Open, Close, Ventilation, Shading)
-      #   Target: Open, Shading
-      ############################################################
+      - choose:
 
-      - alias: "Check for opening"
-        conditions:
-          - "{{ is_up_enabled }}"
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action | regex_match('^(t_open)') }}"
-          - condition: !input auto_up_condition
-          - and:
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
-          - or: # Check the helper status or the target status (issue #244)
-              - "{{ is_status_helper_enabled and not is_helper_open }}"
-              - "{{ not in_open_position }}"
-          - "{{ not (is_status_helper_enabled and is_helper_manual and override_opening_after_manual) }}" # Override check
-          - or: # Only once a day?
-              - "{{ not is_status_helper_enabled }}"
-              - "{{ not prevent_opening_multiple_times }}"
-              - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != ts_helper_open|timestamp_custom('%-d')|int) }}"
-          - or: # Check whether the resident trigger is allowed
-              - "{{ cover_action != 't_open_6' }}" # Continue if other trigger
-              - "{{ cover_action == 't_open_6' and resident_opening_enabled }}" # Only continue if permitted
-          - or: # Resident status must always be checked
-              - "{{ resident_sensor == [] }}"
-              - "{{ states(resident_sensor) in ['false', 'off'] }}"
+          ############################################################
+          # ANCHOR (0): OPEN
+          #   Source: All (Open, Close, Ventilation, Shading)
+          #   Target: Open, Shading
+          ############################################################
+
+          - alias: "Check for opening"
+            conditions:
+              - "{{ is_up_enabled }}"
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action | regex_match('^(t_open)') }}"
+              - condition: !input auto_up_condition
               - and:
-                  - "{{ resident_allow_opening }}"
-                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
-          - or: # Now we have to check different opening scenarios
-              - and: # Control via times disabled
-                  - "{{ is_time_control_disabled }}"
-              - and: # Opening - Up late reached
-                  - "{{ is_time_field_enabled }}"
-                  - "{{ now() >= today_at(time_up_late_today) }}"
-                  - "{{ now() <= today_at(time_down_late_today) - timedelta(seconds = 5) }}"
-              - and: # Opening - Scheduler changes to on w/o brightness and sun
-                  - "{{ is_schedule_helper_enabled }}"
-                  - "{{ time_schedule_helper != [] }}"
-                  - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
-                  - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state(time_schedule_helper, 'on') }}"
-                  - "{{ cover_action in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false # TODO Why is the resident trigger here?
-              - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
-                  - or:
-                      - and:
-                          - "{{ is_time_control_disabled }}"
-                      - and:
-                          - "{{ is_time_field_enabled }}"
-                          - "{{ now() >= today_at(time_up_early_today) }}"
-                          - "{{ now() <= today_at(time_up_late_today) + timedelta(seconds = 5) }}"
-                      - and:
-                          - "{{ is_schedule_helper_enabled }}"
-                          - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
-                          - "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) }}"
-                          - "{{ now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5) }}"
-                  - or:
+                  - "{{ auto_down_force_disabled }}"
+                  - "{{ auto_ventilate_force_disabled }}"
+                  - "{{ auto_shading_start_force_disabled }}"
+              - or: # Check the helper status or the target status (issue #244)
+                  - "{{ is_status_helper_enabled and not is_helper_open }}"
+                  - "{{ not in_open_position }}"
+              - "{{ not (is_status_helper_enabled and is_helper_manual and override_opening_after_manual) }}" # Override check
+              - or: # Only once a day?
+                  - "{{ not is_status_helper_enabled }}"
+                  - "{{ not prevent_opening_multiple_times }}"
+                  - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != ts_helper_open|timestamp_custom('%-d')|int) }}"
+              - or: # Check whether the resident trigger is allowed
+                  - "{{ cover_action != 't_open_6' }}" # Continue if other trigger
+                  - "{{ cover_action == 't_open_6' and resident_opening_enabled }}" # Only continue if permitted
+              - or: # Resident status must always be checked
+                  - "{{ resident_sensor == [] }}"
+                  - "{{ states(resident_sensor) in ['false', 'off'] }}"
+                  - and:
+                      - "{{ resident_allow_opening }}"
+                      - "{{ states(resident_sensor) in ['true', 'on'] }}"
+              - or: # Now we have to check different opening scenarios
+                  - and: # Control via times disabled
+                      - "{{ is_time_control_disabled }}"
+                  - and: # Opening - Up late reached
+                      - "{{ is_time_field_enabled }}"
+                      - "{{ now() >= today_at(time_up_late_today) }}"
+                      - "{{ now() <= today_at(time_down_late_today) - timedelta(seconds = 5) }}"
+                  - and: # Opening - Scheduler changes to on w/o brightness and sun
+                      - "{{ is_schedule_helper_enabled }}"
+                      - "{{ time_schedule_helper != [] }}"
+                      - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
+                      - "{{ not is_sun_elevation_enabled }}"
+                      - "{{ is_state(time_schedule_helper, 'on') }}"
+                      - "{{ cover_action in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false # TODO Why is the resident trigger here?
+                  - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
                       - or:
-                          - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up) }}"
-                      - or:
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
-
-        sequence:
-          - delay:
-              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-
-          - choose:
-              ###################################
-              # Cover should be shaded
-              ###################################
-              - alias: "Shading detected. Move to shading position"
-                conditions:
-                  - "{{ is_status_helper_enabled }}"
-                  - "{{ is_helper_shaded }}"
-                  - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
-                sequence:
-                  - choose: []
-                    default: !input auto_shading_start_action_before
-                  - variables:
-                      target_position: !input shading_position
-                      target_tilt_position: "{{ shading_tilt_position | int }}"
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 1, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 } # Set shading to true, but do not overwrite shading time
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_shading_start_action
-
-              ###################################
-              # Cover should be opened
-              ###################################
-              - alias: "Normal opening of the cover"
-                conditions:
-                  - "{{ not in_shading_position }}" # In this part, there is no plan for an open roller blind to switch from Shading to Open. I cannot check the helper here because Open+Shading could be set to true there.
-                  - or:
-                      - "{{ is_status_helper_enabled and not is_helper_open }}" # including ventilation, window open-status and more possibilities
-                      - "{{ not in_open_position }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_up_action_before
-                  - variables:
-                      target_position: !input open_position
-                      target_tilt_position: "{{ open_tilt_position | int }}"
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_up_action
-
-          # - stop: "Stop automation: OPEN"
-
-      ############################################################
-      # ANCHOR (1): CLOSE
-      #   Source: All (Open, Close, Ventilation, Shading)
-      #   Target: Close, Ventilation
-      ############################################################
-
-      - alias: "Check for closing cover"
-        conditions:
-          - "{{ is_down_enabled }}"
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action | regex_match('^(t_close)') }}"
-          - condition: !input auto_down_condition
-          - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
-          - or: # Check the helper status or the target status
-              - "{{ is_status_helper_enabled and not is_helper_closed }}"
-              - "{{ not in_close_position }}"
-              # - "{{ in_open_position }}"
-          - "{{ not (is_status_helper_enabled and is_helper_manual and override_closing_after_manual) }}" # Override check
-          - or: # Only once a day?
-              - "{{ not is_status_helper_enabled }}"
-              - "{{ not prevent_closing_multiple_times }}"
-              - "{{ is_status_helper_enabled and prevent_closing_multiple_times and (ts_helper_closed < today_at(time_down_early_today) | as_timestamp) }}"
-          - or:
-              - and: # Control via times disabled
-                  - "{{ is_time_control_disabled }}"
-              - and: # Closing - Down late reached
-                  - "{{ is_time_field_enabled }}"
-                  - "{{ now() >= today_at(time_down_late_today) }}"
-              - and: # Closing - Scheduler changes to off
-                  - "{{ is_schedule_helper_enabled }}"
-                  - "{{ time_schedule_helper != [] }}"
-                  # Commented out due to #170.
-                  # Always shut down when the scheduler becomes inactive. This is effectively the “at the latest at” time.
-                  # Otherwise it could happen that the blind does not close if it is still too bright.
-                  # - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
-                  # - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state(time_schedule_helper, 'off') }}"
-                  - "{{ cover_action == 't_close_3' }}"
-              - and: # Closing - Down early reached and brightness/sun below minimum
-                  - or:
-                      - and: # Control via times disabled
-                          - "{{ is_time_control_disabled }}"
-                      - and:
-                          - "{{ is_time_field_enabled }}"
-                          - "{{ now() >= today_at(time_down_early_today) }}"
-                          - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-                      - and:
-                          - "{{ is_schedule_helper_enabled }}"
-                          - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
-                          - "{{ now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) }}"
-                          - "{{ now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5) }}"
-                  - or:
-                      - or:
-                          - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) }}"
-                      - or:
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down) }}"
-              - and: # Closing - due to resident goes sleeping
-                  - "{{ cover_action == 't_close_6' }}"
-                  - "{{ resident_sensor != [] }}"
-                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
-                  - "{{ resident_closing_enabled }}"
-
-        sequence:
-          - choose:
-              #################################
-              # Lockout protection when closing
-              #################################
-              - alias: "Lockout protection when closing"
-                conditions:
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ is_status_helper_enabled }}"
-                  - or:
-                      - and:
-                          - "{{ contact_window_opened != [] }}"
-                          - "{{ states(contact_window_opened) in ['true', 'on'] }}"
-                      - and:
-                          - "{{ lockout_tilted_when_closing }}"
-                          - "{{ contact_window_tilted != [] }}"
-                          - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-
-              ############################################################################
-              # Window tilted. No lockout. Move to ventilation position instead of closing
-              ############################################################################
-              - alias: "Window tilted. No lockout. Move to ventilation position instead of closing"
-                conditions:
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ is_status_helper_enabled }}"
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                  - "{{ not lockout_tilted_when_closing }}"
-                  - or:
-                      - "{{ contact_window_opened == [] }}"
-                      - "{{ states(contact_window_opened) in ['false', 'off'] }}"
-
-                sequence:
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
-
-              ###################################
-              # Cover is already (almost) closed
-              ###################################
-              - alias: "Only status change if cover is already 'near' the close position" # No driving here!
-                conditions:
-                  - or:
-                      - and: # Stop if cover is shaded and close position is lower than shading position
-                          - "{{ is_status_helper_enabled }}"
-                          - "{{ prevent_lowering_when_closing_if_shaded }}"
-                          - "{{ is_helper_shaded }}"
-                          - "{{ close_position > shading_position }}"
-                      - and: # Stop if cover is shaded and close position is lower than shading position
-                          - "{{ prevent_lowering_when_closing_if_shaded }}"
-                          - "{{ in_shading_position }}" # Always, no further checks for 'is_status_helper_enabled'
-                          - "{{ close_position > shading_position }}"
-                      - and: # Stop if close-position is higher than the current position
-                          - "{{ prevent_higher_position_closing }}"
-                          - "{{ (current_position <= close_position) }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        # manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-
-            ###################################
-            # Normal closing of the cover
-            ###################################
-            default:
-              - choose: []
-                default: !input auto_down_action_before
-              - alias: "Normal closing of the cover"
-                delay:
-                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-              - variables:
-                  target_position: !input close_position
-                  target_tilt_position: !input close_tilt_position
-                  update_values:
-                    open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                    close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                    shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                    vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                    vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                    manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                    t: "{{ as_timestamp(now()) | round(0) }}"
-              - *cover_move_action
-              - *tilt_move_action
-              - *helper_update
-              - choose: []
-                default: !input auto_down_action
-
-          # - stop: "Stop automation: CLOSE"
-
-      ############################################################
-      # ANCHOR (2): SHADING START
-      #   Source: Open
-      #   Target: Shading, Lockout
-      ############################################################
-
-      - alias: "Check for shading start"
-        conditions:
-          - "{{ is_shading_enabled }}"
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
-          - "{{ is_status_helper_enabled }}"
-          - condition: !input auto_shading_start_condition
-          - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-          - or: # Check the helper status or the target status
-              - "{{ not is_helper_shaded }}"
-              - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
-          - or: # Try to avoid starting the shading several times TODO / FIXME?
-              - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
-              - "{{ is_cover_tilt_enabled_and_possible }}"
-          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
-          - or: # Only once a day?
-              - "{{ not prevent_shading_multiple_times }}"
-              - "{{ prevent_shading_multiple_times and (now().day != ts_helper_shaded|timestamp_custom('%-d') | int) }}"
-              - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
-
-        sequence:
-          - if:
-              - or:
-                - and:
-                    - "{{ is_shading_temp_comparison_independent }}"
-                    - or:
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                          - "{{ prevent_forecast_service }}"
-                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                          - "{{ not prevent_forecast_service }}"
-                          - "{{ weather_forecast is defined }}"
-                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                      - and:
-                          - "{{ is_shading_compare_forecast_with_sensor2 }}"
-                          - "{{ shading_temperatur_sensor2 != [] }}"
-                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp }}"
-                - and:
-                  - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
-                  - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
-                  - or:
-                      - "{{ shading_brightness_sensor == [] }}"
-                      - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-                  - or:
-                      - "{{ shading_temperatur_sensor1 == [] }}"
-                      - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-                  - or:
-                      - "{{ shading_temperatur_sensor2 == [] }}"
-                      - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-                  - or: # Forecast Temperature
-                      - "{{ shading_forecast_sensor == [] }}"
-                      - "{{ shading_forecast_temp == [] }}"
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                          - "{{ prevent_forecast_service }}"
-                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                          - "{{ not prevent_forecast_service }}"
-                          - "{{ weather_forecast is defined }}"
-                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
-                      - and:
-                          - "{{ is_shading_compare_forecast_with_sensor2 }}"
-                          - "{{ shading_temperatur_sensor2 != [] }}"
-                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp }}"
-                  - or: # Forecast Weather Conditions
-                      - "{{ shading_forecast_sensor == [] }}"
-                      - "{{ shading_weather_conditions == [] }}"
-                      - "{{ shading_forecast_sensor is string and shading_forecast_sensor.startswith('sensor.') }}"
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                          - "{{ prevent_forecast_service }}"
-                          - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
-                      - and:
-                          - "{{ shading_forecast_sensor is string }}"
-                          - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                          - "{{ not prevent_forecast_service }}"
-                          - "{{ weather_forecast is defined }}"
-                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
-            then:
-              - choose:
-                  #####################################################################
-                  # Shading start detected. Save next execution time and pending status
-                  #####################################################################
-                  - alias: "Shading detected. Save next execution time and pending status"
-                    conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_start_pending)') }}"
-                      - "{{ not is_helper_shading_start }}" # Not if a pending is already active
-                    sequence:
-                      - variables:
-                          update_values:
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + (shading_waitingtime_start | int)) | round(0) }}", q: 0 }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
-                      - *helper_update
-
-                  ##################################################
-                  # Consider lockout protection when shading starts
-                  ##################################################
-                  - alias: "Consider lockout protection when shading starts"
-                    conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
-                      - "{{ is_ventilation_enabled }}"
-                      - or:
-                          - and:
-                              - "{{ contact_window_opened != [] }}"
-                              - "{{ states(contact_window_opened) in ['true', 'on'] }}"
-                          - and:
-                              - "{{ lockout_tilted_when_shading_starts }}"
-                              - "{{ contact_window_tilted != [] }}"
-                              - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                    sequence:
-                      - variables:
-                          update_values:
-                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
-                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                            vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
-                      - *helper_update
-
-                  ###################################
-                  # Start Shading
-                  ###################################
-                  - alias: "Start Shading"
-                    conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
-                      - or:
-                          - and:
-                              - "{{ not is_cover_tilt_enabled_and_possible }}"
-                              - "{{ current_position > shading_position }}"
-                          - and:
-                              - "{{ is_cover_tilt_enabled_and_possible }}"
-                              - "{{ current_position >= shading_position }}"
-                      - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
                           - and:
                               - "{{ is_time_control_disabled }}"
                           - and:
                               - "{{ is_time_field_enabled }}"
                               - "{{ now() >= today_at(time_up_early_today) }}"
-                              - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
+                              - "{{ now() <= today_at(time_up_late_today) + timedelta(seconds = 5) }}"
                           - and:
                               - "{{ is_schedule_helper_enabled }}"
                               - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                              - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
+                              - "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) }}"
+                              - "{{ now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5) }}"
                       - or:
-                          - "{{ resident_sensor == [] }}"
-                          - "{{ states(resident_sensor) in ['false', 'off'] }}"
-                          - and: # Issue 131
-                              - "{{ resident_allow_shading }}"
-                              - "{{ states(resident_sensor) in ['true', 'on'] }}"
+                          - or:
+                              - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
+                              - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up) }}"
+                          - or:
+                              - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
+                              - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
+
+            sequence:
+              - delay:
+                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+
+              - choose:
+                  ###################################
+                  # Cover should be shaded
+                  ###################################
+                  - alias: "Shading detected. Move to shading position"
+                    conditions:
+                      - "{{ is_status_helper_enabled }}"
+                      - "{{ is_helper_shaded }}"
+                      - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                     sequence:
-                      - delay:
-                          seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
                       - choose: []
                         default: !input auto_shading_start_action_before
                       - variables:
@@ -3486,10 +3072,10 @@ actions:
                           update_values:
                             open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                            shading: { a: 1, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 } # Set shading to true, but do not overwrite shading time
                             vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                             vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" } # TODO: Do I really want to overwrite the status here?
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *cover_move_action
                       - *tilt_move_action
@@ -3497,226 +3083,127 @@ actions:
                       - choose: []
                         default: !input auto_shading_start_action
 
-                  ####################################
-                  # Save shading state for the future
-                  ####################################
-                  - alias: "Save shading state for the future"
+                  ###################################
+                  # Cover should be opened
+                  ###################################
+                  - alias: "Normal opening of the cover"
                     conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
-                      - "{{ is_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                      - "{{ not in_shading_position }}" # In this part, there is no plan for an open roller blind to switch from Shading to Open. I cannot check the helper here because Open+Shading could be set to true there.
+                      - or:
+                          - "{{ is_status_helper_enabled and not is_helper_open }}" # including ventilation, window open-status and more possibilities
+                          - "{{ not in_open_position }}"
                     sequence:
+                      - choose: []
+                        default: !input auto_up_action_before
                       - variables:
+                          target_position: !input open_position
+                          target_tilt_position: "{{ open_tilt_position | int }}"
                           update_values:
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                             t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *cover_move_action
+                      - *tilt_move_action
                       - *helper_update
+                      - choose: []
+                        default: !input auto_up_action
 
-              # - stop: "Stop automation: SHADING START"
+              # - stop: "Stop automation: OPEN"
 
-            else: # Shading conditions were no longer met or not met again.
-              - choose:
+          ############################################################
+          # ANCHOR (1): CLOSE
+          #   Source: All (Open, Close, Ventilation, Shading)
+          #   Target: Close, Ventilation
+          ############################################################
 
-                  #####################################################################
-                  # Shading conditions were not met consistently and it should be checked again periodically in a few seconds
-                  #####################################################################
-                  - alias: "Shading conditions were not met consistently and it should be checked again periodically in a few seconds"
-                    conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}"
-                      - "{{ start_shading_trigger_periodic }}"
-                      - or: # Periodic checks only within a limited time frame. Not all day
-                          - and:
-                              - "{{ is_time_control_disabled }}" # Not recommended on its own, otherwise it will trigger for 24 hours.
-                              - "{{ is_helper_open }}" # Not nice, but necessary if you don't use time control.
+          - alias: "Check for closing cover"
+            conditions:
+              - "{{ is_down_enabled }}"
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action | regex_match('^(t_close)') }}"
+              - condition: !input auto_down_condition
+              - and:
+                  - "{{ auto_up_force_disabled }}"
+                  - "{{ auto_ventilate_force_disabled }}"
+                  - "{{ auto_shading_start_force_disabled }}"
+              - or: # Check the helper status or the target status
+                  - "{{ is_status_helper_enabled and not is_helper_closed }}"
+                  - "{{ not in_close_position }}"
+                  # - "{{ in_open_position }}"
+              - "{{ not (is_status_helper_enabled and is_helper_manual and override_closing_after_manual) }}" # Override check
+              - or: # Only once a day?
+                  - "{{ not is_status_helper_enabled }}"
+                  - "{{ not prevent_closing_multiple_times }}"
+                  - "{{ is_status_helper_enabled and prevent_closing_multiple_times and (ts_helper_closed < today_at(time_down_early_today) | as_timestamp) }}"
+              - or:
+                  - and: # Control via times disabled
+                      - "{{ is_time_control_disabled }}"
+                  - and: # Closing - Down late reached
+                      - "{{ is_time_field_enabled }}"
+                      - "{{ now() >= today_at(time_down_late_today) }}"
+                  - and: # Closing - Scheduler changes to off
+                      - "{{ is_schedule_helper_enabled }}"
+                      - "{{ time_schedule_helper != [] }}"
+                      # Commented out due to #170.
+                      # Always shut down when the scheduler becomes inactive. This is effectively the “at the latest at” time.
+                      # Otherwise it could happen that the blind does not close if it is still too bright.
+                      # - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
+                      # - "{{ not is_sun_elevation_enabled }}"
+                      - "{{ is_state(time_schedule_helper, 'off') }}"
+                      - "{{ cover_action == 't_close_3' }}"
+                  - and: # Closing - Down early reached and brightness/sun below minimum
+                      - or:
+                          - and: # Control via times disabled
+                              - "{{ is_time_control_disabled }}"
                           - and:
                               - "{{ is_time_field_enabled }}"
-                              - "{{ now() >= today_at(time_up_early_today) }}"
+                              - "{{ now() >= today_at(time_down_early_today) }}"
                               - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
                           - and:
                               - "{{ is_schedule_helper_enabled }}"
                               - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state(time_schedule_helper, 'on') }}"
-                    sequence:
-                      - variables:
-                          update_values:
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + (shading_waitingtime_start | int)) | round(0) }}", q: 0 }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
-                      - *helper_update
+                              - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
+                              - "{{ now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) }}"
+                              - "{{ now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5) }}"
+                      - or:
+                          - or:
+                              - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
+                              - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) }}"
+                          - or:
+                              - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
+                              - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down) }}"
+                  - and: # Closing - due to resident goes sleeping
+                      - "{{ cover_action == 't_close_6' }}"
+                      - "{{ resident_sensor != [] }}"
+                      - "{{ states(resident_sensor) in ['true', 'on'] }}"
+                      - "{{ resident_closing_enabled }}"
 
-                  ######################################
-                  # Shading conditions were not consistently met and the next new trigger should be waited for
-                  ######################################
-                  - alias: "Shading conditions were not consistently met and the next new trigger should be waited for"
-                    conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}"
-                      - "{{ start_shading_trigger_reset }}"
-                    sequence:
-                      - variables:
-                          update_values:
-                            shading: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
-                      - *helper_update
-
-      ############################################################
-      # ANCHOR (3): SHADING Tilt
-      ############################################################
-
-      - alias: "Check for shading tilt"
-        conditions:
-          - "{{ is_shading_enabled }}"
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action | regex_match('^(t_shading_tilt)') }}"
-          - "{{ is_status_helper_enabled }}"
-          - and:
-              - "{{ is_helper_shaded }}"
-              - "{{ not is_helper_shading_start }}"
-          - "{{ is_cover_tilt_enabled_and_possible }}"
-          - condition: !input auto_shading_tilt_condition
-          - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-          - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
-          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
-        sequence:
-          - variables:
-              target_tilt_position: "{{ shading_tilt_position | int }}"
-              tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
-              update_values:
-                t: "{{ as_timestamp(now()) | round(0) }}"
-          - *tilt_move_action
-          - *helper_update
-
-      ############################################################
-      # ANCHOR (4): SHADING END
-      #   Source: Shading
-      #   Target: Open, Lockout, Ventilation
-      ############################################################
-
-      - alias: "Check for shading end"
-        conditions:
-          - "{{ is_shading_enabled }}"
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action | regex_match('^(t_shading_end)') }}"
-          - "{{ is_status_helper_enabled }}"
-          - condition: !input auto_shading_end_condition
-          - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
-          - or:
-              - and:
-                  - "{{ is_time_control_disabled }}"
-              - and:
-                  - "{{ is_time_field_enabled }}"
-                  - "{{ now() >= today_at(time_up_early_today) }}"
-                  - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-              - and:
-                  - "{{ is_schedule_helper_enabled }}"
-                  - "{{ time_schedule_helper != [] }}"
-                  - "{{ is_state(time_schedule_helper, 'on') }}"
-          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
-          - "{{ not is_helper_closed }}"
-          - or:
-              - "{{ is_helper_shaded }}"
-              - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
-          - or: # Optional: Continue if cover is not already closed
-              - "{{ not prevent_shading_end_if_closed }}"
-              - "{{ prevent_shading_end_if_closed and not in_close_position}}"
-          - or: # Issue #116
-              - "{{ resident_sensor == [] }}"
-              - "{{ states(resident_sensor) in ['false', 'off'] }}"
-        sequence:
-          - if:
-              - or:
-                - "{{ current_sun_azimuth > shading_azimuth_end }}"
-                - "{{ current_sun_elevation > shading_elevation_max }}"
-                - "{{ current_sun_elevation < shading_elevation_min}}"
-                - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
-                - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
-                - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
-                - or:
-                    - "{{ shading_forecast_sensor == [] }}"
-                    - "{{ shading_weather_conditions == [] }}"
-                    - "{{ shading_forecast_sensor is string and shading_forecast_sensor.startswith('sensor.') }}"
-                    - and:
-                        - "{{ shading_forecast_sensor is string }}"
-                        - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                        - "{{ prevent_forecast_service }}"
-                        - "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
-                    - and:
-                        - "{{ shading_forecast_sensor is string }}"
-                        - "{{ shading_forecast_sensor.startswith('weather.') }}"
-                        - "{{ not prevent_forecast_service }}"
-                        - "{{ weather_forecast is defined }}"
-                        - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition not in shading_weather_conditions }}"
-            then:
+            sequence:
               - choose:
-                  #####################################################################
-                  # Shading end detected. Save next execution time and pending status
-                  #####################################################################
-                  - alias: "Shading end detected. Save next execution time and pending status"
+                  #################################
+                  # Lockout protection when closing
+                  #################################
+                  - alias: "Lockout protection when closing"
                     conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_end_pending)') }}"
-                      - "{{ not is_helper_shading_end }}"
-                    sequence:
-                      - variables:
-                          local_waitingtime_end: >
-                            {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
-                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and cover_action == 't_shading_end_pending_5' %}
-                            {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
-                            {% set local_waitingtime_end = 20 %}
-                            {% endif %}
-                            {{ local_waitingtime_end }}
-                          update_values:
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + (local_waitingtime_end | int)) | round(0) }}" }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
-                      - *helper_update
-
-                  ######################################
-                  # Only tilt open after shading ends
-                  ######################################
-                  - alias: "Only tilt open after shading ends"
-                    conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
-                      - "{{ is_cover_tilt_enabled_and_possible }}"
-                      - "{{ prevent_opening_after_shading_end}}"
-                    sequence:
-
-                      - variables:
-                          target_tilt_position: 50 # Moving the cover to open tilt position
-                          update_values:
-                            shading: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
-                      - *tilt_move_action
-                      - *helper_update
-
-                  ######################################
-                  # Lockout protection when shading ends
-                  ######################################
-                  - alias: "Lockout protection when shading ends"
-                    conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
                       - "{{ is_ventilation_enabled }}"
-                      - "{{ (current_position < ventilate_position) }}"
+                      - "{{ is_status_helper_enabled }}"
                       - or:
                           - and:
                               - "{{ contact_window_opened != [] }}"
                               - "{{ states(contact_window_opened) in ['true', 'on'] }}"
                           - and:
+                              - "{{ lockout_tilted_when_closing }}"
                               - "{{ contact_window_tilted != [] }}"
                               - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                              - "{{ lockout_tilted_when_shading_ends }}"
                     sequence:
                       - variables:
                           update_values:
-                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                             vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                             vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
@@ -3724,41 +3211,31 @@ actions:
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
-                  ################################
-                  # Ventilation after shading ends
-                  ################################
-                  - alias: "Ventilation after shading ends"
+                  ############################################################################
+                  # Window tilted. No lockout. Move to ventilation position instead of closing
+                  ############################################################################
+                  - alias: "Window tilted. No lockout. Move to ventilation position instead of closing"
                     conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
                       - "{{ is_ventilation_enabled }}"
-                      - "{{ ventilation_after_shading_end }}"
+                      - "{{ is_status_helper_enabled }}"
                       - "{{ contact_window_tilted != [] }}"
                       - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                       - "{{ not lockout_tilted_when_closing }}"
                       - or:
                           - "{{ contact_window_opened == [] }}"
                           - "{{ states(contact_window_opened) in ['false', 'off'] }}"
-                      - or:
-                          - "{{ (current_position < ventilate_position) }}"
-                          - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
-                    sequence:
-                      - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
-                          seconds: >
-                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
-                              {{ range(0, 2) | random }}
-                            {% else %}
-                              {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
-                            {% endif %}
 
+                    sequence:
                       - choose: []
                         default: !input auto_ventilate_action_before
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                       - variables:
                           target_position: !input ventilate_position
                           target_tilt_position: !input ventilate_tilt_position
                           update_values:
-                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                             vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
@@ -3770,275 +3247,45 @@ actions:
                       - choose: []
                         default: !input auto_ventilate_action
 
-                  ###############################################
-                  # Move cover after shading end
-                  ###############################################
-                  - alias: "Move cover after shading end"
+                  ###################################
+                  # Cover is already (almost) closed
+                  ###################################
+                  - alias: "Only status change if cover is already 'near' the close position" # No driving here!
                     conditions:
-                      - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
+                      - or:
+                          - and: # Stop if cover is shaded and close position is lower than shading position
+                              - "{{ is_status_helper_enabled }}"
+                              - "{{ prevent_lowering_when_closing_if_shaded }}"
+                              - "{{ is_helper_shaded }}"
+                              - "{{ close_position > shading_position }}"
+                          - and: # Stop if cover is shaded and close position is lower than shading position
+                              - "{{ prevent_lowering_when_closing_if_shaded }}"
+                              - "{{ in_shading_position }}" # Always, no further checks for 'is_status_helper_enabled'
+                              - "{{ close_position > shading_position }}"
+                          - and: # Stop if close-position is higher than the current position
+                              - "{{ prevent_higher_position_closing }}"
+                              - "{{ (current_position <= close_position) }}"
                     sequence:
-                      - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
-                          seconds: >
-                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
-                              {{ range(0, 2) | random }}
-                            {% else %}
-                              {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
-                            {% endif %}
-
-                      - choose: []
-                        default: !input auto_shading_end_action_before
                       - variables:
-                          target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
-                          target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
-                          target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
                           update_values:
-                            open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
-                            close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
                             shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                             vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                             vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            # manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
-                      - if:
-                          - "{{ not prevent_opening_after_shading_end}}"
-                        then:
-                          - *cover_move_action
-                          - *tilt_move_action
-                      - choose: []
-                        default: !input auto_shading_end_action
 
-              # - stop: "Stop automation: SHADING END"
-
-      ############################################################
-      # ANCHOR (5): CONTACT OPEN
-      #   Source: Shading, Close
-      #   Target: Ventilation
-      ############################################################
-
-      - alias: "Contact sensor opened"
-        conditions:
-          - "{{ is_ventilation_enabled }}"
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action in ['t_contact_tilted_on', 't_contact_opened_on'] }}"
-          - "{{ is_status_helper_enabled }}"
-          - condition: !input auto_ventilate_condition
-          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
-          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
-          - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
-          - or:
-              - "{{ resident_sensor == [] }}"
-              - "{{ states(resident_sensor) in ['false', 'off'] }}"
-              - and:
-                  - "{{ resident_allow_ventilation }}"
-                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
-        sequence:
-          - delay:
-              seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
-          - choose:
-              ###################################
-              # Window handle to open. Open cover
-              ###################################
-              - alias: "Window handle to open. Open cover"
-                conditions:
-                  - "{{ contact_window_opened != [] }}"
-                  - "{{ states(contact_window_opened) in  ['true', 'on'] }}"
-                  - "{{ cover_action == 't_contact_opened_on' }}"
-                  - "{{ not in_open_position }}"
-                sequence:
-                  - variables:
-                      target_position: !input open_position
-                      target_tilt_position: !input open_tilt_position
-                      update_values:
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-
-              ############################################################################
-              # Window handle to tilt. Move the cover to the partial ventilation position
-              ############################################################################
-              - alias: "Window handle to tilt. Move the cover to the partial ventilation position."
-                conditions:
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                  - "{{ cover_action == 't_contact_tilted_on' }}"
-                  - or:
-                      - "{{ (current_position < ventilate_position) }}"
-                      - and:
-                          - "{{ is_cover_tilt_enabled_and_possible }}"
-                          - "{{ (current_position <= ventilate_position) }}"
-                          - "{{ (current_tilt_position <= ventilate_tilt_position) }}"
-                      - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      update_values:
-                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
-
-          # - stop: "Stop automation: CONTACT OPEN"
-
-      ############################################################
-      # ANCHOR (6): CONTACT CLOSED
-      #   Source: Ventilation, Lockout
-      #   Target: Open, Close, Shading
-      ############################################################
-
-      - alias: "Contact sensor closed"
-        conditions:
-          - "{{ is_ventilation_enabled }}"
-          - "{{ cover_action is defined }}"
-          - "{{ is_status_helper_enabled }}"
-          - condition: !input auto_ventilate_end_condition
-          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
-          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
-          - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
-          - "{{ not (is_helper_manual and override_ventilation_after_manual) }}" # Override check
-          - or:
-              - and:
-                  - "{{ cover_action == 't_contact_tilted_off' }}"
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
-                  - or:
-                      - "{{ is_helper_vent_partial }}" # Status check
-                      - "{{ in_ventilate_position }}" # Position check
-              - and:
-                  # TODO: Workaround for #181
-                  # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
-                  # 'vfull' is set in the helper.
-                  # This must remain the case because the position of the cover remains at 100.
-                  # But the return from this must be taken into account somehow.
-                  - "{{ cover_action == 't_contact_tilted_off' }}"
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
-                  - "{{ lockout_tilted_when_closing }}"
-                  - "{{ is_helper_vent_full }}"
-              - and:
-                  - "{{ cover_action == 't_contact_opened_off' }}"
-                  - "{{ contact_window_opened != [] }}"
-                  - "{{ states(contact_window_opened) in ['false', 'off'] }}"
-                  - "{{ is_helper_vent_full }}"
-
-        sequence:
-          - if:
-              - "{{ ventilation_delay_enabled }}"
-            then:
-              - delay:
-                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-            else:
-              - delay:
-                  seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
-
-          - choose:
-              #####################################################
-              # Contact sensor closed. Activate partial ventilation
-              #####################################################
-              - alias: "Contact sensor closed. Activate partial ventilation"
-                conditions:
-                  - "{{ is_helper_vent_full }}" # Was fully ventilated before :-)
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      update_values:
-                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
-
-              ##########################################
-              # Contact sensor closed. Activate shading
-              ##########################################
-              - alias: "Contact sensor closed. Activate shading"
-                conditions:
-                  - "{{ is_helper_shaded }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_shading_start_action_before
-                  - variables:
-                      target_position: !input shading_position
-                      target_tilt_position: "{{ shading_tilt_position | int }}"
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_shading_start_action
-
-              ########################################
-              # Contact sensor closed. Open the cover
-              ########################################
-              - alias: "Contact sensor closed. Open the cover"
-                conditions:
-                  - "{{ is_helper_open }}"
-                  - "{{ not is_helper_shaded }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_up_action_before
-                  - variables:
-                      target_position: !input open_position
-                      target_tilt_position: !input open_tilt_position
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - if:
-                      - "{{ not prevent_opening_after_ventilation_end }}"
-                    then:
-                      - *cover_move_action
-                      - *tilt_move_action
-                  - choose: []
-                    default: !input auto_up_action
-
-              ########################################
-              # Contact sensor closed. Close the cover
-              ########################################
-              - alias: "Contact sensor closed. Close the cover"
-                conditions:
-                  - "{{ is_helper_closed }}"
-                sequence:
+                ###################################
+                # Normal closing of the cover
+                ###################################
+                default:
                   - choose: []
                     default: !input auto_down_action_before
+                  - alias: "Normal closing of the cover"
+                    delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
@@ -4056,363 +3303,1124 @@ actions:
                   - choose: []
                     default: !input auto_down_action
 
-          # - stop: "Stop automation: CONTACT CLOSED"
+              # - stop: "Stop automation: CLOSE"
 
-      ############################################################
-      # ANCHOR (7): FORCE OPEN
-      ############################################################
+          ############################################################
+          # ANCHOR (2): SHADING START
+          #   Source: Open
+          #   Target: Shading, Lockout
+          ############################################################
 
-      - alias: "Forced opening of the cover"
-        conditions:
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action == 't_force_open' }}"
-        sequence:
-          - choose: []
-            default: !input auto_up_action_before
-          - variables:
-              target_position: !input open_position
-              target_tilt_position: !input open_tilt_position
-              update_values:
-                open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ as_timestamp(now()) | round(0) }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_up_action
-          # - stop: "Stop automation: FORCE OPEN"
+          - alias: "Check for shading start"
+            conditions:
+              - "{{ is_shading_enabled }}"
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
+              - "{{ is_status_helper_enabled }}"
+              - condition: !input auto_shading_start_condition
+              - and:
+                  - "{{ auto_up_force_disabled }}"
+                  - "{{ auto_down_force_disabled }}"
+                  - "{{ auto_ventilate_force_disabled }}"
+              - or: # Check the helper status or the target status
+                  - "{{ not is_helper_shaded }}"
+                  - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
+              - or: # Try to avoid starting the shading several times TODO / FIXME?
+                  - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
+                  - "{{ is_cover_tilt_enabled_and_possible }}"
+              - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
+              - or: # Only once a day?
+                  - "{{ not prevent_shading_multiple_times }}"
+                  - "{{ prevent_shading_multiple_times and (now().day != ts_helper_shaded|timestamp_custom('%-d') | int) }}"
+                  - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
 
-      ############################################################
-      # ANCHOR (8): FORCE CLOSE
-      ############################################################
-
-      - alias: "Forced closing of the cover"
-        conditions:
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action == 't_force_close' }}"
-        sequence:
-          - choose: []
-            default: !input auto_down_action_before
-          - variables:
-              target_position: !input close_position
-              target_tilt_position: !input close_tilt_position
-              update_values:
-                open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ as_timestamp(now()) | round(0) }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_down_action
-          # - stop: "Stop automation: FORCE CLOSE"
-
-      ############################################################
-      # ANCHOR (9): FORCE VENTILATION
-      ############################################################
-
-      - alias: "Forced ventilation of the cover"
-        conditions:
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action == 't_force_vent' }}"
-          - "{{ is_status_helper_enabled }}"
-        sequence:
-          - choose: []
-            default: !input auto_ventilate_action_before
-          - variables:
-              target_position: !input ventilate_position
-              target_tilt_position: !input ventilate_tilt_position
-              update_values:
-                open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ as_timestamp(now()) | round(0) }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_ventilate_action
-          # - stop: "Stop automation: FORCE VENTILATION"
-
-      ############################################################
-      # ANCHOR (10): FORCE SHADING START
-      ############################################################
-
-      - alias: "Forced activating of the sun shading"
-        conditions:
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action == 't_force_shading_start' }}"
-          - "{{ is_status_helper_enabled }}"
-        sequence:
-          - choose: []
-            default: !input auto_shading_start_action_before
-          - variables:
-              target_position: !input shading_position
-              target_tilt_position: "{{ shading_tilt_position |int }}"
-              update_values:
-                open: { a: 0, t: "{{ helper_state_json.open.t }}" } # ‘Open’ is not additionally set to True, because we don't know where it should actually go after forcing.
-                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
-                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                t: "{{ as_timestamp(now()) | round(0) }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_shading_start_action
-          # - stop: "Stop automation: FORCE SHADING START"
-
-      ############################################################
-      # ANCHOR (11): MANUAL
-      ############################################################
-
-      - alias: "Checking for manual position changes"
-        conditions:
-          - "{{ cover_action is defined }}"
-          - "{{ this.attributes.current | int(99) == 0 }}" # Avoid multiple triggering. Problem: A recognised position change can interrupt ongoing delays (contact changes).
-          - "{{ 'cover_helper_enabled' in cover_status_options }}" # Do not use 'is_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
-          - "{{ cover_status_helper != [] }}"
-          - "{{ as_timestamp(now()) > helper_state_json.t + drive_time | default(90) + 60 }}" # Drive time + trigger waiting time
-          - "{{ cover_action in ['t_manual_1', 't_manual_4'] }}"
-          - or:
-              - "{{ is_number(trigger.to_state.attributes.current_position) and is_number(trigger.from_state.attributes.current_position) }}" # Avoid status change from -unavailable- (common with Homematic)
-              - "{{ is_number(trigger.to_state.attributes.current_tilt_position) and is_number(trigger.from_state.attributes.current_tilt_position) }}" # Avoid status change from -unavailable- (common with Homematic)
-          - or:
-              - "{{ trigger.to_state.attributes.current_position != trigger.from_state.attributes.current_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
-              - "{{ trigger.to_state.attributes.current_tilt_position != trigger.from_state.attributes.current_tilt_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
-          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
-          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
-
-        sequence:
-          - choose:
-              - conditions: # Manually tilted
-                  - "{{ cover_action == 't_manual_4' }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-
-              - conditions: # Manually opened
-                  - "{{ is_up_enabled }}"
+            sequence:
+              - if:
                   - or:
-                      - "{{ in_open_position }}"
-                      - "{{ (current_position >= open_position) }}"
-                      - "{{ (current_position == 100) }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
+                    - and:
+                        - "{{ is_shading_temp_comparison_independent }}"
+                        - or:
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                              - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                              - "{{ prevent_forecast_service }}"
+                              - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                              - "{{ not prevent_forecast_service }}"
+                              - "{{ weather_forecast is defined }}"
+                              - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - and:
+                              - "{{ is_shading_compare_forecast_with_sensor2 }}"
+                              - "{{ shading_temperatur_sensor2 != [] }}"
+                              - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp }}"
+                    - and:
+                      - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
+                      - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
+                      - or:
+                          - "{{ shading_brightness_sensor == [] }}"
+                          - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+                      - or:
+                          - "{{ shading_temperatur_sensor1 == [] }}"
+                          - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
+                      - or:
+                          - "{{ shading_temperatur_sensor2 == [] }}"
+                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
+                      - or: # Forecast Temperature
+                          - "{{ shading_forecast_sensor == [] }}"
+                          - "{{ shading_forecast_temp == [] }}"
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('sensor.') }}"
+                              - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                              - "{{ prevent_forecast_service }}"
+                              - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                              - "{{ not prevent_forecast_service }}"
+                              - "{{ weather_forecast is defined }}"
+                              - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - and:
+                              - "{{ is_shading_compare_forecast_with_sensor2 }}"
+                              - "{{ shading_temperatur_sensor2 != [] }}"
+                              - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp }}"
+                      - or: # Forecast Weather Conditions
+                          - "{{ shading_forecast_sensor == [] }}"
+                          - "{{ shading_weather_conditions == [] }}"
+                          - "{{ shading_forecast_sensor is string and shading_forecast_sensor.startswith('sensor.') }}"
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                              - "{{ prevent_forecast_service }}"
+                              - "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
+                          - and:
+                              - "{{ shading_forecast_sensor is string }}"
+                              - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                              - "{{ not prevent_forecast_service }}"
+                              - "{{ weather_forecast is defined }}"
+                              - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition in shading_weather_conditions }}"
+                then:
+                  - choose:
+                      #####################################################################
+                      # Shading start detected. Save next execution time and pending status
+                      #####################################################################
+                      - alias: "Shading detected. Save next execution time and pending status"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_start_pending)') }}"
+                          - "{{ not is_helper_shading_start }}" # Not if a pending is already active
+                        sequence:
+                          - variables:
+                              update_values:
+                                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + (shading_waitingtime_start | int)) | round(0) }}", q: 0 }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
 
-              - conditions: # Manually ventilated
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ in_ventilate_position }}"
-                  - "{{ not in_open_position }}" # If ventilate_position and open_position are too close together, the ventilation-status should not be assigned.
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
+                      ##################################################
+                      # Consider lockout protection when shading starts
+                      ##################################################
+                      - alias: "Consider lockout protection when shading starts"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
+                          - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
+                          - "{{ is_ventilation_enabled }}"
+                          - or:
+                              - and:
+                                  - "{{ contact_window_opened != [] }}"
+                                  - "{{ states(contact_window_opened) in ['true', 'on'] }}"
+                              - and:
+                                  - "{{ lockout_tilted_when_shading_starts }}"
+                                  - "{{ contact_window_tilted != [] }}"
+                                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                                vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
 
-              - conditions: # Manually shaded
-                  - "{{ is_shading_enabled }}"
-                  - "{{ in_shading_position }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
+                      ###################################
+                      # Start Shading
+                      ###################################
+                      - alias: "Start Shading"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
+                          - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
+                          - or:
+                              - and:
+                                  - "{{ not is_cover_tilt_enabled_and_possible }}"
+                                  - "{{ current_position > shading_position }}"
+                              - and:
+                                  - "{{ is_cover_tilt_enabled_and_possible }}"
+                                  - "{{ current_position >= shading_position }}"
+                          - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
+                              - and:
+                                  - "{{ is_time_control_disabled }}"
+                              - and:
+                                  - "{{ is_time_field_enabled }}"
+                                  - "{{ now() >= today_at(time_up_early_today) }}"
+                                  - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
+                              - and:
+                                  - "{{ is_schedule_helper_enabled }}"
+                                  - "{{ time_schedule_helper != [] }}"
+                                  - "{{ is_state(time_schedule_helper, 'on') }}"
+                          - or:
+                              - "{{ resident_sensor == [] }}"
+                              - "{{ states(resident_sensor) in ['false', 'off'] }}"
+                              - and: # Issue 131
+                                  - "{{ resident_allow_shading }}"
+                                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
+                        sequence:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_shading_start_action_before
+                          - variables:
+                              target_position: !input shading_position
+                              target_tilt_position: "{{ shading_tilt_position | int }}"
+                              update_values:
+                                open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" } # TODO: Do I really want to overwrite the status here?
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - *helper_update
+                          - choose: []
+                            default: !input auto_shading_start_action
 
-              - conditions: # Manually closed
-                  - "{{ is_down_enabled }}"
-                  - "{{ not in_shading_position }}"
+                      ####################################
+                      # Save shading state for the future
+                      ####################################
+                      - alias: "Save shading state for the future"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
+                          - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
+                          - "{{ is_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                        sequence:
+                          - variables:
+                              update_values:
+                                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
+
+                  # - stop: "Stop automation: SHADING START"
+
+                else: # Shading conditions were no longer met or not met again.
+                  - choose:
+
+                      #####################################################################
+                      # Shading conditions were not met consistently and it should be checked again periodically in a few seconds
+                      #####################################################################
+                      - alias: "Shading conditions were not met consistently and it should be checked again periodically in a few seconds"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
+                          - "{{ is_helper_shading_start }}"
+                          - "{{ start_shading_trigger_periodic }}"
+                          - or: # Periodic checks only within a limited time frame. Not all day
+                              - and:
+                                  - "{{ is_time_control_disabled }}" # Not recommended on its own, otherwise it will trigger for 24 hours.
+                                  - "{{ is_helper_open }}" # Not nice, but necessary if you don't use time control.
+                              - and:
+                                  - "{{ is_time_field_enabled }}"
+                                  - "{{ now() >= today_at(time_up_early_today) }}"
+                                  - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
+                              - and:
+                                  - "{{ is_schedule_helper_enabled }}"
+                                  - "{{ time_schedule_helper != [] }}"
+                                  - "{{ is_state(time_schedule_helper, 'on') }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + (shading_waitingtime_start | int)) | round(0) }}", q: 0 }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
+
+                      ######################################
+                      # Shading conditions were not consistently met and the next new trigger should be waited for
+                      ######################################
+                      - alias: "Shading conditions were not consistently met and the next new trigger should be waited for"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_start_execution)') }}"
+                          - "{{ is_helper_shading_start }}"
+                          - "{{ start_shading_trigger_reset }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                shading: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
+
+          ############################################################
+          # ANCHOR (3): SHADING Tilt
+          ############################################################
+
+          - alias: "Check for shading tilt"
+            conditions:
+              - "{{ is_shading_enabled }}"
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action | regex_match('^(t_shading_tilt)') }}"
+              - "{{ is_status_helper_enabled }}"
+              - and:
+                  - "{{ is_helper_shaded }}"
+                  - "{{ not is_helper_shading_start }}"
+              - "{{ is_cover_tilt_enabled_and_possible }}"
+              - condition: !input auto_shading_tilt_condition
+              - and:
+                  - "{{ auto_up_force_disabled }}"
+                  - "{{ auto_down_force_disabled }}"
+                  - "{{ auto_ventilate_force_disabled }}"
+              - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
+              - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
+            sequence:
+              - variables:
+                  target_tilt_position: "{{ shading_tilt_position | int }}"
+                  tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
+                  update_values:
+                    t: "{{ as_timestamp(now()) | round(0) }}"
+              - *tilt_move_action
+              - *helper_update
+
+          ############################################################
+          # ANCHOR (4): SHADING END
+          #   Source: Shading
+          #   Target: Open, Lockout, Ventilation
+          ############################################################
+
+          - alias: "Check for shading end"
+            conditions:
+              - "{{ is_shading_enabled }}"
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action | regex_match('^(t_shading_end)') }}"
+              - "{{ is_status_helper_enabled }}"
+              - condition: !input auto_shading_end_condition
+              - and:
+                  - "{{ auto_up_force_disabled }}"
+                  - "{{ auto_down_force_disabled }}"
+                  - "{{ auto_ventilate_force_disabled }}"
+                  - "{{ auto_shading_start_force_disabled }}"
+              - or:
+                  - and:
+                      - "{{ is_time_control_disabled }}"
+                  - and:
+                      - "{{ is_time_field_enabled }}"
+                      - "{{ now() >= today_at(time_up_early_today) }}"
+                      - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
+                  - and:
+                      - "{{ is_schedule_helper_enabled }}"
+                      - "{{ time_schedule_helper != [] }}"
+                      - "{{ is_state(time_schedule_helper, 'on') }}"
+              - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
+              - "{{ not is_helper_closed }}"
+              - or:
+                  - "{{ is_helper_shaded }}"
+                  - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
+              - or: # Optional: Continue if cover is not already closed
+                  - "{{ not prevent_shading_end_if_closed }}"
+                  - "{{ prevent_shading_end_if_closed and not in_close_position}}"
+              - or: # Issue #116
+                  - "{{ resident_sensor == [] }}"
+                  - "{{ states(resident_sensor) in ['false', 'off'] }}"
+            sequence:
+              - if:
                   - or:
-                      - "{{ in_close_position }}"
-                      - "{{ (current_position <= close_position) }}"
-                      - "{{ (current_position == 0) }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
+                    - "{{ current_sun_azimuth > shading_azimuth_end }}"
+                    - "{{ current_sun_elevation > shading_elevation_max }}"
+                    - "{{ current_sun_elevation < shading_elevation_min}}"
+                    - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
+                    - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+                    - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+                    - or:
+                        - "{{ shading_forecast_sensor == [] }}"
+                        - "{{ shading_weather_conditions == [] }}"
+                        - "{{ shading_forecast_sensor is string and shading_forecast_sensor.startswith('sensor.') }}"
+                        - and:
+                            - "{{ shading_forecast_sensor is string }}"
+                            - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                            - "{{ prevent_forecast_service }}"
+                            - "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
+                        - and:
+                            - "{{ shading_forecast_sensor is string }}"
+                            - "{{ shading_forecast_sensor.startswith('weather.') }}"
+                            - "{{ not prevent_forecast_service }}"
+                            - "{{ weather_forecast is defined }}"
+                            - "{{ weather_forecast[shading_forecast_sensor].forecast[0].condition not in shading_weather_conditions }}"
+                then:
+                  - choose:
+                      #####################################################################
+                      # Shading end detected. Save next execution time and pending status
+                      #####################################################################
+                      - alias: "Shading end detected. Save next execution time and pending status"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_end_pending)') }}"
+                          - "{{ not is_helper_shading_end }}"
+                        sequence:
+                          - variables:
+                              local_waitingtime_end: >
+                                {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
+                                {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and cover_action == 't_shading_end_pending_5' %}
+                                {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
+                                {% set local_waitingtime_end = 20 %}
+                                {% endif %}
+                                {{ local_waitingtime_end }}
+                              update_values:
+                                shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: "{{ (as_timestamp(now()) | round(0) + (local_waitingtime_end | int)) | round(0) }}" }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
 
-              - conditions: # Defined positions cannot be assigned
-                  - not:
-                      - "{{ is_up_enabled and in_open_position }}"
-                      - "{{ is_down_enabled and in_close_position }}"
-                      - "{{ is_ventilation_enabled and in_ventilate_position }}"
-                      - "{{ is_shading_enabled and in_shading_position }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
-                        shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                        vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                        vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                        manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                        t: "{{ as_timestamp(now()) | round(0) }}"
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
+                      ######################################
+                      # Only tilt open after shading ends
+                      ######################################
+                      - alias: "Only tilt open after shading ends"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
+                          - "{{ is_helper_shading_end }}"
+                          - "{{ is_cover_tilt_enabled_and_possible }}"
+                          - "{{ prevent_opening_after_shading_end}}"
+                        sequence:
 
-      ############################################################
-      # ANCHOR (12): RESET MANUAL DETECTION
-      ############################################################
+                          - variables:
+                              target_tilt_position: 50 # Moving the cover to open tilt position
+                              update_values:
+                                shading: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *tilt_move_action
+                          - *helper_update
 
-      - alias: "Reset manual detection"
-        conditions:
-          - "{{ cover_action is defined }}"
-          - "{{ not is_reset_disabled }}"
-          - "{{ cover_action in ['t_manual_2', 't_manual_3'] }}"
-        sequence:
-          - variables:
-              update_values:
-                manual: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}" }
-                t: "{{ as_timestamp(now()) | round(0) }}"
-          - *helper_update
-          - choose: []
-            default: !input auto_override_reset_action
+                      ######################################
+                      # Lockout protection when shading ends
+                      ######################################
+                      - alias: "Lockout protection when shading ends"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
+                          - "{{ is_helper_shading_end }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ (current_position < ventilate_position) }}"
+                          - or:
+                              - and:
+                                  - "{{ contact_window_opened != [] }}"
+                                  - "{{ states(contact_window_opened) in ['true', 'on'] }}"
+                              - and:
+                                  - "{{ contact_window_tilted != [] }}"
+                                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                                  - "{{ lockout_tilted_when_shading_ends }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                                vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
 
-      ############################################################
-      # ANCHOR (13): RESET SHADING STATUS AT MIDNIGHT
-      ############################################################
+                      ################################
+                      # Ventilation after shading ends
+                      ################################
+                      - alias: "Ventilation after shading ends"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
+                          - "{{ is_helper_shading_end }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ ventilation_after_shading_end }}"
+                          - "{{ contact_window_tilted != [] }}"
+                          - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                          - "{{ not lockout_tilted_when_closing }}"
+                          - or:
+                              - "{{ contact_window_opened == [] }}"
+                              - "{{ states(contact_window_opened) in ['false', 'off'] }}"
+                          - or:
+                              - "{{ (current_position < ventilate_position) }}"
+                              - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
+                        sequence:
+                          - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                              seconds: >
+                                {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                                  {{ range(0, 2) | random }}
+                                {% else %}
+                                  {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                                {% endif %}
 
-      - alias: "Reset shading status that is no longer required - but still saved"
-        conditions:
-          - "{{ cover_action is defined }}"
-          - "{{ cover_action == 't_shading_reset' }}"
-          - "{{ is_status_helper_enabled }}"
-          - "{{ is_helper_shaded }}"
-        sequence:
-          - delay:
-              seconds: "{{ (range(0, 60) | random | int) }}"
-          - variables:
-              update_values:
-                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                t: "{{ as_timestamp(now()) | round(0) }}"
-          - *helper_update
+                          - choose: []
+                            default: !input auto_ventilate_action_before
+                          - variables:
+                              target_position: !input ventilate_position
+                              target_tilt_position: !input ventilate_tilt_position
+                              update_values:
+                                open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                                vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - *helper_update
+                          - choose: []
+                            default: !input auto_ventilate_action
 
-    ############################################################
-    # DEFAULT BRANCH - CONFIG CHECK
-    ############################################################
+                      ###############################################
+                      # Move cover after shading end
+                      ###############################################
+                      - alias: "Move cover after shading end"
+                        conditions:
+                          - "{{ cover_action | regex_match('^(t_shading_end_execution)') }}"
+                          - "{{ is_helper_shading_end }}"
+                        sequence:
+                          - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                              seconds: >
+                                {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
+                                  {{ range(0, 2) | random }}
+                                {% else %}
+                                  {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
+                                {% endif %}
 
-    default:
-      - if:
-        - "{{ check_config }}"
-        then:
-          - repeat:
-              for_each:
-                # Time slot checks
-                - condition: "{{ not is_time_control_disabled and (today_at(time_up_early) >= today_at(time_up_late)) }}"
-                  message: "time_up_early should be earlier than time_up_late"
-                - condition: "{{ not is_time_control_disabled and (today_at(time_up_early_non_workday) >= today_at(time_up_late_non_workday)) }}"
-                  message: "time_up_early_non_workday should be earlier than time_up_late_non_workday"
-                - condition: "{{ not is_time_control_disabled and (today_at(time_down_early) >= today_at(time_down_late)) }}"
-                  message: "time_down_early should be earlier than time_down_late"
-                - condition: "{{ not is_time_control_disabled and (today_at(time_down_early_non_workday) >= today_at(time_down_late_non_workday)) }}"
-                  message: "time_down_early_non_workday should be earlier than time_down_late_non_workday"
+                          - choose: []
+                            default: !input auto_shading_end_action_before
+                          - variables:
+                              target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
+                              target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
+                              target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
+                              update_values:
+                                open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
+                                close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
+                                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
+                          - if:
+                              - "{{ not prevent_opening_after_shading_end}}"
+                            then:
+                              - *cover_move_action
+                              - *tilt_move_action
+                          - choose: []
+                            default: !input auto_shading_end_action
 
-                # Shading checks
-                - condition: "{{ shading_azimuth_start >= shading_azimuth_end }}"
-                  message: "shading_azimuth_start should be lower than shading_azimuth_end"
-                - condition: "{{ shading_elevation_min >= shading_elevation_max }}"
-                  message: "shading_elevation_min should be lower than shading_elevation_max"
-                - condition: "{{ shading_sun_brightness_start <= shading_sun_brightness_end }}"
-                  message: "shading_sun_brightness_start should be higher than shading_sun_brightness_end"
+                  # - stop: "Stop automation: SHADING END"
 
-                # Position checks
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (close_position + position_tolerance) }}"
-                  message: "open_position should be higher than close_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
-                  message: "open_position should be higher than ventilate_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (close_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
-                  message: "close_position should be lower than ventilate_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (shading_position - position_tolerance) <= (close_position + position_tolerance) }}"
-                  message: "shading_position should be higher than close_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (shading_position + position_tolerance) >= (open_position - position_tolerance) }}"
-                  message: "shading_position should be lower than open_position"
-                - condition: "{{ [in_open_position, in_close_position, in_shading_position, in_ventilate_position].count(True) > 1 }}"
-                  message: "Please revise the position values and take the tolerance values into account. The values must not overlap"
+          ############################################################
+          # ANCHOR (5): CONTACT OPEN
+          #   Source: Shading, Close
+          #   Target: Ventilation
+          ############################################################
 
-                # Sensor and attribute checks
-                - condition: "{{ (resident_sensor != [] ) and (not states(resident_sensor) in ['false', 'off','true', 'on']) }}"
-                  message: "resident_sensor is only allowed to be on/off/true/false"
-                - condition: "{{ state_attr(blind, 'current_position') is none }}"
-                  message: "Cover is missing attribute current_position"
-                - condition: "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
-                  message: "Sun sensor is missing attribute elevation"
-                - condition: "{{ state_attr(default_sun_sensor, 'azimuth') is none }}"
-                  message: "Sun sensor is missing attribute azimuth"
-                - condition: "{{ is_brightness_enabled and (default_brightness_sensor == [] or not is_number(states(default_brightness_sensor))) }}"
-                  message: "Brightness sensor not defined or state is not numeric"
+          - alias: "Contact sensor opened"
+            conditions:
+              - "{{ is_ventilation_enabled }}"
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action in ['t_contact_tilted_on', 't_contact_opened_on'] }}"
+              - "{{ is_status_helper_enabled }}"
+              - condition: !input auto_ventilate_condition
+              - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+              - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+              - and:
+                  - "{{ auto_up_force_disabled }}"
+                  - "{{ auto_down_force_disabled }}"
+                  - "{{ auto_shading_start_force_disabled }}"
+              - or:
+                  - "{{ resident_sensor == [] }}"
+                  - "{{ states(resident_sensor) in ['false', 'off'] }}"
+                  - and:
+                      - "{{ resident_allow_ventilation }}"
+                      - "{{ states(resident_sensor) in ['true', 'on'] }}"
+            sequence:
+              - delay:
+                  seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
+              - choose:
+                  ###################################
+                  # Window handle to open. Open cover
+                  ###################################
+                  - alias: "Window handle to open. Open cover"
+                    conditions:
+                      - "{{ contact_window_opened != [] }}"
+                      - "{{ states(contact_window_opened) in  ['true', 'on'] }}"
+                      - "{{ cover_action == 't_contact_opened_on' }}"
+                      - "{{ not in_open_position }}"
+                    sequence:
+                      - variables:
+                          target_position: !input open_position
+                          target_tilt_position: !input open_tilt_position
+                          update_values:
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
 
-                # Helper checks
-                - condition: "{{ 'cover_helper_enabled' in cover_status_options and state_attr(cover_status_helper, 'max') < 254 }}"
-                  message: "Wrong length of the cover status helper"
-                - condition: "{{ (is_shading_enabled or is_ventilation_enabled) and not is_status_helper_enabled }}"
-                  message: "Shading, ventilation and lockout protection require a cover status helper to be configured"
-                - condition: "{{ is_schedule_helper_enabled and time_schedule_helper == [] }}"
-                  message: "Schedule mode selected but no schedule helper specified"
+                  ############################################################################
+                  # Window handle to tilt. Move the cover to the partial ventilation position
+                  ############################################################################
+                  - alias: "Window handle to tilt. Move the cover to the partial ventilation position."
+                    conditions:
+                      - "{{ contact_window_tilted != [] }}"
+                      - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                      - "{{ cover_action == 't_contact_tilted_on' }}"
+                      - or:
+                          - "{{ (current_position < ventilate_position) }}"
+                          - and:
+                              - "{{ is_cover_tilt_enabled_and_possible }}"
+                              - "{{ (current_position <= ventilate_position) }}"
+                              - "{{ (current_tilt_position <= ventilate_tilt_position) }}"
+                          - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_ventilate_action_before
+                      - variables:
+                          target_position: !input ventilate_position
+                          target_tilt_position: !input ventilate_tilt_position
+                          update_values:
+                            vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_ventilate_action
 
-              sequence:
-                - if:
-                    - "{{ repeat.item.condition }}"
-                  then:
-                    - action: system_log.write
-                      data:
-                        level: "{{ check_config_debuglevel }}"
-                        message: "CCA Config issue: {{ repeat.item.message }} - {{ this.entity_id }}"
-                        logger: "blueprints.hvorragend.cca"
+              # - stop: "Stop automation: CONTACT OPEN"
 
-      # - stop: "Stopping the automation - DEFAULT"
+          ############################################################
+          # ANCHOR (6): CONTACT CLOSED
+          #   Source: Ventilation, Lockout
+          #   Target: Open, Close, Shading
+          ############################################################
+
+          - alias: "Contact sensor closed"
+            conditions:
+              - "{{ is_ventilation_enabled }}"
+              - "{{ cover_action is defined }}"
+              - "{{ is_status_helper_enabled }}"
+              - condition: !input auto_ventilate_end_condition
+              - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+              - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+              - and:
+                  - "{{ auto_up_force_disabled }}"
+                  - "{{ auto_down_force_disabled }}"
+                  - "{{ auto_ventilate_force_disabled }}"
+                  - "{{ auto_shading_start_force_disabled }}"
+              - "{{ not (is_helper_manual and override_ventilation_after_manual) }}" # Override check
+              - or:
+                  - and:
+                      - "{{ cover_action == 't_contact_tilted_off' }}"
+                      - "{{ contact_window_tilted != [] }}"
+                      - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
+                      - or:
+                          - "{{ is_helper_vent_partial }}" # Status check
+                          - "{{ in_ventilate_position }}" # Position check
+                  - and:
+                      # TODO: Workaround for #181
+                      # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
+                      # 'vfull' is set in the helper.
+                      # This must remain the case because the position of the cover remains at 100.
+                      # But the return from this must be taken into account somehow.
+                      - "{{ cover_action == 't_contact_tilted_off' }}"
+                      - "{{ contact_window_tilted != [] }}"
+                      - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
+                      - "{{ lockout_tilted_when_closing }}"
+                      - "{{ is_helper_vent_full }}"
+                  - and:
+                      - "{{ cover_action == 't_contact_opened_off' }}"
+                      - "{{ contact_window_opened != [] }}"
+                      - "{{ states(contact_window_opened) in ['false', 'off'] }}"
+                      - "{{ is_helper_vent_full }}"
+
+            sequence:
+              - if:
+                  - "{{ ventilation_delay_enabled }}"
+                then:
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                else:
+                  - delay:
+                      seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
+
+              - choose:
+                  #####################################################
+                  # Contact sensor closed. Activate partial ventilation
+                  #####################################################
+                  - alias: "Contact sensor closed. Activate partial ventilation"
+                    conditions:
+                      - "{{ is_helper_vent_full }}" # Was fully ventilated before :-)
+                      - "{{ contact_window_tilted != [] }}"
+                      - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_ventilate_action_before
+                      - variables:
+                          target_position: !input ventilate_position
+                          target_tilt_position: !input ventilate_tilt_position
+                          update_values:
+                            vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_ventilate_action
+
+                  ##########################################
+                  # Contact sensor closed. Activate shading
+                  ##########################################
+                  - alias: "Contact sensor closed. Activate shading"
+                    conditions:
+                      - "{{ is_helper_shaded }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_shading_start_action_before
+                      - variables:
+                          target_position: !input shading_position
+                          target_tilt_position: "{{ shading_tilt_position | int }}"
+                          update_values:
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_shading_start_action
+
+                  ########################################
+                  # Contact sensor closed. Open the cover
+                  ########################################
+                  - alias: "Contact sensor closed. Open the cover"
+                    conditions:
+                      - "{{ is_helper_open }}"
+                      - "{{ not is_helper_shaded }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_up_action_before
+                      - variables:
+                          target_position: !input open_position
+                          target_tilt_position: !input open_tilt_position
+                          update_values:
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - if:
+                          - "{{ not prevent_opening_after_ventilation_end }}"
+                        then:
+                          - *cover_move_action
+                          - *tilt_move_action
+                      - choose: []
+                        default: !input auto_up_action
+
+                  ########################################
+                  # Contact sensor closed. Close the cover
+                  ########################################
+                  - alias: "Contact sensor closed. Close the cover"
+                    conditions:
+                      - "{{ is_helper_closed }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_down_action_before
+                      - variables:
+                          target_position: !input close_position
+                          target_tilt_position: !input close_tilt_position
+                          update_values:
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_down_action
+
+              # - stop: "Stop automation: CONTACT CLOSED"
+
+          ############################################################
+          # ANCHOR (7): FORCE OPEN
+          ############################################################
+
+          - alias: "Forced opening of the cover"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action == 't_force_open' }}"
+            sequence:
+              - choose: []
+                default: !input auto_up_action_before
+              - variables:
+                  target_position: !input open_position
+                  target_tilt_position: !input open_tilt_position
+                  update_values:
+                    open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                    close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                    shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                    vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                    vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                    manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                    t: "{{ as_timestamp(now()) | round(0) }}"
+              - *cover_move_action
+              - *tilt_move_action
+              - *helper_update
+              - choose: []
+                default: !input auto_up_action
+              # - stop: "Stop automation: FORCE OPEN"
+
+          ############################################################
+          # ANCHOR (8): FORCE CLOSE
+          ############################################################
+
+          - alias: "Forced closing of the cover"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action == 't_force_close' }}"
+            sequence:
+              - choose: []
+                default: !input auto_down_action_before
+              - variables:
+                  target_position: !input close_position
+                  target_tilt_position: !input close_tilt_position
+                  update_values:
+                    open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                    close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                    shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                    vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                    vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                    manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                    t: "{{ as_timestamp(now()) | round(0) }}"
+              - *cover_move_action
+              - *tilt_move_action
+              - *helper_update
+              - choose: []
+                default: !input auto_down_action
+              # - stop: "Stop automation: FORCE CLOSE"
+
+          ############################################################
+          # ANCHOR (9): FORCE VENTILATION
+          ############################################################
+
+          - alias: "Forced ventilation of the cover"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action == 't_force_vent' }}"
+              - "{{ is_status_helper_enabled }}"
+            sequence:
+              - choose: []
+                default: !input auto_ventilate_action_before
+              - variables:
+                  target_position: !input ventilate_position
+                  target_tilt_position: !input ventilate_tilt_position
+                  update_values:
+                    open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                    close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                    shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                    vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                    vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                    manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                    t: "{{ as_timestamp(now()) | round(0) }}"
+              - *cover_move_action
+              - *tilt_move_action
+              - *helper_update
+              - choose: []
+                default: !input auto_ventilate_action
+              # - stop: "Stop automation: FORCE VENTILATION"
+
+          ############################################################
+          # ANCHOR (10): FORCE SHADING START
+          ############################################################
+
+          - alias: "Forced activating of the sun shading"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action == 't_force_shading_start' }}"
+              - "{{ is_status_helper_enabled }}"
+            sequence:
+              - choose: []
+                default: !input auto_shading_start_action_before
+              - variables:
+                  target_position: !input shading_position
+                  target_tilt_position: "{{ shading_tilt_position |int }}"
+                  update_values:
+                    open: { a: 0, t: "{{ helper_state_json.open.t }}" } # ‘Open’ is not additionally set to True, because we don't know where it should actually go after forcing.
+                    close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                    shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                    vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                    vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                    manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                    t: "{{ as_timestamp(now()) | round(0) }}"
+              - *cover_move_action
+              - *tilt_move_action
+              - *helper_update
+              - choose: []
+                default: !input auto_shading_start_action
+              # - stop: "Stop automation: FORCE SHADING START"
+
+          ############################################################
+          # ANCHOR (11): MANUAL
+          ############################################################
+
+          - alias: "Checking for manual position changes"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ this.attributes.current | int(99) == 0 }}" # Avoid multiple triggering. Problem: A recognised position change can interrupt ongoing delays (contact changes).
+              - "{{ 'cover_helper_enabled' in cover_status_options }}" # Do not use 'is_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
+              - "{{ cover_status_helper != [] }}"
+              - "{{ as_timestamp(now()) > helper_state_json.t + drive_time | default(90) + 60 }}" # Drive time + trigger waiting time
+              - "{{ cover_action in ['t_manual_1', 't_manual_4'] }}"
+              - or:
+                  - "{{ is_number(trigger.to_state.attributes.current_position) and is_number(trigger.from_state.attributes.current_position) }}" # Avoid status change from -unavailable- (common with Homematic)
+                  - "{{ is_number(trigger.to_state.attributes.current_tilt_position) and is_number(trigger.from_state.attributes.current_tilt_position) }}" # Avoid status change from -unavailable- (common with Homematic)
+              - or:
+                  - "{{ trigger.to_state.attributes.current_position != trigger.from_state.attributes.current_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
+                  - "{{ trigger.to_state.attributes.current_tilt_position != trigger.from_state.attributes.current_tilt_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
+              - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
+              - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+
+            sequence:
+              - choose:
+                  - conditions: # Manually tilted
+                      - "{{ cover_action == 't_manual_4' }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_manual_action
+
+                  - conditions: # Manually opened
+                      - "{{ is_up_enabled }}"
+                      - or:
+                          - "{{ in_open_position }}"
+                          - "{{ (current_position >= open_position) }}"
+                          - "{{ (current_position == 100) }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            open: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_manual_action
+
+                  - conditions: # Manually ventilated
+                      - "{{ is_ventilation_enabled }}"
+                      - "{{ in_ventilate_position }}"
+                      - "{{ not in_open_position }}" # If ventilate_position and open_position are too close together, the ventilation-status should not be assigned.
+                    sequence:
+                      - variables:
+                          update_values:
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_manual_action
+
+                  - conditions: # Manually shaded
+                      - "{{ is_shading_enabled }}"
+                      - "{{ in_shading_position }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_manual_action
+
+                  - conditions: # Manually closed
+                      - "{{ is_down_enabled }}"
+                      - "{{ not in_shading_position }}"
+                      - or:
+                          - "{{ in_close_position }}"
+                          - "{{ (current_position <= close_position) }}"
+                          - "{{ (current_position == 0) }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_manual_action
+
+                  - conditions: # Defined positions cannot be assigned
+                      - not:
+                          - "{{ is_up_enabled and in_open_position }}"
+                          - "{{ is_down_enabled and in_close_position }}"
+                          - "{{ is_ventilation_enabled and in_ventilate_position }}"
+                          - "{{ is_shading_enabled and in_shading_position }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            open: { a: 0, t: "{{ helper_state_json.open.t }}" }
+                            close: { a: 0, t: "{{ helper_state_json.close.t }}" }
+                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                            manual: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_manual_action
+
+          ############################################################
+          # ANCHOR (12): RESET MANUAL DETECTION
+          ############################################################
+
+          - alias: "Reset manual detection"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ not is_reset_disabled }}"
+              - "{{ cover_action in ['t_manual_2', 't_manual_3'] }}"
+            sequence:
+              - variables:
+                  update_values:
+                    manual: { a: 0, t: "{{ as_timestamp(now()) | round(0) }}" }
+                    t: "{{ as_timestamp(now()) | round(0) }}"
+              - *helper_update
+              - choose: []
+                default: !input auto_override_reset_action
+
+          ############################################################
+          # ANCHOR (13): RESET SHADING STATUS AT MIDNIGHT
+          ############################################################
+
+          - alias: "Reset shading status that is no longer required - but still saved"
+            conditions:
+              - "{{ cover_action is defined }}"
+              - "{{ cover_action == 't_shading_reset' }}"
+              - "{{ is_status_helper_enabled }}"
+              - "{{ is_helper_shaded }}"
+            sequence:
+              - delay:
+                  seconds: "{{ (range(0, 60) | random | int) }}"
+              - variables:
+                  update_values:
+                    shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                    t: "{{ as_timestamp(now()) | round(0) }}"
+              - *helper_update
+
+        ############################################################
+        # DEFAULT BRANCH - CONFIG CHECK
+        ############################################################
+
+        default:
+          - if:
+            - "{{ check_config }}"
+            then:
+              - repeat:
+                  for_each:
+                    # Time slot checks
+                    - condition: "{{ not is_time_control_disabled and (today_at(time_up_early) >= today_at(time_up_late)) }}"
+                      message: "time_up_early should be earlier than time_up_late"
+                    - condition: "{{ not is_time_control_disabled and (today_at(time_up_early_non_workday) >= today_at(time_up_late_non_workday)) }}"
+                      message: "time_up_early_non_workday should be earlier than time_up_late_non_workday"
+                    - condition: "{{ not is_time_control_disabled and (today_at(time_down_early) >= today_at(time_down_late)) }}"
+                      message: "time_down_early should be earlier than time_down_late"
+                    - condition: "{{ not is_time_control_disabled and (today_at(time_down_early_non_workday) >= today_at(time_down_late_non_workday)) }}"
+                      message: "time_down_early_non_workday should be earlier than time_down_late_non_workday"
+
+                    # Shading checks
+                    - condition: "{{ shading_azimuth_start >= shading_azimuth_end }}"
+                      message: "shading_azimuth_start should be lower than shading_azimuth_end"
+                    - condition: "{{ shading_elevation_min >= shading_elevation_max }}"
+                      message: "shading_elevation_min should be lower than shading_elevation_max"
+                    - condition: "{{ shading_sun_brightness_start <= shading_sun_brightness_end }}"
+                      message: "shading_sun_brightness_start should be higher than shading_sun_brightness_end"
+
+                    # Position checks
+                    - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (close_position + position_tolerance) }}"
+                      message: "open_position should be higher than close_position"
+                    - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
+                      message: "open_position should be higher than ventilate_position"
+                    - condition: "{{ not is_cover_tilt_enabled_and_possible and (close_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
+                      message: "close_position should be lower than ventilate_position"
+                    - condition: "{{ not is_cover_tilt_enabled_and_possible and (shading_position - position_tolerance) <= (close_position + position_tolerance) }}"
+                      message: "shading_position should be higher than close_position"
+                    - condition: "{{ not is_cover_tilt_enabled_and_possible and (shading_position + position_tolerance) >= (open_position - position_tolerance) }}"
+                      message: "shading_position should be lower than open_position"
+                    - condition: "{{ [in_open_position, in_close_position, in_shading_position, in_ventilate_position].count(True) > 1 }}"
+                      message: "Please revise the position values and take the tolerance values into account. The values must not overlap"
+
+                    # Sensor and attribute checks
+                    - condition: "{{ (resident_sensor != [] ) and (not states(resident_sensor) in ['false', 'off','true', 'on']) }}"
+                      message: "resident_sensor is only allowed to be on/off/true/false"
+                    - condition: "{{ state_attr(blind, 'current_position') is none }}"
+                      message: "Cover is missing attribute current_position"
+                    - condition: "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
+                      message: "Sun sensor is missing attribute elevation"
+                    - condition: "{{ state_attr(default_sun_sensor, 'azimuth') is none }}"
+                      message: "Sun sensor is missing attribute azimuth"
+                    - condition: "{{ is_brightness_enabled and (default_brightness_sensor == [] or not is_number(states(default_brightness_sensor))) }}"
+                      message: "Brightness sensor not defined or state is not numeric"
+
+                    # Helper checks
+                    - condition: "{{ 'cover_helper_enabled' in cover_status_options and state_attr(cover_status_helper, 'max') < 254 }}"
+                      message: "Wrong length of the cover status helper"
+                    - condition: "{{ (is_shading_enabled or is_ventilation_enabled) and not is_status_helper_enabled }}"
+                      message: "Shading, ventilation and lockout protection require a cover status helper to be configured"
+                    - condition: "{{ is_schedule_helper_enabled and time_schedule_helper == [] }}"
+                      message: "Schedule mode selected but no schedule helper specified"
+
+                  sequence:
+                    - if:
+                        - "{{ repeat.item.condition }}"
+                      then:
+                        - action: system_log.write
+                          data:
+                            level: "{{ check_config_debuglevel }}"
+                            message: "CCA Config issue: {{ repeat.item.message }} - {{ this.entity_id }}"
+                            logger: "blueprints.hvorragend.cca"
+
+          # - stop: "Stopping the automation - DEFAULT"
