@@ -2248,215 +2248,6 @@ trigger_variables:
   cover_status_helper: !input cover_status_helper
 
 ################################################################################
-# VARIABLES
-################################################################################
-
-variables:
-  version: "2025.11.15"
-
-  blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
-  current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
-  current_tilt_position: "{{ state_attr(blind,'current_tilt_position') | int(default=101) }}"
-  current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
-  current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
-  is_today_off: "{{ workday_sensor_today != [] and is_state(workday_sensor_today, 'off') }}"
-  is_tomorrow_off: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') }}"
-  is_tomorrow_on: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') }}"
-
-  # Delays
-  drive_delay_fix: !input drive_delay_fix
-  drive_delay_random: !input drive_delay_random
-  drive_time: !input drive_time
-
-  time_up_early_today: "{{ time_up_early_non_workday if is_today_off else time_up_early }}"
-  time_up_late_today: "{{ time_up_late_non_workday if is_today_off else time_up_late }}"
-  time_down_early_today: >-
-    {{
-      time_down_early_non_workday if is_tomorrow_off else
-      time_down_early if is_tomorrow_on else
-      time_down_early_non_workday if is_today_off else
-      time_down_early
-    }}
-  time_down_late_today: >-
-    {{
-      time_down_late_non_workday if is_tomorrow_off else
-      time_down_late if is_tomorrow_on else
-      time_down_late_non_workday if is_today_off else
-      time_down_late
-    }}
-
-  # Force
-  auto_up_force: !input auto_up_force
-  auto_down_force: !input auto_down_force
-  auto_ventilate_force: !input auto_ventilate_force
-  auto_shading_start_force: !input auto_shading_start_force
-  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
-  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
-  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
-  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
-
-  # Tilt
-  is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
-  cover_tilt_reposition_config: !input cover_tilt_reposition_config
-  is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
-
-  # Shading
-  shading_tilt_position: >-
-    {% set elevation = current_sun_elevation | int(default=0) %}
-    {% if elevation >= shading_tilt_elevation_3 | int %}
-      {{ shading_tilt_position_3 | int }}
-    {% elif elevation >= shading_tilt_elevation_2 | int %}
-      {{ shading_tilt_position_2 | int }}
-    {% elif elevation >= shading_tilt_elevation_1 | int %}
-      {{ shading_tilt_position_1 | int }}
-    {% else %}
-      {{ shading_tilt_position_0 | int }}
-    {% endif %}
-
-  shading_waitingtime_start: !input shading_waitingtime_start
-  shading_waitingtime_end: !input shading_waitingtime_end
-  is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
-  shading_start_behavior: !input shading_start_behavior
-  shading_end_behavior: !input shading_end_behavior
-  start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
-  start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
-  shading_config: !input shading_config
-  is_shading_temp_comparison_independent: "{{ 'shading_temp_comparison_independent' in shading_config }}"
-  is_shading_compare_forecast_with_sensor2: "{{ 'shading_compare_forecast_with_sensor2' in shading_config }}"
-
-  is_status_helper_enabled: >-
-    {{
-      'cover_helper_enabled' in cover_status_options and
-      cover_status_helper != [] and
-      states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none', []] and
-      states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")
-    }}
-
-  helper_state_json: >
-    {% if is_status_helper_enabled %}
-      {{ states(cover_status_helper) | from_json }}
-    {% else %}
-      {{
-        {
-          'open': {'a': 0, 't': 0},
-          'close': {'a': 0, 't': 0},
-          'shading': {'a': 0, 't': 0, 'p': 0, 'q': 0},
-          'vpart': {'a': 0, 't': 0},
-          'vfull': {'a': 0, 't': 0},
-          'manual': {'a': 0, 't': 0},
-          'v': 5,
-          't': as_timestamp(now()) | round(0)
-        } | to_json | from_json
-      }}
-    {% endif %}
-
-  # Cover status assignments
-  is_helper_open: "{{ is_status_helper_enabled and (helper_state_json | regex_search('open')) and (helper_state_json.open.a | default(false) | bool) }}"
-  is_helper_closed: "{{ is_status_helper_enabled and (helper_state_json | regex_search('close')) and (helper_state_json.close.a | default(false) | bool) }}"
-  is_helper_shaded: >-
-    {{
-      'shading' in helper_state_json and
-      helper_state_json.shading.a | default(false) | bool and
-      not (helper_state_json.shading.p | default(false) | bool)
-    }}
-  is_helper_shading_start: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.p | default(false) | bool) }}"
-  is_helper_shading_end: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.q | default(false) | bool) }}"
-  is_helper_vent_partial: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vpart')) and (helper_state_json.vpart.a | default(false) | bool) }}"
-  is_helper_vent_full: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vfull')) and (helper_state_json.vfull.a | default(false) | bool) }}"
-  is_helper_manual: "{{ is_status_helper_enabled and (helper_state_json | regex_search('manual')) and (helper_state_json.manual.a | default(false) | bool) }}"
-
-  ts_helper_open: "{{ helper_state_json.open.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('open'))) else 0 }}"
-  ts_helper_closed: "{{ helper_state_json.close.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('close'))) else 0 }}"
-  ts_helper_shaded: "{{ helper_state_json.shading.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('shading'))) else 0 }}"
-  ts_helper_vent_partial: "{{ helper_state_json.vpart.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vpart'))) else 0 }}"
-  ts_helper_vent_full: "{{ helper_state_json.vfull.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vfull'))) else 0 }}"
-  ts_helper_manual: "{{ helper_state_json.manual.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('manual'))) else 0 }}"
-
-  in_open_position: >-
-    {% set min = open_position - position_tolerance %}
-    {% set max = open_position + position_tolerance %}
-    {{
-      (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible)
-        or (is_cover_tilt_enabled_and_possible and current_tilt_position == open_tilt_position)
-      )
-    }}
-
-  in_close_position: >-
-    {% set min = close_position - position_tolerance %}
-    {% set max = close_position + position_tolerance %}
-    {{
-      (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible)
-        or (is_cover_tilt_enabled_and_possible and current_tilt_position == close_tilt_position)
-      )
-    }}
-
-  in_shading_position: >-
-    {% set min = shading_position - position_tolerance %}
-    {% set max = shading_position + position_tolerance %}
-    {{
-      is_shading_enabled
-      and (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible)
-        or (current_tilt_position == shading_tilt_position)
-      )
-    }}
-
-  in_ventilate_position: >-
-    {% set min = ventilate_position - position_tolerance %}
-    {% set max = ventilate_position + position_tolerance %}
-    {{
-      is_ventilation_enabled
-      and (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible)
-        or (current_tilt_position ==  ventilate_tilt_position)
-      )
-    }}
-
-  individual_config: !input individual_config
-  prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
-  prevent_lowering_when_closing_if_shaded: "{{ 'prevent_lowering_when_closing_if_shaded' in individual_config }}"
-  prevent_forecast_service: "{{ 'weather_attributes' in shading_forecast_type }}"
-  prevent_shading_end_if_closed: "{{ 'prevent_shading_end_if_closed' in individual_config }}"
-  prevent_opening_after_shading_end: "{{ 'prevent_opening_after_shading_end' in individual_config }}"
-  prevent_opening_after_ventilation_end: "{{ 'prevent_opening_after_ventilation_end' in individual_config }}"
-  prevent_default_cover_actions: "{{ 'prevent_default_cover_actions' in individual_config }}"
-  prevent_shading_multiple_times: "{{ 'prevent_shading_multiple_times' in individual_config }}"
-  prevent_opening_multiple_times: "{{ 'prevent_opening_multiple_times' in individual_config }}"
-  prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
-
-  resident_config: !input resident_config
-  resident_opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
-  resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
-  resident_allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
-  resident_allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
-  resident_allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
-
-  ignore_after_manual_config: !input ignore_after_manual_config
-  override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
-  override_closing_after_manual: "{{ 'ignore_closing_after_manual' in ignore_after_manual_config }}"
-  override_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in ignore_after_manual_config }}"
-  override_shading_after_manual: "{{ 'ignore_shading_after_manual' in ignore_after_manual_config }}"
-
-  auto_ventilate_options: !input auto_ventilate_options
-  ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
-  ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
-  ventilation_after_shading_end: "{{ 'ventilation_after_shading_end' in auto_ventilate_options }}"
-
-  # Config check
-  check_config: !input check_config
-  check_config_debuglevel: !input check_config_debuglevel
-  check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
-
-mode: single
-max_exceeded: silent
-
-################################################################################
 # TRIGGERS
 ################################################################################
 
@@ -2830,6 +2621,215 @@ conditions:
       {% else %}
         true
       {% endif %}
+
+################################################################################
+# VARIABLES
+################################################################################
+
+variables:
+  version: "2025.11.15"
+
+  blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
+  current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
+  current_tilt_position: "{{ state_attr(blind,'current_tilt_position') | int(default=101) }}"
+  current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
+  current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
+  is_today_off: "{{ workday_sensor_today != [] and is_state(workday_sensor_today, 'off') }}"
+  is_tomorrow_off: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') }}"
+  is_tomorrow_on: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') }}"
+
+  # Delays
+  drive_delay_fix: !input drive_delay_fix
+  drive_delay_random: !input drive_delay_random
+  drive_time: !input drive_time
+
+  time_up_early_today: "{{ time_up_early_non_workday if is_today_off else time_up_early }}"
+  time_up_late_today: "{{ time_up_late_non_workday if is_today_off else time_up_late }}"
+  time_down_early_today: >-
+    {{
+      time_down_early_non_workday if is_tomorrow_off else
+      time_down_early if is_tomorrow_on else
+      time_down_early_non_workday if is_today_off else
+      time_down_early
+    }}
+  time_down_late_today: >-
+    {{
+      time_down_late_non_workday if is_tomorrow_off else
+      time_down_late if is_tomorrow_on else
+      time_down_late_non_workday if is_today_off else
+      time_down_late
+    }}
+
+  # Force
+  auto_up_force: !input auto_up_force
+  auto_down_force: !input auto_down_force
+  auto_ventilate_force: !input auto_ventilate_force
+  auto_shading_start_force: !input auto_shading_start_force
+  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
+  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
+  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
+  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
+
+  # Tilt
+  is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
+  cover_tilt_reposition_config: !input cover_tilt_reposition_config
+  is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
+
+  # Shading
+  shading_tilt_position: >-
+    {% set elevation = current_sun_elevation | int(default=0) %}
+    {% if elevation >= shading_tilt_elevation_3 | int %}
+      {{ shading_tilt_position_3 | int }}
+    {% elif elevation >= shading_tilt_elevation_2 | int %}
+      {{ shading_tilt_position_2 | int }}
+    {% elif elevation >= shading_tilt_elevation_1 | int %}
+      {{ shading_tilt_position_1 | int }}
+    {% else %}
+      {{ shading_tilt_position_0 | int }}
+    {% endif %}
+
+  shading_waitingtime_start: !input shading_waitingtime_start
+  shading_waitingtime_end: !input shading_waitingtime_end
+  is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
+  shading_start_behavior: !input shading_start_behavior
+  shading_end_behavior: !input shading_end_behavior
+  start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
+  start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
+  shading_config: !input shading_config
+  is_shading_temp_comparison_independent: "{{ 'shading_temp_comparison_independent' in shading_config }}"
+  is_shading_compare_forecast_with_sensor2: "{{ 'shading_compare_forecast_with_sensor2' in shading_config }}"
+
+  is_status_helper_enabled: >-
+    {{
+      'cover_helper_enabled' in cover_status_options and
+      cover_status_helper != [] and
+      states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none', []] and
+      states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")
+    }}
+
+  helper_state_json: >
+    {% if is_status_helper_enabled %}
+      {{ states(cover_status_helper) | from_json }}
+    {% else %}
+      {{
+        {
+          'open': {'a': 0, 't': 0},
+          'close': {'a': 0, 't': 0},
+          'shading': {'a': 0, 't': 0, 'p': 0, 'q': 0},
+          'vpart': {'a': 0, 't': 0},
+          'vfull': {'a': 0, 't': 0},
+          'manual': {'a': 0, 't': 0},
+          'v': 5,
+          't': as_timestamp(now()) | round(0)
+        } | to_json | from_json
+      }}
+    {% endif %}
+
+  # Cover status assignments
+  is_helper_open: "{{ is_status_helper_enabled and (helper_state_json | regex_search('open')) and (helper_state_json.open.a | default(false) | bool) }}"
+  is_helper_closed: "{{ is_status_helper_enabled and (helper_state_json | regex_search('close')) and (helper_state_json.close.a | default(false) | bool) }}"
+  is_helper_shaded: >-
+    {{
+      'shading' in helper_state_json and
+      helper_state_json.shading.a | default(false) | bool and
+      not (helper_state_json.shading.p | default(false) | bool)
+    }}
+  is_helper_shading_start: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.p | default(false) | bool) }}"
+  is_helper_shading_end: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.q | default(false) | bool) }}"
+  is_helper_vent_partial: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vpart')) and (helper_state_json.vpart.a | default(false) | bool) }}"
+  is_helper_vent_full: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vfull')) and (helper_state_json.vfull.a | default(false) | bool) }}"
+  is_helper_manual: "{{ is_status_helper_enabled and (helper_state_json | regex_search('manual')) and (helper_state_json.manual.a | default(false) | bool) }}"
+
+  ts_helper_open: "{{ helper_state_json.open.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('open'))) else 0 }}"
+  ts_helper_closed: "{{ helper_state_json.close.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('close'))) else 0 }}"
+  ts_helper_shaded: "{{ helper_state_json.shading.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('shading'))) else 0 }}"
+  ts_helper_vent_partial: "{{ helper_state_json.vpart.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vpart'))) else 0 }}"
+  ts_helper_vent_full: "{{ helper_state_json.vfull.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vfull'))) else 0 }}"
+  ts_helper_manual: "{{ helper_state_json.manual.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('manual'))) else 0 }}"
+
+  in_open_position: >-
+    {% set min = open_position - position_tolerance %}
+    {% set max = open_position + position_tolerance %}
+    {{
+      (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (is_cover_tilt_enabled_and_possible and current_tilt_position == open_tilt_position)
+      )
+    }}
+
+  in_close_position: >-
+    {% set min = close_position - position_tolerance %}
+    {% set max = close_position + position_tolerance %}
+    {{
+      (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (is_cover_tilt_enabled_and_possible and current_tilt_position == close_tilt_position)
+      )
+    }}
+
+  in_shading_position: >-
+    {% set min = shading_position - position_tolerance %}
+    {% set max = shading_position + position_tolerance %}
+    {{
+      is_shading_enabled
+      and (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (current_tilt_position == shading_tilt_position)
+      )
+    }}
+
+  in_ventilate_position: >-
+    {% set min = ventilate_position - position_tolerance %}
+    {% set max = ventilate_position + position_tolerance %}
+    {{
+      is_ventilation_enabled
+      and (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible)
+        or (current_tilt_position ==  ventilate_tilt_position)
+      )
+    }}
+
+  individual_config: !input individual_config
+  prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
+  prevent_lowering_when_closing_if_shaded: "{{ 'prevent_lowering_when_closing_if_shaded' in individual_config }}"
+  prevent_forecast_service: "{{ 'weather_attributes' in shading_forecast_type }}"
+  prevent_shading_end_if_closed: "{{ 'prevent_shading_end_if_closed' in individual_config }}"
+  prevent_opening_after_shading_end: "{{ 'prevent_opening_after_shading_end' in individual_config }}"
+  prevent_opening_after_ventilation_end: "{{ 'prevent_opening_after_ventilation_end' in individual_config }}"
+  prevent_default_cover_actions: "{{ 'prevent_default_cover_actions' in individual_config }}"
+  prevent_shading_multiple_times: "{{ 'prevent_shading_multiple_times' in individual_config }}"
+  prevent_opening_multiple_times: "{{ 'prevent_opening_multiple_times' in individual_config }}"
+  prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
+
+  resident_config: !input resident_config
+  resident_opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
+  resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
+  resident_allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
+  resident_allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
+  resident_allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
+
+  ignore_after_manual_config: !input ignore_after_manual_config
+  override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
+  override_closing_after_manual: "{{ 'ignore_closing_after_manual' in ignore_after_manual_config }}"
+  override_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in ignore_after_manual_config }}"
+  override_shading_after_manual: "{{ 'ignore_shading_after_manual' in ignore_after_manual_config }}"
+
+  auto_ventilate_options: !input auto_ventilate_options
+  ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
+  ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
+  ventilation_after_shading_end: "{{ 'ventilation_after_shading_end' in auto_ventilate_options }}"
+
+  # Config check
+  check_config: !input check_config
+  check_config_debuglevel: !input check_config_debuglevel
+  check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
+
+mode: single
+max_exceeded: silent
 
 ################################################################################
 # ACTIONS
