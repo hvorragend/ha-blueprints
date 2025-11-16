@@ -78,8 +78,9 @@ blueprint:
       - Fixed: current_tilt_position error in roller blinds automations #284
       - Fixed: Shading end canceled due to changed conditions — reset initiated, shading remains active
       - Fixed: Midnight reset now also clears newly added pending and end‑pending shading states.
-      - Added: Safety check at OPEN anchor to clear stale shading pending states older than 1 hour (currently commented out).
-      - Added: Optimized force triggers with cross‑checks using existing _force_disabled variables to prevent conflicts between multiple active forces.
+      - Added Safety check at OPEN anchor to clear stale shading pending states older than 1 hour (currently commented out).
+      - Optimized force triggers with cross‑checks using existing _force_disabled variables to prevent conflicts between multiple active forces.
+      - Improved JSON‑helper upgrade: added |default values to ensure robust initialization of all shading and status fields.
 
     2025.08.15:
       - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
@@ -2965,13 +2966,14 @@ actions:
       - "{{ helper_state_json.v != 5 }}"
     then:
       - variables:
+          ts_now: "{{ as_timestamp(now()) | round(0) }}"
           update_values:
-            open: { a: "{{ is_helper_open|int }}", t: "{{ ts_helper_open }}" }
-            close: { a: "{{ is_helper_closed|int }}", t: "{{ ts_helper_closed }}" }
-            shading: { a: "{{ is_helper_shaded|int }}", t: "{{ ts_helper_shaded }}", p: 0, q: 0 } # Set shading to true, but do not overwrite shading time
-            vpart: { a: "{{ is_helper_vent_partial|int }}", t: "{{ ts_helper_vent_partial }}" }
-            vfull: { a: "{{ is_helper_vent_full|int }}", t: "{{ ts_helper_vent_full }}" }
-            manual: { a: "{{ is_helper_manual|int }}", t: "{{ ts_helper_manual }}" }
+            open: { a: "{{ is_helper_open | int | default(0) }}", t: "{{ ts_helper_open | default(ts_now) }}" }
+            close: { a: "{{ is_helper_closed | int | default(0) }}", t: "{{ ts_helper_closed | default(ts_now) }}" }
+            shading: { a: "{{ is_helper_shaded | int | default(0) }}", t: "{{ ts_helper_shaded | default(ts_now) }}", p: 0, q: 0 }
+            vpart: { a: "{{ is_helper_vent_partial | int | default(0) }}", t: "{{ ts_helper_vent_partial | default(ts_now) }}" }
+            vfull: { a: "{{ is_helper_vent_full | int | default(0) }}", t: "{{ ts_helper_vent_full | default(ts_now) }}" }
+            manual: { a: "{{ is_helper_manual | int | default(0) }}", t: "{{ ts_helper_manual | default(ts_now) }}" }
             v: 5
             t: "{{ helper_state_json.t | round(0) }}"
       - *helper_update
