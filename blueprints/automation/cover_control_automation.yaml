@@ -50,7 +50,7 @@ blueprint:
     <details>
     <summary><strong>Important notes</strong></summary>
 
-    - <strong>It is <ins>not</ins> not possible to execute this automation manually! Unless you use it exclusively for the configuration check!!</strong>
+    - <strong>It is <ins>not</ins> possible to execute this automation manually! Unless you use it exclusively for the configuration check!!</strong>
     - If you want to use sun elevation and/or azimuth it's strongly advised to use sun.sun. And please make sure your sun.sun entity is enabled!
     - `time_up_early` should be earlier than `time_up_late`
     - `time_up_early_non_workday` should be earlier than `time_up_late_non_workday`
@@ -76,6 +76,7 @@ blueprint:
 
     2025.11.15:
       - Fixed: current_tilt_position error in roller blinds automations #284
+      - Fixed: Shading end canceled due to changed conditions — reset initiated, shading remains active
 
     2025.08.15:
       - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
@@ -2422,22 +2423,22 @@ triggers:
 
   - platform: template
     value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
-    enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] and states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] }}"
     id: "t_shading_start_pending_2"
 
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
-    enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) not in ['unavailable', 'unknown', 'none'] }}"
     id: "t_shading_start_pending_3"
 
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
-    enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) not in ['unavailable', 'unknown', 'none'] }}"
     id: "t_shading_start_pending_4"
 
   - platform: template
     value_template: "{{ states(shading_forecast_sensor) in shading_weather_conditions }}"
-    enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] and states(shading_forecast_sensor) not in ['unavailable', 'unknown', 'none'] }}"
     id: "t_shading_start_pending_5"
 
   - platform: template # Required to recognize the maximum temperature value of the weather forecast before opening.
@@ -2516,17 +2517,17 @@ triggers:
 
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
-    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor1 != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) not in ['unavailable', 'unknown', 'none']  }}"
     id: "t_shading_end_pending_1"
 
   - platform: template
     value_template: "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
-    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor2 != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) not in ['unavailable', 'unknown', 'none']  }}"
     id: "t_shading_end_pending_2"
 
   - platform: template
     value_template: "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
-    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_brightness_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_brightness_sensor != [] and states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] }}"
     id: "t_shading_end_pending_3"
 
   - platform: template
@@ -2937,6 +2938,7 @@ actions:
         data:
           type: !input shading_forecast_type
         response_variable: weather_forecast
+        continue_on_error: true
 
   # Initialise empty helper with JSON default values ###########################
   - if:
@@ -3767,13 +3769,21 @@ actions:
                       - choose: []
                         default: !input auto_ventilate_action
 
-                  ###############################################
-                  # Move cover after shading end
-                  ###############################################
-                  - alias: "Move cover after shading end"
+                  ########################################################
+                  # Move cover after shading end - conditions still valid
+                  ########################################################
+                  - alias: "Move cover after shading end - conditions still valid"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ is_helper_shading_end }}"
+                      - or:
+                          - "{{ current_sun_azimuth > shading_azimuth_end }}"
+                          - "{{ current_sun_elevation > shading_elevation_max }}"
+                          - "{{ current_sun_elevation < shading_elevation_min }}"
+                          - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=999999) < shading_sun_brightness_end }}"
+                          - "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+                          - "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+                          # - "{{ shading_weather_conditions != [] and forecast_condition not in shading_weather_conditions }}" # TODO - currently without weather checks
                     sequence:
                       - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                           seconds: >
@@ -3805,6 +3815,27 @@ actions:
                           - *tilt_move_action
                       - choose: []
                         default: !input auto_shading_end_action
+
+                  ########################################################
+                  # Shading end conditions no longer valid - reset pending
+                  ########################################################
+                  - alias: "Shading end conditions no longer valid - reset pending"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            shading: { a: 1, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }  # Reset pending, shading kept active
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+                      - action: system_log.write
+                        data:
+                          level: info
+                          logger: "blueprints.hvorragend.cca"
+                          message: >-
+                            CCA Info: Shading end canceled because conditions changed during waiting time.
+                            Automation: {{ this.entity_id }}
 
               # - stop: "Stop automation: SHADING END"
 
@@ -4404,6 +4435,122 @@ actions:
                   message: "Shading, ventilation and lockout protection require a cover status helper to be configured"
                 - condition: "{{ is_schedule_helper_enabled and time_schedule_helper == [] }}"
                   message: "Schedule mode selected but no schedule helper specified"
+
+                # Tilt Position Feature Check
+                - condition: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') is none }}"
+                  message: "Tilt Position Control is enabled, but the cover does not support 'current_tilt_position' attribute. Please disable tilt features or check your cover integration."
+
+                # Drive Time Validation
+                - condition: "{{ drive_time < 5 }}"
+                  message: "Cover drive time ({{ drive_time }} seconds) is unrealistically short. Minimum recommended: 5 seconds. This may cause false manual detection."
+
+                - condition: "{{ drive_time > 300 }}"
+                  message: "Cover drive time ({{ drive_time }} seconds) is unrealistically long. Maximum recommended: 300 seconds (5 minutes). Please verify your cover's actual drive time."
+
+                # Drive Delay Validation
+                - condition: "{{ drive_delay_fix + drive_delay_random > 600 }}"
+                  message: "Combined drive delay ({{ drive_delay_fix + drive_delay_random }} seconds) is very high. This may cause slow automation response."
+
+                # Contact Sensor Configuration Check
+                - condition: >-
+                    {{
+                      is_ventilation_enabled and
+                      contact_window_tilted not in [[], none] and
+                      contact_window_opened not in [[], none] and
+                      contact_window_tilted == contact_window_opened
+                    }}
+                  message: "Contact sensors for tilted and opened window are identical. Please use different sensors or leave one empty."
+
+                # Workday Sensor State Check
+                - condition: >-
+                    {{
+                      workday_sensor_today not in [[], none] and
+                      states(workday_sensor_today) not in ['on', 'off', 'unknown', 'unavailable']
+                    }}
+                  message: "Workday sensor today has invalid state '{{ states(workday_sensor_today) }}'. Expected: 'on' or 'off'"
+
+                - condition: >-
+                    {{
+                      workday_sensor_tomorrow not in [[], none] and
+                      states(workday_sensor_tomorrow) not in ['on', 'off', 'unknown', 'unavailable']
+                    }}
+                  message: "Workday sensor tomorrow has invalid state '{{ states(workday_sensor_tomorrow) }}'. Expected: 'on' or 'off'"
+
+                # Time Schedule Helper Check
+                - condition: >-
+                    {{
+                      is_schedule_helper_enabled and
+                      time_schedule_helper not in [[], none] and
+                      states(time_schedule_helper) not in ['on', 'off', 'unknown', 'unavailable']
+                    }}
+                  message: "Time Schedule Helper has invalid state '{{ states(time_schedule_helper) }}'. Expected: 'on' or 'off'"
+
+                # Force Entity Configuration Check
+                - condition: >-
+                    {{
+                      auto_up_force not in [[], none] and
+                      states(auto_up_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
+                    }}
+                  message: "Force Open entity has invalid state '{{ states(auto_up_force) }}'. Must be a binary entity (on/off)."
+
+                - condition: >-
+                    {{
+                      auto_down_force not in [[], none] and
+                      states(auto_down_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
+                    }}
+                  message: "Force Close entity has invalid state '{{ states(auto_down_force) }}'. Must be a binary entity (on/off)."
+
+                - condition: >-
+                    {{
+                      auto_ventilate_force not in [[], none] and
+                      states(auto_ventilate_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
+                    }}
+                  message: "Force Ventilate entity has invalid state '{{ states(auto_ventilate_force) }}'. Must be a binary entity (on/off)."
+
+                - condition: >-
+                    {{
+                      auto_shading_start_force not in [[], none] and
+                      states(auto_shading_start_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
+                    }}
+                  message: "Force Shading entity has invalid state '{{ states(auto_shading_start_force) }}'. Must be a binary entity (on/off)."
+
+                # Sun Sensor Availability Check
+                - condition: >-
+                    {{
+                      default_sun_sensor not in [[], none] and
+                      states(default_sun_sensor) in ['unknown', 'unavailable']
+                    }}
+                  message: "Sun sensor '{{ default_sun_sensor }}' is unavailable. Please check if the sun integration is enabled and working."
+
+                # Multiple Force Entities Active Check
+                - condition: >-
+                    {{
+                      [
+                        auto_up_force not in [[], none] and states(auto_up_force) in ['on', 'true'],
+                        auto_down_force not in [[], none] and states(auto_down_force) in ['on', 'true'],
+                        auto_ventilate_force not in [[], none] and states(auto_ventilate_force) in ['on', 'true'],
+                        auto_shading_start_force not in [[], none] and states(auto_shading_start_force) in ['on', 'true']
+                      ].count(true) > 1
+                    }}
+                  message: "CRITICAL: Multiple force entities are currently active! Only one should be active at a time. Force_Open={{ states(auto_up_force) if auto_up_force not in [[], none] else 'N/A' }}, Force_Close={{ states(auto_down_force) if auto_down_force not in [[], none] else 'N/A' }}, Force_Vent={{ states(auto_ventilate_force) if auto_ventilate_force not in [[], none] else 'N/A' }}, Force_Shade={{ states(auto_shading_start_force) if auto_shading_start_force not in [[], none] else 'N/A' }}"
+
+                # Tilt Delay Validation
+                - condition: "{{ is_cover_tilt_enabled and tilt_delay > 60 }}"
+                  message: "Tilt delay ({{ tilt_delay }} seconds) is very long. Recommended maximum: 10 seconds. This may cause slow cover movements."
+
+                # Contact Delay Validation
+                - condition: "{{ contact_delay_trigger > 10 }}"
+                  message: "Contact trigger delay ({{ contact_delay_trigger }} seconds) is very long. This may cause slow response to window opening/closing."
+
+                - condition: "{{ is_ventilation_enabled and  contact_delay_status > 10 }}"
+                  message: "Contact status delay ({{ contact_delay_status }} seconds) is very long. This may cause slow response to handle position changes."
+
+                # Reset Override Timeout Check
+                - condition: "{{ is_reset_timeout and reset_override_timeout < 1 }}"
+                  message: "Reset override timeout is less than 1 minute. This is very short and manual overrides will be reset almost immediately."
+
+                - condition: "{{ is_reset_timeout and reset_override_timeout > 1440 }}""
+                  message: "Reset override timeout ({{ reset_override_timeout }} minutes = {{ (reset_override_timeout / 60) | round(1) }} hours) is very long. Manual overrides will persist for more than 24 hours."
 
               sequence:
                 - if:
