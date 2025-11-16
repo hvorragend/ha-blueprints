@@ -78,6 +78,7 @@ blueprint:
       - Fixed: current_tilt_position error in roller blinds automations #284
       - Fixed: Shading end canceled due to changed conditions — reset initiated, shading remains active
       - Fixed: Midnight reset now also clears newly added pending and end‑pending shading states.
+      - Added: Safety check at OPEN anchor to clear stale shading pending states older than 1 hour (currently commented out).
 
     2025.08.15:
       - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
@@ -3043,6 +3044,32 @@ actions:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
 
         sequence:
+          # SAFETY CHECK FOR STALE PENDING STATES
+          #
+          # To catch outdated shading pending states.
+          # If a pending timestamp is older than 1 hour, all shading values (a, t, p, q) are reset
+          # to zero and the helper is cleaned. This prevents invalid states from affecting behavior
+          # and logs a warning so developers can see when stale data was cleared.
+          #
+          # - if:
+          #     - "{{ is_status_helper_enabled }}"
+          #     - "{{ is_helper_shading_start }}"  # A pending status exists
+          #     - "{{ helper_state_json.shading.p < as_timestamp(now()) - 3600 }}"  # Pending is older than 1 hour
+          #   then:
+          #     - variables:
+          #         update_values:
+          #           shading: { a: 0, t: 0, p: 0, q: 0 }
+          #           t: "{{ as_timestamp(now()) | round(0) }}"
+          #     - *helper_update
+          #     - action: system_log.write
+          #       data:
+          #         level: warning
+          #         logger: "blueprints.hvorragend.cca"
+          #         message: >-
+          #           CCA Warning: Stale shading pending status detected and cleared.
+          #           Old pending timestamp: {{ helper_state_json.shading.p | timestamp_local }}
+          #           Automation: {{ this.entity_id }}
+
           - delay:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
 
