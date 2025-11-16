@@ -81,6 +81,7 @@ blueprint:
       - Added Safety check at OPEN anchor to clear stale shading pending states older than 1 hour (currently commented out).
       - Optimized force triggers with cross‑checks using existing _force_disabled variables to prevent conflicts between multiple active forces.
       - Improved JSON‑helper upgrade: added |default values to ensure robust initialization of all shading and status fields.
+      - Refactored shading end: conditional update to avoid unintended open/close changes when opening is prevented.
 
     2025.08.15:
       - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
@@ -3829,24 +3830,29 @@ actions:
 
                       - choose: []
                         default: !input auto_shading_end_action_before
-                      - variables:
-                          target_status: "{{ 'close' if shading_end_behavior == 'close_position' else 'open' }}"
-                          target_position: "{{ close_position if shading_end_behavior == 'close_position' else open_position }}"
-                          target_tilt_position:  "{{ close_tilt_position if shading_end_behavior == 'close_position' else open_tilt_position }}"
-                          update_values:
-                            open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
-                            close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
-                            shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
-                            vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
-                            vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
-                            manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
-                      - *helper_update
+
                       - if:
                           - "{{ not prevent_opening_after_shading_end}}"
                         then:
+                          - variables:
+                              update_values:
+                                open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
+                                close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ as_timestamp(now()) | round(0) if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
+                                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                                vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
+                                vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
+                                manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
                           - *cover_move_action
                           - *tilt_move_action
+                          - *helper_update
+                        else:
+                          - variables:
+                              update_values:
+                                shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                                t: "{{ as_timestamp(now()) | round(0) }}"
+                          - *helper_update
+
                       - choose: []
                         default: !input auto_shading_end_action
 
