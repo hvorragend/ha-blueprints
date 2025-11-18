@@ -102,13 +102,16 @@ blueprint:
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
     2025.11.18:
+      - Added: Periodic checking for shading end conditions - similar to shading start logic
+      - Added: New input `shading_end_max_duration` to limit retry duration (default: 2 hours, 0 = unlimited)
+      - Fixed: Automation getting stuck when shading end conditions change during waiting time (#281)
+      - Improved: Shading end now retries every `shading_waitingtime_end` seconds until conditions are stable or timeout is reached
       - Added: Brightness hysteresis feature to prevent flickering. All brightness-related triggers and conditions to use hysteresis
       - Added: Brightness hysteresis to prevent frequent open/close cycles when brightness fluctuates around threshold values
       - Added: Brightness hysteresis for shading to prevent flickering when brightness fluctuates around threshold values
       - Fixed: Temperature hysteresis for shading was only applied to end conditions, not to start conditions. Now both sensor 1 and sensor 2 use hysteresis correctly for both starting and ending shading to prevent flickering behavior near threshold values.
       - Added: Forecast temperature hysteresis to prevent frequent open/close cycles when forecast temperature fluctuates around threshold values
-
-    2025.11.15:
+      - Please reconfigure parameter 'End Sun Shading - Immediately When Out Of Range' ('is_shading_end_immediate_by_sun_position' removed)
       - Fixed: current_tilt_position error in roller blinds automations #284
       - Fixed: Shading end canceled due to changed conditions — reset initiated, shading remains active
       - Fixed: Midnight reset now also clears newly added pending and end‑pending shading states.
@@ -1699,7 +1702,27 @@ blueprint:
               max: 3600
               unit_of_measurement: seconds
 
-        is_shading_end_immediate_by_sun_position:
+        shading_end_max_duration:
+          name: "🥵 Sun Shading - Maximum duration for shading end retry loop"
+          description: |
+            Maximum time to keep retrying shading end conditions after initial trigger.
+            If conditions remain unstable for longer than this timeout, the retry loop is stopped.
+            Shading remains active and waits for a new shading end trigger.
+
+            **Use case:** Prevents automation from being stuck in "waiting for stable conditions"
+            when weather is highly unstable (rapidly changing clouds).
+
+            **0 = disabled** (no periodic retry, behaves like old version)
+            **Recommended: 3600-7200 seconds (1-2 hours)**
+          default: 7200
+          selector:
+            number:
+              min: 0
+              max: 14400
+              step: 300
+              unit_of_measurement: "seconds"
+
+        shading_end_immediate_by_sun_position:
           name: "🥵 End Sun Shading - Immediately When Out Of Range"
           description: >-
             If enabled, shading will end immediately (only a few seconds later) when sun position moves outside the defined azimuth or elevation range.
@@ -2772,12 +2795,13 @@ variables:
 
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
-  is_shading_end_immediate_by_sun_position: !input is_shading_end_immediate_by_sun_position
   shading_start_behavior: !input shading_start_behavior
+  shading_end_max_duration: !input shading_end_max_duration
   shading_end_behavior: !input shading_end_behavior
   start_shading_trigger_reset: "{{ 'trigger_reset' in shading_start_behavior }}"
   start_shading_trigger_periodic: "{{ 'trigger_periodic' in shading_start_behavior }}"
   shading_config: !input shading_config
+  is_shading_end_immediate_by_sun_position: !input shading_end_immediate_by_sun_position
   is_shading_temp_comparison_independent: "{{ 'shading_temp_comparison_independent' in shading_config }}"
   is_shading_compare_forecast_with_sensor2: "{{ 'shading_compare_forecast_with_sensor2' in shading_config }}"
 
@@ -3518,9 +3542,16 @@ actions:
                       - "{{ not is_helper_shading_start }}" # Not if a pending is already active
                     sequence:
                       - variables:
+                          local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
+                          local_timestamp: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
-                            shading: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}", p: "{{ (as_timestamp(now()) | round(0) + (shading_waitingtime_start | int)) | round(0) }}", q: 0 }
-                            t: "{{ as_timestamp(now()) | round(0) }}"
+                            shading: {
+                              a: 1,
+                              t: "{{ local_timestamp }}",
+                              p: "{{ (local_timestamp + local_waitingtime_start) | round(0) }}",
+                              q: 0
+                            }
+                            t: "{{ local_timestamp }}"
                       - *helper_update
 
                   ##################################################
@@ -3774,7 +3805,7 @@ actions:
                     sequence:
                       - variables:
                           local_waitingtime_end: >
-                            {% set local_waitingtime_end = shading_waitingtime_end | default(0) | int %}
+                            {% set local_waitingtime_end = shading_waitingtime_end | int %}
                             {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
                             {# Almost immediately end shading when sun position out of range. Earlier triggers do not work. #}
                             {% set local_waitingtime_end = 20 %}
@@ -3932,26 +3963,60 @@ actions:
                       - choose: []
                         default: !input auto_shading_end_action
 
-                  ########################################################
-                  # Shading end conditions no longer valid - reset pending
-                  ########################################################
-                  - alias: "Shading end conditions no longer valid - reset pending"
+                  #####################################################################
+                  # Shading end conditions not met - check if we should continue
+                  #####################################################################
+                  - alias: "Shading end conditions not met - check if we should continue"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ is_helper_shading_end }}"
+                      - "{{ shading_end_max_duration > 0 }}"
+                      - or: # Continue only within time window AND before timeout
+                          - and:
+                              - "{{ is_time_control_disabled }}"
+                              - "{{ is_helper_shading }}"
+                          - and:
+                              - "{{ is_time_field_enabled }}"
+                              - "{{ now() >= today_at(time_up_early_today) }}"
+                              - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
+                          - and:
+                              - "{{ is_schedule_helper_enabled }}"
+                              - "{{ time_schedule_helper != [] }}"
+                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                      - "{{ (as_timestamp(now()) - helper_state_json.shading.t) <= shading_end_max_duration }}"
+                    sequence:
+                      - variables:
+                          local_waitingtime_end: "{{ shading_waitingtime_end | default(60) | int }}"
+                          update_values:
+                            shading: {
+                              a: 1,
+                              t: "{{ helper_state_json.shading.t }}",
+                              p: 0,
+                              q: "{{ (as_timestamp(now()) | round(0) + local_waitingtime_end) | round(0) }}"
+                            }
+                            t: "{{ as_timestamp(now()) | round(0) }}"
+                      - *helper_update
+
+                  ######################################################################
+                  # Shading end - stop retry (timeout OR outside time window OR disabled)
+                  ######################################################################
+                  - alias: "Shading end - stop retry"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ is_helper_shading_end }}"
                     sequence:
                       - variables:
+                          # timeout_exceeded: "{{ shading_end_max_duration > 0 and (as_timestamp(now()) - helper_state_json.shading.t) > shading_end_max_duration }}"
+                          # periodic_disabled: "{{ shading_end_max_duration == 0 }}"
                           update_values:
-                            shading: { a: 1, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }  # Reset pending, shading kept active
+                            shading: {
+                              a: 1,
+                              t: "{{ helper_state_json.shading.t }}",
+                              p: 0,
+                              q: 0
+                            }
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
-                      - action: system_log.write
-                        data:
-                          level: info
-                          logger: "blueprints.hvorragend.cca"
-                          message: >-
-                            CCA Info: Shading end canceled because conditions changed during waiting time.
-                            Automation: {{ this.entity_id }}
 
               # - stop: "Stop automation: SHADING END"
 
@@ -4682,6 +4747,15 @@ actions:
 
                 - condition: "{{ is_reset_timeout and reset_override_timeout > 1440 }}"
                   message: "Reset override timeout ({{ reset_override_timeout }} minutes = {{ (reset_override_timeout / 60) | round(1) }} hours) is very long. Manual overrides will persist for more than 24 hours."
+
+                - condition: "{{ shading_end_max_duration > 0 and shading_end_max_duration < 600 }}"
+                  message: "Shading end retry timeout ({{ shading_end_max_duration }}s = {{ (shading_end_max_duration / 60) | round(1) }}min) is very short. Recommended minimum: 600s (10 minutes)."
+
+                - condition: "{{ shading_end_max_duration > 14400 }}"
+                  message: "Shading end retry timeout ({{ shading_end_max_duration }}s = {{ (shading_end_max_duration / 3600) | round(1) }}h) is very long. Consider reducing to max 4 hours."
+
+                - condition: "{{ shading_end_max_duration == 0 }}"
+                  message: "Shading end periodic retry is disabled (0). Automation will behave like old version - may get stuck if conditions fluctuate. Recommended: Enable with value 3600-7200."
 
               sequence:
                 - if:
