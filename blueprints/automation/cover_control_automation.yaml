@@ -70,15 +70,43 @@ blueprint:
     </details>
 
     <details>
+      <summary><strong>How Hysteresis Works</strong></summary>
+
+      Hysteresis creates two different thresholds:
+
+      - **Upper Threshold (Activation)**: `shading_forecast_temp`
+      - **Lower Threshold (Deactivation)**: `shading_forecast_temp - shading_forecast_temp_hysteresis`
+
+      **Example with Forecast Temp = 25°C and Hysteresis = 2°C:**
+      - Shading activates when temperature rises above **25°C**
+      - Shading deactivates when temperature falls below **23°C**
+      - Temperature fluctuations between 23°C and 25°C won't cause switching
+
+      **Benefits:**
+      - Prevents rapid on/off cycling
+      - Reduces wear on cover motors
+      - More stable shading behavior
+
+      **Recommended Values:**
+      - For stable weather: 1.0 - 2.0°C
+      - For variable weather: 2.0 - 3.0°C
+      - Default: 1.5°C
+
+      **Note:** Set to 0 to disable hysteresis
+
+    </details>
+
+    <details>
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    2025.11.16:
+    2025.11.18:
       - Added: Brightness hysteresis feature to prevent flickering. All brightness-related triggers and conditions to use hysteresis
       - Added: Brightness hysteresis to prevent frequent open/close cycles when brightness fluctuates around threshold values
       - Added: Brightness hysteresis for shading to prevent flickering when brightness fluctuates around threshold values
       - Fixed: Temperature hysteresis for shading was only applied to end conditions, not to start conditions. Now both sensor 1 and sensor 2 use hysteresis correctly for both starting and ending shading to prevent flickering behavior near threshold values.
+      - Added: Forecast temperature hysteresis to prevent frequent open/close cycles when forecast temperature fluctuates around threshold values
 
     2025.11.15:
       - Fixed: current_tilt_position error in roller blinds automations #284
@@ -1093,15 +1121,6 @@ blueprint:
               step: 1.0
               unit_of_measurement: seconds
 
-        # sun_elevation_opening:
-        #   name: ☀️ Sun Elevation At Opening
-        #   description: Static value or entity (sensor/input_number)
-        #   default: -3.0
-        #   selector:
-        #     entity:
-        #       domain: [sensor, input_number]
-
-
         sun_elevation_up:
           name: "☀️ Sun Elevation Value For Opening The Cover"
           description: "The cover will be <ins>opened</ins> if the sun elevation is over this value"
@@ -1282,7 +1301,7 @@ blueprint:
       name: "Sun Shading / Sun Protection"
       description: >-
         <br />
-        <center><code>Settings if the feature ‘🥵 - Enable automatic sun protection / sunshade control’ has been activated above.</code></center><br />
+        <center><code>Settings if the feature '🥵 - Enable automatic sun protection / sunshade control' has been activated above.</code></center><br />
         <center><code>All these settings are optional / A Cover Status Helper is required! / The attributes of default sun sensor (configured above) is used.</code></center><br />
       icon: mdi:shield-sun-outline
       collapsed: true
@@ -1571,6 +1590,19 @@ blueprint:
             number:
               min: 0.0
               max: 50.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+
+        shading_forecast_temp_hysteresis:
+          name: "🥵 Sun Shading - Forecast Temperature Hysteresis"
+          description: >-
+              Shading will start when forecast temperature exceeds (threshold + hysteresis) and end when it drops below (threshold - hysteresis) to prevent frequent open/close cycles.
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 5.0
               step: 0.1
               mode: slider
               unit_of_measurement: "°C"
@@ -2268,6 +2300,7 @@ trigger_variables:
   shading_forecast_sensor: !input shading_forecast_sensor
   shading_forecast_type: !input shading_forecast_type
   shading_forecast_temp: !input shading_forecast_temp
+  shading_forecast_temp_hysteresis: !input shading_forecast_temp_hysteresis
   shading_weather_conditions: !input shading_weather_conditions
 
   # Internal code helper
@@ -3409,22 +3442,22 @@ actions:
                       - and:
                           - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                       - and:
                           - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ prevent_forecast_service }}"
-                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                       - and:
                           - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ not prevent_forecast_service }}"
                           - "{{ weather_forecast is defined }}"
-                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                       - and:
                           - "{{ is_shading_compare_forecast_with_sensor2 }}"
                           - "{{ shading_temperatur_sensor2 != [] }}"
-                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp }}"
+                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                 - and:
                   - "{{ current_sun_azimuth > shading_azimuth_start and current_sun_azimuth < shading_azimuth_end }}"
                   - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
@@ -3443,22 +3476,22 @@ actions:
                       - and:
                           - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('sensor.') }}"
-                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - "{{ states(shading_forecast_sensor) | float(default=shading_forecast_temp - 1) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                       - and:
                           - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ prevent_forecast_service }}"
-                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - "{{ state_attr(shading_forecast_sensor, 'temperature') | float(default=shading_forecast_temp - 1) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                       - and:
                           - "{{ shading_forecast_sensor is string }}"
                           - "{{ shading_forecast_sensor.startswith('weather.') }}"
                           - "{{ not prevent_forecast_service }}"
                           - "{{ weather_forecast is defined }}"
-                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > shading_forecast_temp }}"
+                          - "{{ weather_forecast[shading_forecast_sensor].forecast[0].temperature | float(default=shading_forecast_temp - 1) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                       - and:
                           - "{{ is_shading_compare_forecast_with_sensor2 }}"
                           - "{{ shading_temperatur_sensor2 != [] }}"
-                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > shading_forecast_temp }}"
+                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_forecast_temp) > (shading_forecast_temp + shading_forecast_temp_hysteresis) }}"
                   - or: # Forecast Weather Conditions
                       - "{{ shading_forecast_sensor == [] }}"
                       - "{{ shading_weather_conditions == [] }}"
@@ -3712,6 +3745,8 @@ actions:
                 - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
                 - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
                 - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+                - "{{ shading_forecast_sensor != [] and shading_forecast_temp != [] and (states(shading_forecast_sensor) | float(default=999) < (shading_forecast_temp - shading_forecast_temp_hysteresis) or state_attr(shading_forecast_sensor, 'temperature') | float(default=999) < (shading_forecast_temp - shading_forecast_temp_hysteresis)) }}" # Checks when detecting shading end whether forecast temperature has fallen below threshold minus hysteresis
+
                 - or:
                     - "{{ shading_forecast_sensor == [] }}"
                     - "{{ shading_weather_conditions == [] }}"
@@ -3858,6 +3893,7 @@ actions:
                           - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
                           - "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
                           - "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+                          - "{{ shading_forecast_sensor != [] and shading_forecast_temp != [] and (states(shading_forecast_sensor) | float(default=999) < (shading_forecast_temp - shading_forecast_temp_hysteresis) or state_attr(shading_forecast_sensor, 'temperature') | float(default=999) < (shading_forecast_temp - shading_forecast_temp_hysteresis)) }}" # Checks during shading end execution whether conditions are still valid
                           # - "{{ shading_weather_conditions != [] and forecast_condition not in shading_weather_conditions }}" # TODO - currently without weather checks
                     sequence:
                       - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
