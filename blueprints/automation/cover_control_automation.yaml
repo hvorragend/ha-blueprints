@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.11.15
+    **Version**: 2025.11.18
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -73,6 +73,12 @@ blueprint:
     <summary><strong>Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+
+    2025.11.16:
+      - Added: Brightness hysteresis feature to prevent flickering. All brightness-related triggers and conditions to use hysteresis
+      - Added: Brightness hysteresis to prevent frequent open/close cycles when brightness fluctuates around threshold values
+      - Added: Brightness hysteresis for shading to prevent flickering when brightness fluctuates around threshold values
+      - Fixed: Temperature hysteresis for shading was only applied to end conditions, not to start conditions. Now both sensor 1 and sensor 2 use hysteresis correctly for both starting and ending shading to prevent flickering behavior near threshold values.
 
     2025.11.15:
       - Fixed: current_tilt_position error in roller blinds automations #284
@@ -1029,6 +1035,18 @@ blueprint:
               unit_of_measurement: lx
               step: 1.0
 
+        brightness_hysteresis:
+          name: "🔅 Brightness Hysteresis Value"
+          description: "Cover will open only when brightness exceeds (brightness_up + hysteresis), and close only when it drops below (brightness_down - hysteresis). Prevents frequent open/close cycles."
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 10000
+              step: 100
+              mode: slider
+              unit_of_measurement: "lx"
+
     sun_section:
       name: "Sun Elevation Settings"
       description: >-
@@ -1074,6 +1092,15 @@ blueprint:
               mode: slider
               step: 1.0
               unit_of_measurement: seconds
+
+        # sun_elevation_opening:
+        #   name: ☀️ Sun Elevation At Opening
+        #   description: Static value or entity (sensor/input_number)
+        #   default: -3.0
+        #   selector:
+        #     entity:
+        #       domain: [sensor, input_number]
+
 
         sun_elevation_up:
           name: "☀️ Sun Elevation Value For Opening The Cover"
@@ -1335,6 +1362,17 @@ blueprint:
               max: 100000.0
               unit_of_measurement: lx
               step: 1.0
+
+        shading_sun_brightness_hysteresis:
+          name: "🥵 Sun Shading - Brightness Hysteresis"
+          description: "Hysteresis value to prevent flickering. The brightness must exceed (start + hysteresis) to activate shading and fall below (end - hysteresis) to deactivate it."
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 10000.0
+              unit_of_measurement: lx
+              step: 100.0
 
         shading_temperatur_sensor1:
           name: "🥵 Sun Shading - Temperature Sensor 1 (eg. indoor)"
@@ -2192,6 +2230,7 @@ trigger_variables:
   default_brightness_sensor: !input default_brightness_sensor
   brightness_up: !input brightness_up
   brightness_down: !input brightness_down
+  brightness_hysteresis: !input brightness_hysteresis
 
   # Sun
   default_sun_sensor: !input default_sun_sensor
@@ -2225,6 +2264,7 @@ trigger_variables:
   shading_elevation_max: !input shading_elevation_max
   shading_sun_brightness_start: !input shading_sun_brightness_start
   shading_sun_brightness_end: !input shading_sun_brightness_end
+  shading_sun_brightness_hysteresis: !input shading_sun_brightness_hysteresis
   shading_forecast_sensor: !input shading_forecast_sensor
   shading_forecast_type: !input shading_forecast_type
   shading_forecast_temp: !input shading_forecast_temp
@@ -2286,7 +2326,7 @@ triggers:
     id: "t_open_3"
 
   - platform: template
-    value_template: "{{ states(default_brightness_sensor) | float(default=brightness_up) > brightness_up }}"
+    value_template: "{{ states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis) }}"
     for:
       seconds: !input brightness_time_duration
     enabled: "{{ is_brightness_enabled and default_brightness_sensor != [] }}"
@@ -2349,7 +2389,7 @@ triggers:
     id: "t_close_3"
 
   - platform: template
-    value_template: "{{ states(default_brightness_sensor) | float(default=brightness_down) < brightness_down }}"
+    value_template: "{{ states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis) }}"
     for:
       seconds: !input brightness_time_duration
     enabled: "{{ is_brightness_enabled and default_brightness_sensor != [] }}"
@@ -2427,17 +2467,17 @@ triggers:
     id: "t_shading_start_pending_1"
 
   - platform: template
-    value_template: "{{ states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+    value_template: "{{ states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis) }}"
     enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
     id: "t_shading_start_pending_2"
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor1) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
+    value_template: "{{ states(shading_temperatur_sensor1) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1) }}"
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_start_pending_3"
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor2) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
+    value_template: "{{ states(shading_temperatur_sensor2) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2) }}"
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_start_pending_4"
 
@@ -2532,7 +2572,7 @@ triggers:
     id: "t_shading_end_pending_2"
 
   - platform: template
-    value_template: "{{ states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
+    value_template: "{{ states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_brightness_sensor != [] }}"
     id: "t_shading_end_pending_3"
 
@@ -2636,7 +2676,7 @@ conditions:
 ################################################################################
 
 variables:
-  version: "2025.11.15"
+  version: "2025.11.18"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -3045,7 +3085,7 @@ actions:
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) > brightness_up) }}"
+                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)) }}"
                       - or:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
                           - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
@@ -3198,7 +3238,7 @@ actions:
                   - or:
                       - or:
                           - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) < brightness_down) }}"
+                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)) }}"
                       - or:
                           - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
                           - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down) }}"
@@ -3318,7 +3358,7 @@ actions:
                   update_values:
                     open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                     close: { a: 1, t: "{{ as_timestamp(now()) | round(0) }}" }
-                    shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
+                    shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 } # It is intentional that the shading is deleted when the roller blind is closed. The day is over and the roller blind is low enough.
                     vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                     vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                     manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
@@ -3390,13 +3430,13 @@ actions:
                   - "{{ current_sun_elevation > shading_elevation_min and current_sun_elevation < shading_elevation_max }}"
                   - or:
                       - "{{ shading_brightness_sensor == [] }}"
-                      - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > shading_sun_brightness_start }}"
+                      - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis) }}"
                   - or:
                       - "{{ shading_temperatur_sensor1 == [] }}"
-                      - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > shading_min_temperatur1 }}"
+                      - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1) }}"
                   - or:
                       - "{{ shading_temperatur_sensor2 == [] }}"
-                      - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > shading_min_temperatur2 }}"
+                      - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2) }}"
                   - or: # Forecast Temperature
                       - "{{ shading_forecast_sensor == [] }}"
                       - "{{ shading_forecast_temp == [] }}"
@@ -3669,7 +3709,7 @@ actions:
                 - "{{ current_sun_azimuth > shading_azimuth_end }}"
                 - "{{ current_sun_elevation > shading_elevation_max }}"
                 - "{{ current_sun_elevation < shading_elevation_min}}"
-                - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < shading_sun_brightness_end }}"
+                - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
                 - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
                 - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
                 - or:
@@ -3815,7 +3855,7 @@ actions:
                           - "{{ current_sun_azimuth > shading_azimuth_end }}"
                           - "{{ current_sun_elevation > shading_elevation_max }}"
                           - "{{ current_sun_elevation < shading_elevation_min }}"
-                          - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=999999) < shading_sun_brightness_end }}"
+                          - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
                           - "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
                           - "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
                           # - "{{ shading_weather_conditions != [] and forecast_condition not in shading_weather_conditions }}" # TODO - currently without weather checks
