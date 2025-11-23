@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     ### A comprehensive and highly configurable blueprint for roller shutters and roller blinds
 
-    **Version**: 2025.11.19
+    **Version**: 2025.11.23
     **Help**: [Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | **Source Code**: [github.com/hvorragend](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml) | **Tickets**: [Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
     **If you would like to support me or say thank you, please click here:**
@@ -26,6 +26,9 @@ blueprint:
     ✅ Added the option to save the current status in a helper. This has the advantage that the cover can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
 
     **Sun shading features**
+    ✅ Flexible AND/OR logic for shading conditions
+    ✅ Independent START and END condition configuration
+    ✅ Fine-grained control over individual shading triggers
     ✅ Sun azimuth
     ✅ Sun elevation
     ✅ Solar irradiation/Light intensity/Illuminance
@@ -48,7 +51,7 @@ blueprint:
     </details>
 
     <details>
-    <summary><strong>Important notes</strong></summary>
+    <summary><strong>Before you start</strong></summary>
 
     - <strong>It is <ins>not</ins> possible to execute this automation manually! Unless you use it exclusively for the configuration check!!</strong>
     - If you want to use sun elevation and/or azimuth it's strongly advised to use sun.sun. And please make sure your sun.sun entity is enabled!
@@ -101,88 +104,103 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # v2025.11.19:
+    # v2025.11.23 - Smarter, More Flexible Sun Shading:
 
-      ## Forecasts Improvements
+      ## Flexible shading logic
 
-      #### Changed
-      - **Forecast configuration split into two dedicated fields**:
-        - `Sun Shading - Forecast Weather Entity`: for weather integrations (`weather.*`)
-        - `Sun Shading - Alternative: Direct Temperature Sensor`: for direct forecast sensors (`sensor.*`)
-        - **Priority:** Temperature sensor takes precedence if both are configured
+      - **Powerful AND/OR condition builder**
+        Decide exactly which shading conditions must all be met (AND) and which act as optional boosters (OR), so you can fine‑tune between conservative and aggressive sun protection without touching your sensor setup.
 
-      #### Migration
-      - **Weather entity users (`weather.*`)**: No action required, continues to work as before
-      - **Sensor users (`sensor.*`)**: Move your sensor from the weather field to the new *Alternative: Direct Temperature Sensor* field
+      - **Independent START and END logic**
+        Shading start and shading end have fully separate configuration paths, allowing strict criteria for starting shading and more relaxed logic for ending it – or the other way around.
 
-      #### Benefits
-      - Clearer configuration with purpose-built fields for each source type
-      - Better performance when using direct temperature sensors (no API calls required)
-      - Improved validation and error messages for misconfiguration
-      - Easier to understand which forecast source is being used
+      - **Per‑condition on/off switches**
+        Each individual shading trigger (e.g. azimuth, elevation, brightness, temperatures, weather) can be enabled or disabled independently, making it easy to experiment with different strategies or temporarily turn off single inputs.
+
+      - **Unified, robust retry behavior**
+        Both shading start and shading end use a unified retry loop that periodically re‑checks conditions, providing smooth behavior in fast‑changing weather instead of getting stuck or flip‑flopping.
+
+      - **Timeouts to prevent endless waiting**
+        New maximum duration settings for start and end ensure the automation never remains in an infinite “waiting for conditions” state; if the timeout is reached, the loop stops cleanly and waits for a fresh trigger.
+
+
+      ## Forecast and temperature intelligence
+
+      - **Dedicated forecast inputs for clarity**
+        Forecast handling is split into two clearly separated fields: one for standard weather entities (`weather.*`) and one for direct forecast temperature sensors (`sensor.*`), so you always know which source you are using.
+
+      - **Smart source priority**
+        When both a weather entity and a forecast temperature sensor are configured, the direct sensor is preferred for faster updates and better performance, without extra API calls.
+
+      - **Configurable forecast mode (daily, hourly, or live)**
+        Choose whether shading should rely on the daily forecast, the hourly forecast, or skip forecast data entirely and use current weather attributes, depending on how “future‑driven” you want your strategy to be.
+
+      - **Full hysteresis for all temperature paths**
+        Hysteresis is applied not only to current temperature sensors 1 and 2, but also to forecast temperature, dramatically reducing unnecessary open/close cycles around threshold values.
+
+
+      ## Stability and hysteresis improvements
+
+      - **Brightness hysteresis to avoid flicker**
+        A new brightness hysteresis value prevents the cover from opening and closing repeatedly when light levels hover just above or below your thresholds, protecting both comfort and hardware.
+
+      - **Consistent hysteresis on start and end**
+        Temperature hysteresis is now applied to both start and end conditions for all configured sensors, making shading decisions much more stable at the edges of your comfort band.
+
+      - **Smarter shading end detection**
+        Shading end conditions are checked periodically until they remain stable over the configured waiting period or a timeout is reached, so shading does not end prematurely just because of a short‑lived fluctuation.
+
+
+      ## Reliability, fixes and internal optimizations
+
+      - **Fix for `current_tilt_position` errors**
+        Roller blind setups that support tilt no longer produce errors when reading or using the `current_tilt_position` attribute. (#284)
+
+      - **Safe handling when end conditions change**
+        If shading end conditions change during the waiting time, the retry logic is reset properly while shading itself remains active, preventing stuck or half‑finished states.
+
+      - **Cleaner state handling at midnight**
+        The nightly reset also clears the newly introduced `pending` and `end‑pending` shading states to start each day with a clean slate.
+
+      - **Protection against stale pending states**
+        An additional safety check at the OPEN anchor can clear pending shading states older than one hour (currently commented out, ready for advanced users who want this safeguard).
+
+      - **Stronger “force” trigger safeguards**
+        Force triggers are cross‑checked with internal `_force_disabled` flags to avoid conflicting commands and race conditions between different features.
+
+      - **More robust JSON initialization**
+        JSON helper usage has been hardened by adding `|default` values for shading and status fields, making the automation more resilient against missing data.
+
+      - **Refined shading end behavior with prevent‑options**
+        The internal logic for ending shading was reworked so that “prevent opening/closing” options are always respected, avoiding unwanted movements when opening is intentionally blocked.
+
+      - **Reduced internal duplication**
+        Repeated calls to `as_timestamp(now()) | round(0)` have been replaced with a shared `ts_now` variable, improving readability and slightly reducing processing overhead.
+
+
+      ## Breaking changes and migration
+
+      - **New parameter for shading start retries**
+        The old `shading_start_behavior` has been replaced by `shading_start_max_duration`, giving you fine‑grained control over how long the blueprint should keep retrying shading start conditions.
+        - Previous presets map approximately as follows:
+          - `"trigger_reset"` → `0` (no periodic retry, stop immediately)
+          - `"trigger_periodic"` → `3600–7200` seconds (1–2 hours)
+
+      - **Minor change with “Immediate end by sun position” option**
+        The parameter *End Sun Shading – Immediately When Out Of Range* (`is_shading_end_immediate_by_sun_position`) has been removed; please update your configuration accordingly. Parameter update required!
+
+      - **Clean‑up for manual YAML users**
+        If you maintain your automation YAML manually, remove the deprecated variables `shading_start_behavior` and `is_shading_end_immediate_by_sun_position` to keep your configuration aligned with the new logic.
+
+
+      ## Config Check Refactoring
+
+      - Organized 80+ validation checks into 19 logical sections with clear headers
+      - Enhanced error messages with more specific language and actionable guidance
+      - Improved code formatting for consistency (uniform indentation, better line lengths)
+      - Simplified template expressions (cleaner negation syntax, removed redundant parentheses)
 
       ---
-
-      ## Shading Improvements
-
-      #### Shading Start / End
-
-      - Added periodic checking for shading end conditions
-      - New input: `shading_end_max_duration` (default: 2 hours, `0` = unlimited)
-      - Added timeout protection for shading start (similar to shading end) to prevent endless retry loops
-      - Unified retry logic for both shading start and end
-      - Fixed automation getting stuck when shading end conditions change during waiting time (#281)
-      - Improved shading end retries every `shading_waitingtime_end` seconds until conditions are stable or timeout is reached
-
-      ---
-
-      ## Hysteresis Improvements
-
-      #### Added
-      - **Brightness hysteresis**
-        Prevents flickering and frequent open/close cycles when brightness fluctuates around threshold values.
-
-      - **Temperature hysteresis**
-        Now applied to both start and end conditions for sensors 1 and 2, ensuring stable behavior near threshold values.
-
-      - **Forecast temperature hysteresis**
-        Prevents frequent open/close cycles when forecast temperature fluctuates around threshold values.
-
-      #### Fixed
-      - Temperature hysteresis was previously only applied to end conditions.
-        Now correctly applied to both start and end conditions for all sensors. And triggers.
-
-      ---
-
-      ## More Fixes and Optimizations
-
-      - Fixed `current_tilt_position` error in roller blind automations (#284)
-      - Fixed shading end cancellation due to changed conditions — reset initiated, shading remains active
-      - Midnight reset now clears newly added pending and end‑pending shading states
-      - Safety check at OPEN anchor clears stale pending states older than 1 hour (currently commented out)
-      - Optimized force triggers with cross‑checks using `_force_disabled` variables to prevent conflicts
-      - Improved JSON helper: added `|default` values for robust initialization of shading and status fields
-      - Refactored shading end logic to avoid unintended open/close changes when opening is prevented
-      - Refactored code: replaced repeated `as_timestamp(now()) | round(0)` calls with local `ts_now` variable
-      - Parameter update required: *End Sun Shading - Immediately When Out Of Range* (`is_shading_end_immediate_by_sun_position` removed)
-      - Forecast temperature checking in shading end conditions now correctly uses both sensor and weather sources
-
-      ---
-
-      ## Breaking Changes
-      - `shading_start_behavior` replaced with `shading_start_max_duration` for consistency
-      - Migration adjustments:
-        - `"trigger_reset"` → `0`
-        - `"trigger_periodic"` → `3600–7200`
-
-      #### Migration Note
-      - Parameter update required: *End Sun Shading - Immediately When Out Of Range*
-        (`is_shading_end_immediate_by_sun_position` has been removed)
-
-      #### Removed Variables
-      - Please delete the following from your YAML configuration:
-        - `shading_start_behavior`
-        - `is_shading_end_immediate_by_sun_position`
 
     </details>
 
@@ -1116,8 +1134,253 @@ blueprint:
       icon: mdi:shield-sun-outline
       collapsed: true
       input:
+
+        shading_conditions_start_and:
+          name: "🌞 Shading START - Required Conditions (AND)"
+          description: >-
+            **Conditions that MUST ALL be met to START shading**
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> How START conditions work</code></summary>
+
+
+            **Required (AND) conditions for START:**
+
+            - ALL selected conditions must be valid
+
+            - If ANY fails, shading will NOT start
+
+            - Use for critical conditions
+
+
+            **Example - Conservative approach:**
+
+            - Select ALL: Azimuth, Elevation, Brightness, Temperature
+
+            - Result: Shading only when everything is perfect
+
+
+            **Example - Flexible approach:**
+
+            - Select: Azimuth, Elevation (sun position)
+
+            - Leave others for OR list
+
+            - Result: Sun must be in range, plus other criteria
+
+            </details>
+          default:
+            - cond_azimuth
+            - cond_elevation
+            - cond_brightness
+            - cond_temp1
+            - cond_temp2
+            - cond_forecast_temp
+            - cond_forecast_weather
+          selector:
+            select:
+              multiple: true
+              mode: dropdown
+              options:
+                - label: "📐 Sun Azimuth (within configured range)"
+                  value: "cond_azimuth"
+                - label: "📈 Sun Elevation (within configured range)"
+                  value: "cond_elevation"
+                - label: "🔆 Brightness (above start threshold)"
+                  value: "cond_brightness"
+                - label: "1️⃣ Temperature Sensor 1 (above threshold)"
+                  value: "cond_temp1"
+                - label: "2️⃣ Temperature Sensor 2 (above threshold)"
+                  value: "cond_temp2"
+                - label: "📊 Forecast Temperature (above threshold)"
+                  value: "cond_forecast_temp"
+                - label: "🌦️ Forecast Weather Conditions (matching configured conditions)"
+                  value: "cond_forecast_weather"
+
+        shading_conditions_start_or:
+          name: "🌞 Shading START - Optional Conditions (OR)"
+          description: >-
+            **Conditions where AT LEAST ONE must be met to START shading**
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> When to use OR conditions</code></summary>
+
+
+            **Optional (OR) conditions for START:**
+
+            - At least ONE must be valid
+
+            - Useful for redundant sensors
+
+            - Useful for alternative triggers
+
+
+            **Example - Redundant temperature sensors:**
+
+            - AND: Azimuth, Elevation, Brightness
+
+            - OR: Temp1, Temp2
+
+            - Result: Sun + Brightness + (Temp1 OR Temp2)
+
+            - If Temp1 fails, Temp2 can still trigger
+
+
+            **Combined logic:**
+
+            - Final = (ALL AND conditions) AND (ONE OR condition)
+
+            </details>
+          default: []
+          selector:
+            select:
+              multiple: true
+              mode: dropdown
+              options:
+                - label: "📐 Sun Azimuth (within configured range)"
+                  value: "cond_azimuth"
+                - label: "📈 Sun Elevation (within configured range)"
+                  value: "cond_elevation"
+                - label: "🔆 Brightness (above start threshold)"
+                  value: "cond_brightness"
+                - label: "1️⃣ Temperature Sensor 1 (above threshold)"
+                  value: "cond_temp1"
+                - label: "2️⃣ Temperature Sensor 2 (above threshold)"
+                  value: "cond_temp2"
+                - label: "📊 Forecast Temperature (above threshold)"
+                  value: "cond_forecast_temp"
+                - label: "🌦️ Forecast Weather Conditions (matching configured conditions)"
+                  value: "cond_forecast_weather"
+
+        shading_conditions_end_and:
+          name: "🌥️ Shading END - Required Conditions (AND)"
+          description: >-
+            **Conditions that MUST ALL become invalid to END shading**
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> How END conditions work</code></summary>
+
+
+            **Required (AND) conditions for END:**
+
+            - ALL selected conditions must become invalid
+
+            - Shading continues if ANY is still valid
+
+            - Use for stable shading (avoid flickering)
+
+
+            **Example - Quick response:**
+
+            - AND: (empty)
+
+            - OR: Azimuth, Elevation, Brightness
+
+            - Result: End immediately when ANY condition fails
+
+
+            **Example - Stable shading:**
+
+            - AND: Brightness, Temp1
+
+            - OR: (empty)
+
+            - Result: Keep shading until BOTH brightness AND temp drop
+
+
+            **Tip:** Usually END should be MORE permissive than START
+
+            </details>
+          default: []
+          selector:
+            select:
+              multiple: true
+              mode: dropdown
+              options:
+                - label: "📐 Sun Azimuth (outside configured range)"
+                  value: "cond_azimuth"
+                - label: "📈 Sun Elevation (outside configured range)"
+                  value: "cond_elevation"
+                - label: "🔆 Brightness (below end threshold)"
+                  value: "cond_brightness"
+                - label: "1️⃣ Temperature Sensor 1 (below threshold)"
+                  value: "cond_temp1"
+                - label: "2️⃣ Temperature Sensor 2 (below threshold)"
+                  value: "cond_temp2"
+                - label: "📊 Forecast Temperature (above threshold)"
+                  value: "cond_forecast_temp"
+                - label: "🌦️ Forecast Weather Conditions (matching configured conditions)"
+                  value: "cond_forecast_weather"
+
+        shading_conditions_end_or:
+          name: "🌥️ Shading END - Optional Conditions (OR)"
+          description: >-
+            **Conditions where AT LEAST ONE must become invalid to END shading**
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Typical END configurations</code></summary>
+
+
+            **Optional (OR) conditions for END:**
+
+            - At least ONE must become invalid to end
+
+            - Shading ends quickly when conditions change
+
+
+            **Recommended: Quick sun position response**
+
+            - AND: (empty)
+
+            - OR: Azimuth, Elevation
+
+            - Result: End immediately when sun moves out of range
+
+
+            **Alternative: Keep shading longer**
+
+            - AND: Azimuth, Elevation
+
+            - OR: Brightness, Temperature
+
+            - Result: End only when sun is wrong AND (dark OR cold)
+
+
+            **Combined logic:**
+
+            - Final = (ALL AND invalid) OR (ONE OR invalid)
+
+            </details>
+          default:
+            - cond_azimuth
+            - cond_elevation
+            - cond_brightness
+            - cond_temp1
+            - cond_temp2
+            - cond_forecast_temp
+            - cond_forecast_weather
+          selector:
+            select:
+              multiple: true
+              mode: dropdown
+              options:
+                - label: "📐 Sun Azimuth (outside configured range)"
+                  value: "cond_azimuth"
+                - label: "📈 Sun Elevation (outside configured range)"
+                  value: "cond_elevation"
+                - label: "🔆 Brightness (below end threshold)"
+                  value: "cond_brightness"
+                - label: "1️⃣ Temperature Sensor 1 (below threshold)"
+                  value: "cond_temp1"
+                - label: "2️⃣ Temperature Sensor 2 (below threshold)"
+                  value: "cond_temp2"
+                - label: "📊 Forecast Temperature (above threshold)"
+                  value: "cond_forecast_temp"
+                - label: "🌦️ Forecast Weather Conditions (matching configured conditions)"
+                  value: "cond_forecast_weather"
+
         shading_azimuth_start:
-          name: "🥵 Sun Shading - Azimuth Start Value"
+          name: "📐 Sun Shading - Azimuth Start Value"
           description: "What is the minimum azimuth at which the sun hits the window? (Shading will start)"
           default: 95
           selector:
@@ -1127,7 +1390,7 @@ blueprint:
               unit_of_measurement: "°"
 
         shading_azimuth_end:
-          name: "🥵 Sun Shading - Azimuth End Value"
+          name: "📐 Sun Shading - Azimuth End Value"
           description: "What is the maximum azimuth at which the sun hits the window? (Shading will stop)"
           default: 265
           selector:
@@ -1137,7 +1400,7 @@ blueprint:
               unit_of_measurement: "°"
 
         shading_elevation_min:
-          name: "🥵 Sun Shading - Elevation Minimum Value"
+          name: "📈 Sun Shading - Elevation Minimum Value"
           description: "Starting from which elevation of the sun should the window be shaded? (Here it makes sense to consider surrounding buildings, trees, etc.)."
           default: 25
           selector:
@@ -1149,7 +1412,7 @@ blueprint:
               mode: slider
 
         shading_elevation_max:
-          name: "🥵 Sun Shading - Elevation Maximum Value"
+          name: "📈 Sun Shading - Elevation Maximum Value"
           description: "What is the maximal elevation for elevation? (In most cases, 90 degrees is probably the most reasonable value. However, this can also be different due to surrounding buildings, etc.)."
           default: 90
           selector:
@@ -1161,7 +1424,7 @@ blueprint:
               mode: slider
 
         shading_brightness_sensor:
-          name: "🥵 Sun Shading - Brightness Sensor"
+          name: "🔆 Sun Shading - Brightness Sensor"
           description: "This sensor is only used for shading."
           default: []
           selector:
@@ -1171,7 +1434,7 @@ blueprint:
                     - sensor
 
         shading_sun_brightness_start:
-          name: "🥵 Sun Shading - Brightness Start Value"
+          name: "🔆 Sun Shading - Brightness Start Value"
           description: "The minimum brightness value from which shading should start. (Must be above the value of brightness end!)"
           default: 35000
           selector:
@@ -1182,7 +1445,7 @@ blueprint:
               step: 1.0
 
         shading_sun_brightness_end:
-          name: "🥵 Sun Shading - Brightness End Value"
+          name: "🔆 Sun Shading - Brightness End Value"
           description: "The brightness value from which shading is no longer necessary. (Must be below the value of brightness start!)."
           default: 25000
           selector:
@@ -1193,7 +1456,7 @@ blueprint:
               step: 1.0
 
         shading_sun_brightness_hysteresis:
-          name: "🥵 Sun Shading - Brightness Hysteresis"
+          name: "🔆 Sun Shading - Brightness Hysteresis"
           description: "Hysteresis value to prevent flickering. The brightness must exceed (start + hysteresis) to activate shading and fall below (end - hysteresis) to deactivate it."
           default: 0
           selector:
@@ -1204,7 +1467,7 @@ blueprint:
               step: 100.0
 
         shading_temperatur_sensor1:
-          name: "🥵 Sun Shading - Temperature Sensor 1 (eg. indoor)"
+          name: "1️⃣ Sun Shading - Temperature Sensor 1 (eg. indoor)"
           description: >-
             This is the first temperature sensor used for sun shading logic.<br />
             For example, you can use the current **indoor temperature** as a condition to trigger shading.
@@ -1216,7 +1479,7 @@ blueprint:
           default: []
 
         shading_min_temperatur1:
-          name: "🥵 Sun Shading - Temperature Sensor 1 Minimum Value"
+          name: "1️⃣ Sun Shading - Temperature Sensor 1 Minimum Value"
           description: "Minimum temperature for sensor 1 above which shading should occur."
           default: 18
           selector:
@@ -1228,7 +1491,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_temperature_hysteresis1:
-          name: "🥵 Sun Shading - Temperature Sensor 1 Hysteresis Value"
+          name: "1️⃣ Sun Shading - Temperature Sensor 1 Hysteresis Value"
           description: "Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles."
           default: 0.2
           selector:
@@ -1240,7 +1503,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_temperatur_sensor2:
-          name: "🥵 Sun Shading - Temperature Sensor 2 (eg. outdoor)"
+          name: "2️⃣ Sun Shading - Temperature Sensor 2 (eg. outdoor)"
           description: >-
             This is an optional secondary temperature sensor, typically used for **outdoor temperature**.
             <br />
@@ -1255,7 +1518,7 @@ blueprint:
                     - sensor
 
         shading_min_temperatur2:
-          name: "🥵 Sun Shading - Temperature Sensor 2 Minimum Value"
+          name: "2️⃣ Sun Shading - Temperature Sensor 2 Minimum Value"
           description: "Minimum temperature for sensor 2 above which shading should occur."
           default: 18
           selector:
@@ -1267,7 +1530,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_temperature_hysteresis2:
-          name: "🥵 Sun Shading - Temperature Sensor 2 Hysteresis Value"
+          name: "2️⃣ Sun Shading - Temperature Sensor 2 Hysteresis Value"
           description: "Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles."
           default: 0.2
           selector:
@@ -1279,7 +1542,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_forecast_sensor:
-          name: "🥵 Sun Shading - Forecast Weather Entity"
+          name: "📊 Sun Shading - Forecast Weather Entity"
           description: >-
             Weather entity for forecast data (temperature & conditions).
             This is the primary and recommended method for forecast-based shading.
@@ -1314,7 +1577,7 @@ blueprint:
                 - domain: weather
 
         shading_forecast_type:
-          name: "🥵 Sun Shading - Forecast Source"
+          name: "📊 Sun Shading - Forecast Source"
           description: >-
             Please select whether you want to use the **daily** or **hourly** weather forecast.
             This only works if a weather entity has been configured above.
@@ -1341,7 +1604,7 @@ blueprint:
                   value: "weather_attributes"
 
         shading_forecast_temp_sensor:
-          name: "🥵 Sun Shading - Direct Temperature Sensor (Alternative)"
+          name: "📊 Sun Shading - Direct Temperature Sensor (Alternative)"
           description: >-
             **Alternative method:** Use a sensor that directly provides forecasted max temperature.
 
@@ -1376,40 +1639,8 @@ blueprint:
               filter:
                 - domain: sensor
 
-        shading_weather_conditions:
-          name: "🥵 Sun Shading - Weather Conditions"
-          description: >-
-            Check the following weather conditions when activating the shading.
-            Be cautious when making your selection, as weather forecasts may not always be accurate and could lead to incorrect shading decisions.
-            And as mentioned above, weather conditions can only be checked if a weather entity has been configured under ‘Forecast Weather Sensor’.
-            <br /><br />
-            **Only works with weather entity, not with temperature sensor.**
-            <br />
-            Be cautious: weather forecasts may not always be accurate.
-          default: []
-          selector:
-            select:
-              multiple: true
-              options:
-                - "clear-night"
-                - "clear"
-                - "cloudy"
-                - "fog"
-                - "hail"
-                - "lightning"
-                - "lightning-rainy"
-                - "partlycloudy"
-                - "pouring"
-                - "rainy"
-                - "snowy"
-                - "snowy-rainy"
-                - "sunny"
-                - "windy"
-                - "windy-variant"
-                - "exceptional"
-
         shading_forecast_temp:
-          name: "🥵 Sun Shading - Forecast Temperature Value"
+          name: "📊 Sun Shading - Forecast Temperature Value"
           description: >-
               This setting defines the <strong>minimum temperature threshold</strong> based on the forecast at which shading should be activated.
               If the forecasted temperature exceeds this value, the shading system will respond accordingly.
@@ -1440,7 +1671,7 @@ blueprint:
               unit_of_measurement: "°C"
 
         shading_forecast_temp_hysteresis:
-          name: "🥵 Sun Shading - Forecast Temperature Hysteresis"
+          name: "📊 Sun Shading - Forecast Temperature Hysteresis"
           description: >-
               Prevents frequent on/off cycles near threshold.
 
@@ -1455,6 +1686,38 @@ blueprint:
               step: 0.1
               mode: slider
               unit_of_measurement: "°C"
+
+        shading_weather_conditions:
+          name: "🌦️ Sun Shading - Weather Conditions"
+          description: >-
+            Check the following weather conditions when activating the shading.
+            Be cautious when making your selection, as weather forecasts may not always be accurate and could lead to incorrect shading decisions.
+            And as mentioned above, weather conditions can only be checked if a weather entity has been configured under ‘Forecast Weather Sensor’.
+            <br /><br />
+            **Only works with weather entity, not with temperature sensor.**
+            <br />
+            Be cautious: weather forecasts may not always be accurate.
+          default: []
+          selector:
+            select:
+              multiple: true
+              options:
+                - "clear-night"
+                - "clear"
+                - "cloudy"
+                - "fog"
+                - "hail"
+                - "lightning"
+                - "lightning-rainy"
+                - "partlycloudy"
+                - "pouring"
+                - "rainy"
+                - "snowy"
+                - "snowy-rainy"
+                - "sunny"
+                - "windy"
+                - "windy-variant"
+                - "exceptional"
 
         shading_config:
           name: "🥵 Sun Shading - Configuration"
@@ -2199,12 +2462,22 @@ trigger_variables:
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
 
+  invalid_states:
+    - ''                    # Empty string
+    - 'unavailable'         # Entity unavailable
+    - 'unknown'             # State unknown
+    - 'none'                # Python none (lowercase)
+    - 'None'                # Python None (capitalized)
+    - 'null'                # JSON null
+    - 'query failed'        # Failed sensor queries
+    - []                    # Empty list
+
 ################################################################################
 # VARIABLES
 ################################################################################
 
 variables:
-  version: "2025.11.19"
+  version: "2025.11.23"
 
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
@@ -2288,10 +2561,10 @@ variables:
     {% set sensor = shading_forecast_temp_sensor %}
     {% set weather = shading_forecast_sensor %}
     {# 1. Priority: Direct sensor value #}
-    {% if sensor != [] and states(sensor) not in ['unknown', 'unavailable', 'none'] %}
+    {% if sensor != [] and states(sensor) not in invalid_states %}
       {{ states(sensor) | float(default=None) }}
     {# 2. Early exit: Weather entity unavailable #}
-    {% elif weather == [] or states(weather) in ['unknown', 'unavailable', 'none'] %}
+    {% elif weather == [] or states(weather) in invalid_states %}
       {{ None }}
     {# 3. Weather: Current temperature attribute (no service) #}
     {% elif prevent_forecast_service %}
@@ -2305,10 +2578,10 @@ variables:
     {% endif %}
 
   # Weather condition (only from weather entity)
-  forecast_condition_raw: >-
+  forecast_weather_condition_raw: >-
     {% set weather = shading_forecast_sensor %}
     {# 1. Early exit: No weather entity or unavailable #}
-    {% if weather == [] or states(weather) in ['unknown', 'unavailable', 'none'] %}
+    {% if weather == [] or states(weather) in invalid_states %}
       {{ None }}
     {# 2. Weather: Current condition attribute (no service) #}
     {% elif prevent_forecast_service %}
@@ -2340,14 +2613,14 @@ variables:
     }}
 
   # Check if weather condition is valid for shading
-  forecast_condition_valid: >-
+  forecast_weather_condition_valid: >-
     {{
       shading_weather_conditions == [] or
       use_forecast_sensor or
       (
-        forecast_condition_raw is not none and
-        forecast_condition_raw not in ['', 'none'] and
-        forecast_condition_raw in shading_weather_conditions
+        forecast_weather_condition_raw is not none and
+        forecast_weather_condition_raw not in invalid_states and
+        forecast_weather_condition_raw in shading_weather_conditions
       )
     }}
 
@@ -2364,13 +2637,348 @@ variables:
   temp_forecast_condition_met: >-
     {{ forecast_temp_above_start or sensor2_above_forecast_threshold }}
 
+  # New logic configuration
+  shading_conditions_start_and: !input shading_conditions_start_and
+  shading_conditions_start_or: !input shading_conditions_start_or
+  shading_conditions_end_and: !input shading_conditions_end_and
+  shading_conditions_end_or: !input shading_conditions_end_or
+
+  # Helper: Check if conditions are enabled
+  shading_start_cond_azimuth_enabled: >-
+    {{ 'cond_azimuth' in shading_conditions_start_and or 'cond_azimuth' in shading_conditions_start_or }}
+  shading_start_cond_elevation_enabled: >-
+    {{ 'cond_elevation' in shading_conditions_start_and or 'cond_elevation' in shading_conditions_start_or }}
+  shading_start_cond_brightness_enabled: >-
+    {{ 'cond_brightness' in shading_conditions_start_and or 'cond_brightness' in shading_conditions_start_or }}
+  shading_start_cond_temp1_enabled: >-
+    {{ 'cond_temp1' in shading_conditions_start_and or 'cond_temp1' in shading_conditions_start_or }}
+  shading_start_cond_temp2_enabled: >-
+    {{ 'cond_temp2' in shading_conditions_start_and or 'cond_temp2' in shading_conditions_start_or }}
+  shading_start_cond_forecast_temp_enabled: >-
+    {{ 'cond_forecast_temp' in shading_conditions_start_and or 'cond_forecast_temp' in shading_conditions_start_or }}
+  shading_start_cond_forecast_weather_enabled: >-
+    {{ 'cond_forecast_weather' in shading_conditions_start_and or 'cond_forecast_weather' in shading_conditions_start_or }}
+
+  shading_end_cond_azimuth_enabled: >-
+    {{ 'cond_azimuth' in shading_conditions_end_and or 'cond_azimuth' in shading_conditions_end_or }}
+  shading_end_cond_elevation_enabled: >-
+    {{ 'cond_elevation' in shading_conditions_end_and or 'cond_elevation' in shading_conditions_end_or }}
+  shading_end_cond_brightness_enabled: >-
+    {{ 'cond_brightness' in shading_conditions_end_and or 'cond_brightness' in shading_conditions_end_or }}
+  shading_end_cond_temp1_enabled: >-
+    {{ 'cond_temp1' in shading_conditions_end_and or 'cond_temp1' in shading_conditions_end_or }}
+  shading_end_cond_temp2_enabled: >-
+    {{ 'cond_temp2' in shading_conditions_end_and or 'cond_temp2' in shading_conditions_end_or }}
+  shading_end_cond_forecast_temp_enabled: >-
+    {{ 'cond_forecast_temp' in shading_conditions_end_and or 'cond_forecast_temp' in shading_conditions_end_or }}
+  shading_end_cond_forecast_weather_enabled: >-
+    {{ 'cond_forecast_weather' in shading_conditions_end_and or 'cond_forecast_weather' in shading_conditions_end_or }}
+
+
+  # ============================================================================
+  # Individual START Condition Evaluations
+  # ============================================================================
+
+  # Sun Azimuth Check
+  shading_start_cond_azimuth_valid: >-
+    {{
+      not is_shading_enabled or
+      not shading_start_cond_azimuth_enabled or
+      default_sun_sensor == [] or
+      (
+        current_sun_azimuth | float(default=0) > shading_azimuth_start and
+        current_sun_azimuth | float(default=0) < shading_azimuth_end
+      )
+    }}
+
+  # Sun Elevation Check
+  shading_start_cond_elevation_valid: >-
+    {{
+      not is_shading_enabled or
+      not shading_start_cond_elevation_enabled or
+      default_sun_sensor == [] or
+      (
+        current_sun_elevation | float(default=0) > shading_elevation_min and
+        current_sun_elevation | float(default=0) < shading_elevation_max
+      )
+    }}
+
+  # Brightness Check
+  shading_start_cond_brightness_valid: >-
+    {{
+      not is_shading_enabled or
+      not shading_start_cond_brightness_enabled or
+      shading_brightness_sensor == [] or
+      (
+        states(shading_brightness_sensor) not in invalid_states and
+        states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) >
+        (shading_sun_brightness_start + shading_sun_brightness_hysteresis)
+      )
+    }}
+
+  # Temperature Sensor 1 Check
+  shading_start_cond_temp1_valid: >-
+    {{
+      not is_shading_enabled or
+      not shading_start_cond_temp1_enabled or
+      shading_temperatur_sensor1 == [] or
+      (
+        states(shading_temperatur_sensor1) not in invalid_states and
+        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) >
+        (shading_min_temperatur1 + shading_temperature_hysteresis1)
+      )
+    }}
+
+  # Temperature Sensor 2 Check
+  shading_start_cond_temp2_valid: >-
+    {{
+      not is_shading_enabled or
+      not shading_start_cond_temp2_enabled or
+      shading_temperatur_sensor2 == [] or
+      (
+        states(shading_temperatur_sensor2) not in invalid_states and
+        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) >
+        (shading_min_temperatur2 + shading_temperature_hysteresis2)
+      )
+    }}
+
+  # Forecast Temperature Check
+  shading_start_cond_forecast_valid: >-
+    {{
+      not is_shading_enabled or
+      not shading_start_cond_forecast_temp_enabled or
+      shading_forecast_temp == [] or
+      temp_forecast_condition_met
+    }}
+
+  # Forecast Weather Conditions Check
+  shading_start_cond_forecast_weather_valid: >-
+    {{
+      not is_shading_enabled or
+      not shading_start_cond_forecast_weather_enabled or
+      shading_weather_conditions == [] or
+      use_forecast_sensor or
+      forecast_weather_condition_valid
+    }}
+
+  # ============================================================================
+  # START Logic Evaluation
+  # ============================================================================
+
+  # Check START AND group: ALL required conditions must be true
+  # Logic: If a condition is NOT in the AND list, it's automatically true (ignored)
+  #        If a condition IS in the AND list, it must be valid
+  # Result: TRUE if all AND-listed conditions are valid
+  shading_start_and_result: >-
+    {{
+      (
+        ('cond_azimuth' not in shading_conditions_start_and or
+        default_sun_sensor == [] or
+        shading_start_cond_azimuth_valid)
+        and
+        ('cond_elevation' not in shading_conditions_start_and or
+        default_sun_sensor == [] or
+        shading_start_cond_elevation_valid)
+        and
+        ('cond_brightness' not in shading_conditions_start_and or
+        shading_brightness_sensor == [] or
+        shading_start_cond_brightness_valid)
+        and
+        ('cond_temp1' not in shading_conditions_start_and or
+        shading_temperatur_sensor1 == [] or
+        shading_start_cond_temp1_valid)
+        and
+        ('cond_temp2' not in shading_conditions_start_and or
+        shading_temperatur_sensor2 == [] or
+        shading_start_cond_temp2_valid)
+        and
+        ('cond_forecast_temp' not in shading_conditions_start_and or
+        shading_forecast_temp == [] or
+        shading_start_cond_forecast_temp_valid)
+        and
+        ('cond_forecast_weather' not in shading_conditions_start_and or
+        shading_weather_conditions == [] or
+        shading_start_cond_forecast_weather_valid)
+      )
+    }}
+
+  # Check START OR group: At least ONE optional condition must be true
+  # Logic: If OR list is empty, result is TRUE (no OR requirements)
+  #        If OR list has items, at least ONE must be valid
+  # Result: TRUE if OR list is empty OR at least one OR condition is valid
+  shading_start_or_result: >-
+    {{
+      (shading_conditions_start_or | count == 0) or
+      (
+        ('cond_azimuth' in shading_conditions_start_or and
+        default_sun_sensor != [] and
+        shading_start_cond_azimuth_valid)
+        or
+        ('cond_elevation' in shading_conditions_start_or and
+        default_sun_sensor != [] and
+        shading_start_cond_elevation_valid)
+        or
+        ('cond_brightness' in shading_conditions_start_or and
+        shading_brightness_sensor != [] and
+        shading_start_cond_brightness_valid)
+        or
+        ('cond_temp1' in shading_conditions_start_or and
+        shading_temperatur_sensor1 != [] and
+        shading_start_cond_temp1_valid)
+        or
+        ('cond_temp2' in shading_conditions_start_or and
+        shading_temperatur_sensor2 != [] and
+        shading_start_cond_temp2_valid)
+        or
+        ('cond_forecast_temp' in shading_conditions_start_or and
+        shading_forecast_temp != [] and
+        shading_start_cond_forecast_temp_valid)
+        or
+        ('cond_forecast_weather' in shading_conditions_start_or and
+        shading_weather_conditions != [] and
+        shading_start_cond_forecast_weather_valid)
+      )
+    }}
+
+  # Final combined condition for SHADING START
+  shading_start_conditions_met: >-
+    {{
+      is_shading_enabled and
+      shading_start_and_result and
+      shading_start_or_result
+    }}
+
+  # ============================================================================
+  # END Conditions
+  # ============================================================================
+
+  # Individual END condition checks (with lower thresholds for hysteresis)
+
+  shading_end_cond_azimuth_invalid: >-
+    {{
+      is_shading_enabled and
+      shading_end_cond_azimuth_enabled and
+      default_sun_sensor != [] and
+      (
+        current_sun_azimuth | float(default=999) <= shading_azimuth_start or
+        current_sun_azimuth | float(default=0) >= shading_azimuth_end
+      )
+    }}
+
+  shading_end_cond_elevation_invalid: >-
+    {{
+      is_shading_enabled and
+      shading_end_cond_elevation_enabled and
+      default_sun_sensor != [] and
+      (
+        current_sun_elevation | float(default=999) <= shading_elevation_min or
+        current_sun_elevation | float(default=0) >= shading_elevation_max
+      )
+    }}
+
+  shading_end_cond_brightness_invalid: >-
+    {{
+      is_shading_enabled and
+      shading_end_cond_brightness_enabled and
+      shading_brightness_sensor != [] and
+      states(shading_brightness_sensor) not in invalid_states and
+      states(shading_brightness_sensor) | float(default=999999) <
+      (shading_sun_brightness_end - shading_sun_brightness_hysteresis)
+    }}
+
+  shading_end_cond_temp1_invalid: >-
+    {{
+      is_shading_enabled and
+      shading_end_cond_temp1_enabled and
+      shading_temperatur_sensor1 != [] and
+      states(shading_temperatur_sensor1) not in invalid_states and
+      states(shading_temperatur_sensor1) | float(default=999) <
+      (shading_min_temperatur1 - shading_temperature_hysteresis1)
+    }}
+
+  shading_end_cond_temp2_invalid: >-
+    {{
+      is_shading_enabled and
+      shading_end_cond_temp2_enabled and
+      shading_temperatur_sensor2 != [] and
+      states(shading_temperatur_sensor2) not in invalid_states and
+      states(shading_temperatur_sensor2) | float(default=999) <
+      (shading_min_temperatur2 - shading_temperature_hysteresis2)
+    }}
+
+  shading_end_cond_forecast_temp_invalid: >-
+    {{
+      is_shading_enabled and
+      shading_end_cond_forecast_temp_enabled and
+      shading_forecast_temp != [] and
+      forecast_temp_below_end
+    }}
+
+  shading_end_cond_forecast_weather_invalid: >-
+    {{
+      is_shading_enabled and
+      shading_end_cond_forecast_weather_enabled and
+      shading_weather_conditions != [] and
+      not forecast_weather_condition_valid
+    }}
+
+  # ============================================================================
+  # END Logic Evaluation
+  # ============================================================================
+
+  # Check END AND group: ALL must become invalid to trigger end
+  shading_end_and_result: >-
+    {{
+      shading_conditions_end_and | count > 0 and
+      (
+        ('cond_azimuth' not in shading_conditions_end_and or shading_end_cond_azimuth_invalid)
+        and
+        ('cond_elevation' not in shading_conditions_end_and or shading_end_cond_elevation_invalid)
+        and
+        ('cond_brightness' not in shading_conditions_end_and or shading_end_cond_brightness_invalid)
+        and
+        ('cond_temp1' not in shading_conditions_end_and or shading_end_cond_temp1_invalid)
+        and
+        ('cond_temp2' not in shading_conditions_end_and or shading_end_cond_temp2_invalid)
+        and
+        ('cond_forecast_temp' not in shading_conditions_end_and or shading_end_cond_forecast_temp_invalid)
+        and
+        ('cond_forecast_weather' not in shading_conditions_end_and or shading_end_cond_forecast_weather_invalid)
+      )
+    }}
+
+  # Check END OR group -
+  shading_end_or_result: >-
+    {{
+      shading_conditions_end_or | count > 0 and
+      (
+        shading_end_cond_azimuth_invalid or
+        shading_end_cond_elevation_invalid or
+        shading_end_cond_brightness_invalid or
+        shading_end_cond_temp1_invalid or
+        shading_end_cond_temp2_invalid or
+        shading_end_cond_forecast_temp_invalid or
+        shading_end_cond_forecast_weather_invalid
+      )
+    }}
+
+  # Final: Shading should END if conditions trigger
+  shading_end_conditions_met: >-
+    {{
+      is_shading_enabled and
+      (
+        shading_end_and_result or
+        shading_end_or_result
+      )
+    }}
+
   # COVER STATUS HELPER
 
   is_status_helper_enabled: >-
     {{
       'cover_helper_enabled' in cover_status_options and
       cover_status_helper != [] and
-      states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none', []] and
+      states(cover_status_helper) not in invalid_states and
       states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")
     }}
 
@@ -2673,22 +3281,22 @@ triggers:
     id: "t_shading_start_pending_1"
 
   - platform: template
-    value_template: "{{ states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis) }}"
+    value_template: "{{ states(shading_brightness_sensor) not in invalid_states and states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis) }}"
     enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
     id: "t_shading_start_pending_2"
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor1) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1) }}"
+    value_template: "{{ states(shading_temperatur_sensor1) not in invalid_states and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1) }}"
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_start_pending_3"
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor2) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2) }}"
+    value_template: "{{ states(shading_temperatur_sensor2) not in invalid_states and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2) }}"
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_start_pending_4"
 
   - platform: template
-    value_template: "{{ states(shading_forecast_sensor) not in ['unavailable', 'unknown', 'none'] and states(shading_forecast_sensor) in shading_weather_conditions }}"
+    value_template: "{{ states(shading_forecast_sensor) not in invalid_states and states(shading_forecast_sensor) in shading_weather_conditions }}"
     enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
     id: "t_shading_start_pending_5"
 
@@ -2701,7 +3309,7 @@ triggers:
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
       {{
-        helper_state not in ['', 'unknown', 'unavailable', 'none', []] and
+        helper_state not in invalid_states and
         helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         helper_state | from_json | regex_search('shading') and
         (helper_state | from_json).shading.p is defined and
@@ -2724,7 +3332,7 @@ triggers:
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) not in invalid_states and
         states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1
       }}
@@ -2734,7 +3342,7 @@ triggers:
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) not in invalid_states and
         states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_2 and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_1
@@ -2745,7 +3353,7 @@ triggers:
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) not in invalid_states and
         states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_3 and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_2
@@ -2756,7 +3364,7 @@ triggers:
   - platform: template
     value_template: >-
       {{
-        states(cover_status_helper) not in ['', 'unknown', 'unavailable', 'none'] and
+        states(cover_status_helper) not in invalid_states and
         states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_3
       }}
@@ -2768,17 +3376,17 @@ triggers:
   ########################################
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor1) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+    value_template: "{{ states(shading_temperatur_sensor1) not in invalid_states and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_end_pending_1"
 
   - platform: template
-    value_template: "{{ states(shading_temperatur_sensor2) not in ['unavailable', 'unknown', 'none'] and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+    value_template: "{{ states(shading_temperatur_sensor2) not in invalid_states and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_end_pending_2"
 
   - platform: template
-    value_template: "{{ states(shading_brightness_sensor) not in ['unavailable', 'unknown', 'none'] and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
+    value_template: "{{ states(shading_brightness_sensor) not in invalid_states and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_brightness_sensor != [] }}"
     id: "t_shading_end_pending_3"
 
@@ -2801,7 +3409,7 @@ triggers:
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
       {{
-        helper_state not in ['', 'unknown', 'unavailable', 'none', []] and
+        helper_state not in invalid_states and
         helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         helper_state | from_json | regex_search('shading') and
         (helper_state | from_json).shading.q is defined and
@@ -2836,7 +3444,7 @@ triggers:
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
       {{
-        helper_state not in ['', 'unknown', 'unavailable', 'none', []] and
+        helper_state not in invalid_states and
         helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
         helper_state | from_json | regex_search('manual') and
         (helper_state | from_json).manual.t is defined and
@@ -2862,7 +3470,7 @@ conditions:
   - condition: !input auto_global_condition
   - or:
       - "{{ trigger.to_state is not defined }}" # for "platform: time"-Trigger
-      - "{{ trigger.to_state is defined and trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}" # The following values are not valid to trigger
+      - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger
   - condition: template
     value_template: >-
       {% if is_status_helper_enabled %}
@@ -2970,7 +3578,7 @@ actions:
   - if:
       - "{{ is_shading_enabled }}"
       - "{{ use_forecast_service }}"
-      - "{{ states(shading_forecast_sensor) not in ['unavailable', 'unknown', 'query failed', 'none'] }}"
+      - "{{ states(shading_forecast_sensor) not in invalid_states }}"
       - "{{ trigger.id is defined }}"
       - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}" # Important: All triggers for shading start necessary!
     then:
@@ -2987,7 +3595,7 @@ actions:
       - "{{ 'cover_helper_enabled' in cover_status_options }}"
       - "{{ cover_status_helper != [] }}"
       - or:
-          - "{{ states(cover_status_helper) in ['', 'unknown', 'unavailable', 'none'] }}"
+          - "{{ states(cover_status_helper) in invalid_states }}"
           - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
     then:
       - action: input_text.set_value # I cannot use update_values here, because is is is_status_helper_enabled before
@@ -3378,35 +3986,10 @@ actions:
         sequence:
           - if:
               - or:
-                  #########################################################
-                  # SCENARIO 1: Independent temperature-based shading
-                  #########################################################
-                  - and:
+                  - and: # Independent temperature-based shading
                       - "{{ is_shading_temp_comparison_independent }}"
                       - "{{ temp_forecast_condition_met }}"
-
-                  #########################################################
-                  # SCENARIO 2: Regular sun-based shading with forecast
-                  #########################################################
-                  - and:
-                      # Sun position
-                      - "{{ current_sun_azimuth | float(default=0) > shading_azimuth_start }}"
-                      - "{{ current_sun_azimuth | float(default=0) < shading_azimuth_end }}"
-                      - "{{ current_sun_elevation | float(default=0) > shading_elevation_min }}"
-                      - "{{ current_sun_elevation | float(default=0) < shading_elevation_max }}"
-                      - or: # Brightness (if configured)
-                          - "{{ shading_brightness_sensor == [] }}"
-                          - "{{ states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis) }}"
-                      - or: # Temperature sensor 1 (if configured)
-                          - "{{ shading_temperatur_sensor1 == [] }}"
-                          - "{{ states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1) }}"
-                      - or: # Temperature sensor 2 (if configured)
-                          - "{{ shading_temperatur_sensor2 == [] }}"
-                          - "{{ states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2) }}"
-                      - or: # Forecast temperature (if configured)
-                          - "{{ shading_forecast_temp == [] }}"
-                          - "{{ temp_forecast_condition_met }}"
-                      - "{{ forecast_condition_valid }}" # Weather condition (if configured)
+                  - "{{ shading_start_conditions_met }}" # Use flexible AND/OR logic
             then:
               - choose:
                   #####################################################################
@@ -3648,21 +4231,7 @@ actions:
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
         sequence:
           - if:
-              - or:
-                  # Sun position out of range
-                  - "{{ current_sun_azimuth | float(default=0) > shading_azimuth_end }}"
-                  - "{{ current_sun_elevation | float(default=0) > shading_elevation_max }}"
-                  - "{{ current_sun_elevation | float(default=0) < shading_elevation_min }}"
-                  # Brightness below threshold
-                  - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=0) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
-                  # Temperature sensor 1 below threshold
-                  - "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
-                  # Temperature sensor 2 below threshold
-                  - "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
-                  # Forecast temperature below threshold
-                  - "{{ forecast_temp_below_end }}"
-                  # Weather condition invalid
-                  - "{{ not forecast_condition_valid }}"
+              - "{{ shading_end_conditions_met }}" # Use flexible AND/OR logic for END
             then:
               - choose:
                   #####################################################################
@@ -3899,8 +4468,8 @@ actions:
           - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on'] }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_condition
-          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
-          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+          - "{{ trigger.from_state.state not in invalid_states }}"
+          - "{{ trigger.to_state.state not in invalid_states }}"
           - and:
               - "{{ auto_up_force_disabled }}"
               - "{{ auto_down_force_disabled }}"
@@ -3983,8 +4552,8 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_end_condition
-          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
-          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+          - "{{ trigger.from_state.state not in invalid_states }}"
+          - "{{ trigger.to_state.state not in invalid_states }}"
           - and:
               - "{{ auto_up_force_disabled }}"
               - "{{ auto_down_force_disabled }}"
@@ -4285,8 +4854,8 @@ actions:
           - "{{ 'cover_helper_enabled' in cover_status_options }}" # Do not use 'is_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
           - "{{ cover_status_helper != [] }}"
           - "{{ as_timestamp(now()) > helper_state_json.t + drive_time | default(90) + 60 }}" # Drive time + trigger waiting time
-          - "{{ trigger.from_state.state not in ['unavailable', 'unknown', 'none', 'query failed'] }}"
-          - "{{ trigger.to_state.state not in ['unavailable', 'unknown','none', 'query failed'] }}"
+          - "{{ trigger.from_state.state not in invalid_states }}"
+          - "{{ trigger.to_state.state not in invalid_states }}"
           - or:
               - and:
                   - "{{ is_number(trigger.to_state.attributes.current_position | default(none)) }}" # Avoid status change from -unavailable- (common with Homematic)
@@ -4463,17 +5032,17 @@ actions:
         then:
           - repeat:
               for_each:
-                # Time slot checks
-                - condition: "{{ not is_time_control_disabled and (today_at(time_up_early) >= today_at(time_up_late)) }}"
+                # ========== TIME CONFIGURATION CHECKS ==========
+                - condition: "{{ not is_time_control_disabled and today_at(time_up_early) >= today_at(time_up_late) }}"
                   message: "time_up_early should be earlier than time_up_late"
-                - condition: "{{ not is_time_control_disabled and (today_at(time_up_early_non_workday) >= today_at(time_up_late_non_workday)) }}"
+                - condition: "{{ not is_time_control_disabled and today_at(time_up_early_non_workday) >= today_at(time_up_late_non_workday) }}"
                   message: "time_up_early_non_workday should be earlier than time_up_late_non_workday"
-                - condition: "{{ not is_time_control_disabled and (today_at(time_down_early) >= today_at(time_down_late)) }}"
+                - condition: "{{ not is_time_control_disabled and today_at(time_down_early) >= today_at(time_down_late) }}"
                   message: "time_down_early should be earlier than time_down_late"
-                - condition: "{{ not is_time_control_disabled and (today_at(time_down_early_non_workday) >= today_at(time_down_late_non_workday)) }}"
+                - condition: "{{ not is_time_control_disabled and today_at(time_down_early_non_workday) >= today_at(time_down_late_non_workday) }}"
                   message: "time_down_early_non_workday should be earlier than time_down_late_non_workday"
 
-                # Shading checks
+                # ========== SHADING THRESHOLD CHECKS ==========
                 - condition: "{{ shading_azimuth_start >= shading_azimuth_end }}"
                   message: "shading_azimuth_start should be lower than shading_azimuth_end"
                 - condition: "{{ shading_elevation_min >= shading_elevation_max }}"
@@ -4481,7 +5050,7 @@ actions:
                 - condition: "{{ shading_sun_brightness_start <= shading_sun_brightness_end }}"
                   message: "shading_sun_brightness_start should be higher than shading_sun_brightness_end"
 
-                # Position checks
+                # ========== POSITION VALUE CHECKS ==========
                 - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (close_position + position_tolerance) }}"
                   message: "open_position should be higher than close_position"
                 - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
@@ -4495,42 +5064,46 @@ actions:
                 - condition: "{{ [in_open_position, in_close_position, in_shading_position, in_ventilate_position].count(True) > 1 }}"
                   message: "Please revise the position values and take the tolerance values into account. The values must not overlap"
 
-                # Sensor and attribute checks
-                - condition: "{{ (resident_sensor != [] ) and (not states(resident_sensor) in ['false', 'off','true', 'on']) }}"
-                  message: "resident_sensor is only allowed to be on/off/true/false"
+                # ========== ENTITY ATTRIBUTE & STATE CHECKS ==========
+
                 - condition: "{{ state_attr(blind, 'current_position') is none }}"
-                  message: "Cover is missing attribute current_position"
+                  message: "Cover entity is missing the required 'current_position' attribute"
                 - condition: "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
-                  message: "Sun sensor is missing attribute elevation"
+                  message: "Sun sensor is missing the required 'elevation' attribute"
                 - condition: "{{ state_attr(default_sun_sensor, 'azimuth') is none }}"
-                  message: "Sun sensor is missing attribute azimuth"
+                  message: "Sun sensor is missing the required 'azimuth' attribute"
+                - condition: "{{ resident_sensor != [] and states(resident_sensor) not in ['false', 'off', 'true', 'on'] }}"
+                  message: "resident_sensor has invalid state '{{ states(resident_sensor) }}'. Must be: on, off, true, or false"
                 - condition: "{{ is_brightness_enabled and (default_brightness_sensor == [] or not is_number(states(default_brightness_sensor))) }}"
-                  message: "Brightness sensor not defined or state is not numeric"
+                  message: "Brightness sensor not configured or has non-numeric state"
 
-                # Helper checks
+                # ========== HELPER CONFIGURATION CHECKS ==========
                 - condition: "{{ 'cover_helper_enabled' in cover_status_options and state_attr(cover_status_helper, 'max') < 254 }}"
-                  message: "Wrong length of the cover status helper"
+                  message: "Cover status helper must have minimum length of 254 characters (currently: {{ state_attr(cover_status_helper, 'max') }})"
                 - condition: "{{ (is_shading_enabled or is_ventilation_enabled) and not is_status_helper_enabled }}"
-                  message: "Shading, ventilation and lockout protection require a cover status helper to be configured"
+                  message: "Shading and ventilation features require a cover status helper. Please configure one"
                 - condition: "{{ is_schedule_helper_enabled and time_schedule_helper == [] }}"
-                  message: "Schedule mode selected but no schedule helper specified"
+                  message: "Schedule helper mode selected but no schedule helper entity specified"
 
-                # Tilt Position Feature Check
+                # ========== TILT FEATURE CHECKS ==========
                 - condition: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') is none }}"
-                  message: "Tilt Position Control is enabled, but the cover does not support 'current_tilt_position' attribute. Please disable tilt features or check your cover integration."
+                  message: "Tilt position control enabled but cover does not support 'current_tilt_position' attribute. Disable tilt features or check cover integration"
+                - condition: "{{ is_cover_tilt_enabled and tilt_delay > 60 }}"
+                  message: "Tilt delay ({{ tilt_delay }}s) is very long. Recommended: 10 seconds maximum"
 
-                # Drive Time Validation
+                # ========== TIMING VALIDATION CHECKS ==========
                 - condition: "{{ drive_time < 5 }}"
-                  message: "Cover drive time ({{ drive_time }} seconds) is unrealistically short. Minimum recommended: 5 seconds. This may cause false manual detection."
-
+                  message: "Cover drive time ({{ drive_time }}s) is too short. Minimum recommended: 5 seconds"
                 - condition: "{{ drive_time > 300 }}"
-                  message: "Cover drive time ({{ drive_time }} seconds) is unrealistically long. Maximum recommended: 300 seconds (5 minutes). Please verify your cover's actual drive time."
-
-                # Drive Delay Validation
+                  message: "Cover drive time ({{ drive_time }}s) is very long. Maximum recommended: 300 seconds (5 minutes)"
                 - condition: "{{ drive_delay_fix + drive_delay_random > 600 }}"
-                  message: "Combined drive delay ({{ drive_delay_fix + drive_delay_random }} seconds) is very high. This may cause slow automation response."
+                  message: "Combined drive delay ({{ drive_delay_fix + drive_delay_random }}s) is very high. May slow automation response"
+                - condition: "{{ contact_delay_trigger > 10 }}"
+                  message: "Contact trigger delay ({{ contact_delay_trigger }}s) is very long. May slow window/door response"
+                - condition: "{{ is_ventilation_enabled and contact_delay_status > 10 }}"
+                  message: "Contact status delay ({{ contact_delay_status }}s) is very long. May slow handle position changes"
 
-                # Contact Sensor Configuration Check
+                # ========== CONTACT SENSOR CHECKS ==========
                 - condition: >-
                     {{
                       is_ventilation_enabled and
@@ -4538,70 +5111,56 @@ actions:
                       contact_window_opened not in [[], none] and
                       contact_window_tilted == contact_window_opened
                     }}
-                  message: "Contact sensors for tilted and opened window are identical. Please use different sensors or leave one empty."
+                  message: "Contact sensors for tilted and opened window are the same. Use different sensors"
 
-                # Workday Sensor State Check
+                # ========== WORKDAY SENSOR CHECKS ==========
                 - condition: >-
                     {{
                       workday_sensor_today not in [[], none] and
                       states(workday_sensor_today) not in ['on', 'off', 'unknown', 'unavailable']
                     }}
-                  message: "Workday sensor today has invalid state '{{ states(workday_sensor_today) }}'. Expected: 'on' or 'off'"
-
+                  message: "Workday sensor today has invalid state '{{ states(workday_sensor_today) }}'. Expected: on or off"
                 - condition: >-
                     {{
                       workday_sensor_tomorrow not in [[], none] and
                       states(workday_sensor_tomorrow) not in ['on', 'off', 'unknown', 'unavailable']
                     }}
-                  message: "Workday sensor tomorrow has invalid state '{{ states(workday_sensor_tomorrow) }}'. Expected: 'on' or 'off'"
+                  message: "Workday sensor tomorrow has invalid state '{{ states(workday_sensor_tomorrow) }}'. Expected: on or off"
 
-                # Time Schedule Helper Check
+                # ========== SCHEDULE HELPER CHECKS ==========
                 - condition: >-
                     {{
                       is_schedule_helper_enabled and
                       time_schedule_helper not in [[], none] and
                       states(time_schedule_helper) not in ['on', 'off', 'unknown', 'unavailable']
                     }}
-                  message: "Time Schedule Helper has invalid state '{{ states(time_schedule_helper) }}'. Expected: 'on' or 'off'"
+                  message: "Schedule helper has invalid state '{{ states(time_schedule_helper) }}'. Expected: on or off"
 
-                # Force Entity Configuration Check
+                # ========== FORCE ENTITY CHECKS ==========
                 - condition: >-
                     {{
                       auto_up_force not in [[], none] and
                       states(auto_up_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
                     }}
-                  message: "Force Open entity has invalid state '{{ states(auto_up_force) }}'. Must be a binary entity (on/off)."
-
+                  message: "Force Open entity has invalid state '{{ states(auto_up_force) }}'. Must be binary: on/off"
                 - condition: >-
                     {{
                       auto_down_force not in [[], none] and
                       states(auto_down_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
                     }}
-                  message: "Force Close entity has invalid state '{{ states(auto_down_force) }}'. Must be a binary entity (on/off)."
-
+                  message: "Force Close entity has invalid state '{{ states(auto_down_force) }}'. Must be binary: on/off"
                 - condition: >-
                     {{
                       auto_ventilate_force not in [[], none] and
                       states(auto_ventilate_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
                     }}
-                  message: "Force Ventilate entity has invalid state '{{ states(auto_ventilate_force) }}'. Must be a binary entity (on/off)."
-
+                  message: "Force Ventilate entity has invalid state '{{ states(auto_ventilate_force) }}'. Must be binary: on/off"
                 - condition: >-
                     {{
                       auto_shading_start_force not in [[], none] and
                       states(auto_shading_start_force) not in ['on', 'off', 'true', 'false', 'unknown', 'unavailable']
                     }}
-                  message: "Force Shading entity has invalid state '{{ states(auto_shading_start_force) }}'. Must be a binary entity (on/off)."
-
-                # Sun Sensor Availability Check
-                - condition: >-
-                    {{
-                      default_sun_sensor not in [[], none] and
-                      states(default_sun_sensor) in ['unknown', 'unavailable']
-                    }}
-                  message: "Sun sensor '{{ default_sun_sensor }}' is unavailable. Please check if the sun integration is enabled and working."
-
-                # Multiple Force Entities Active Check
+                  message: "Force Shading entity has invalid state '{{ states(auto_shading_start_force) }}'. Must be binary: on/off"
                 - condition: >-
                     {{
                       [
@@ -4611,62 +5170,153 @@ actions:
                         auto_shading_start_force not in [[], none] and states(auto_shading_start_force) in ['on', 'true']
                       ].count(true) > 1
                     }}
-                  message: "CRITICAL: Multiple force entities are currently active! Only one should be active at a time. Force_Open={{ states(auto_up_force) if auto_up_force not in [[], none] else 'N/A' }}, Force_Close={{ states(auto_down_force) if auto_down_force not in [[], none] else 'N/A' }}, Force_Vent={{ states(auto_ventilate_force) if auto_ventilate_force not in [[], none] else 'N/A' }}, Force_Shade={{ states(auto_shading_start_force) if auto_shading_start_force not in [[], none] else 'N/A' }}"
+                  message: "CRITICAL: Multiple force entities are active. Only one force entity can be active at a time. Deactivate conflicting force entities"
 
-                # Tilt Delay Validation
-                - condition: "{{ is_cover_tilt_enabled and tilt_delay > 60 }}"
-                  message: "Tilt delay ({{ tilt_delay }} seconds) is very long. Recommended maximum: 10 seconds. This may cause slow cover movements."
+                # ========== SUN SENSOR CHECKS ==========
+                - condition: >-
+                    {{
+                      default_sun_sensor not in [[], none] and
+                      states(default_sun_sensor) in ['unknown', 'unavailable']
+                    }}
+                  message: "Sun sensor '{{ default_sun_sensor }}' is unavailable. Check sun integration is enabled"
 
-                # Contact Delay Validation
-                - condition: "{{ contact_delay_trigger > 10 }}"
-                  message: "Contact trigger delay ({{ contact_delay_trigger }} seconds) is very long. This may cause slow response to window opening/closing."
-
-                - condition: "{{ is_ventilation_enabled and  contact_delay_status > 10 }}"
-                  message: "Contact status delay ({{ contact_delay_status }} seconds) is very long. This may cause slow response to handle position changes."
-
-                # Reset Override Timeout Check
+                # ========== RESET OVERRIDE CHECKS ==========
                 - condition: "{{ is_reset_timeout and reset_override_timeout < 1 }}"
-                  message: "Reset override timeout is less than 1 minute. This is very short and manual overrides will be reset almost immediately."
-
+                  message: "Override timeout ({{ reset_override_timeout }}min) is very short. Overrides reset almost immediately"
                 - condition: "{{ is_reset_timeout and reset_override_timeout > 1440 }}"
-                  message: "Reset override timeout ({{ reset_override_timeout }} minutes = {{ (reset_override_timeout / 60) | round(1) }} hours) is very long. Manual overrides will persist for more than 24 hours."
+                  message: "Override timeout ({{ reset_override_timeout }}min = {{ (reset_override_timeout / 60) | round(1) }}h) is very long"
 
+                # ========== SHADING START RETRY CHECKS ==========
                 - condition: "{{ shading_start_max_duration > 0 and shading_start_max_duration < 600 }}"
-                  message: "Shading start retry timeout ({{ shading_start_max_duration }}s = {{ (shading_start_max_duration / 60) | round(1) }}min) is very short. Recommended minimum: 600s (10 minutes)."
-
+                  message: "Shading start timeout ({{ shading_start_max_duration }}s) is too short. Minimum: 600s (10 minutes)"
                 - condition: "{{ shading_start_max_duration > 14400 }}"
-                  message: "Shading start retry timeout ({{ shading_start_max_duration }}s = {{ (shading_start_max_duration / 3600) | round(1) }}h) is very long. Consider reducing to max 4 hours."
-
+                  message: "Shading start timeout ({{ shading_start_max_duration }}s = {{ (shading_start_max_duration / 3600) | round(1) }}h) is very long. Max: 4 hours"
                 - condition: "{{ shading_start_max_duration == 0 }}"
-                  message: "Shading start periodic retry is disabled (0). Automation will behave like old 'trigger_reset' - may miss shading opportunities if conditions stabilize. Recommended: Enable with value 3600-7200."
+                  message: "Shading start retry disabled (0). May miss shading opportunities. Recommended: 3600-7200s"
 
+                # ========== SHADING END RETRY CHECKS ==========
                 - condition: "{{ shading_end_max_duration > 0 and shading_end_max_duration < 600 }}"
-                  message: "Shading end retry timeout ({{ shading_end_max_duration }}s = {{ (shading_end_max_duration / 60) | round(1) }}min) is very short. Recommended minimum: 600s (10 minutes)."
-
+                  message: "Shading end timeout ({{ shading_end_max_duration }}s) is too short. Minimum: 600s (10 minutes)"
                 - condition: "{{ shading_end_max_duration > 14400 }}"
-                  message: "Shading end retry timeout ({{ shading_end_max_duration }}s = {{ (shading_end_max_duration / 3600) | round(1) }}h) is very long. Consider reducing to max 4 hours."
-
+                  message: "Shading end timeout ({{ shading_end_max_duration }}s = {{ (shading_end_max_duration / 3600) | round(1) }}h) is very long. Max: 4 hours"
                 - condition: "{{ shading_end_max_duration == 0 }}"
-                  message: "Shading end periodic retry is disabled (0). Automation will behave like old version - may get stuck if conditions fluctuate. Recommended: Enable with value 3600-7200."
+                  message: "Shading end retry disabled (0). May get stuck if conditions fluctuate. Recommended: 3600-7200s"
 
-                # Forecast configuration checks
-                - condition: "{{ use_forecast_sensor and shading_weather_conditions != [] and shading_weather_conditions | length > 0 }}"
-                  message: "Weather conditions are configured but you're using a temperature sensor. Weather conditions can only be checked when using a weather entity. Either: (1) remove weather conditions, or (2) use weather entity instead of sensor."
-
+                # ========== FORECAST CONFIGURATION CHECKS ==========
+                - condition: "{{ use_forecast_sensor and shading_weather_conditions | length > 0 }}"
+                  message: "Weather conditions configured with temperature sensor (not supported). Use weather entity or remove conditions"
                 - condition: "{{ use_forecast_weather and states(shading_forecast_sensor) in ['unknown', 'unavailable'] }}"
-                  message: "Weather entity '{{ shading_forecast_sensor }}' is unavailable. Check if the weather integration is working correctly."
-
+                  message: "Weather entity '{{ shading_forecast_sensor }}' is unavailable. Check weather integration"
                 - condition: "{{ use_forecast_sensor and states(shading_forecast_temp_sensor) in ['unknown', 'unavailable'] }}"
-                  message: "Forecast temperature sensor '{{ shading_forecast_temp_sensor }}' is unavailable. Check if the sensor exists and has a valid state."
-
+                  message: "Forecast temperature sensor '{{ shading_forecast_temp_sensor }}' is unavailable"
                 - condition: "{{ use_forecast_sensor and not is_number(states(shading_forecast_temp_sensor)) }}"
-                  message: "Forecast temperature sensor '{{ shading_forecast_temp_sensor }}' has non-numeric state '{{ states(shading_forecast_temp_sensor) }}'. Sensor must provide a numeric temperature value."
-
+                  message: "Forecast temperature sensor '{{ shading_forecast_temp_sensor }}' is non-numeric: '{{ states(shading_forecast_temp_sensor) }}'"
                 - condition: "{{ shading_forecast_temp != [] and not use_forecast_sensor and not use_forecast_weather }}"
-                  message: "Forecast temperature threshold is configured ({{ shading_forecast_temp }}°C) but no forecast source is selected. Configure either: (1) Weather Entity, or (2) Temperature Sensor."
-
+                  message: "Forecast temperature configured ({{ shading_forecast_temp }}°C) but no forecast source selected. Configure weather entity or temperature sensor"
                 - condition: "{{ use_forecast_sensor and use_forecast_weather }}"
-                  message: "Both weather entity and temperature sensor are configured. Temperature sensor takes priority - weather entity will be ignored. This is intentional but you should be aware of it."
+                  message: "Both weather entity and temperature sensor configured. Temperature sensor takes priority (weather entity ignored)"
+
+                # ========== SHADING CONDITIONS CHECKS ==========
+                - condition: >-
+                    {{
+                      is_shading_enabled and
+                      (shading_conditions_start_and | count + shading_conditions_start_or | count) == 0
+                    }}
+                  message: "ERROR: Shading enabled but no START conditions selected. Shading will never activate"
+                - condition: >-
+                    {{
+                      is_shading_enabled and
+                      (shading_conditions_end_and | count + shading_conditions_end_or | count) == 0
+                    }}
+                  message: "WARNING: No END conditions selected. Shading only ends at midnight reset"
+                - condition: >-
+                    {{
+                      (shading_conditions_start_and + shading_conditions_start_or) | unique | count <
+                      (shading_conditions_start_and | count + shading_conditions_start_or | count)
+                    }}
+                  message: "ERROR: Same condition in both START AND and OR lists. Each condition can only be in one list"
+                - condition: >-
+                    {{
+                      (shading_conditions_end_and + shading_conditions_end_or) | unique | count <
+                      (shading_conditions_end_and | count + shading_conditions_end_or | count)
+                    }}
+                  message: "ERROR: Same condition in both END AND and OR lists. Each condition can only be in one list"
+
+                # ========== SHADING START CONDITION CONFIGURATION ==========
+                - condition: >-
+                    {{
+                      'cond_azimuth' in (shading_conditions_start_and + shading_conditions_start_or) and
+                      default_sun_sensor == []
+                    }}
+                  message: "Azimuth START condition enabled but sun sensor not configured. Condition will be ignored"
+                - condition: >-
+                    {{
+                      'cond_elevation' in (shading_conditions_start_and + shading_conditions_start_or) and
+                      default_sun_sensor == []
+                    }}
+                  message: "Elevation START condition enabled but sun sensor not configured. Condition will be ignored"
+                - condition: >-
+                    {{
+                      'cond_brightness' in (shading_conditions_start_and + shading_conditions_start_or) and
+                      shading_brightness_sensor == []
+                    }}
+                  message: "Brightness START condition enabled but brightness sensor not configured. Condition will be ignored"
+                - condition: >-
+                    {{
+                      'cond_temp1' in (shading_conditions_start_and + shading_conditions_start_or) and
+                      shading_temperatur_sensor1 == []
+                    }}
+                  message: "Temperature 1 START condition enabled but sensor not configured. Condition will be ignored"
+                - condition: >-
+                    {{
+                      'cond_temp2' in (shading_conditions_start_and + shading_conditions_start_or) and
+                      shading_temperatur_sensor2 == []
+                    }}
+                  message: "Temperature 2 START condition enabled but sensor not configured. Condition will be ignored"
+                - condition: >-
+                    {{
+                      'cond_forecast' in (shading_conditions_start_and + shading_conditions_start_or) and
+                      shading_forecast_temp == []
+                    }}
+                  message: "Forecast START condition enabled but threshold not configured. Condition will be ignored"
+
+                # ========== SHADING END CONDITION CONFIGURATION ==========
+                - condition: >-
+                    {{
+                      'cond_azimuth' in (shading_conditions_end_and + shading_conditions_end_or) and
+                      default_sun_sensor == []
+                    }}
+                  message: "Azimuth END condition enabled but sun sensor not configured"
+                - condition: >-
+                    {{
+                      'cond_elevation' in (shading_conditions_end_and + shading_conditions_end_or) and
+                      default_sun_sensor == []
+                    }}
+                  message: "Elevation END condition enabled but sun sensor not configured"
+                - condition: >-
+                    {{
+                      'cond_brightness' in (shading_conditions_end_and + shading_conditions_end_or) and
+                      shading_brightness_sensor == []
+                    }}
+                  message: "Brightness END condition enabled but brightness sensor not configured"
+                - condition: >-
+                    {{
+                      'cond_temp1' in (shading_conditions_end_and + shading_conditions_end_or) and
+                      shading_temperatur_sensor1 == []
+                    }}
+                  message: "Temperature 1 END condition enabled but sensor not configured"
+                - condition: >-
+                    {{
+                      'cond_temp2' in (shading_conditions_end_and + shading_conditions_end_or) and
+                      shading_temperatur_sensor2 == []
+                    }}
+                  message: "Temperature 2 END condition enabled but sensor not configured"
+                - condition: >-
+                    {{
+                      'cond_forecast' in (shading_conditions_end_and + shading_conditions_end_or) and
+                      shading_forecast_temp == []
+                    }}
+                  message: "Forecast END condition enabled but threshold not configured"
 
               sequence:
                 - if:
