@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.11.23
+    **Version**: 2025.11.24
 
     ### 🔗 Resources & Support
 
@@ -193,7 +193,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # v2025.11.22 - Smarter, More Flexible Sun Shading:
+    # v2025.11.24 - Smarter, More Flexible Sun Shading:
 
       ## Flexible shading logic
 
@@ -266,6 +266,8 @@ blueprint:
       - **Reduced internal duplication**
         Repeated calls to `as_timestamp(now()) | round(0)` have been replaced with a shared `ts_now` variable, improving readability and slightly reducing processing overhead.
 
+      - **Variables refactoring:**
+        Consolidated 80+ flag variables into maintainable dictionaries. No functional changes.
 
       ## Breaking changes and migration
 
@@ -2453,7 +2455,7 @@ trigger_variables:
   shading_position: !input shading_position
   position_tolerance: !input position_tolerance
 
-  # Tilt
+  # Tilt positions
   open_tilt_position: !input open_tilt_position
   close_tilt_position: !input close_tilt_position
   ventilate_tilt_position: !input ventilate_tilt_position
@@ -2465,10 +2467,12 @@ trigger_variables:
   shading_tilt_position_2: !input shading_tilt_position_2
   shading_tilt_position_3: !input shading_tilt_position_3
 
-  # Modes
+  # Feature option selections
   auto_options: !input auto_options
+  cover_tilt_config: !input cover_tilt_config
+  cover_tilt_reposition_config: !input cover_tilt_reposition_config
 
-  # Times
+  # Time configuration
   time_up_early: !input time_up_early
   time_up_early_non_workday: !input time_up_early_non_workday
   time_up_late: !input time_up_late
@@ -2479,39 +2483,26 @@ trigger_variables:
   time_down_late_non_workday: !input time_down_late_non_workday
   workday_sensor_today: !input workday_sensor
   workday_sensor_tomorrow: !input workday_sensor_tomorrow
+  time_control: !input time_control
+  time_schedule_helper: !input time_schedule_helper
 
-  # Brightness
+  # Brightness configuration
   default_brightness_sensor: !input default_brightness_sensor
   brightness_up: !input brightness_up
   brightness_down: !input brightness_down
   brightness_hysteresis: !input brightness_hysteresis
 
-  # Sun
+  # Sun configuration
   default_sun_sensor: !input default_sun_sensor
   sun_elevation_up: !input sun_elevation_up
   sun_elevation_down: !input sun_elevation_down
 
-  # Sensors
-  resident_sensor: !input resident_sensor
-  contact_window_tilted: !input contact_window_tilted
+  # Ventilation/Contact sensors
   contact_window_opened: !input contact_window_opened
+  contact_window_tilted: !input contact_window_tilted
   lockout_tilted_options: !input lockout_tilted_options
-  lockout_tilted_when_closing: "{{ 'lockout_tilted_closing' in lockout_tilted_options }}"
-  lockout_tilted_when_shading_starts: "{{ 'lockout_tilted_shading_start' in lockout_tilted_options }}"
-  lockout_tilted_when_shading_ends: "{{ 'lockout_tilted_shading_end' in lockout_tilted_options }}"
 
-  # Time controls
-  time_control: !input time_control
-  time_schedule_helper: !input time_schedule_helper
-
-  # Shading
-  shading_brightness_sensor: !input shading_brightness_sensor
-  shading_temperatur_sensor1: !input shading_temperatur_sensor1
-  shading_temperatur_sensor2: !input shading_temperatur_sensor2
-  shading_min_temperatur1: !input shading_min_temperatur1
-  shading_min_temperatur2: !input shading_min_temperatur2
-  shading_temperature_hysteresis1: !input shading_temperature_hysteresis1
-  shading_temperature_hysteresis2: !input shading_temperature_hysteresis2
+  # Shading configuration
   shading_azimuth_start: !input shading_azimuth_start
   shading_azimuth_end: !input shading_azimuth_end
   shading_elevation_min: !input shading_elevation_min
@@ -2520,17 +2511,36 @@ trigger_variables:
   shading_sun_brightness_end: !input shading_sun_brightness_end
   shading_sun_brightness_hysteresis: !input shading_sun_brightness_hysteresis
 
-  # Forecast configuration
-  shading_forecast_sensor: !input shading_forecast_sensor  # weather entity
-  shading_forecast_temp_sensor: !input shading_forecast_temp_sensor  # sensor entity
+  # Shading sensors
+  shading_brightness_sensor: !input shading_brightness_sensor
+  shading_temperatur_sensor1: !input shading_temperatur_sensor1
+  shading_temperatur_sensor2: !input shading_temperatur_sensor2
+  shading_min_temperatur1: !input shading_min_temperatur1
+  shading_min_temperatur2: !input shading_min_temperatur2
+  shading_temperature_hysteresis1: !input shading_temperature_hysteresis1
+  shading_temperature_hysteresis2: !input shading_temperature_hysteresis2
+
+  # Shading forecast configuration
+  shading_forecast_sensor: !input shading_forecast_sensor
+  shading_forecast_temp_sensor: !input shading_forecast_temp_sensor
   shading_forecast_type: !input shading_forecast_type
   shading_forecast_temp: !input shading_forecast_temp
   shading_forecast_temp_hysteresis: !input shading_forecast_temp_hysteresis
   shading_weather_conditions: !input shading_weather_conditions
 
-  # Internal code helper
+  # Shading condition selections
+  shading_conditions_start_and: !input shading_conditions_start_and
+  shading_conditions_start_or: !input shading_conditions_start_or
+  shading_conditions_end_and: !input shading_conditions_end_and
+  shading_conditions_end_or: !input shading_conditions_end_or
+
+  # Lockout protection flag computation
+  lockout_tilted_when_closing: "{{ 'lockout_tilted_closing' in lockout_tilted_options }}"
+  lockout_tilted_when_shading_starts: "{{ 'lockout_tilted_shading_start' in lockout_tilted_options }}"
+  lockout_tilted_when_shading_ends: "{{ 'lockout_tilted_shading_end' in lockout_tilted_options }}"
+
+  # Feature enable flag computation
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
-  cover_tilt_config: !input cover_tilt_config
   is_cover_tilt_enabled: "{{ 'cover_tilt_enabled' in cover_tilt_config }}"
   is_up_enabled: "{{ 'auto_up_enabled' in auto_options }}"
   is_down_enabled: "{{ 'auto_down_enabled' in auto_options }}"
@@ -2541,6 +2551,7 @@ trigger_variables:
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
+  # Reset override flag computation
   reset_override_config: !input reset_override_config
   reset_override_time: !input reset_override_time
   reset_override_timeout: !input reset_override_timeout
@@ -2548,9 +2559,11 @@ trigger_variables:
   is_reset_fixed_time: "{{ 'reset_fixed_time' in reset_override_config }}"
   is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
 
+  # Cover status helper configuration
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
 
+  # Invalid states list - Shared constant
   invalid_states:
     - ''                    # Empty string
     - 'unavailable'         # Entity unavailable
@@ -2566,22 +2579,22 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.11.22"
+  version: "2025.11.24"
 
+  # Basic entity state reading
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
-  current_tilt_position: "{{ state_attr(blind,'current_tilt_position') | int(default=101) }}"
+  current_tilt_position: "{{ state_attr(blind, 'current_tilt_position') | int(default=101) }}"
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
   is_today_off: "{{ workday_sensor_today != [] and is_state(workday_sensor_today, 'off') }}"
   is_tomorrow_off: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') }}"
   is_tomorrow_on: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') }}"
 
-  # Delays
+  # Delays and Timing
   drive_delay_fix: !input drive_delay_fix
   drive_delay_random: !input drive_delay_random
   drive_time: !input drive_time
-
   time_up_early_today: "{{ time_up_early_non_workday if is_today_off else time_up_early }}"
   time_up_late_today: "{{ time_up_late_non_workday if is_today_off else time_up_late }}"
   time_down_early_today: >-
@@ -2599,22 +2612,12 @@ variables:
       time_down_late
     }}
 
-  # Force
-  auto_up_force: !input auto_up_force
-  auto_down_force: !input auto_down_force
-  auto_ventilate_force: !input auto_ventilate_force
-  auto_shading_start_force: !input auto_shading_start_force
-  auto_up_force_disabled: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
-  auto_down_force_disabled: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
-  auto_ventilate_force_disabled: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
-  auto_shading_start_force_disabled: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
-
-  # Tilt
-  is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
-  cover_tilt_reposition_config: !input cover_tilt_reposition_config
+  # Tilt configuration flags and helpers
   is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
+  is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
 
-  # Shading
+  # SHADING TILT POSITION - Elevation-based selection
+  # Determine tilt angle based on current sun elevation (multi-stage)
   shading_tilt_position: >-
     {% set elevation = current_sun_elevation | int(default=0) %}
     {% if elevation >= shading_tilt_elevation_3 | int %}
@@ -2627,41 +2630,91 @@ variables:
       {{ shading_tilt_position_0 | int }}
     {% endif %}
 
+  # POSITION CHECKERS - Single source of truth
+  # Check if current position matches target (with tolerance and tilt validation)
+  in_open_position: >-
+    {% set min = open_position - position_tolerance %}
+    {% set max = open_position + position_tolerance %}
+    {{
+      (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible) or
+        (is_cover_tilt_enabled_and_possible and current_tilt_position == open_tilt_position | int)
+      )
+    }}
+
+  in_close_position: >-
+    {% set min = close_position - position_tolerance %}
+    {% set max = close_position + position_tolerance %}
+    {{
+      (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible) or
+        (is_cover_tilt_enabled_and_possible and current_tilt_position == close_tilt_position | int)
+      )
+    }}
+
+  in_shading_position: >-
+    {% set min = shading_position - position_tolerance %}
+    {% set max = shading_position + position_tolerance %}
+    {{
+      is_shading_enabled
+      and (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible) or
+        (current_tilt_position == shading_tilt_position | int)
+      )
+    }}
+
+  in_ventilate_position: >-
+    {% set min = ventilate_position - position_tolerance %}
+    {% set max = ventilate_position + position_tolerance %}
+    {{
+      is_ventilation_enabled
+      and (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible) or
+        (current_tilt_position == ventilate_tilt_position | int)
+      )
+    }}
+
+  # Brightness and sun configuration
+  brightness_time_duration: !input brightness_time_duration
+  sun_time_duration: !input sun_time_duration
+
+  # SHADING - Additional Configuration Flags
+  # Shading timing and retry
   shading_waitingtime_start: !input shading_waitingtime_start
   shading_waitingtime_end: !input shading_waitingtime_end
   shading_start_max_duration: !input shading_start_max_duration
   shading_end_max_duration: !input shading_end_max_duration
   shading_end_behavior: !input shading_end_behavior
   shading_config: !input shading_config
-  is_shading_end_immediate_by_sun_position: !input shading_end_immediate_by_sun_position
-  is_shading_temp_comparison_independent: "{{ 'shading_temp_comparison_independent' in shading_config }}"
-  is_shading_compare_forecast_with_sensor2: "{{ 'shading_compare_forecast_with_sensor2' in shading_config }}"
+
+  # Additional shading configuration passthrough
+  shading_end_immediate_by_sun_position: !input shading_end_immediate_by_sun_position
+  is_shading_end_immediate_by_sun_position: "{{ shading_end_immediate_by_sun_position }}"
 
   # Forecast source determination
-  prevent_forecast_service: "{{ 'weather_attributes' in shading_forecast_type }}"
-  use_forecast_sensor: "{{ shading_forecast_temp_sensor != [] }}"
-  use_forecast_weather: "{{ shading_forecast_sensor != [] and not use_forecast_sensor }}"
-  use_forecast_service: "{{ use_forecast_weather and not prevent_forecast_service }}"
+  # Priority: sensor > weather entity > attributes
+  forecast_source_flags:
+    use_sensor: "{{ shading_forecast_temp_sensor != [] }}"
+    use_weather: "{{ shading_forecast_sensor != [] and shading_forecast_temp_sensor == [] }}"
+    prevent_service: "{{ 'weather_attributes' in shading_forecast_type }}"
 
-  # FORECAST DATA NORMALIZATION
-
+  # Forecast data normalisation.
   # Temperature from sensor (priority) or weather entity
   forecast_temp_raw: >-
     {% set sensor = shading_forecast_temp_sensor %}
     {% set weather = shading_forecast_sensor %}
-    {# 1. Priority: Direct sensor value #}
     {% if sensor != [] and states(sensor) not in invalid_states %}
       {{ states(sensor) | float(default=None) }}
-    {# 2. Early exit: Weather entity unavailable #}
     {% elif weather == [] or states(weather) in invalid_states %}
       {{ None }}
-    {# 3. Weather: Current temperature attribute (no service) #}
-    {% elif prevent_forecast_service %}
+    {% elif 'weather_attributes' in shading_forecast_type %}
       {{ state_attr(weather, 'temperature') | float(default=None) }}
-    {# 4. Weather: Forecast service response #}
     {% elif weather_forecast is defined and weather in weather_forecast %}
       {{ weather_forecast[weather].forecast[0].temperature | default(None) | float(default=None) }}
-    {# 5. Fallback: No temperature available #}
     {% else %}
       {{ None }}
     {% endif %}
@@ -2669,267 +2722,190 @@ variables:
   # Weather condition (only from weather entity)
   forecast_weather_condition_raw: >-
     {% set weather = shading_forecast_sensor %}
-    {# 1. Early exit: No weather entity or unavailable #}
     {% if weather == [] or states(weather) in invalid_states %}
       {{ None }}
-    {# 2. Weather: Current condition attribute (no service) #}
-    {% elif prevent_forecast_service %}
+    {% elif 'weather_attributes' in shading_forecast_type %}
       {{ state_attr(weather, 'condition') }}
-    {# 3. Weather: Forecast service response #}
     {% elif weather_forecast is defined and weather in weather_forecast %}
       {{ weather_forecast[weather].forecast[0].condition | default(None) }}
-    {# 4. Fallback: No condition available #}
     {% else %}
       {{ None }}
     {% endif %}
 
-  # FORECAST LOGIC HELPERS
+  # Shading condition enablement
+  # Which START conditions are enabled (combines AND + OR lists)
+  shading_start_condition_enabled:
+    azimuth: "{{ 'cond_azimuth' in shading_conditions_start_and or 'cond_azimuth' in shading_conditions_start_or }}"
+    elevation: "{{ 'cond_elevation' in shading_conditions_start_and or 'cond_elevation' in shading_conditions_start_or }}"
+    brightness: "{{ 'cond_brightness' in shading_conditions_start_and or 'cond_brightness' in shading_conditions_start_or }}"
+    temp1: "{{ 'cond_temp1' in shading_conditions_start_and or 'cond_temp1' in shading_conditions_start_or }}"
+    temp2: "{{ 'cond_temp2' in shading_conditions_start_and or 'cond_temp2' in shading_conditions_start_or }}"
+    forecast_temp: "{{ 'cond_forecast_temp' in shading_conditions_start_and or 'cond_forecast_temp' in shading_conditions_start_or }}"
+    forecast_weather: "{{ 'cond_forecast_weather' in shading_conditions_start_and or 'cond_forecast_weather' in shading_conditions_start_or }}"
 
-  # Check if forecast temperature exceeds start threshold
-  forecast_temp_above_start: >-
-    {{
-      forecast_temp_raw is not none and
-      shading_forecast_temp != [] and
-      forecast_temp_raw > (shading_forecast_temp + shading_forecast_temp_hysteresis)
-    }}
+  # Which END conditions are enabled (combines AND + OR lists)
+  shading_end_condition_enabled:
+    azimuth: "{{ 'cond_azimuth' in shading_conditions_end_and or 'cond_azimuth' in shading_conditions_end_or }}"
+    elevation: "{{ 'cond_elevation' in shading_conditions_end_and or 'cond_elevation' in shading_conditions_end_or }}"
+    brightness: "{{ 'cond_brightness' in shading_conditions_end_and or 'cond_brightness' in shading_conditions_end_or }}"
+    temp1: "{{ 'cond_temp1' in shading_conditions_end_and or 'cond_temp1' in shading_conditions_end_or }}"
+    temp2: "{{ 'cond_temp2' in shading_conditions_end_and or 'cond_temp2' in shading_conditions_end_or }}"
+    forecast_temp: "{{ 'cond_forecast_temp' in shading_conditions_end_and or 'cond_forecast_temp' in shading_conditions_end_or }}"
+    forecast_weather: "{{ 'cond_forecast_weather' in shading_conditions_end_and or 'cond_forecast_weather' in shading_conditions_end_or }}"
 
-  # Check if forecast temperature below end threshold
-  forecast_temp_below_end: >-
-    {{
-      forecast_temp_raw is not none and
-      shading_forecast_temp != [] and
-      forecast_temp_raw < (shading_forecast_temp - shading_forecast_temp_hysteresis)
-    }}
+  # SHADING START - Individual Condition Evaluations
+  # All START conditions evaluated and stored in one dictionary
+  shading_start_condition_states:
+    azimuth_valid: >-
+      {{
+        not is_shading_enabled or
+        not shading_start_condition_enabled.azimuth or
+        default_sun_sensor == [] or
+        (
+          current_sun_azimuth | float(default=0) > shading_azimuth_start and
+          current_sun_azimuth | float(default=0) < shading_azimuth_end
+        )
+      }}
+    elevation_valid: >-
+      {{
+        not is_shading_enabled or
+        not shading_start_condition_enabled.elevation or
+        default_sun_sensor == [] or
+        (
+          current_sun_elevation | float(default=0) > shading_elevation_min and
+          current_sun_elevation | float(default=0) < shading_elevation_max
+        )
+      }}
+    brightness_valid: >-
+      {{
+        not is_shading_enabled or
+        not shading_start_condition_enabled.brightness or
+        shading_brightness_sensor == [] or
+        (
+          states(shading_brightness_sensor) not in invalid_states and
+          states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis)
+        )
+      }}
+    temp1_valid: >-
+      {{
+        not is_shading_enabled or
+        not shading_start_condition_enabled.temp1 or
+        shading_temperatur_sensor1 == [] or
+        (
+          states(shading_temperatur_sensor1) not in invalid_states and
+          states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1)
+        )
+      }}
+    temp2_valid: >-
+      {{
+        not is_shading_enabled or
+        not shading_start_condition_enabled.temp2 or
+        shading_temperatur_sensor2 == [] or
+        (
+          states(shading_temperatur_sensor2) not in invalid_states and
+          states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2)
+        )
+      }}
+    forecast_temp_valid: >-
+      {{
+        not is_shading_enabled or
+        not shading_start_condition_enabled.forecast_temp or
+        shading_forecast_temp == [] or
+        (
+          forecast_temp_raw is not none and
+          forecast_temp_raw > (shading_forecast_temp + shading_forecast_temp_hysteresis)
+        ) or
+        (
+          'shading_compare_forecast_with_sensor2' in shading_config and
+          shading_temperatur_sensor2 != [] and
+          shading_forecast_temp != [] and
+          (states(shading_temperatur_sensor2) | float(default=0) > (shading_forecast_temp + shading_forecast_temp_hysteresis))
+        )
+      }}
+    forecast_weather_valid: >-
+      {{
+        not is_shading_enabled or
+        not shading_start_condition_enabled.forecast_weather or
+        shading_weather_conditions == [] or
+        forecast_source_flags.use_sensor or
+        (
+          forecast_weather_condition_raw is not none and
+          forecast_weather_condition_raw not in invalid_states and
+          forecast_weather_condition_raw in shading_weather_conditions
+        )
+      }}
 
-  # Check if weather condition is valid for shading
-  forecast_weather_condition_valid: >-
-    {{
-      shading_weather_conditions == [] or
-      use_forecast_sensor or
-      (
-        forecast_weather_condition_raw is not none and
-        forecast_weather_condition_raw not in invalid_states and
-        forecast_weather_condition_raw in shading_weather_conditions
-      )
-    }}
-
-  # Check if sensor2 temperature exceeds forecast threshold
-  sensor2_above_forecast_threshold: >-
-    {{
-      is_shading_compare_forecast_with_sensor2 and
-      shading_temperatur_sensor2 != [] and
-      shading_forecast_temp != [] and
-      (states(shading_temperatur_sensor2) | float(default=0) > shading_forecast_temp + shading_forecast_temp_hysteresis)
-    }}
-
-  # Combined temperature forecast condition
-  temp_forecast_condition_met: >-
-    {{ forecast_temp_above_start or sensor2_above_forecast_threshold }}
-
-  # New logic configuration
-  shading_conditions_start_and: !input shading_conditions_start_and
-  shading_conditions_start_or: !input shading_conditions_start_or
-  shading_conditions_end_and: !input shading_conditions_end_and
-  shading_conditions_end_or: !input shading_conditions_end_or
-
-  # Helper: Check if conditions are enabled
-  shading_start_cond_azimuth_enabled: >-
-    {{ 'cond_azimuth' in shading_conditions_start_and or 'cond_azimuth' in shading_conditions_start_or }}
-  shading_start_cond_elevation_enabled: >-
-    {{ 'cond_elevation' in shading_conditions_start_and or 'cond_elevation' in shading_conditions_start_or }}
-  shading_start_cond_brightness_enabled: >-
-    {{ 'cond_brightness' in shading_conditions_start_and or 'cond_brightness' in shading_conditions_start_or }}
-  shading_start_cond_temp1_enabled: >-
-    {{ 'cond_temp1' in shading_conditions_start_and or 'cond_temp1' in shading_conditions_start_or }}
-  shading_start_cond_temp2_enabled: >-
-    {{ 'cond_temp2' in shading_conditions_start_and or 'cond_temp2' in shading_conditions_start_or }}
-  shading_start_cond_forecast_temp_enabled: >-
-    {{ 'cond_forecast_temp' in shading_conditions_start_and or 'cond_forecast_temp' in shading_conditions_start_or }}
-  shading_start_cond_forecast_weather_enabled: >-
-    {{ 'cond_forecast_weather' in shading_conditions_start_and or 'cond_forecast_weather' in shading_conditions_start_or }}
-
-  shading_end_cond_azimuth_enabled: >-
-    {{ 'cond_azimuth' in shading_conditions_end_and or 'cond_azimuth' in shading_conditions_end_or }}
-  shading_end_cond_elevation_enabled: >-
-    {{ 'cond_elevation' in shading_conditions_end_and or 'cond_elevation' in shading_conditions_end_or }}
-  shading_end_cond_brightness_enabled: >-
-    {{ 'cond_brightness' in shading_conditions_end_and or 'cond_brightness' in shading_conditions_end_or }}
-  shading_end_cond_temp1_enabled: >-
-    {{ 'cond_temp1' in shading_conditions_end_and or 'cond_temp1' in shading_conditions_end_or }}
-  shading_end_cond_temp2_enabled: >-
-    {{ 'cond_temp2' in shading_conditions_end_and or 'cond_temp2' in shading_conditions_end_or }}
-  shading_end_cond_forecast_temp_enabled: >-
-    {{ 'cond_forecast_temp' in shading_conditions_end_and or 'cond_forecast_temp' in shading_conditions_end_or }}
-  shading_end_cond_forecast_weather_enabled: >-
-    {{ 'cond_forecast_weather' in shading_conditions_end_and or 'cond_forecast_weather' in shading_conditions_end_or }}
-
-
-  # ============================================================================
-  # Individual START Condition Evaluations
-  # ============================================================================
-
-  # Sun Azimuth Check
-  shading_start_cond_azimuth_valid: >-
-    {{
-      not is_shading_enabled or
-      not shading_start_cond_azimuth_enabled or
-      default_sun_sensor == [] or
-      (
-        current_sun_azimuth | float(default=0) > shading_azimuth_start and
-        current_sun_azimuth | float(default=0) < shading_azimuth_end
-      )
-    }}
-
-  # Sun Elevation Check
-  shading_start_cond_elevation_valid: >-
-    {{
-      not is_shading_enabled or
-      not shading_start_cond_elevation_enabled or
-      default_sun_sensor == [] or
-      (
-        current_sun_elevation | float(default=0) > shading_elevation_min and
-        current_sun_elevation | float(default=0) < shading_elevation_max
-      )
-    }}
-
-  # Brightness Check
-  shading_start_cond_brightness_valid: >-
-    {{
-      not is_shading_enabled or
-      not shading_start_cond_brightness_enabled or
-      shading_brightness_sensor == [] or
-      (
-        states(shading_brightness_sensor) not in invalid_states and
-        states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) >
-        (shading_sun_brightness_start + shading_sun_brightness_hysteresis)
-      )
-    }}
-
-  # Temperature Sensor 1 Check
-  shading_start_cond_temp1_valid: >-
-    {{
-      not is_shading_enabled or
-      not shading_start_cond_temp1_enabled or
-      shading_temperatur_sensor1 == [] or
-      (
-        states(shading_temperatur_sensor1) not in invalid_states and
-        states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) >
-        (shading_min_temperatur1 + shading_temperature_hysteresis1)
-      )
-    }}
-
-  # Temperature Sensor 2 Check
-  shading_start_cond_temp2_valid: >-
-    {{
-      not is_shading_enabled or
-      not shading_start_cond_temp2_enabled or
-      shading_temperatur_sensor2 == [] or
-      (
-        states(shading_temperatur_sensor2) not in invalid_states and
-        states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) >
-        (shading_min_temperatur2 + shading_temperature_hysteresis2)
-      )
-    }}
-
-  # Forecast Temperature Check
-  shading_start_cond_forecast_valid: >-
-    {{
-      not is_shading_enabled or
-      not shading_start_cond_forecast_temp_enabled or
-      shading_forecast_temp == [] or
-      temp_forecast_condition_met
-    }}
-
-  # Forecast Weather Conditions Check
-  shading_start_cond_forecast_weather_valid: >-
-    {{
-      not is_shading_enabled or
-      not shading_start_cond_forecast_weather_enabled or
-      shading_weather_conditions == [] or
-      use_forecast_sensor or
-      forecast_weather_condition_valid
-    }}
-
-  # ============================================================================
-  # START Logic Evaluation
-  # ============================================================================
-
-  # Check START AND group: ALL required conditions must be true
-  # Logic: If a condition is NOT in the AND list, it's automatically true (ignored)
-  #        If a condition IS in the AND list, it must be valid
-  # Result: TRUE if all AND-listed conditions are valid
+  # SHADING START - Combined AND/OR Logic
+  # START AND: All required conditions must be true
   shading_start_and_result: >-
     {{
       (
         ('cond_azimuth' not in shading_conditions_start_and or
         default_sun_sensor == [] or
-        shading_start_cond_azimuth_valid)
+        shading_start_condition_states.azimuth_valid)
         and
         ('cond_elevation' not in shading_conditions_start_and or
         default_sun_sensor == [] or
-        shading_start_cond_elevation_valid)
+        shading_start_condition_states.elevation_valid)
         and
         ('cond_brightness' not in shading_conditions_start_and or
         shading_brightness_sensor == [] or
-        shading_start_cond_brightness_valid)
+        shading_start_condition_states.brightness_valid)
         and
         ('cond_temp1' not in shading_conditions_start_and or
         shading_temperatur_sensor1 == [] or
-        shading_start_cond_temp1_valid)
+        shading_start_condition_states.temp1_valid)
         and
         ('cond_temp2' not in shading_conditions_start_and or
         shading_temperatur_sensor2 == [] or
-        shading_start_cond_temp2_valid)
+        shading_start_condition_states.temp2_valid)
         and
         ('cond_forecast_temp' not in shading_conditions_start_and or
         shading_forecast_temp == [] or
-        shading_start_cond_forecast_temp_valid)
+        shading_start_condition_states.forecast_temp_valid)
         and
         ('cond_forecast_weather' not in shading_conditions_start_and or
         shading_weather_conditions == [] or
-        shading_start_cond_forecast_weather_valid)
+        shading_start_condition_states.forecast_weather_valid)
       )
     }}
 
-  # Check START OR group: At least ONE optional condition must be true
-  # Logic: If OR list is empty, result is TRUE (no OR requirements)
-  #        If OR list has items, at least ONE must be valid
-  # Result: TRUE if OR list is empty OR at least one OR condition is valid
+  # START OR: At least one optional condition must be true (or none required)
   shading_start_or_result: >-
     {{
       (shading_conditions_start_or | count == 0) or
       (
         ('cond_azimuth' in shading_conditions_start_or and
         default_sun_sensor != [] and
-        shading_start_cond_azimuth_valid)
+        shading_start_condition_states.azimuth_valid)
         or
         ('cond_elevation' in shading_conditions_start_or and
         default_sun_sensor != [] and
-        shading_start_cond_elevation_valid)
+        shading_start_condition_states.elevation_valid)
         or
         ('cond_brightness' in shading_conditions_start_or and
         shading_brightness_sensor != [] and
-        shading_start_cond_brightness_valid)
+        shading_start_condition_states.brightness_valid)
         or
         ('cond_temp1' in shading_conditions_start_or and
         shading_temperatur_sensor1 != [] and
-        shading_start_cond_temp1_valid)
+        shading_start_condition_states.temp1_valid)
         or
         ('cond_temp2' in shading_conditions_start_or and
         shading_temperatur_sensor2 != [] and
-        shading_start_cond_temp2_valid)
+        shading_start_condition_states.temp2_valid)
         or
         ('cond_forecast_temp' in shading_conditions_start_or and
         shading_forecast_temp != [] and
-        shading_start_cond_forecast_temp_valid)
+        shading_start_condition_states.forecast_temp_valid)
         or
         ('cond_forecast_weather' in shading_conditions_start_or and
         shading_weather_conditions != [] and
-        shading_start_cond_forecast_weather_valid)
+        shading_start_condition_states.forecast_weather_valid)
       )
     }}
 
-  # Final combined condition for SHADING START
+  # Final START condition: All AND conditions + at least one OR condition
   shading_start_conditions_met: >-
     {{
       is_shading_enabled and
@@ -2937,121 +2913,111 @@ variables:
       shading_start_or_result
     }}
 
-  # ============================================================================
-  # END Conditions
-  # ============================================================================
+  # SHADING END - Individual Condition Evaluations
+  # All END conditions evaluated with inverse logic and stored in one dictionary
+  shading_end_condition_states:
+    azimuth_invalid: >-
+      {{
+        is_shading_enabled and
+        shading_end_condition_enabled.azimuth and
+        default_sun_sensor != [] and
+        (
+          current_sun_azimuth | float(default=999) <= shading_azimuth_start or
+          current_sun_azimuth | float(default=0) >= shading_azimuth_end
+        )
+      }}
+    elevation_invalid: >-
+      {{
+        is_shading_enabled and
+        shading_end_condition_enabled.elevation and
+        default_sun_sensor != [] and
+        (
+          current_sun_elevation | float(default=999) <= shading_elevation_min or
+          current_sun_elevation | float(default=0) >= shading_elevation_max
+        )
+      }}
+    brightness_invalid: >-
+      {{
+        is_shading_enabled and
+        shading_end_condition_enabled.brightness and
+        shading_brightness_sensor != [] and
+        states(shading_brightness_sensor) not in invalid_states and
+        states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis)
+      }}
+    temp1_invalid: >-
+      {{
+        is_shading_enabled and
+        shading_end_condition_enabled.temp1 and
+        shading_temperatur_sensor1 != [] and
+        states(shading_temperatur_sensor1) not in invalid_states and
+        states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1)
+      }}
+    temp2_invalid: >-
+      {{
+        is_shading_enabled and
+        shading_end_condition_enabled.temp2 and
+        shading_temperatur_sensor2 != [] and
+        states(shading_temperatur_sensor2) not in invalid_states and
+        states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2)
+      }}
+    forecast_temp_invalid: >-
+      {{
+        is_shading_enabled and
+        shading_end_condition_enabled.forecast_temp and
+        shading_forecast_temp != [] and
+        forecast_temp_raw is not none and
+        forecast_temp_raw < (shading_forecast_temp - shading_forecast_temp_hysteresis)
+      }}
+    forecast_weather_invalid: >-
+      {{
+        is_shading_enabled and
+        shading_end_condition_enabled.forecast_weather and
+        shading_weather_conditions != [] and
+        (
+          forecast_weather_condition_raw is none or
+          forecast_weather_condition_raw in invalid_states or
+          forecast_weather_condition_raw not in shading_weather_conditions
+        )
+      }}
 
-  # Individual END condition checks (with lower thresholds for hysteresis)
-
-  shading_end_cond_azimuth_invalid: >-
-    {{
-      is_shading_enabled and
-      shading_end_cond_azimuth_enabled and
-      default_sun_sensor != [] and
-      (
-        current_sun_azimuth | float(default=999) <= shading_azimuth_start or
-        current_sun_azimuth | float(default=0) >= shading_azimuth_end
-      )
-    }}
-
-  shading_end_cond_elevation_invalid: >-
-    {{
-      is_shading_enabled and
-      shading_end_cond_elevation_enabled and
-      default_sun_sensor != [] and
-      (
-        current_sun_elevation | float(default=999) <= shading_elevation_min or
-        current_sun_elevation | float(default=0) >= shading_elevation_max
-      )
-    }}
-
-  shading_end_cond_brightness_invalid: >-
-    {{
-      is_shading_enabled and
-      shading_end_cond_brightness_enabled and
-      shading_brightness_sensor != [] and
-      states(shading_brightness_sensor) not in invalid_states and
-      states(shading_brightness_sensor) | float(default=999999) <
-      (shading_sun_brightness_end - shading_sun_brightness_hysteresis)
-    }}
-
-  shading_end_cond_temp1_invalid: >-
-    {{
-      is_shading_enabled and
-      shading_end_cond_temp1_enabled and
-      shading_temperatur_sensor1 != [] and
-      states(shading_temperatur_sensor1) not in invalid_states and
-      states(shading_temperatur_sensor1) | float(default=999) <
-      (shading_min_temperatur1 - shading_temperature_hysteresis1)
-    }}
-
-  shading_end_cond_temp2_invalid: >-
-    {{
-      is_shading_enabled and
-      shading_end_cond_temp2_enabled and
-      shading_temperatur_sensor2 != [] and
-      states(shading_temperatur_sensor2) not in invalid_states and
-      states(shading_temperatur_sensor2) | float(default=999) <
-      (shading_min_temperatur2 - shading_temperature_hysteresis2)
-    }}
-
-  shading_end_cond_forecast_temp_invalid: >-
-    {{
-      is_shading_enabled and
-      shading_end_cond_forecast_temp_enabled and
-      shading_forecast_temp != [] and
-      forecast_temp_below_end
-    }}
-
-  shading_end_cond_forecast_weather_invalid: >-
-    {{
-      is_shading_enabled and
-      shading_end_cond_forecast_weather_enabled and
-      shading_weather_conditions != [] and
-      not forecast_weather_condition_valid
-    }}
-
-  # ============================================================================
-  # END Logic Evaluation
-  # ============================================================================
-
-  # Check END AND group: ALL must become invalid to trigger end
+  # SHADING END - Combined AND/OR Logic
+  # END AND: All specified conditions must become invalid
   shading_end_and_result: >-
     {{
       shading_conditions_end_and | count > 0 and
       (
-        ('cond_azimuth' not in shading_conditions_end_and or shading_end_cond_azimuth_invalid)
+        ('cond_azimuth' not in shading_conditions_end_and or shading_end_condition_states.azimuth_invalid)
         and
-        ('cond_elevation' not in shading_conditions_end_and or shading_end_cond_elevation_invalid)
+        ('cond_elevation' not in shading_conditions_end_and or shading_end_condition_states.elevation_invalid)
         and
-        ('cond_brightness' not in shading_conditions_end_and or shading_end_cond_brightness_invalid)
+        ('cond_brightness' not in shading_conditions_end_and or shading_end_condition_states.brightness_invalid)
         and
-        ('cond_temp1' not in shading_conditions_end_and or shading_end_cond_temp1_invalid)
+        ('cond_temp1' not in shading_conditions_end_and or shading_end_condition_states.temp1_invalid)
         and
-        ('cond_temp2' not in shading_conditions_end_and or shading_end_cond_temp2_invalid)
+        ('cond_temp2' not in shading_conditions_end_and or shading_end_condition_states.temp2_invalid)
         and
-        ('cond_forecast_temp' not in shading_conditions_end_and or shading_end_cond_forecast_temp_invalid)
+        ('cond_forecast_temp' not in shading_conditions_end_and or shading_end_condition_states.forecast_temp_invalid)
         and
-        ('cond_forecast_weather' not in shading_conditions_end_and or shading_end_cond_forecast_weather_invalid)
+        ('cond_forecast_weather' not in shading_conditions_end_and or shading_end_condition_states.forecast_weather_invalid)
       )
     }}
 
-  # Check END OR group -
+  # END OR: At least one specified condition must become invalid
   shading_end_or_result: >-
     {{
       shading_conditions_end_or | count > 0 and
       (
-        shading_end_cond_azimuth_invalid or
-        shading_end_cond_elevation_invalid or
-        shading_end_cond_brightness_invalid or
-        shading_end_cond_temp1_invalid or
-        shading_end_cond_temp2_invalid or
-        shading_end_cond_forecast_temp_invalid or
-        shading_end_cond_forecast_weather_invalid
+        shading_end_condition_states.azimuth_invalid or
+        shading_end_condition_states.elevation_invalid or
+        shading_end_condition_states.brightness_invalid or
+        shading_end_condition_states.temp1_invalid or
+        shading_end_condition_states.temp2_invalid or
+        shading_end_condition_states.forecast_temp_invalid or
+        shading_end_condition_states.forecast_weather_invalid
       )
     }}
 
-  # Final: Shading should END if conditions trigger
+  # Final END condition: AND result OR OR result
   shading_end_conditions_met: >-
     {{
       is_shading_enabled and
@@ -3061,8 +3027,8 @@ variables:
       )
     }}
 
-  # COVER STATUS HELPER
-
+  # Cover Status Helper – JSON parsing
+  # Determine if status helper is properly configured and valid
   is_status_helper_enabled: >-
     {{
       'cover_helper_enabled' in cover_status_options and
@@ -3071,6 +3037,7 @@ variables:
       states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)")
     }}
 
+  # Parse JSON helper state or create default structure
   helper_state_json: >
     {% if is_status_helper_enabled %}
       {{ states(cover_status_helper) | from_json }}
@@ -3089,106 +3056,79 @@ variables:
       }}
     {% endif %}
 
-  # Cover status assignments
-  is_helper_open: "{{ is_status_helper_enabled and (helper_state_json | regex_search('open')) and (helper_state_json.open.a | default(false) | bool) }}"
-  is_helper_closed: "{{ is_status_helper_enabled and (helper_state_json | regex_search('close')) and (helper_state_json.close.a | default(false) | bool) }}"
-  is_helper_shaded: >-
-    {{
-      'shading' in helper_state_json and
-      helper_state_json.shading.a | default(false) | bool and
-      not (helper_state_json.shading.p | default(false) | bool)
-    }}
-  is_helper_shading_start: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.p | default(false) | bool) }}"
-  is_helper_shading_end: "{{ is_status_helper_enabled and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.q | default(false) | bool) }}"
-  is_helper_vent_partial: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vpart')) and (helper_state_json.vpart.a | default(false) | bool) }}"
-  is_helper_vent_full: "{{ is_status_helper_enabled and (helper_state_json | regex_search('vfull')) and (helper_state_json.vfull.a | default(false) | bool) }}"
-  is_helper_manual: "{{ is_status_helper_enabled and (helper_state_json | regex_search('manual')) and (helper_state_json.manual.a | default(false) | bool) }}"
+  # Helper status flags (active/inactive states)
+  # TODO - Why an other syntax for 'shaded'?
+  helper_status_flags:
+    open: "{{ (is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('open')) and (helper_state_json.open.a | default(false) | bool) }}"
+    closed: "{{ (is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('close')) and (helper_state_json.close.a | default(false) | bool) }}"
+    shaded: "{{ 'shading' in helper_state_json and helper_state_json.shading.a | default(false) | bool and not (helper_state_json.shading.p | default(false) | bool) }}"
+    shading_start_pending: "{{ (is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.p | default(false) | bool) }}"
+    shading_end_pending: "{{ (is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('shading')) and (helper_state_json.shading.q | default(false) | bool) }}"
+    vent_partial: "{{ (is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('vpart')) and (helper_state_json.vpart.a | default(false) | bool) }}"
+    vent_full: "{{ (is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('vfull')) and (helper_state_json.vfull.a | default(false) | bool) }}"
+    manual: "{{ (is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('manual')) and (helper_state_json.manual.a | default(false) | bool) }}"
 
-  ts_helper_open: "{{ helper_state_json.open.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('open'))) else 0 }}"
-  ts_helper_closed: "{{ helper_state_json.close.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('close'))) else 0 }}"
-  ts_helper_shaded: "{{ helper_state_json.shading.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('shading'))) else 0 }}"
-  ts_helper_vent_partial: "{{ helper_state_json.vpart.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vpart'))) else 0 }}"
-  ts_helper_vent_full: "{{ helper_state_json.vfull.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('vfull'))) else 0 }}"
-  ts_helper_manual: "{{ helper_state_json.manual.t | default(0) if (is_status_helper_enabled and (helper_state_json | regex_search('manual'))) else 0 }}"
+  # Timestamp dictionary - When each status was last set
+  helper_status_timestamps:
+    open: "{{ (helper_state_json.open.t | default(0)) if ((is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('open'))) else 0 }}"
+    closed: "{{ (helper_state_json.close.t | default(0)) if ((is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('close'))) else 0 }}"
+    shaded: "{{ (helper_state_json.shading.t | default(0)) if ((is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('shading'))) else 0 }}"
+    vent_partial: "{{ (helper_state_json.vpart.t | default(0)) if ((is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('vpart'))) else 0 }}"
+    vent_full: "{{ (helper_state_json.vfull.t | default(0)) if ((is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('vfull'))) else 0 }}"
+    manual: "{{ (helper_state_json.manual.t | default(0)) if ((is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('manual'))) else 0 }}"
 
-  # POSITION HELPERS
+  # Force entity disabled states (true = force is NOT active)
+  auto_up_force: !input auto_up_force
+  auto_down_force: !input auto_down_force
+  auto_ventilate_force: !input auto_ventilate_force
+  auto_shading_start_force: !input auto_shading_start_force
+  force_disabled_flags:
+    up: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
+    down: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
+    ventilate: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
+    shading_start: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
 
-  in_open_position: >-
-    {% set min = open_position - position_tolerance %}
-    {% set max = open_position + position_tolerance %}
-    {{
-      (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible) or
-        (is_cover_tilt_enabled_and_possible and current_tilt_position == open_tilt_position)
-      )
-    }}
-
-  in_close_position: >-
-    {% set min = close_position - position_tolerance %}
-    {% set max = close_position + position_tolerance %}
-    {{
-      (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible) or
-        (is_cover_tilt_enabled_and_possible and current_tilt_position == close_tilt_position)
-      )
-    }}
-
-  in_shading_position: >-
-    {% set min = shading_position - position_tolerance %}
-    {% set max = shading_position + position_tolerance %}
-    {{
-      is_shading_enabled
-      and (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position == shading_tilt_position)
-      )
-    }}
-
-  in_ventilate_position: >-
-    {% set min = ventilate_position - position_tolerance %}
-    {% set max = ventilate_position + position_tolerance %}
-    {{
-      is_ventilation_enabled
-      and (current_position >= min and current_position <= max)
-      and (
-        (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position ==  ventilate_tilt_position)
-      )
-    }}
-
-  individual_config: !input individual_config
-  prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
-  prevent_lowering_when_closing_if_shaded: "{{ 'prevent_lowering_when_closing_if_shaded' in individual_config }}"
-  prevent_shading_end_if_closed: "{{ 'prevent_shading_end_if_closed' in individual_config }}"
-  prevent_opening_after_shading_end: "{{ 'prevent_opening_after_shading_end' in individual_config }}"
-  prevent_opening_after_ventilation_end: "{{ 'prevent_opening_after_ventilation_end' in individual_config }}"
-  prevent_default_cover_actions: "{{ 'prevent_default_cover_actions' in individual_config }}"
-  prevent_shading_multiple_times: "{{ 'prevent_shading_multiple_times' in individual_config }}"
-  prevent_opening_multiple_times: "{{ 'prevent_opening_multiple_times' in individual_config }}"
-  prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
-
+  # Resident sensor configuration
+  resident_sensor: !input resident_sensor
   resident_config: !input resident_config
-  resident_opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
-  resident_closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
-  resident_allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
-  resident_allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
-  resident_allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
+  resident_flags:
+    opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
+    closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
+    allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
+    allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
+    allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
 
+  # Override flags
   ignore_after_manual_config: !input ignore_after_manual_config
-  override_opening_after_manual: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
-  override_closing_after_manual: "{{ 'ignore_closing_after_manual' in ignore_after_manual_config }}"
-  override_ventilation_after_manual: "{{ 'ignore_ventilation_after_manual' in ignore_after_manual_config }}"
-  override_shading_after_manual: "{{ 'ignore_shading_after_manual' in ignore_after_manual_config }}"
+  override_flags:
+    opening: "{{ 'ignore_opening_after_manual' in ignore_after_manual_config }}"
+    closing: "{{ 'ignore_closing_after_manual' in ignore_after_manual_config }}"
+    ventilation: "{{ 'ignore_ventilation_after_manual' in ignore_after_manual_config }}"
+    shading: "{{ 'ignore_shading_after_manual' in ignore_after_manual_config }}"
 
+  # Ventilation configuration
   auto_ventilate_options: !input auto_ventilate_options
-  ventilation_delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
-  ventilation_if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
-  ventilation_after_shading_end: "{{ 'ventilation_after_shading_end' in auto_ventilate_options }}"
+  contact_delay_trigger: !input contact_delay_trigger
+  contact_delay_status: !input contact_delay_status
+  ventilation_flags:
+    delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
+    if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
+    after_shading_end: "{{ 'ventilation_after_shading_end' in auto_ventilate_options }}"
 
-  # Config check
+  # Individual configuration
+  individual_config: !input individual_config
+  individual_flags:
+    prevent_higher_position_closing: "{{ 'prevent_higher_position_closing' in individual_config }}"
+    prevent_lowering_when_closing_if_shaded: "{{ 'prevent_lowering_when_closing_if_shaded' in individual_config }}"
+    prevent_shading_end_if_closed: "{{ 'prevent_shading_end_if_closed' in individual_config }}"
+    prevent_opening_after_shading_end: "{{ 'prevent_opening_after_shading_end' in individual_config }}"
+    prevent_opening_after_ventilation_end: "{{ 'prevent_opening_after_ventilation_end' in individual_config }}"
+    prevent_default_cover_actions: "{{ 'prevent_default_cover_actions' in individual_config }}"
+    prevent_shading_multiple_times: "{{ 'prevent_shading_multiple_times' in individual_config }}"
+    prevent_opening_multiple_times: "{{ 'prevent_opening_multiple_times' in individual_config }}"
+    prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
+
+  # Configuration check
   check_config: !input check_config
   check_config_debuglevel: !input check_config_debuglevel
   check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
@@ -3589,7 +3529,7 @@ actions:
               sequence:
                 - choose:
                     - conditions:
-                        - "{{ not prevent_default_cover_actions }}"
+                        - "{{ not individual_flags.prevent_default_cover_actions }}"
                         - "{{ target_position | default(101)  == 0 }}"
                       sequence:
                         - alias: "Close Cover"
@@ -3597,7 +3537,7 @@ actions:
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
                     - conditions:
-                        - "{{ not prevent_default_cover_actions }}"
+                        - "{{ not individual_flags.prevent_default_cover_actions }}"
                         - "{{ target_position | default(101) == 100 }}"
                       sequence:
                         - alias: "Open Cover"
@@ -3605,7 +3545,7 @@ actions:
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
                     - conditions:
-                        - "{{ not prevent_default_cover_actions }}"
+                        - "{{ not individual_flags.prevent_default_cover_actions }}"
                         - "{{ target_position | default(101) not in [0, 100] }}"
                       sequence:
                         - alias: "Moving the cover to target position"
@@ -3620,7 +3560,7 @@ actions:
       tilt_move_action: &tilt_move_action
         sequence:
           - if:
-              - "{{ not prevent_default_cover_actions }}"
+              - "{{ not individual_flags.prevent_default_cover_actions }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
               - "{{ expand(blind_entities) | selectattr('attributes.current_tilt_position', 'defined') | list | count > 0 }}"
             then:
@@ -3666,7 +3606,7 @@ actions:
   # Querying the weather forecast  #############################################
   - if:
       - "{{ is_shading_enabled }}"
-      - "{{ use_forecast_service }}"
+      - "{{ forecast_source_flags.use_weather and not forecast_source_flags.prevent_service }}"
       - "{{ states(shading_forecast_sensor) not in invalid_states }}"
       - "{{ trigger.id is defined }}"
       - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}" # Important: All triggers for shading start necessary!
@@ -3701,12 +3641,12 @@ actions:
           ts_now: "{{ as_timestamp(now()) | round(0) }}"
       - variables:
           update_values:
-            open: { a: "{{ is_helper_open | int | default(0) }}", t: "{{ ts_helper_open | default(ts_now) }}" }
-            close: { a: "{{ is_helper_closed | int | default(0) }}", t: "{{ ts_helper_closed | default(ts_now) }}" }
-            shading: { a: "{{ is_helper_shaded | int | default(0) }}", t: "{{ ts_helper_shaded | default(ts_now) }}", p: 0, q: 0 }
-            vpart: { a: "{{ is_helper_vent_partial | int | default(0) }}", t: "{{ ts_helper_vent_partial | default(ts_now) }}" }
-            vfull: { a: "{{ is_helper_vent_full | int | default(0) }}", t: "{{ ts_helper_vent_full | default(ts_now) }}" }
-            manual: { a: "{{ is_helper_manual | int | default(0) }}", t: "{{ ts_helper_manual | default(ts_now) }}" }
+            open: { a: "{{ helper_status_flags.open | int | default(0) }}", t: "{{ helper_status_timestamps.open | default(ts_now) }}" }
+            close: { a: "{{ helper_status_flags.closed | int | default(0) }}", t: "{{ helper_status_timestamps.closed | default(ts_now) }}" }
+            shading: { a: "{{ helper_status_flags.shaded | int | default(0) }}", t: "{{ helper_status_timestamps.shaded | default(ts_now) }}", p: 0, q: 0 }
+            vpart: { a: "{{ helper_status_flags.vent_partial | int | default(0) }}", t: "{{ helper_status_timestamps.vent_partial | default(ts_now) }}" }
+            vfull: { a: "{{ helper_status_flags.vent_full | int | default(0) }}", t: "{{ helper_status_timestamps.vent_full | default(ts_now) }}" }
+            manual: { a: "{{ helper_status_flags.manual | int | default(0) }}", t: "{{ helper_status_timestamps.manual | default(ts_now) }}" }
             v: 5
             t: "{{ helper_state_json.t | round(0) }}"
       - *helper_update
@@ -3726,25 +3666,25 @@ actions:
           - "{{ trigger.id | regex_match('^(t_open)') }}"
           - condition: !input auto_up_condition
           - and:
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
+              - "{{ force_disabled_flags.down }}"
+              - "{{ force_disabled_flags.ventilate }}"
+              - "{{ force_disabled_flags.shading_start }}"
           - or: # Check the helper status or the target status (issue #244)
-              - "{{ is_status_helper_enabled and not is_helper_open }}"
+              - "{{ is_status_helper_enabled and not helper_status_flags.open }}"
               - "{{ not in_open_position }}"
-          - "{{ not (is_status_helper_enabled and is_helper_manual and override_opening_after_manual) }}" # Override check
+          - "{{ not (is_status_helper_enabled and helper_status_flags.manual and override_flags.opening) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
-              - "{{ not prevent_opening_multiple_times }}"
-              - "{{ is_status_helper_enabled and prevent_opening_multiple_times and (now().day != ts_helper_open|timestamp_custom('%-d')|int) }}"
+              - "{{ not individual_flags.prevent_opening_multiple_times }}"
+              - "{{ is_status_helper_enabled and individual_flags.prevent_opening_multiple_times and (now().day != helper_status_timestamps.open|timestamp_custom('%-d')|int) }}"
           - or: # Check whether the resident trigger is allowed
               - "{{ trigger.id != 't_open_6' }}" # Continue if other trigger
-              - "{{ trigger.id == 't_open_6' and resident_opening_enabled }}" # Only continue if permitted
+              - "{{ trigger.id == 't_open_6' and resident_flags.opening_enabled }}" # Only continue if permitted
           - or: # Resident status must always be checked
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
               - and:
-                  - "{{ resident_allow_opening }}"
+                  - "{{ resident_flags.allow_opening }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
           - or: # Now we have to check different opening scenarios
               - and: # Control via times disabled
@@ -3793,7 +3733,7 @@ actions:
               - alias: "Shading detected. Move to shading position"
                 conditions:
                   - "{{ is_status_helper_enabled }}"
-                  - "{{ is_helper_shaded }}"
+                  - "{{ helper_status_flags.shaded }}"
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                 sequence:
                   - choose: []
@@ -3823,7 +3763,7 @@ actions:
                 conditions:
                   - "{{ not in_shading_position }}" # In this part, there is no plan for an open roller blind to switch from Shading to Open. I cannot check the helper here because Open+Shading could be set to true there.
                   - or:
-                      - "{{ is_status_helper_enabled and not is_helper_open }}" # including ventilation, window open-status and more possibilities
+                      - "{{ is_status_helper_enabled and not helper_status_flags.open }}" # including ventilation, window open-status and more possibilities
                       - "{{ not in_open_position }}"
                 sequence:
                   - choose: []
@@ -3861,18 +3801,18 @@ actions:
           - "{{ trigger.id | regex_match('^(t_close)') }}"
           - condition: !input auto_down_condition
           - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
+              - "{{ force_disabled_flags.up }}"
+              - "{{ force_disabled_flags.ventilate }}"
+              - "{{ force_disabled_flags.shading_start }}"
           - or: # Check the helper status or the target status
-              - "{{ is_status_helper_enabled and not is_helper_closed }}"
+              - "{{ is_status_helper_enabled and not helper_status_flags.closed }}"
               - "{{ not in_close_position }}"
               # - "{{ in_open_position }}"
-          - "{{ not (is_status_helper_enabled and is_helper_manual and override_closing_after_manual) }}" # Override check
+          - "{{ not (is_status_helper_enabled and helper_status_flags.manual and override_flags.closing) }}" # Override check
           - or: # Only once a day?
               - "{{ not is_status_helper_enabled }}"
-              - "{{ not prevent_closing_multiple_times }}"
-              - "{{ is_status_helper_enabled and prevent_closing_multiple_times and (ts_helper_closed < today_at(time_down_early_today) | as_timestamp) }}"
+              - "{{ not individual_flags.prevent_closing_multiple_times }}"
+              - "{{ is_status_helper_enabled and individual_flags.prevent_closing_multiple_times and (helper_status_timestamps.closed < today_at(time_down_early_today) | as_timestamp) }}"
           - or:
               - and: # Control via times disabled
                   - "{{ is_time_control_disabled }}"
@@ -3914,7 +3854,7 @@ actions:
                   - "{{ trigger.id == 't_close_6' }}"
                   - "{{ resident_sensor != [] }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
-                  - "{{ resident_closing_enabled }}"
+                  - "{{ resident_flags.closing_enabled }}"
 
         sequence:
           - choose:
@@ -3991,15 +3931,15 @@ actions:
                   - or:
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ is_status_helper_enabled }}"
-                          - "{{ prevent_lowering_when_closing_if_shaded }}"
-                          - "{{ is_helper_shaded }}"
+                          - "{{ individual_flags.prevent_lowering_when_closing_if_shaded }}"
+                          - "{{ helper_status_flags.shaded }}"
                           - "{{ close_position > shading_position }}"
                       - and: # Stop if cover is shaded and close position is lower than shading position
-                          - "{{ prevent_lowering_when_closing_if_shaded }}"
+                          - "{{ individual_flags.prevent_lowering_when_closing_if_shaded }}"
                           - "{{ in_shading_position }}" # Always, no further checks for 'is_status_helper_enabled'
                           - "{{ close_position > shading_position }}"
                       - and: # Stop if close-position is higher than the current position
-                          - "{{ prevent_higher_position_closing }}"
+                          - "{{ individual_flags.prevent_higher_position_closing }}"
                           - "{{ (current_position <= close_position) }}"
                 sequence:
                   - variables:
@@ -4057,27 +3997,27 @@ actions:
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_start_condition
           - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
+              - "{{ force_disabled_flags.up }}"
+              - "{{ force_disabled_flags.down }}"
+              - "{{ force_disabled_flags.ventilate }}"
           - or: # Check the helper status or the target status
-              - "{{ not is_helper_shaded }}"
-              - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
+              - "{{ not helper_status_flags.shaded }}"
+              - "{{ not (helper_status_flags.vent_partial or helper_status_flags.vent_full) }}"
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
-          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
+          - "{{ not (helper_status_flags.manual and override_flags.shading) }}" # Override check
           - or: # Only once a day?
-              - "{{ not prevent_shading_multiple_times }}"
-              - "{{ prevent_shading_multiple_times and (now().day != ts_helper_shaded|timestamp_custom('%-d') | int) }}"
+              - "{{ not individual_flags.prevent_shading_multiple_times }}"
+              - "{{ individual_flags.prevent_shading_multiple_times and (now().day != helper_status_timestamps.shaded|timestamp_custom('%-d') | int) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
 
         sequence:
           - if:
               - or:
                   - and: # Independent temperature-based shading
-                      - "{{ is_shading_temp_comparison_independent }}"
-                      - "{{ temp_forecast_condition_met }}"
+                      - "{{ 'shading_temp_comparison_independent' in shading_config }}"
+                      - "{{ shading_start_condition_states.forecast_temp_valid }}"
                   - "{{ shading_start_conditions_met }}" # Use flexible AND/OR logic
             then:
               - choose:
@@ -4087,7 +4027,7 @@ actions:
                   - alias: "Shading detected. Save next execution time and pending status"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
-                      - "{{ not is_helper_shading_start }}" # Not if a pending is already active
+                      - "{{ not helper_status_flags.shading_start_pending }}" # Not if a pending is already active
                     sequence:
                       - variables:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
@@ -4103,7 +4043,7 @@ actions:
                   - alias: "Consider lockout protection when shading starts"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
+                      - "{{ helper_status_flags.shading_start_pending }}" # Only when it comes back from pending status
                       - "{{ is_ventilation_enabled }}"
                       - or:
                           - and:
@@ -4132,7 +4072,7 @@ actions:
                   - alias: "Start Shading"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
+                      - "{{ helper_status_flags.shading_start_pending }}" # Only when it comes back from pending status
                       - or:
                           - and:
                               - "{{ not is_cover_tilt_enabled_and_possible }}"
@@ -4155,7 +4095,7 @@ actions:
                           - "{{ resident_sensor == [] }}"
                           - "{{ states(resident_sensor) in ['false', 'off'] }}"
                           - and: # Issue 131
-                              - "{{ resident_allow_shading }}"
+                              - "{{ resident_flags.allow_shading }}"
                               - "{{ states(resident_sensor) in ['true', 'on'] }}"
                     sequence:
                       - delay:
@@ -4186,8 +4126,8 @@ actions:
                   - alias: "Save shading state for the future"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}" # Only when it comes back from pending status
-                      - "{{ is_helper_closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                      - "{{ helper_status_flags.shading_start_pending }}" # Only when it comes back from pending status
+                      - "{{ helper_status_flags.closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                     sequence:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -4206,12 +4146,12 @@ actions:
                   - alias: "Shading start conditions not met - check if we should continue"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}"
+                      - "{{ helper_status_flags.shading_start_pending }}"
                       - "{{ shading_start_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
                           - and:
                               - "{{ is_time_control_disabled }}"
-                              - "{{ is_helper_open }}"
+                              - "{{ helper_status_flags.open }}"
                           - and:
                               - "{{ is_time_field_enabled }}"
                               - "{{ now() >= today_at(time_up_early_today) }}"
@@ -4236,7 +4176,7 @@ actions:
                   - alias: "Shading start - stop retry"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ is_helper_shading_start }}"
+                      - "{{ helper_status_flags.shading_start_pending }}"
                     sequence:
                       - variables:
                           # timeout_exceeded: "{{ shading_start_max_duration > 0 and (as_timestamp(now()) - helper_state_json.shading.t) > shading_start_max_duration }}"
@@ -4259,16 +4199,16 @@ actions:
           - "{{ trigger.id | regex_match('^(t_shading_tilt)') }}"
           - "{{ is_status_helper_enabled }}"
           - and:
-              - "{{ is_helper_shaded }}"
-              - "{{ not is_helper_shading_start }}"
+              - "{{ helper_status_flags.shaded }}"
+              - "{{ not helper_status_flags.shading_start_pending }}"
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
           - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-          - "{{ not (is_helper_vent_partial or is_helper_vent_full) }}"
-          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
+              - "{{ force_disabled_flags.up }}"
+              - "{{ force_disabled_flags.down }}"
+              - "{{ force_disabled_flags.ventilate }}"
+          - "{{ not (helper_status_flags.vent_partial or helper_status_flags.vent_full) }}"
+          - "{{ not (helper_status_flags.manual and override_flags.shading) }}" # Override check
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
@@ -4292,10 +4232,10 @@ actions:
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_end_condition
           - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
+              - "{{ force_disabled_flags.up }}"
+              - "{{ force_disabled_flags.down }}"
+              - "{{ force_disabled_flags.ventilate }}"
+              - "{{ force_disabled_flags.shading_start }}"
           - or:
               - and:
                   - "{{ is_time_control_disabled }}"
@@ -4307,14 +4247,14 @@ actions:
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
-          - "{{ not (is_helper_manual and override_shading_after_manual) }}" # Override check
-          - "{{ not is_helper_closed }}"
+          - "{{ not (helper_status_flags.manual and override_flags.shading) }}" # Override check
+          - "{{ not helper_status_flags.closed }}"
           - or:
-              - "{{ is_helper_shaded }}"
+              - "{{ helper_status_flags.shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
           - or: # Optional: Continue if cover is not already closed
-              - "{{ not prevent_shading_end_if_closed }}"
-              - "{{ prevent_shading_end_if_closed and not in_close_position}}"
+              - "{{ not individual_flags.prevent_shading_end_if_closed }}"
+              - "{{ individual_flags.prevent_shading_end_if_closed and not in_close_position}}"
           - or: # Issue #116
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -4329,7 +4269,7 @@ actions:
                   - alias: "Shading end detected. Save next execution time and pending status"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
-                      - "{{ not is_helper_shading_end }}"
+                      - "{{ not helper_status_flags.shading_end_pending }}"
                     sequence:
                       - variables:
                           local_waitingtime_end: >
@@ -4351,9 +4291,9 @@ actions:
                   - alias: "Only tilt open after shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
+                      - "{{ helper_status_flags.shading_end_pending }}"
                       - "{{ is_cover_tilt_enabled_and_possible }}"
-                      - "{{ prevent_opening_after_shading_end}}"
+                      - "{{ individual_flags.prevent_opening_after_shading_end}}"
                     sequence:
 
                       - variables:
@@ -4371,7 +4311,7 @@ actions:
                   - alias: "Lockout protection when shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
+                      - "{{ helper_status_flags.shading_end_pending }}"
                       - "{{ is_ventilation_enabled }}"
                       - "{{ (current_position < ventilate_position) }}"
                       - or:
@@ -4401,9 +4341,9 @@ actions:
                   - alias: "Ventilation after shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
+                      - "{{ helper_status_flags.shading_end_pending }}"
                       - "{{ is_ventilation_enabled }}"
-                      - "{{ ventilation_after_shading_end }}"
+                      - "{{ ventilation_flags.after_shading_end }}"
                       - "{{ contact_window_tilted != [] }}"
                       - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                       - "{{ not lockout_tilted_when_closing }}"
@@ -4412,7 +4352,7 @@ actions:
                           - "{{ states(contact_window_opened) in ['false', 'off'] }}"
                       - or:
                           - "{{ (current_position < ventilate_position) }}"
-                          - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
+                          - "{{ ventilation_flags.if_lower_enabled and (current_position >= ventilate_position) }}"
                     sequence:
                       - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                           seconds: >
@@ -4448,7 +4388,7 @@ actions:
                   - alias: "Move cover after shading end - conditions still valid"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
+                      - "{{ helper_status_flags.shading_end_pending }}"
                       - or:
                           - "{{ current_sun_azimuth > shading_azimuth_end }}"
                           - "{{ current_sun_elevation > shading_elevation_max }}"
@@ -4456,8 +4396,7 @@ actions:
                           - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
                           - "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
                           - "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
-                          - "{{ forecast_temp_below_end }}" # Checks during shading end execution whether conditions are still valid
-                          # - "{{ shading_weather_conditions != [] and forecast_condition not in shading_weather_conditions }}" # TODO - currently without weather checks
+                          - "{{ shading_end_condition_states.forecast_temp_invalid }}" # Checks during shading end execution whether conditions are still valid
                     sequence:
                       - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                           seconds: >
@@ -4471,7 +4410,7 @@ actions:
                         default: !input auto_shading_end_action_before
 
                       - if:
-                          - "{{ not prevent_opening_after_shading_end}}"
+                          - "{{ not individual_flags.prevent_opening_after_shading_end}}"
                         then:
                           - variables:
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -4502,7 +4441,7 @@ actions:
                   - alias: "Shading end conditions not met - check if we should continue"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
+                      - "{{ helper_status_flags.shading_end_pending }}"
                       - "{{ shading_end_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
                           - and:
@@ -4532,7 +4471,7 @@ actions:
                   - alias: "Shading end - stop retry"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ is_helper_shading_end }}"
+                      - "{{ helper_status_flags.shading_end_pending }}"
                     sequence:
                       - variables:
                           # timeout_exceeded: "{{ shading_end_max_duration > 0 and (as_timestamp(now()) - helper_state_json.shading.t) > shading_end_max_duration }}"
@@ -4560,14 +4499,14 @@ actions:
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
           - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
+              - "{{ force_disabled_flags.up }}"
+              - "{{ force_disabled_flags.down }}"
+              - "{{ force_disabled_flags.shading_start }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
               - and:
-                  - "{{ resident_allow_ventilation }}"
+                  - "{{ resident_flags.allow_ventilation }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
         sequence:
           - delay:
@@ -4609,7 +4548,7 @@ actions:
                           - "{{ is_cover_tilt_enabled_and_possible }}"
                           - "{{ (current_position <= ventilate_position) }}"
                           - "{{ (current_tilt_position <= ventilate_tilt_position) }}"
-                      - "{{ ventilation_if_lower_enabled and (current_position >= ventilate_position) }}"
+                      - "{{ ventilation_flags.if_lower_enabled and (current_position >= ventilate_position) }}"
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
@@ -4644,18 +4583,18 @@ actions:
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
           - and:
-              - "{{ auto_up_force_disabled }}"
-              - "{{ auto_down_force_disabled }}"
-              - "{{ auto_ventilate_force_disabled }}"
-              - "{{ auto_shading_start_force_disabled }}"
-          - "{{ not (is_helper_manual and override_ventilation_after_manual) }}" # Override check
+              - "{{ force_disabled_flags.up }}"
+              - "{{ force_disabled_flags.down }}"
+              - "{{ force_disabled_flags.ventilate }}"
+              - "{{ force_disabled_flags.shading_start }}"
+          - "{{ not (helper_status_flags.manual and override_flags.ventilation) }}" # Override check
           - or:
               - and:
                   - "{{ trigger.id == 't_contact_tilted_off' }}"
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
                   - or:
-                      - "{{ is_helper_vent_partial }}" # Status check
+                      - "{{ helper_status_flags.vent_partial }}" # Status check
                       - "{{ in_ventilate_position }}" # Position check
               - and:
                   # TODO: Workaround for #181
@@ -4667,16 +4606,16 @@ actions:
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
                   - "{{ lockout_tilted_when_closing }}"
-                  - "{{ is_helper_vent_full }}"
+                  - "{{ helper_status_flags.vent_full }}"
               - and:
                   - "{{ trigger.id == 't_contact_opened_off' }}"
                   - "{{ contact_window_opened != [] }}"
                   - "{{ states(contact_window_opened) in ['false', 'off'] }}"
-                  - "{{ is_helper_vent_full }}"
+                  - "{{ helper_status_flags.vent_full }}"
 
         sequence:
           - if:
-              - "{{ ventilation_delay_enabled }}"
+              - "{{ ventilation_flags.delay_enabled }}"
             then:
               - delay:
                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -4690,7 +4629,7 @@ actions:
               #####################################################
               - alias: "Contact sensor closed. Activate partial ventilation"
                 conditions:
-                  - "{{ is_helper_vent_full }}" # Was fully ventilated before :-)
+                  - "{{ helper_status_flags.vent_full }}" # Was fully ventilated before :-)
                   - "{{ contact_window_tilted != [] }}"
                   - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                 sequence:
@@ -4715,7 +4654,7 @@ actions:
               ##########################################
               - alias: "Contact sensor closed. Activate shading"
                 conditions:
-                  - "{{ is_helper_shaded }}"
+                  - "{{ helper_status_flags.shaded }}"
                 sequence:
                   - choose: []
                     default: !input auto_shading_start_action_before
@@ -4742,8 +4681,8 @@ actions:
               ########################################
               - alias: "Contact sensor closed. Open the cover"
                 conditions:
-                  - "{{ is_helper_open }}"
-                  - "{{ not is_helper_shaded }}"
+                  - "{{ helper_status_flags.open }}"
+                  - "{{ not helper_status_flags.shaded }}"
                 sequence:
                   - choose: []
                     default: !input auto_up_action_before
@@ -4761,7 +4700,7 @@ actions:
                         t: "{{ ts_now }}"
                   - *helper_update
                   - if:
-                      - "{{ not prevent_opening_after_ventilation_end }}"
+                      - "{{ not individual_flags.prevent_opening_after_ventilation_end }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
@@ -4773,7 +4712,7 @@ actions:
               ########################################
               - alias: "Contact sensor closed. Close the cover"
                 conditions:
-                  - "{{ is_helper_closed }}"
+                  - "{{ helper_status_flags.closed }}"
                 sequence:
                   - choose: []
                     default: !input auto_down_action_before
@@ -4805,9 +4744,9 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_open' }}"
-          - "{{ auto_down_force_disabled }}"
-          - "{{ auto_ventilate_force_disabled }}"
-          - "{{ auto_shading_start_force_disabled }}"
+          - "{{ force_disabled_flags.down }}"
+          - "{{ force_disabled_flags.ventilate }}"
+          - "{{ force_disabled_flags.shading_start }}"
         sequence:
           - choose: []
             default: !input auto_up_action_before
@@ -4838,9 +4777,9 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_close' }}"
-          - "{{ auto_up_force_disabled }}"
-          - "{{ auto_ventilate_force_disabled }}"
-          - "{{ auto_shading_start_force_disabled }}"
+          - "{{ force_disabled_flags.up }}"
+          - "{{ force_disabled_flags.ventilate }}"
+          - "{{ force_disabled_flags.shading_start }}"
         sequence:
           - choose: []
             default: !input auto_down_action_before
@@ -4872,9 +4811,9 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_vent' }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ auto_up_force_disabled }}"
-          - "{{ auto_down_force_disabled }}"
-          - "{{ auto_shading_start_force_disabled }}"
+          - "{{ force_disabled_flags.up }}"
+          - "{{ force_disabled_flags.down }}"
+          - "{{ force_disabled_flags.shading_start }}"
         sequence:
           - choose: []
             default: !input auto_ventilate_action_before
@@ -4906,9 +4845,9 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_shading_start' }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ auto_up_force_disabled }}"
-          - "{{ auto_down_force_disabled }}"
-          - "{{ auto_ventilate_force_disabled }}"
+          - "{{ force_disabled_flags.up }}"
+          - "{{ force_disabled_flags.down }}"
+          - "{{ force_disabled_flags.ventilate }}"
         sequence:
           - choose: []
             default: !input auto_shading_start_action_before
@@ -5099,9 +5038,9 @@ actions:
           - "{{ trigger.id == 't_shading_reset' }}"
           - "{{ is_status_helper_enabled }}"
           - or:
-              - "{{ is_helper_shaded }}"
-              - "{{ is_helper_shading_start }}"  # Also clear pending status
-              - "{{ is_helper_shading_end }}"    # Also clear end‑pending status
+              - "{{ helper_status_flags.shaded }}"
+              - "{{ helper_status_flags.shading_start_pending }}"  # Also clear pending status
+              - "{{ helper_status_flags.shading_end_pending }}"    # Also clear end‑pending status
         sequence:
           - delay:
               seconds: "{{ (range(0, 60) | random | int) }}"
@@ -5292,17 +5231,17 @@ actions:
                   message: "Shading end retry disabled (0). May get stuck if conditions fluctuate. Recommended: 3600-7200s"
 
                 # ========== FORECAST CONFIGURATION CHECKS ==========
-                - condition: "{{ use_forecast_sensor and shading_weather_conditions | length > 0 }}"
+                - condition: "{{ forecast_source_flags.use_sensor and shading_weather_conditions | length > 0 }}"
                   message: "Weather conditions configured with temperature sensor (not supported). Use weather entity or remove conditions"
-                - condition: "{{ use_forecast_weather and states(shading_forecast_sensor) in ['unknown', 'unavailable'] }}"
+                - condition: "{{ forecast_source_flags.use_weather and states(shading_forecast_sensor) in ['unknown', 'unavailable'] }}"
                   message: "Weather entity '{{ shading_forecast_sensor }}' is unavailable. Check weather integration"
-                - condition: "{{ use_forecast_sensor and states(shading_forecast_temp_sensor) in ['unknown', 'unavailable'] }}"
+                - condition: "{{ forecast_source_flags.use_sensor and states(shading_forecast_temp_sensor) in ['unknown', 'unavailable'] }}"
                   message: "Forecast temperature sensor '{{ shading_forecast_temp_sensor }}' is unavailable"
-                - condition: "{{ use_forecast_sensor and not is_number(states(shading_forecast_temp_sensor)) }}"
+                - condition: "{{ forecast_source_flags.use_sensor and not is_number(states(shading_forecast_temp_sensor)) }}"
                   message: "Forecast temperature sensor '{{ shading_forecast_temp_sensor }}' is non-numeric: '{{ states(shading_forecast_temp_sensor) }}'"
-                - condition: "{{ shading_forecast_temp != [] and not use_forecast_sensor and not use_forecast_weather }}"
+                - condition: "{{ shading_forecast_temp != [] and not forecast_source_flags.use_sensor and not forecast_source_flags.use_weather }}"
                   message: "Forecast temperature configured ({{ shading_forecast_temp }}°C) but no forecast source selected. Configure weather entity or temperature sensor"
-                - condition: "{{ use_forecast_sensor and use_forecast_weather }}"
+                - condition: "{{ forecast_source_flags.use_sensor and forecast_source_flags.use_weather }}"
                   message: "Both weather entity and temperature sensor configured. Temperature sensor takes priority (weather entity ignored)"
 
                 # ========== SHADING CONDITIONS CHECKS ==========
