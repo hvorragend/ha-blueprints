@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.11.24
+    **Version**: 2025.11.25
 
     ### 🔗 Resources & Support
 
@@ -38,6 +38,11 @@ blueprint:
     - Considers **weather forecasts** to avoid unnecessary closures
     - Independent START and END logic for precise control
     - Built-in **hysteresis** to prevent wear from rapid cycling
+
+    ### 🎯 Cover Type Support / Awning Support
+    - Blinds & Roller Shutters: Traditional covers where 0% = closed (down)
+    - Awnings & Sunshades: Inverted logic where 0% = retracted, 100% = extended
+    - Automatic position logic adaptation based on cover type
 
     ### 🪟 Ventilation Management
     - Automatically adjusts to ventilation position when window is tilted
@@ -193,7 +198,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # v2025.11.24 - Smarter, More Flexible Sun Shading:
+    # v2025.11.25 - Smarter, More Flexible Sun Shading:
 
       ## Flexible shading logic
 
@@ -240,6 +245,38 @@ blueprint:
         Shading end conditions are checked periodically until they remain stable over the configured waiting period or a timeout is reached, so shading does not end prematurely just because of a short‑lived fluctuation.
 
 
+      ## Awning Support
+
+      - CCA now supports now **awnings and sunshades** with inverted position logic!
+
+        ### Configuration Examples
+
+        #### Roller Shutter (Standard)
+        ```yaml
+        Cover Type: Blind / Roller Shutter
+        Open Position: 100%  # Fully up
+        Shading Position: 25%  # Partially down
+        Close Position: 0%  # Fully down
+        ```
+
+        #### Awning (Inverted)
+        ```yaml
+        Cover Type: Awning / Sunshade
+        Open Position: 0%  # Retracted
+        Shading Position: 75%  # Extended for shade
+        Close Position: 100%  # Fully extended
+        ```
+
+
+      - **Removed: Shading End Behavior parameter**
+      The parameter `shading_end_behavior` has been removed. Covers now always return to `open_position` when shading ends (fully up for blinds, retracted for awnings).
+
+
+      -  **Important for Existing Users**
+        If you upgrade from an older CCA version:
+        - **Blinds/Shutters**: Select "Blind / Roller Shutter" (default)
+        - **No more changes needed** to your existing configuration
+
       ## Reliability, fixes and internal optimizations
 
       - **Fix for `current_tilt_position` errors**
@@ -279,6 +316,9 @@ blueprint:
 
       - **Minor change with “Immediate end by sun position” option**
         The parameter *End Sun Shading – Immediately When Out Of Range* (`is_shading_end_immediate_by_sun_position`) has been removed; please update your configuration accordingly. Parameter update required!
+
+      - **Removed: Shading End Behavior**
+        Parameter `shading_end_behavior` removed. Covers always return to `open_position` after shading ends.
 
       - **Clean‑up for manual YAML users**
         If you maintain your automation YAML manually, remove the deprecated variables `shading_start_behavior` and `is_shading_end_immediate_by_sun_position` to keep your configuration aligned with the new logic.
@@ -382,7 +422,7 @@ blueprint:
                   value: "auto_brightness_enabled"
                 - label: "☀️ - Add sun elevation-based control to time-based opening and closing"
                   value: "auto_sun_enabled"
-                - label: "💨 - Enable ventilation mode and lockout protection (requires helper)"
+                - label: "💨 - Enable ventilation mode and lockout protection (requires helper, blinds only)"
                   value: "auto_ventilate_enabled"
                 - label: "🥵 - Enable automatic sun protection and shading control (requires helper)"
                   value: "auto_shading_enabled"
@@ -509,24 +549,57 @@ blueprint:
     position_section:
       name: "Cover Position Settings"
       icon: mdi:window-shutter-settings
+
       description: >-
         <br /><center>
           <details>
               <summary><code><strong>CLICK HERE:</strong> Important notes on configuring the position values</code></summary>
               <code>
-              Please ensure that all position values are unique and do not conflict with each other.<br />
-              Correct position values are essential (e.g. open_position must be greater than closed_position).<br />
-              The shading and ventilation positions must also be unique, i.e. they must not match any other values.<br />
-              For more information, please refer to the important notes at the top of the blueprint description or the second post in the CCA community thread.<br /><br />
-              Attention: Bear in mind that, if you include the tolerance, the other positions are not too close to each other.<br />
-              The following would cause problems and be incorrect:<br />
-              Open Position = 100 / Ventilate Position = 99 / Tolerance >= 1<br />
-            </code>
-          </details>
-        </center><br />
-
+              <strong>Position Logic:</strong><br />
+              - For Blinds/Shutters: open_position (100%) > shading_position (25%) > close_position (0%)<br />
+              - For Awnings: open_position (0%) < shading_position (75%) < close_position (100%)<br />
+              <br />
+              Please ensure that all position values are unique and do not conflict with each other.<br /><br />
       collapsed: true
       input:
+        cover_type:
+          name: "🎯 Cover Type"
+          description: >-
+            Select the type of cover you want to control.
+            <br /><br />
+            <strong>Blind/Roller Shutter:</strong> Position 0% = closed (down), 100% = open (up). Shading uses lower positions.
+            <br /><br />
+            <strong>Awning/Sunshade:</strong> Position 0% = retracted (closed), 100% = extended (open). Shading uses higher positions.
+            <br /><br />
+            ⚠️ <strong>Note:</strong> Ventilation and tilt features are not available for awnings.
+            <br /><br />
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Position value examples</code></summary>
+
+            <strong>For Blinds/Shutters:</strong><br />
+            - Open Position: 100% (fully up)<br />
+            - Shading Position: 25% (partially down for sun protection)<br />
+            - Ventilate Position: 30% (slightly down for air flow)<br />
+            - Close Position: 0% (fully down)<br />
+            <br />
+            <strong>For Awnings:</strong><br />
+            - Open Position: 0% (retracted/closed)<br />
+            - Shading Position: 75% (extended for sun protection)<br />
+            - Close Position: 100% (fully extended)<br />
+            <br />
+            <em>Note: Ventilate Position is not used for awnings.</em>
+
+            </details>
+          default: "blind"
+          selector:
+            select:
+              options:
+                - label: "🪟 Blind / Roller Shutter (Standard)"
+                  value: "blind"
+                - label: "☂️ Awning / Sunshade (Inverted)"
+                  value: "awning"
+              mode: dropdown
+
         open_position:
           name: "🔼 Open Position"
           description: "What position should the cover be moved into when opening?"
@@ -590,6 +663,8 @@ blueprint:
         cover_tilt_config:
           name: "📐 Tilt Position Feature"
           description: >-
+            ⚠️ <strong>Note:</strong> Tilt control is only available for blinds/shutters, not for awnings.
+            <br /><br />
             If the cover and the integration support it, the tilt position of the cover can be set. The standard attribute ‘current_tilt_position’ is used for this.
             However, the ‘current_position’ attribute is still used exclusively for the actual position detection in the blueprint.
           default: cover_tilt_disabled
@@ -1932,23 +2007,23 @@ blueprint:
           selector:
             boolean: {}
 
-        shading_end_behavior:
-          name: "🥵 Sun Shading - End Behavior"
-          description: >-
-            Configure how the cover should behave when sun shading ends.
-            Choose "Move to close position" for awnings to retract when shading ends.
-          default: "open_position"
-          selector:
-            select:
-              options:
-                - label: "🔼 Move to open position (default for blinds / roller shutters)"
-                  value: "open_position"
-                - label: "🔻 Move to close position (for awnings)"
-                  value: "close_position"
-              multiple: false
-              sort: false
-              custom_value: false
-              mode: list
+        # shading_end_behavior:
+        #   name: "🥵 Sun Shading - End Behavior"
+        #   description: >-
+        #     Configure how the cover should behave when sun shading ends.
+        #     Choose "Move to close position" for awnings to retract when shading ends.
+        #   default: "open_position"
+        #   selector:
+        #     select:
+        #       options:
+        #         - label: "🔼 Move to open position (default for blinds / roller shutters)"
+        #           value: "open_position"
+        #         - label: "🔻 Move to close position (for awnings)"
+        #           value: "close_position"
+        #       multiple: false
+        #       sort: false
+        #       custom_value: false
+        #       mode: list
 
     resident_section:
       name: "Resident Settings"
@@ -2447,6 +2522,8 @@ blueprint:
 
 trigger_variables:
   blind: !input blind
+  cover_type: !input cover_type
+  is_awning: "{{ cover_type == 'awning' }}"
 
   # Positions
   open_position: !input open_position
@@ -2471,6 +2548,7 @@ trigger_variables:
   auto_options: !input auto_options
   cover_tilt_config: !input cover_tilt_config
   cover_tilt_reposition_config: !input cover_tilt_reposition_config
+  is_cover_tilt_enabled: "{{ not is_awning and 'cover_tilt_enabled' in cover_tilt_config }}"
 
   # Time configuration
   time_up_early: !input time_up_early
@@ -2541,15 +2619,16 @@ trigger_variables:
 
   # Feature enable flag computation
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
-  is_cover_tilt_enabled: "{{ 'cover_tilt_enabled' in cover_tilt_config }}"
   is_up_enabled: "{{ 'auto_up_enabled' in auto_options }}"
   is_down_enabled: "{{ 'auto_down_enabled' in auto_options }}"
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
-  is_ventilation_enabled: "{{ 'auto_ventilate_enabled' in auto_options }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
   is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
+
+  # Ventilation and tilt are only available for blinds, not awnings
+  is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
 
   # Reset override flag computation
   reset_override_config: !input reset_override_config
@@ -2579,17 +2658,42 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.11.24"
+  version: "2025.11.25"
 
   # Basic entity state reading
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
   current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
   current_tilt_position: "{{ state_attr(blind, 'current_tilt_position') | int(default=101) }}"
+
+  # COVER TYPE & POSITION COMPARISON LOGIC
+  # Position comparison results - Awnings use inverted logic
+  position_comparisons:
+    # Current position vs targets
+    current_above_open: "{{ current_position < open_position if is_awning else current_position > open_position }}"
+    current_above_close: "{{ current_position < close_position if is_awning else current_position > close_position }}"
+    current_above_shading: "{{ current_position < shading_position if is_awning else current_position > shading_position }}"
+    current_above_ventilate: "{{ current_position < ventilate_position if is_awning else current_position > ventilate_position }}"
+
+    current_below_open: "{{ current_position > open_position if is_awning else current_position < open_position }}"
+    current_below_close: "{{ current_position > close_position if is_awning else current_position < close_position }}"
+    current_below_shading: "{{ current_position > shading_position if is_awning else current_position < shading_position }}"
+    current_below_ventilate: "{{ current_position > ventilate_position if is_awning else current_position < ventilate_position }}"
+
+    # Position ordering (for config validation)
+    open_above_close: "{{ open_position < close_position if is_awning else open_position > close_position }}"
+    open_above_ventilate: "{{ open_position < ventilate_position if is_awning else open_position > ventilate_position }}"
+    shading_above_close: "{{ shading_position < close_position if is_awning else shading_position > close_position }}"
+    shading_below_open: "{{ shading_position > open_position if is_awning else shading_position < open_position }}"
+    ventilate_above_close: "{{ ventilate_position < close_position if is_awning else ventilate_position > close_position }}"
+
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
   is_today_off: "{{ workday_sensor_today != [] and is_state(workday_sensor_today, 'off') }}"
   is_tomorrow_off: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') }}"
   is_tomorrow_on: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') }}"
+
+  is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
+  is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
 
   # Delays and Timing
   drive_delay_fix: !input drive_delay_fix
@@ -2611,10 +2715,6 @@ variables:
       time_down_late_non_workday if is_today_off else
       time_down_late
     }}
-
-  # Tilt configuration flags and helpers
-  is_cover_tilt_reposition_enabled: "{{ 'cover_tilt_reposition_enabled' in cover_tilt_reposition_config }}"
-  is_cover_tilt_enabled_and_possible: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') != none }}"
 
   # SHADING TILT POSITION - Elevation-based selection
   # Determine tilt angle based on current sun elevation (multi-stage)
@@ -2688,7 +2788,7 @@ variables:
   shading_waitingtime_end: !input shading_waitingtime_end
   shading_start_max_duration: !input shading_start_max_duration
   shading_end_max_duration: !input shading_end_max_duration
-  shading_end_behavior: !input shading_end_behavior
+  # shading_end_behavior: !input shading_end_behavior
   shading_config: !input shading_config
 
   # Additional shading configuration passthrough
@@ -3933,14 +4033,14 @@ actions:
                           - "{{ is_status_helper_enabled }}"
                           - "{{ individual_flags.prevent_lowering_when_closing_if_shaded }}"
                           - "{{ helper_status_flags.shaded }}"
-                          - "{{ close_position > shading_position }}"
+                          - "{{ not position_comparisons.shading_above_close }}"
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ individual_flags.prevent_lowering_when_closing_if_shaded }}"
                           - "{{ in_shading_position }}" # Always, no further checks for 'is_status_helper_enabled'
-                          - "{{ close_position > shading_position }}"
+                          - "{{ not position_comparisons.shading_above_close }}"
                       - and: # Stop if close-position is higher than the current position
                           - "{{ individual_flags.prevent_higher_position_closing }}"
-                          - "{{ (current_position <= close_position) }}"
+                          - "{{ position_comparisons.current_below_close or current_position == close_position }}"
                 sequence:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -4076,10 +4176,10 @@ actions:
                       - or:
                           - and:
                               - "{{ not is_cover_tilt_enabled_and_possible }}"
-                              - "{{ current_position > shading_position }}"
+                              - "{{ position_comparisons.current_above_shading }}"
                           - and:
                               - "{{ is_cover_tilt_enabled_and_possible }}"
-                              - "{{ current_position >= shading_position }}"
+                              - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
                       - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
                           - and:
                               - "{{ is_time_control_disabled }}"
@@ -4313,7 +4413,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ helper_status_flags.shading_end_pending }}"
                       - "{{ is_ventilation_enabled }}"
-                      - "{{ (current_position < ventilate_position) }}"
+                      - "{{ position_comparisons.current_below_ventilate }}"
                       - or:
                           - and:
                               - "{{ contact_window_opened != [] }}"
@@ -4351,8 +4451,8 @@ actions:
                           - "{{ contact_window_opened == [] }}"
                           - "{{ states(contact_window_opened) in ['false', 'off'] }}"
                       - or:
-                          - "{{ (current_position < ventilate_position) }}"
-                          - "{{ ventilation_flags.if_lower_enabled and (current_position >= ventilate_position) }}"
+                          - "{{ position_comparisons.current_below_ventilate }}"
+                          - "{{ ventilation_flags.if_lower_enabled and position_comparisons.current_above_ventilate or current_position == ventilate_position }}"
                     sequence:
                       - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                           seconds: >
@@ -4413,10 +4513,12 @@ actions:
                           - "{{ not individual_flags.prevent_opening_after_shading_end}}"
                         then:
                           - variables:
+                              target_position: "{{ open_position }}"
+                              target_tilt_position: "{{ open_tilt_position | int }}"
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
-                                open: { a: "{{ 1 if shading_end_behavior == 'open_position' else 0 }}", t: "{{ ts_now if shading_end_behavior == 'open_position' else helper_state_json.open.t }}" }
-                                close: { a: "{{ 1 if shading_end_behavior == 'close_position' else 0 }}", t: "{{ ts_now if shading_end_behavior == 'close_position' else helper_state_json.close.t }}" }
+                                open: { a: 1, t: "{{ ts_now }}" }
+                                close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                                 shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                                 vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                                 vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
@@ -4543,12 +4645,12 @@ actions:
                   - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                   - "{{ trigger.id == 't_contact_tilted_on' }}"
                   - or:
-                      - "{{ (current_position < ventilate_position) }}"
+                      - "{{ position_comparisons.current_below_ventilate }}"
                       - and:
                           - "{{ is_cover_tilt_enabled_and_possible }}"
-                          - "{{ (current_position <= ventilate_position) }}"
+                          - "{{ position_comparisons.current_below_ventilate or current_position == ventilate_position }}"
                           - "{{ (current_tilt_position <= ventilate_tilt_position) }}"
-                      - "{{ ventilation_flags.if_lower_enabled and (current_position >= ventilate_position) }}"
+                      - "{{ ventilation_flags.if_lower_enabled and position_comparisons.current_above_ventilate or current_position == ventilate_position }}"
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
@@ -4912,8 +5014,8 @@ actions:
                   - "{{ is_up_enabled }}"
                   - or:
                       - "{{ in_open_position }}"
-                      - "{{ (current_position >= open_position) }}"
-                      - "{{ (current_position == 100) }}"
+                      - "{{ position_comparisons.current_above_open or current_position == open_position }}"
+                      - "{{ (is_awning and current_position == 0) or (not is_awning and current_position == 100) }}"
                 sequence:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -4971,8 +5073,8 @@ actions:
                   - "{{ not in_shading_position }}"
                   - or:
                       - "{{ in_close_position }}"
-                      - "{{ (current_position <= close_position) }}"
-                      - "{{ (current_position == 0) }}"
+                      - "{{ position_comparisons.current_below_close or current_position == close_position }}"
+                      - "{{ (is_awning and current_position == 100) or (not is_awning and current_position == 0) }}"
                 sequence:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -5079,18 +5181,105 @@ actions:
                   message: "shading_sun_brightness_start should be higher than shading_sun_brightness_end"
 
                 # ========== POSITION VALUE CHECKS ==========
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (close_position + position_tolerance) }}"
-                  message: "open_position should be higher than close_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (open_position - position_tolerance) <= (ventilate_position + position_tolerance) }}"
-                  message: "open_position should be higher than ventilate_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (close_position + position_tolerance) >= (ventilate_position - position_tolerance) }}"
-                  message: "close_position should be lower than ventilate_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (shading_position - position_tolerance) <= (close_position + position_tolerance) }}"
-                  message: "shading_position should be higher than close_position"
-                - condition: "{{ not is_cover_tilt_enabled_and_possible and (shading_position + position_tolerance) >= (open_position - position_tolerance) }}"
-                  message: "shading_position should be lower than open_position"
+
+                # Generic position uniqueness check (works for both types)
                 - condition: "{{ [in_open_position, in_close_position, in_shading_position, in_ventilate_position].count(True) > 1 }}"
-                  message: "Please revise the position values and take the tolerance values into account. The values must not overlap"
+                  message: "Position values overlap when tolerance is applied. Ensure all positions are unique considering tolerance settings"
+
+                # Blind-specific checks
+                - condition: >-
+                    {{
+                      not is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (open_position - position_tolerance) <= (close_position + position_tolerance)
+                    }}
+                  message: "For blinds: open_position ({{ open_position }}%) must be higher than close_position ({{ close_position }}%)"
+
+                - condition: >-
+                    {{
+                      not is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (open_position - position_tolerance) <= (ventilate_position + position_tolerance)
+                    }}
+                  message: "For blinds: open_position ({{ open_position }}%) must be higher than ventilate_position ({{ ventilate_position }}%)"
+
+                - condition: >-
+                    {{
+                      not is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (close_position + position_tolerance) >= (ventilate_position - position_tolerance)
+                    }}
+                  message: "For blinds: close_position ({{ close_position }}%) must be lower than ventilate_position ({{ ventilate_position }}%)"
+
+                - condition: >-
+                    {{
+                      not is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (shading_position - position_tolerance) <= (close_position + position_tolerance)
+                    }}
+                  message: "For blinds: shading_position ({{ shading_position }}%) must be higher than close_position ({{ close_position }}%)"
+
+                - condition: >-
+                    {{
+                      not is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (shading_position + position_tolerance) >= (open_position - position_tolerance)
+                    }}
+                  message: "For blinds: shading_position ({{ shading_position }}%) must be lower than open_position ({{ open_position }}%)"
+
+                # Awning-specific checks
+                - condition: >-
+                    {{
+                      is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (open_position + position_tolerance) >= (close_position - position_tolerance)
+                    }}
+                  message: "For awnings: open_position ({{ open_position }}%) must be lower than close_position ({{ close_position }}%). Awnings: 0%=retracted, 100%=extended"
+
+                - condition: >-
+                    {{
+                      is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (open_position + position_tolerance) >= (ventilate_position - position_tolerance)
+                    }}
+                  message: "For awnings: open_position ({{ open_position }}%) must be lower than ventilate_position ({{ ventilate_position }}%)"
+
+                - condition: >-
+                    {{
+                      is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (close_position - position_tolerance) <= (ventilate_position + position_tolerance)
+                    }}
+                  message: "For awnings: close_position ({{ close_position }}%) must be higher than ventilate_position ({{ ventilate_position }}%)"
+
+                - condition: >-
+                    {{
+                      is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (shading_position + position_tolerance) >= (close_position - position_tolerance)
+                    }}
+                  message: "For awnings: shading_position ({{ shading_position }}%) must be lower than close_position ({{ close_position }}%). For shading, awning should be extended"
+
+                - condition: >-
+                    {{
+                      is_awning and
+                      not is_cover_tilt_enabled_and_possible and
+                      (shading_position - position_tolerance) <= (open_position + position_tolerance)
+                    }}
+                  message: "For awnings: shading_position ({{ shading_position }}%) must be higher than open_position ({{ open_position }}%)"
+
+                # Position value range checks (apply to both types)
+                - condition: "{{ open_position < 0 or open_position > 100 }}"
+                  message: "open_position ({{ open_position }}%) must be between 0 and 100"
+
+                - condition: "{{ close_position < 0 or close_position > 100 }}"
+                  message: "close_position ({{ close_position }}%) must be between 0 and 100"
+
+                - condition: "{{ shading_position < 0 or shading_position > 100 }}"
+                  message: "shading_position ({{ shading_position }}%) must be between 0 and 100"
+
+                - condition: "{{ ventilate_position < 0 or ventilate_position > 100 }}"
+                  message: "ventilate_position ({{ ventilate_position }}%) must be between 0 and 100"
 
                 # ========== ENTITY ATTRIBUTE & STATE CHECKS ==========
 
