@@ -2729,9 +2729,10 @@ variables:
   current_tilt_position: "{{ state_attr(blind, 'current_tilt_position') | int(default=101) }}"
 
   # COVER TYPE & POSITION COMPARISON LOGIC
-  # Position comparison results - Awnings use inverted logic
+  # Position comparison results
+  # Handles both blind (0%=closed) and awning (0%=retracted) logic automatically
   position_comparisons:
-    # Current position vs targets
+    # Current position vs targets (considers awning inversion)
     current_above_open: "{{ current_position < open_position if is_awning else current_position > open_position }}"
     current_above_close: "{{ current_position < close_position if is_awning else current_position > close_position }}"
     current_above_shading: "{{ current_position < shading_position if is_awning else current_position > shading_position }}"
@@ -3246,6 +3247,13 @@ variables:
     down: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
     ventilate: "{{ auto_ventilate_force == [] or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['false', 'off']) }}"
     shading_start: "{{ auto_shading_start_force == [] or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['false', 'off']) }}"
+
+  is_cover_movement_blocked:
+    open: "{{ not force_disabled_flags.down or not force_disabled_flags.ventilate or not force_disabled_flags.shading_start }}"
+    close: "{{ not force_disabled_flags.up or not force_disabled_flags.ventilate or not force_disabled_flags.shading_start }}"
+    ventilate: "{{ not force_disabled_flags.up or not force_disabled_flags.down or not force_disabled_flags.shading_start }}"
+    shading: "{{ not force_disabled_flags.up or not force_disabled_flags.down or not force_disabled_flags.ventilate }}"
+    any: "{{ not force_disabled_flags.up or not force_disabled_flags.down or not force_disabled_flags.ventilate or not force_disabled_flags.shading_start }}"
 
   # Resident sensor configuration
   resident_sensor: !input resident_sensor
@@ -3865,12 +3873,10 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_open|t_force_disabled)') }}"
           - condition: !input auto_up_condition
-
           - and:
               - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
-
           - or: # Check the helper status or the target status (issue #244)
               - "{{ is_status_helper_enabled and not helper_status_flags.open }}"
               - "{{ not in_open_position }}"
@@ -3943,7 +3949,7 @@ actions:
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -3973,13 +3979,7 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: "{{ open_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                      is_cover_movement_blocked_by_force: >-
-                        {{
-                          not force_disabled_flags.down or
-                          not force_disabled_flags.ventilate or
-                          not force_disabled_flags.shading_start
-                        }}
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -3989,13 +3989,13 @@ actions:
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                         t: "{{ ts_now }}"
                   - if:
-                      - "{{ not is_cover_movement_blocked_by_force }}"
+                      - "{{ not is_cover_movement_blocked.open }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
                   - *helper_update
                   - if:
-                      - "{{ not is_cover_movement_blocked_by_force }}"
+                      - "{{ not is_cover_movement_blocked.open }}"
                     then:
                       - choose: []
                         default: !input auto_up_action
@@ -4014,14 +4014,10 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_close|t_force_disabled)') }}"
           - condition: !input auto_down_condition
-
-
-
           - and:
               - "{{ (force_disabled_flags.up or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
-
           - or: # Check the helper status or the target status
               - "{{ is_status_helper_enabled and not helper_status_flags.closed }}"
               - "{{ not in_close_position }}"
@@ -4093,7 +4089,7 @@ actions:
                           - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 1, t: "{{ ts_now }}" }
@@ -4126,13 +4122,7 @@ actions:
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                      is_cover_movement_blocked_by_force: >-
-                        {{
-                          not force_disabled_flags.up or
-                          not force_disabled_flags.down or
-                          not force_disabled_flags.shading_start
-                        }}
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4142,13 +4132,13 @@ actions:
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                         t: "{{ ts_now }}"
                   - if:
-                      - "{{ not is_cover_movement_blocked_by_force }}"
+                      - "{{ not is_cover_movement_blocked.ventilate }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
                   - *helper_update
                   - if:
-                      - "{{ not is_cover_movement_blocked_by_force }}"
+                      - "{{ not is_cover_movement_blocked.ventilate }}"
                     then:
                       - choose: []
                         default: !input auto_ventilate_action
@@ -4173,7 +4163,7 @@ actions:
                           - "{{ position_comparisons.current_below_close or current_position == close_position }}"
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 1, t: "{{ ts_now }}" }
@@ -4196,13 +4186,7 @@ actions:
               - variables:
                   target_position: !input close_position
                   target_tilt_position: !input close_tilt_position
-                  ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                  is_cover_movement_blocked_by_force: >-
-                    {{
-                      not force_disabled_flags.up or
-                      not force_disabled_flags.ventilate or
-                      not force_disabled_flags.shading_start
-                    }}
+                  ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                   update_values:
                     open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                     close: { a: 1, t: "{{ ts_now }}" }
@@ -4212,13 +4196,13 @@ actions:
                     manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                     t: "{{ ts_now }}"
               - if:
-                  - "{{ not is_cover_movement_blocked_by_force }}"
+                  - "{{ not is_cover_movement_blocked.close }}"
                 then:
                   - *cover_move_action
                   - *tilt_move_action
               - *helper_update
               - if:
-                  - "{{ not is_cover_movement_blocked_by_force }}"
+                  - "{{ not is_cover_movement_blocked.close }}"
                 then:
                   - choose: []
                     default: !input auto_down_action
@@ -4237,13 +4221,11 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3|t_force_disabled)') }}"
           - "{{ is_status_helper_enabled }}"
-
           - condition: !input auto_shading_start_condition
           - and:
               - "{{ (force_disabled_flags.up or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
-
           - or: # Check the helper status or the target status
               - "{{ not helper_status_flags.shaded }}"
               - "{{ not (helper_status_flags.vent_partial or helper_status_flags.vent_full) }}"
@@ -4275,7 +4257,7 @@ actions:
                     sequence:
                       - variables:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             shading: {a: 1, t: "{{ ts_now }}", p: "{{ (ts_now + local_waitingtime_start) | round(0) }}", q: 0}
                             t: "{{ ts_now }}"
@@ -4299,7 +4281,7 @@ actions:
                               - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                     sequence:
                       - variables:
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             open: { a: 1, t: "{{ ts_now }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4349,13 +4331,7 @@ actions:
                       - variables:
                           target_position: !input shading_position
                           target_tilt_position: "{{ shading_tilt_position | int }}"
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                          is_cover_movement_blocked_by_force: >-
-                            {{
-                              not force_disabled_flags.up or
-                              not force_disabled_flags.down or
-                              not force_disabled_flags.ventilate
-                            }}
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             open: { a: 1, t: "{{ ts_now }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4365,13 +4341,13 @@ actions:
                             manual: { a: 0, t: "{{ helper_state_json.manual.t }}" } # TODO: Do I really want to overwrite the status here?
                             t: "{{ ts_now }}"
                       - if:
-                          - "{{ not is_cover_movement_blocked_by_force }}"
+                          - "{{ not is_cover_movement_blocked.shading }}"
                         then:
                           - *cover_move_action
                           - *tilt_move_action
                       - *helper_update
                       - if:
-                          - "{{ not is_cover_movement_blocked_by_force }}"
+                          - "{{ not is_cover_movement_blocked.shading }}"
                         then:
                           - choose: []
                             default: !input auto_shading_start_action
@@ -4386,19 +4362,12 @@ actions:
                       - "{{ helper_status_flags.closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                     sequence:
                       - variables:
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                          is_cover_movement_blocked_by_force: >-
-                            {{
-                              not force_disabled_flags.up or
-                              not force_disabled_flags.down or
-                              not force_disabled_flags.ventilate or
-                              not force_disabled_flags.shading_start
-                            }}
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now }}"
                       - if:
-                          - "{{ not is_cover_movement_blocked_by_force }}"
+                          - "{{ not is_cover_movement_blocked.any }}"
                         then:
                           - *tilt_move_action
                       - *helper_update
@@ -4431,7 +4400,7 @@ actions:
                     sequence:
                       - variables:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             shading: { a: 1, t: "{{ helper_state_json.shading.t }}", p: "{{ (ts_now + local_waitingtime_start) | round(0) }}", q: 0 }
                             t: "{{ ts_now }}"
@@ -4446,9 +4415,7 @@ actions:
                       - "{{ helper_status_flags.shading_start_pending }}"
                     sequence:
                       - variables:
-                          # timeout_exceeded: "{{ shading_start_max_duration > 0 and (as_timestamp(now()) - helper_state_json.shading.t) > shading_start_max_duration }}"
-                          # periodic_disabled: "{{ shading_start_max_duration == 0 }}"
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now}}"
@@ -4503,7 +4470,6 @@ actions:
               - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
-
           - or:
               - and:
                   - "{{ is_time_control_disabled }}"
@@ -4547,7 +4513,7 @@ actions:
                             {% set local_waitingtime_end = 20 %}
                             {% endif %}
                             {{ local_waitingtime_end }}
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             shading: { a: 1, t: "{{ ts_now }}", p: 0, q: "{{ (ts_now + (local_waitingtime_end | int)) | round(0) }}" }
                             t: "{{ ts_now }}"
@@ -4565,19 +4531,12 @@ actions:
                     sequence:
                       - variables:
                           target_tilt_position: 50 # Moving the cover to open tilt position
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                          is_cover_movement_blocked_by_force: >-
-                            {{
-                              not force_disabled_flags.up or
-                              not force_disabled_flags.down or
-                              not force_disabled_flags.ventilate or
-                              not force_disabled_flags.shading_start
-                            }}
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now }}"
                       - if:
-                          - "{{ not is_cover_movement_blocked_by_force }}"
+                          - "{{ not is_cover_movement_blocked.any }}"
                         then:
                           - *tilt_move_action
                       - *helper_update
@@ -4601,7 +4560,7 @@ actions:
                               - "{{ lockout_tilted_when_shading_ends }}"
                     sequence:
                       - variables:
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             open: { a: 1, t: "{{ ts_now }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4643,14 +4602,7 @@ actions:
                       - variables:
                           target_position: !input ventilate_position
                           target_tilt_position: !input ventilate_tilt_position
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                          is_cover_movement_blocked_by_force: >-
-                            {{
-                              not force_disabled_flags.up or
-                              not force_disabled_flags.down or
-                              not force_disabled_flags.ventilate or
-                              not force_disabled_flags.shading_start
-                            }}
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             open: { a: 1, t: "{{ ts_now }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4660,13 +4612,13 @@ actions:
                             manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                             t: "{{ ts_now }}"
                       - if:
-                          - "{{ not is_cover_movement_blocked_by_force }}"
+                          - "{{ not is_cover_movement_blocked.any }}"
                         then:
                           - *cover_move_action
                           - *tilt_move_action
                       - *helper_update
                       - if:
-                          - "{{ not is_cover_movement_blocked_by_force }}"
+                          - "{{ not is_cover_movement_blocked.any }}"
                         then:
                           - choose: []
                             default: !input auto_ventilate_action
@@ -4704,14 +4656,7 @@ actions:
                           - variables:
                               target_position: "{{ open_position }}"
                               target_tilt_position: "{{ open_tilt_position | int }}"
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                              is_cover_movement_blocked_by_force: >-
-                                {{
-                                  not force_disabled_flags.up or
-                                  not force_disabled_flags.down or
-                                  not force_disabled_flags.ventilate or
-                                  not force_disabled_flags.shading_start
-                                }}
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                               update_values:
                                 open: { a: 1, t: "{{ ts_now }}" }
                                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4721,7 +4666,7 @@ actions:
                                 manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                                 t: "{{ ts_now }}"
                           - if:
-                              - "{{ not is_cover_movement_blocked_by_force }}"
+                              - "{{ not is_cover_movement_blocked.any }}"
                             then:
                               - *cover_move_action
                               - *tilt_move_action
@@ -4734,7 +4679,7 @@ actions:
                           - *helper_update
 
                       - if:
-                          - "{{ not is_cover_movement_blocked_by_force }}"
+                          - "{{ not is_cover_movement_blocked.any }}"
                         then:
                           - choose: []
                             default: !input auto_shading_end_action
@@ -4763,7 +4708,7 @@ actions:
                     sequence:
                       - variables:
                           local_waitingtime_end: "{{ shading_waitingtime_end | int }}"
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
                             shading: { a: 1, t: "{{ helper_state_json.shading.t }}", p: 0, q: "{{ (ts_now + local_waitingtime_end) | round(0) }}" }
                             t: "{{ ts_now }}"
@@ -4799,9 +4744,6 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on'] or trigger.id == 't_force_disabled' }}"
           - "{{ is_status_helper_enabled }}"
-
-
-
           - condition: !input auto_ventilate_condition
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
@@ -4809,7 +4751,6 @@ actions:
               - "{{ (force_disabled_flags.up or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
               - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
-
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -4833,7 +4774,7 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         vpart: { a: 0, t: "{{ helper_state_json.vpart.t }}" }
                         vfull: { a: 1, t: "{{ ts_now }}" }
@@ -4863,7 +4804,7 @@ actions:
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         vpart: { a: 1, t: "{{ ts_now }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
@@ -4946,7 +4887,7 @@ actions:
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         vpart: { a: 1, t: "{{ ts_now }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
@@ -4969,7 +4910,7 @@ actions:
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4997,7 +4938,7 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5027,7 +4968,7 @@ actions:
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 1, t: "{{ ts_now }}" }
@@ -5053,7 +4994,6 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_open_on' }}"
           - "{{ force_disabled_flags.down }}"
-
           - "{{ force_disabled_flags.ventilate }}"
           - "{{ force_disabled_flags.shading_start }}"
         sequence:
@@ -5062,7 +5002,7 @@ actions:
           - variables:
               target_position: !input open_position
               target_tilt_position: !input open_tilt_position
-              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
                 open: { a: 1, t: "{{ ts_now }}" }
                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5087,7 +5027,6 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_close_on' }}"
           - "{{ force_disabled_flags.up }}"
-
           - "{{ force_disabled_flags.ventilate }}"
           - "{{ force_disabled_flags.shading_start }}"
         sequence:
@@ -5096,7 +5035,7 @@ actions:
           - variables:
               target_position: !input close_position
               target_tilt_position: !input close_tilt_position
-              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
                 open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                 close: { a: 1, t: "{{ ts_now }}" }
@@ -5121,7 +5060,6 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_vent_on' }}"
           - "{{ is_status_helper_enabled }}"
-
           - "{{ force_disabled_flags.up }}"
           - "{{ force_disabled_flags.down }}"
           - "{{ force_disabled_flags.shading_start }}"
@@ -5131,7 +5069,7 @@ actions:
           - variables:
               target_position: !input ventilate_position
               target_tilt_position: !input ventilate_tilt_position
-              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
                 open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5156,7 +5094,6 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_shading_start_on' }}"
           - "{{ is_status_helper_enabled }}"
-
           - "{{ force_disabled_flags.up }}"
           - "{{ force_disabled_flags.down }}"
           - "{{ force_disabled_flags.ventilate }}"
@@ -5166,7 +5103,7 @@ actions:
           - variables:
               target_position: !input shading_position
               target_tilt_position: "{{ shading_tilt_position |int }}"
-              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
                 open: { a: 0, t: "{{ helper_state_json.open.t }}" } # ‘Open’ is not additionally set to True, because we don't know where it should actually go after forcing.
                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5207,12 +5144,13 @@ actions:
                   - "{{ trigger.to_state.attributes.current_tilt_position != trigger.from_state.attributes.current_tilt_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
 
         sequence:
+          - variables:
+              ts_now: "{{ as_timestamp(now()) | round(0) }}"
           - choose:
               - conditions: # Manually tilted
                   - "{{ trigger.id == 't_manual_4' }}"
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         manual: { a: 1, t: "{{ ts_now }}" }
                         t: "{{ ts_now }}"
@@ -5228,7 +5166,6 @@ actions:
                       - "{{ (is_awning and current_position == 0) or (not is_awning and current_position == 100) }}"
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5247,7 +5184,6 @@ actions:
                   - "{{ not in_open_position }}" # If ventilate_position and open_position are too close together, the ventilation-status should not be assigned.
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5265,7 +5201,6 @@ actions:
                   - "{{ in_shading_position }}"
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5287,7 +5222,6 @@ actions:
                       - "{{ (is_awning and current_position == 100) or (not is_awning and current_position == 0) }}"
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 1, t: "{{ ts_now }}" }
@@ -5308,7 +5242,6 @@ actions:
                       - "{{ is_shading_enabled and in_shading_position }}"
                 sequence:
                   - variables:
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -5332,7 +5265,7 @@ actions:
           - "{{ trigger.id in ['t_manual_2', 't_manual_3'] }}"
         sequence:
           - variables:
-              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
                 manual: { a: 0, t: "{{ ts_now }}" }
                 t: "{{ ts_now }}"
