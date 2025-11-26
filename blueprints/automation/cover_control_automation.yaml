@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.11.25
+    **Version**: 2025.11.26
 
     ### 🔗 Resources & Support
 
@@ -74,6 +74,7 @@ blueprint:
     - **Hybrid scheduling** (time fields + schedule helper combined)
     - **Custom delays** to prevent RF interference
     - **Force triggers** for emergency scenarios (anti-freeze, rain protection, wind protection)
+    - **Background state tracking** with automatic return to target position after force disable
     - **Resident detection** for respecting sleep schedules
     - **Smart state tracking** via helper integration
 
@@ -198,9 +199,55 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # v2025.11.25 - Smarter, More Flexible Sun Shading:
+    # 🚀 CCA 2025.11.26 - Background State Memory, New Shading Logic & Native Awning Support
 
-      ## Flexible shading logic
+      ## 🧠 Background State Memory & Force Return
+
+      - **Automatic return to target state after force disable**
+        When `enable_background_state_tracking` is enabled, the cover automatically returns to the position stored in the helper (background state) after a force function is disabled. This enables seamless transitions from emergency states back to normal automation.
+
+      - **Continuous helper updates during force functions**
+        The helper now continues to update in the background even when force functions are active, ensuring the target state always reflects the current automation intent. For example, if Force-Open is active but it's evening close time, the helper stores "close" as the background state.
+
+      - **Support for all position types**
+        Return-to-background works for all cover states: open, close, shading, and ventilation positions. The automation intelligently determines which position to return to based on the helper's background state.
+
+      - **Backward compatible (opt-in)**
+        The feature is disabled by default (`enable_background_state_tracking = false`), preserving existing behavior. Users must explicitly enable it to use the new functionality.
+
+      ### 💡 Practical use cases
+
+      This feature is particularly useful for emergency and weather-based scenarios where you need manual control but want automation to resume afterward:
+
+      - 🌧️ **Rain Protection**: Force-close all covers during heavy rain. When rain stops, covers automatically return to their scheduled state (e.g., shading position during the day, open in the evening).
+
+      - 💨 **Wind Protection**: Force-open awnings/blinds during strong winds to prevent damage. Once wind subsides, covers return to sun shading or close position based on time of day.
+
+      - ❄️ **Frost Protection**: Force-open covers in winter mornings to prevent ice formation on mechanisms. After sunrise, covers automatically resume normal automation (close for privacy, shade for sun protection).
+
+      - 🔥 **Emergency Scenarios**: During fire alarm or security events, force all covers to specific positions. After the event, covers return to their intended automation state without manual intervention.
+
+      - 🏠 **Cleaning/Maintenance**: Force covers to full open position for window cleaning. When done, covers automatically return to current schedule (closed in evening, shaded during midday).
+
+      - 🌡️ **Extreme Heat Protection**: Temporarily force all covers closed during heat waves. When temperatures normalize, covers return to regular shading schedules.
+
+      - 🎬 **Movie Mode**: Force living room covers closed for watching movies during daytime. After movie ends, covers automatically return to open or shading position based on sun conditions.
+
+      ### 🔁 Example flow
+      ```
+      10:00 - Normal schedule: Covers open
+      12:00 - Shading active (sun protection)
+      14:00 - Heavy rain detected → Force-Close activated
+              → Covers close immediately
+              → Helper continues tracking: "shading should be active"
+      15:00 - Rain stops → Force-Close deactivated
+              → Covers automatically return to shading position
+      18:00 - Evening close time
+              → Covers close normally
+      ```
+
+
+      ## ☀️ Flexible Shading Logic
 
       - **Powerful AND/OR condition builder**
         Decide exactly which shading conditions must all be met (AND) and which act as optional boosters (OR), so you can fine‑tune between conservative and aggressive sun protection without touching your sensor setup.
@@ -218,7 +265,7 @@ blueprint:
         New maximum duration settings for start and end ensure the automation never remains in an infinite “waiting for conditions” state; if the timeout is reached, the loop stops cleanly and waits for a fresh trigger.
 
 
-      ## Forecast and temperature intelligence
+      ## 🌡️ Forecast & Temperature Intelligence
 
       - **Dedicated forecast inputs for clarity**
         Forecast handling is split into two clearly separated fields: one for standard weather entities (`weather.*`) and one for direct forecast temperature sensors (`sensor.*`), so you always know which source you are using.
@@ -233,7 +280,7 @@ blueprint:
         Hysteresis is applied not only to current temperature sensors 1 and 2, but also to forecast temperature, dramatically reducing unnecessary open/close cycles around threshold values.
 
 
-      ## Stability and hysteresis improvements
+      ## 🧱 Stability & Hysteresis Improvements
 
       - **Brightness hysteresis to avoid flicker**
         A new brightness hysteresis value prevents the cover from opening and closing repeatedly when light levels hover just above or below your thresholds, protecting both comfort and hardware.
@@ -245,7 +292,7 @@ blueprint:
         Shading end conditions are checked periodically until they remain stable over the configured waiting period or a timeout is reached, so shading does not end prematurely just because of a short‑lived fluctuation.
 
 
-      ## Awning Support
+      ## 🏖️ Awning & Sunshade Support
 
       - CCA now supports now **awnings and sunshades** with inverted position logic!
 
@@ -277,7 +324,7 @@ blueprint:
         - **Blinds/Shutters**: Select "Blind / Roller Shutter" (default)
         - **No more changes needed** to your existing configuration
 
-      ## Reliability, fixes and internal optimizations
+      ## 🛠️ Reliability, Fixes & Internal Optimizations
 
       - **Fix for `current_tilt_position` errors**
         Roller blind setups that support tilt no longer produce errors when reading or using the `current_tilt_position` attribute. (#284)
@@ -306,7 +353,7 @@ blueprint:
       - **Variables refactoring:**
         Consolidated 80+ flag variables into maintainable dictionaries. No functional changes.
 
-      ## Breaking changes and migration
+      ## ⚠️ Breaking Changes & Migration
 
       - **New parameter for shading start retries**
         The old `shading_start_behavior` has been replaced by `shading_start_max_duration`, giving you fine‑grained control over how long the blueprint should keep retrying shading start conditions.
@@ -324,7 +371,7 @@ blueprint:
         If you maintain your automation YAML manually, remove the deprecated variables `shading_start_behavior` and `is_shading_end_immediate_by_sun_position` to keep your configuration aligned with the new logic.
 
 
-      ## Config Check Refactoring
+      ## ✅ Config Check Refactoring
 
       - Organized 80+ validation checks into 19 logical sections with clear headers
       - Enhanced error messages with more specific language and actionable guidance
@@ -475,6 +522,7 @@ blueprint:
               mode: list
 
     helper_section:
+
       name: "Cover Status Helper"
       icon: mdi:form-textbox
       collapsed: true
@@ -559,7 +607,7 @@ blueprint:
               - For Blinds/Shutters: open_position (100%) > shading_position (25%) > close_position (0%)<br />
               - For Awnings: open_position (0%) < shading_position (75%) < close_position (100%)<br />
               <br />
-              Please ensure that all position values are unique and do not conflict with each other.<br /><br />
+              Please ensure that all position values are unique and do not conflict with each other.<br />
       collapsed: true
       input:
         cover_type:
@@ -2344,6 +2392,15 @@ blueprint:
       icon: mdi:arm-flex
       collapsed: true
       input:
+        enable_background_state_tracking:
+          name: "🔙 Return to Target State After Force Disable"
+          description: >-
+            If enabled, the cover will automatically return to the target position stored in the helper (background state) when a force function is disabled.
+            The helper will also continue to update its status in the background even when force functions are active, so the cover can always return to the current target state.
+          default: false
+          selector:
+            boolean: {}
+
         auto_up_force:
           name: "🔼 Force Immediate Opening via Entity"
           description: >-
@@ -2638,6 +2695,12 @@ trigger_variables:
   is_reset_fixed_time: "{{ 'reset_fixed_time' in reset_override_config }}"
   is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
 
+  # Force entities
+  auto_up_force: !input auto_up_force
+  auto_down_force: !input auto_down_force
+  auto_ventilate_force: !input auto_ventilate_force
+  auto_shading_start_force: !input auto_shading_start_force
+
   # Cover status helper configuration
   cover_status_options: !input cover_status_options
   cover_status_helper: !input cover_status_helper
@@ -2658,7 +2721,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.11.25"
+  version: "2025.11.26"
 
   # Basic entity state reading
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3178,10 +3241,6 @@ variables:
     manual: "{{ (helper_state_json.manual.t | default(0)) if ((is_status_helper_enabled | default(false)) and (helper_state_json | regex_search('manual'))) else 0 }}"
 
   # Force entity disabled states (true = force is NOT active)
-  auto_up_force: !input auto_up_force
-  auto_down_force: !input auto_down_force
-  auto_ventilate_force: !input auto_ventilate_force
-  auto_shading_start_force: !input auto_shading_start_force
   force_disabled_flags:
     up: "{{ auto_up_force == [] or (auto_up_force != [] and states(auto_up_force) in ['false', 'off']) }}"
     down: "{{ auto_down_force == [] or (auto_down_force != [] and states(auto_down_force) in ['false', 'off']) }}"
@@ -3227,6 +3286,8 @@ variables:
     prevent_shading_multiple_times: "{{ 'prevent_shading_multiple_times' in individual_config }}"
     prevent_opening_multiple_times: "{{ 'prevent_opening_multiple_times' in individual_config }}"
     prevent_closing_multiple_times: "{{ 'prevent_closing_multiple_times' in individual_config }}"
+
+  enable_background_state_tracking: !input enable_background_state_tracking
 
   # Configuration check
   check_config: !input check_config
@@ -3292,7 +3353,15 @@ triggers:
     entity_id: !input auto_up_force
     from: "off"
     to: "on"
-    id: "t_force_open"
+    enabled: "{{ auto_up_force != [] }}"
+    id: "t_force_open_on"
+
+  - platform: state
+    entity_id: !input auto_up_force
+    from: "on"
+    to: "off"
+    enabled: "{{ auto_up_force != [] }}"
+    id: "t_force_disabled"
 
   ########################################
   # Trigger for closing cover
@@ -3355,7 +3424,15 @@ triggers:
     entity_id: !input auto_down_force
     from: "off"
     to: "on"
-    id: "t_force_close"
+    enabled: "{{ auto_down_force != [] }}"
+    id: "t_force_close_on"
+
+  - platform: state
+    entity_id: !input auto_down_force
+    from: "on"
+    to: "off"
+    enabled: "{{ auto_down_force != [] }}"
+    id: "t_force_disabled"
 
   #################################################
   # Trigger for ventilation
@@ -3393,7 +3470,15 @@ triggers:
     entity_id: !input auto_ventilate_force
     from: "off"
     to: "on"
-    id: "t_force_vent"
+    enabled: "{{ auto_ventilate_force != [] }}"
+    id: "t_force_vent_on"
+
+  - platform: state
+    entity_id: !input auto_ventilate_force
+    from: "on"
+    to: "off"
+    enabled: "{{ auto_ventilate_force != [] }}"
+    id: "t_force_disabled"
 
   ########################################
   # Triggers for shading start
@@ -3452,7 +3537,15 @@ triggers:
     entity_id: !input auto_shading_start_force
     from: "off"
     to: "on"
-    id: "t_force_shading_start"
+    enabled: "{{ auto_shading_start_force != [] }}"
+    id: "t_force_shading_start_on"
+
+  - platform: state
+    entity_id: !input auto_shading_start_force
+    from: "on"
+    to: "off"
+    enabled: "{{ auto_shading_start_force != [] }}"
+    id: "t_force_disabled"
 
   ########################################
   # Triggers for shading tilt
@@ -3693,6 +3786,13 @@ actions:
       helper_update: &helper_update
         if:
           - "{{ is_status_helper_enabled }}"
+          - or:
+              - "{{ enable_background_state_tracking }}"  # Enable background updates for return-to-target
+              - and:  # Or check that no force function is currently blocking
+                  - "{{ force_disabled_flags.up }}"
+                  - "{{ force_disabled_flags.down }}"
+                  - "{{ force_disabled_flags.ventilate }}"
+                  - "{{ force_disabled_flags.shading_start }}"
         then:
           - alias: "Update cover status helper"
             service: input_text.set_value
@@ -3763,12 +3863,14 @@ actions:
         conditions:
           - "{{ is_up_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_open)') }}"
+          - "{{ trigger.id | regex_match('^(t_open|t_force_disabled)') }}"
           - condition: !input auto_up_condition
+
           - and:
-              - "{{ force_disabled_flags.down }}"
-              - "{{ force_disabled_flags.ventilate }}"
-              - "{{ force_disabled_flags.shading_start }}"
+              - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
+
           - or: # Check the helper status or the target status (issue #244)
               - "{{ is_status_helper_enabled and not helper_status_flags.open }}"
               - "{{ not in_open_position }}"
@@ -3872,6 +3974,12 @@ actions:
                       target_position: !input open_position
                       target_tilt_position: "{{ open_tilt_position | int }}"
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      is_cover_movement_blocked_by_force: >-
+                        {{
+                          not force_disabled_flags.down or
+                          not force_disabled_flags.ventilate or
+                          not force_disabled_flags.shading_start
+                        }}
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -3880,11 +3988,17 @@ actions:
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                         t: "{{ ts_now }}"
-                  - *cover_move_action
-                  - *tilt_move_action
+                  - if:
+                      - "{{ not is_cover_movement_blocked_by_force }}"
+                    then:
+                      - *cover_move_action
+                      - *tilt_move_action
                   - *helper_update
-                  - choose: []
-                    default: !input auto_up_action
+                  - if:
+                      - "{{ not is_cover_movement_blocked_by_force }}"
+                    then:
+                      - choose: []
+                        default: !input auto_up_action
 
           # - stop: "Stop automation: OPEN"
 
@@ -3898,12 +4012,16 @@ actions:
         conditions:
           - "{{ is_down_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_close)') }}"
+          - "{{ trigger.id | regex_match('^(t_close|t_force_disabled)') }}"
           - condition: !input auto_down_condition
+
+
+
           - and:
-              - "{{ force_disabled_flags.up }}"
-              - "{{ force_disabled_flags.ventilate }}"
-              - "{{ force_disabled_flags.shading_start }}"
+              - "{{ (force_disabled_flags.up or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
+
           - or: # Check the helper status or the target status
               - "{{ is_status_helper_enabled and not helper_status_flags.closed }}"
               - "{{ not in_close_position }}"
@@ -4009,19 +4127,31 @@ actions:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      is_cover_movement_blocked_by_force: >-
+                        {{
+                          not force_disabled_flags.up or
+                          not force_disabled_flags.down or
+                          not force_disabled_flags.shading_start
+                        }}
                       update_values:
-                        open: { a: 0, t: "{{ helper_state_json.open.t }}" }
-                        close: { a: 1, t: "{{ ts_now }}" }
+                        open: { a: 1, t: "{{ ts_now }}" }
+                        close: { a: 0, t: "{{ helper_state_json.close.t }}" }
                         shading: { a: 0, t: "{{ helper_state_json.shading.t }}", p: 0, q: 0 }
                         vpart: { a: 1, t: "{{ ts_now }}" }
                         vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                         t: "{{ ts_now }}"
-                  - *cover_move_action
-                  - *tilt_move_action
+                  - if:
+                      - "{{ not is_cover_movement_blocked_by_force }}"
+                    then:
+                      - *cover_move_action
+                      - *tilt_move_action
                   - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
+                  - if:
+                      - "{{ not is_cover_movement_blocked_by_force }}"
+                    then:
+                      - choose: []
+                        default: !input auto_ventilate_action
 
               ###################################
               # Cover is already (almost) closed
@@ -4067,6 +4197,12 @@ actions:
                   target_position: !input close_position
                   target_tilt_position: !input close_tilt_position
                   ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                  is_cover_movement_blocked_by_force: >-
+                    {{
+                      not force_disabled_flags.up or
+                      not force_disabled_flags.ventilate or
+                      not force_disabled_flags.shading_start
+                    }}
                   update_values:
                     open: { a: 0, t: "{{ helper_state_json.open.t }}" }
                     close: { a: 1, t: "{{ ts_now }}" }
@@ -4075,11 +4211,17 @@ actions:
                     vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                     manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                     t: "{{ ts_now }}"
-              - *cover_move_action
-              - *tilt_move_action
+              - if:
+                  - "{{ not is_cover_movement_blocked_by_force }}"
+                then:
+                  - *cover_move_action
+                  - *tilt_move_action
               - *helper_update
-              - choose: []
-                default: !input auto_down_action
+              - if:
+                  - "{{ not is_cover_movement_blocked_by_force }}"
+                then:
+                  - choose: []
+                    default: !input auto_down_action
 
           # - stop: "Stop automation: CLOSE"
 
@@ -4093,13 +4235,15 @@ actions:
         conditions:
           - "{{ is_shading_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
+          - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3|t_force_disabled)') }}"
           - "{{ is_status_helper_enabled }}"
+
           - condition: !input auto_shading_start_condition
           - and:
-              - "{{ force_disabled_flags.up }}"
-              - "{{ force_disabled_flags.down }}"
-              - "{{ force_disabled_flags.ventilate }}"
+              - "{{ (force_disabled_flags.up or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
+
           - or: # Check the helper status or the target status
               - "{{ not helper_status_flags.shaded }}"
               - "{{ not (helper_status_flags.vent_partial or helper_status_flags.vent_full) }}"
@@ -4206,6 +4350,12 @@ actions:
                           target_position: !input shading_position
                           target_tilt_position: "{{ shading_tilt_position | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          is_cover_movement_blocked_by_force: >-
+                            {{
+                              not force_disabled_flags.up or
+                              not force_disabled_flags.down or
+                              not force_disabled_flags.ventilate
+                            }}
                           update_values:
                             open: { a: 1, t: "{{ ts_now }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4214,11 +4364,17 @@ actions:
                             vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                             manual: { a: 0, t: "{{ helper_state_json.manual.t }}" } # TODO: Do I really want to overwrite the status here?
                             t: "{{ ts_now }}"
-                      - *cover_move_action
-                      - *tilt_move_action
+                      - if:
+                          - "{{ not is_cover_movement_blocked_by_force }}"
+                        then:
+                          - *cover_move_action
+                          - *tilt_move_action
                       - *helper_update
-                      - choose: []
-                        default: !input auto_shading_start_action
+                      - if:
+                          - "{{ not is_cover_movement_blocked_by_force }}"
+                        then:
+                          - choose: []
+                            default: !input auto_shading_start_action
 
                   ####################################
                   # Save shading state for the future
@@ -4231,9 +4387,20 @@ actions:
                     sequence:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          is_cover_movement_blocked_by_force: >-
+                            {{
+                              not force_disabled_flags.up or
+                              not force_disabled_flags.down or
+                              not force_disabled_flags.ventilate or
+                              not force_disabled_flags.shading_start
+                            }}
                           update_values:
-                            shading: { a: 1, t: "{{ ts_now }}", p: 0, q: 0 }
+                            shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now }}"
+                      - if:
+                          - "{{ not is_cover_movement_blocked_by_force }}"
+                        then:
+                          - *tilt_move_action
                       - *helper_update
 
               # - stop: "Stop automation: SHADING START"
@@ -4332,10 +4499,11 @@ actions:
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_end_condition
           - and:
-              - "{{ force_disabled_flags.up }}"
-              - "{{ force_disabled_flags.down }}"
-              - "{{ force_disabled_flags.ventilate }}"
-              - "{{ force_disabled_flags.shading_start }}"
+              - "{{ (force_disabled_flags.up or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.ventilate or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
+
           - or:
               - and:
                   - "{{ is_time_control_disabled }}"
@@ -4395,14 +4563,23 @@ actions:
                       - "{{ is_cover_tilt_enabled_and_possible }}"
                       - "{{ individual_flags.prevent_opening_after_shading_end}}"
                     sequence:
-
                       - variables:
                           target_tilt_position: 50 # Moving the cover to open tilt position
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          is_cover_movement_blocked_by_force: >-
+                            {{
+                              not force_disabled_flags.up or
+                              not force_disabled_flags.down or
+                              not force_disabled_flags.ventilate or
+                              not force_disabled_flags.shading_start
+                            }}
                           update_values:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now }}"
-                      - *tilt_move_action
+                      - if:
+                          - "{{ not is_cover_movement_blocked_by_force }}"
+                        then:
+                          - *tilt_move_action
                       - *helper_update
 
                   ######################################
@@ -4461,13 +4638,19 @@ actions:
                             {% else %}
                               {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
                             {% endif %}
-
                       - choose: []
                         default: !input auto_ventilate_action_before
                       - variables:
                           target_position: !input ventilate_position
                           target_tilt_position: !input ventilate_tilt_position
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          is_cover_movement_blocked_by_force: >-
+                            {{
+                              not force_disabled_flags.up or
+                              not force_disabled_flags.down or
+                              not force_disabled_flags.ventilate or
+                              not force_disabled_flags.shading_start
+                            }}
                           update_values:
                             open: { a: 1, t: "{{ ts_now }}" }
                             close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4476,11 +4659,17 @@ actions:
                             vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                             manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                             t: "{{ ts_now }}"
-                      - *cover_move_action
-                      - *tilt_move_action
+                      - if:
+                          - "{{ not is_cover_movement_blocked_by_force }}"
+                        then:
+                          - *cover_move_action
+                          - *tilt_move_action
                       - *helper_update
-                      - choose: []
-                        default: !input auto_ventilate_action
+                      - if:
+                          - "{{ not is_cover_movement_blocked_by_force }}"
+                        then:
+                          - choose: []
+                            default: !input auto_ventilate_action
 
                   ########################################################
                   # Move cover after shading end - conditions still valid
@@ -4516,6 +4705,13 @@ actions:
                               target_position: "{{ open_position }}"
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                              is_cover_movement_blocked_by_force: >-
+                                {{
+                                  not force_disabled_flags.up or
+                                  not force_disabled_flags.down or
+                                  not force_disabled_flags.ventilate or
+                                  not force_disabled_flags.shading_start
+                                }}
                               update_values:
                                 open: { a: 1, t: "{{ ts_now }}" }
                                 close: { a: 0, t: "{{ helper_state_json.close.t }}" }
@@ -4524,8 +4720,11 @@ actions:
                                 vfull: { a: 0, t: "{{ helper_state_json.vfull.t }}" }
                                 manual: { a: 0, t: "{{ helper_state_json.manual.t }}" }
                                 t: "{{ ts_now }}"
-                          - *cover_move_action
-                          - *tilt_move_action
+                          - if:
+                              - "{{ not is_cover_movement_blocked_by_force }}"
+                            then:
+                              - *cover_move_action
+                              - *tilt_move_action
                           - *helper_update
                         else:
                           - variables:
@@ -4534,8 +4733,11 @@ actions:
                                 t: "{{ as_timestamp(now()) | round(0) }}"
                           - *helper_update
 
-                      - choose: []
-                        default: !input auto_shading_end_action
+                      - if:
+                          - "{{ not is_cover_movement_blocked_by_force }}"
+                        then:
+                          - choose: []
+                            default: !input auto_shading_end_action
 
                   #####################################################################
                   # Shading end conditions not met - check if we should continue
@@ -4595,15 +4797,19 @@ actions:
         conditions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on'] }}"
+          - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on'] or trigger.id == 't_force_disabled' }}"
           - "{{ is_status_helper_enabled }}"
+
+
+
           - condition: !input auto_ventilate_condition
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
           - and:
-              - "{{ force_disabled_flags.up }}"
-              - "{{ force_disabled_flags.down }}"
-              - "{{ force_disabled_flags.shading_start }}"
+              - "{{ (force_disabled_flags.up or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.down or enable_background_state_tracking) }}"
+              - "{{ (force_disabled_flags.shading_start or enable_background_state_tracking) }}"
+
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -4845,8 +5051,9 @@ actions:
       - alias: "Forced opening of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_open' }}"
+          - "{{ trigger.id == 't_force_open_on' }}"
           - "{{ force_disabled_flags.down }}"
+
           - "{{ force_disabled_flags.ventilate }}"
           - "{{ force_disabled_flags.shading_start }}"
         sequence:
@@ -4878,8 +5085,9 @@ actions:
       - alias: "Forced closing of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_close' }}"
+          - "{{ trigger.id == 't_force_close_on' }}"
           - "{{ force_disabled_flags.up }}"
+
           - "{{ force_disabled_flags.ventilate }}"
           - "{{ force_disabled_flags.shading_start }}"
         sequence:
@@ -4911,8 +5119,9 @@ actions:
       - alias: "Forced ventilation of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_vent' }}"
+          - "{{ trigger.id == 't_force_vent_on' }}"
           - "{{ is_status_helper_enabled }}"
+
           - "{{ force_disabled_flags.up }}"
           - "{{ force_disabled_flags.down }}"
           - "{{ force_disabled_flags.shading_start }}"
@@ -4945,8 +5154,9 @@ actions:
       - alias: "Forced activating of the sun shading"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_shading_start' }}"
+          - "{{ trigger.id == 't_force_shading_start_on' }}"
           - "{{ is_status_helper_enabled }}"
+
           - "{{ force_disabled_flags.up }}"
           - "{{ force_disabled_flags.down }}"
           - "{{ force_disabled_flags.ventilate }}"
@@ -5131,7 +5341,92 @@ actions:
             default: !input auto_override_reset_action
 
       ############################################################
-      # ANCHOR (13): RESET SHADING STATUS AT MIDNIGHT
+      # ANCHOR (13): RETURN TO BACKGROUND STATE AFTER FORCE DISABLE
+      ############################################################
+
+      - alias: "Return to background position after force disable"
+        conditions:
+          - "{{ trigger.id == 't_force_disabled' }}"
+          - "{{ enable_background_state_tracking }}"
+          - "{{ is_status_helper_enabled }}"
+          # All force functions must now be disabled
+          - "{{ force_disabled_flags.up }}"
+          - "{{ force_disabled_flags.down }}"
+          - "{{ force_disabled_flags.ventilate }}"
+          - "{{ force_disabled_flags.shading_start }}"
+        sequence:
+          - delay:
+              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+          - variables:
+              # Read current target state from helper
+              background_is_open: "{{ helper_status_flags.open }}"
+              background_is_closed: "{{ helper_status_flags.closed }}"
+              background_is_shaded: "{{ helper_status_flags.shaded }}"
+              background_is_vpart: "{{ helper_status_flags.vpart }}"
+              background_is_vfull: "{{ helper_status_flags.vfull }}"
+          - choose:
+              # Return to OPEN position
+              - conditions:
+                  - "{{ background_is_open }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_up_action_before
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: "{{ open_tilt_position | int }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_up_action
+
+              # Return to CLOSE position
+              - conditions:
+                  - "{{ background_is_closed }}"
+                  - "{{ not background_is_vpart }}"
+                  - "{{ not background_is_vfull }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_down_action_before
+                  - variables:
+                      target_position: !input close_position
+                      target_tilt_position: "{{ close_tilt_position | int }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_down_action
+
+              # Return to SHADING position
+              - conditions:
+                  - "{{ background_is_shaded }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+                  - variables:
+                      target_position: !input shading_position
+                      target_tilt_position: "{{ shading_tilt_position | int }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_shading_start_action
+
+              # Return to VENTILATION position (partial)
+              - conditions:
+                  - "{{ background_is_vpart }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+                  - variables:
+                      target_position: !input ventilate_position
+                      target_tilt_position: !input ventilate_tilt_position
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_ventilate_action
+
+            default: []
+
+      ############################################################
+      # ANCHOR (14): RESET SHADING STATUS AT MIDNIGHT
       ############################################################
 
       - alias: "Reset shading status that is no longer required - but still saved"
