@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.11.26
+    **Version**: 2025.11.28
 
     ### 🔗 Resources & Support
 
@@ -199,7 +199,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # 🚀 CCA 2025.11.26 - Background State Memory, New Shading Logic & Native Awning Support
+    # 🚀 CCA 2025.11.28 - Background State Memory, New Shading Logic & Native Awning Support
 
       ## 🧠 Background State Memory & Force Return
 
@@ -306,6 +306,10 @@ blueprint:
 
       - **Smarter shading end detection**
         Shading end conditions are checked periodically until they remain stable over the configured waiting period or a timeout is reached, so shading does not end prematurely just because of a short‑lived fluctuation.
+
+
+      ## 🐛 Contact Sensor Race Condition
+      - When multiple contact sensors changed state simultaneously (e.g., window sensor + lock sensor within milliseconds), mode: single would block the second trigger, causing it to be lost. This led to incorrect lockout protection behavior where covers could close despite active lockout sensors, potentially locking users out. (Fixed #225)
 
 
       ## 🏖️ Awning & Sunshade Support
@@ -1349,7 +1353,7 @@ blueprint:
             <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
 
 
-              - <ins>Use a delay in ventilation mode after closing the contact:</ins>
+              - <ins>Enables a calculated delay after the window is closed:</ins>
                 <br />
                 Normally, when the window contact is closed, there is no delay in the upcoming drives. If you do want this, you can activate it here.
                 <br /><br />
@@ -1371,7 +1375,7 @@ blueprint:
           selector:
             select:
               options:
-                - label: "💨 Use a delay in ventilation mode after closing the contact"
+                - label: "💨 Enables a calculated delay after the window is closed"
                   value: "ventilation_delay_enabled"
                 - label: "💨 Allow ventilation even if cover is already in a higher position"
                   value: "ventilation_if_lower_enabled"
@@ -1384,7 +1388,17 @@ blueprint:
 
         contact_delay_trigger:
           name: "🕛 Contact Trigger Delay"
-          description: "How many seconds must the status of the contact sensors be valid for the automation to trigger?"
+          description: >-
+            How many seconds must the status of the contact sensors be valid for the automation to trigger?
+
+            ⚠️ **Race Condition Protection:**
+            If you have multiple contact sensors (e.g., window sensor + lock sensor) that can change
+            simultaneously, increase this value to prevent race conditions.
+
+            **Symptoms of race conditions:**
+            - Cover closes despite lockout sensor being active
+            - Check Home Assistant logs for "max_exceeded: warning" messages
+            - If you see these warnings frequently, increase this delay
           default: 2
           selector:
             number:
@@ -2779,7 +2793,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.11.26"
+  version: "2025.11.28"
 
   # Basic entity state reading
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3359,8 +3373,14 @@ variables:
   check_config_debuglevel: !input check_config_debuglevel
   check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
 
-mode: single
-max_exceeded: silent
+# CCA uses 'queued' mode to prevent race conditions when multiple sensors
+# change state simultaneously (e.g., window sensor + lock sensor).
+# - If automation is running, new triggers are queued (max 10)
+# - Each trigger is processed in order with current sensor values
+# - This ensures no trigger is lost due to timing issues
+mode: queued
+max: 10
+max_exceeded: warning
 
 ################################################################################
 # TRIGGERS
@@ -3500,34 +3520,21 @@ triggers:
     id: "t_force_disabled"
 
   #################################################
-  # Trigger for ventilation
+  # Trigger for ventilation - COMBINED
+  # Single trigger per sensor to prevent race conditions
   #################################################
 
-  - platform: template
-    value_template: "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+  - platform: state
+    entity_id: !input contact_window_tilted
     enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
-    id: "t_contact_tilted_on"
+    id: "t_contact_tilted_changed"
     for:
       seconds: !input contact_delay_trigger
 
-  - platform: template
-    value_template: "{{ states(contact_window_tilted) in ['false', 'off'] }}"
-    enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
-    id: "t_contact_tilted_off"
-    for:
-      seconds: !input contact_delay_trigger
-
-  - platform: template
-    value_template: "{{ states(contact_window_opened) in ['true', 'on'] }}"
+  - platform: state
+    entity_id: !input contact_window_opened
     enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
-    id: "t_contact_opened_on"
-    for:
-      seconds: !input contact_delay_trigger
-
-  - platform: template
-    value_template: "{{ states(contact_window_opened) in ['false', 'off'] }}"
-    enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
-    id: "t_contact_opened_off"
+    id: "t_contact_opened_changed"
     for:
       seconds: !input contact_delay_trigger
 
@@ -4809,17 +4816,18 @@ actions:
 
               # - stop: "Stop automation: SHADING END"
 
+
       ############################################################
-      # ANCHOR (5): CONTACT OPEN
-      #   Source: Shading, Close
-      #   Target: Ventilation
+      # ANCHOR (5): CONTACT CHANGED
+      #   Source: Shading, Close, Open
+      #   Target: Ventilation (Open/Partial), or back to previous state
       ############################################################
 
-      - alias: "Contact sensor opened"
+      - alias: "Contact sensor state changed"
         conditions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_contact_tilted_on', 't_contact_opened_on'] or trigger.id == 't_force_disabled' }}"
+          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] or trigger.id == 't_force_disabled' }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_condition
           - "{{ trigger.from_state.state not in invalid_states }}"
@@ -4835,17 +4843,18 @@ actions:
                   - "{{ resident_flags.allow_ventilation }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
         sequence:
-          - delay:
-              seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
+          - delay: # Wait for all sensor changes to settle
+              seconds: !input contact_delay_status
+          - variables: # Re-evaluate BOTH sensors with current values
+              contact_opened_now: "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
+              contact_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
           - choose:
               ###################################
               # Window handle to open. Open cover
               ###################################
               - alias: "Window handle to open. Open cover"
                 conditions:
-                  - "{{ contact_window_opened != [] }}"
-                  - "{{ states(contact_window_opened) in  ['true', 'on'] }}"
-                  - "{{ trigger.id == 't_contact_opened_on' }}"
+                  - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
                 sequence:
                   - variables:
@@ -4861,13 +4870,12 @@ actions:
                   - *helper_update
 
               ############################################################################
-              # Window handle to tilt. Move the cover to the partial ventilation position
+              # Window tilted (not fully opened) - Partial ventilation
               ############################################################################
-              - alias: "Window handle to tilt. Move the cover to the partial ventilation position."
+              - alias: "Window tilted - Partial ventilation"
                 conditions:
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
-                  - "{{ trigger.id == 't_contact_tilted_on' }}"
+                  - "{{ contact_tilted_now }}"
+                  - "{{ not contact_opened_now }}"
                   - or:
                       - "{{ position_comparisons.current_below_ventilate }}"
                       - and:
@@ -4904,6 +4912,7 @@ actions:
         conditions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
+          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_ventilate_end_condition
           - "{{ trigger.from_state.state not in invalid_states }}"
@@ -4914,40 +4923,35 @@ actions:
               - "{{ force_disabled.ventilate }}"
               - "{{ force_disabled.shading_start }}"
           - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Override check
-          - or:
-              - and:
-                  - "{{ trigger.id == 't_contact_tilted_off' }}"
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
-                  - or:
-                      - "{{ helper_status.vent_partial }}" # Status check
-                      - "{{ in_ventilate_position }}" # Position check
-              - and:
-                  # TODO: Workaround for #181
-                  # If the contact_window_tilted-sensor is used and 'lockout_tilted_when_closing' is enabled, when closing,
-                  # 'vfull' is set in the helper.
-                  # This must remain the case because the position of the cover remains at 100.
-                  # But the return from this must be taken into account somehow.
-                  - "{{ trigger.id == 't_contact_tilted_off' }}"
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['false', 'off'] }}"
-                  - "{{ lockout_tilted_when_closing }}"
-                  - "{{ helper_status.vent_full }}"
-              - and:
-                  - "{{ trigger.id == 't_contact_opened_off' }}"
-                  - "{{ contact_window_opened != [] }}"
-                  - "{{ states(contact_window_opened) in ['false', 'off'] }}"
-                  - "{{ helper_status.vent_full }}"
-
         sequence:
+          # Wait for all sensor changes to settle
+          - delay:
+              seconds: !input contact_delay_status
+
+          # Re-evaluate BOTH sensors with current values
+          - variables:
+              contact_opened_now: "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
+              contact_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
+
+          # Only proceed if BOTH sensors are now closed/off
+          - condition: template
+            value_template: "{{ not contact_opened_now and not contact_tilted_now }}"
+
+          # Additional check: Was there ventilation active before?
+          - condition: template
+            value_template: >-
+              {{
+                helper_status.vent_partial or
+                helper_status.vent_full or
+                in_ventilate_position or
+                in_open_position
+              }}
+
           - if:
               - "{{ ventilation_flags.delay_enabled }}"
             then:
               - delay:
                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-            else:
-              - delay:
-                  seconds: !input contact_delay_status # Wait for possible further handle changes of the contact sensors.
 
           - choose:
               #####################################################
@@ -4956,8 +4960,7 @@ actions:
               - alias: "Contact sensor closed. Activate partial ventilation"
                 conditions:
                   - "{{ helper_status.vent_full }}" # Was fully ventilated before :-)
-                  - "{{ contact_window_tilted != [] }}"
-                  - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                  - "{{ contact_tilted_now }}" # Tilted sensor still active
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
