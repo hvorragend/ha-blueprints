@@ -312,6 +312,14 @@ blueprint:
       - When multiple contact sensors changed state simultaneously (e.g., window sensor + lock sensor within milliseconds), mode: single would block the second trigger, causing it to be lost. This led to incorrect lockout protection behavior where covers could close despite active lockout sensors, potentially locking users out. (Fixed #225)
 
 
+      ## ⚡ Resident Mode Fix & Code Refactoring
+      - **Resident Mode: Cover opens correctly after resident leaves**
+        Fixed issue (#174) where cover remained closed when resident left room during daytime with all opening conditions met.
+        Cover now evaluates time window and environmental conditions (brightness, sun) when resident leaves.
+        Prevents unwanted opening during evening/night hours (after time_down_early).
+      - "Open immediately" resident option now respects daytime phase (only opens before time_down_early).
+
+
       ## 🏖️ Awning & Sunshade Support
 
       - CCA now supports now **awnings and sunshades** with inverted position logic!
@@ -3373,6 +3381,139 @@ variables:
   check_config_debuglevel: !input check_config_debuglevel
   check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
 
+  # ========== TIME PHASE DETECTION ==========
+
+  # Morning/Day phase: Cover should be open (up_early to down_early)
+  is_daytime_phase: >-
+    {{
+      is_time_control_disabled or
+      (
+        is_time_field_enabled and
+        now() >= today_at(time_up_early_today) and
+        now() < today_at(time_down_early_today)
+      ) or
+      (
+        is_schedule_helper_enabled and
+        time_schedule_helper != [] and
+        is_state(time_schedule_helper, 'on')
+      )
+    }}
+
+  # Evening/Night phase: Cover should be closed (from down_early onwards)
+  is_evening_phase: >-
+    {{
+      not is_time_control_disabled and
+      (
+        (
+          is_time_field_enabled and
+          now() >= today_at(time_down_early_today)
+        ) or
+        (
+          is_schedule_helper_enabled and
+          time_schedule_helper != [] and
+          is_state(time_schedule_helper, 'off')
+        )
+      )
+    }}
+
+  # Late opening time reached (for "up late" trigger)
+  is_time_up_late: >-
+    {{
+      is_time_field_enabled and
+      now() >= today_at(time_up_late_today) and
+      now() <= today_at(time_down_late_today) - timedelta(seconds = 5)
+    }}
+
+  # Late closing time reached (for "down late" trigger)
+  is_time_down_late: >-
+    {{
+      is_time_field_enabled and
+      now() >= today_at(time_down_late_today)
+    }}
+
+  # Daytime window for shading (with tolerance)
+  is_daytime_window: >-
+    {{
+      is_time_control_disabled or
+      (
+        is_time_field_enabled and
+        now() >= today_at(time_up_early_today) and
+        now() <= today_at(time_down_late_today) + timedelta(seconds = 5)
+      ) or
+      (
+        is_schedule_helper_enabled and
+        time_schedule_helper != [] and
+        is_state(time_schedule_helper, 'on')
+      )
+    }}
+
+  # ========== ENVIRONMENTAL CONDITIONS ==========
+
+  # Brightness conditions
+  brightness_above_open_threshold: >-
+    {{
+      not is_brightness_enabled or
+      default_brightness_sensor == [] or
+      states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
+    }}
+
+  brightness_below_close_threshold: >-
+    {{
+      not is_brightness_enabled or
+      default_brightness_sensor == [] or
+      states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
+    }}
+
+  # Sun elevation conditions
+  sun_above_open_threshold: >-
+    {{
+      not is_sun_elevation_enabled or
+      default_sun_sensor == [] or
+      current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up
+    }}
+
+  sun_below_close_threshold: >-
+    {{
+      not is_sun_elevation_enabled or
+      default_sun_sensor == [] or
+      current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down
+    }}
+
+  # Combined environmental check for opening
+  environment_allows_opening: >-
+    {{
+      brightness_above_open_threshold or sun_above_open_threshold
+    }}
+
+  # Combined environmental check for closing
+  environment_allows_closing: >-
+    {{
+      brightness_below_close_threshold or sun_below_close_threshold
+    }}
+
+  # ========== COMBINED CONDITIONS ==========
+
+  # Should cover be open right now? (for resident logic)
+  should_be_open_now: >-
+    {{
+      is_daytime_phase and
+      not is_evening_phase and
+      (
+        not is_brightness_enabled and not is_sun_elevation_enabled or
+        environment_allows_opening
+      )
+    }}
+
+  # Should cover be closed right now? (for resident logic)
+  should_be_closed_now: >-
+    {{
+      is_evening_phase and
+      (
+        not is_brightness_enabled and not is_sun_elevation_enabled or
+        environment_allows_closing
+      )
+    }}
+
 # CCA uses 'queued' mode to prevent race conditions when multiple sensors
 # change state simultaneously (e.g., window sensor + lock sensor).
 # - If automation is running, new triggers are queued (max 10)
@@ -3970,8 +4111,14 @@ actions:
               - "{{ not prevent_flags.opening_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_flags.opening_multiple_times and (now().day != helper_ts.open|timestamp_custom('%-d')|int) }}"
           - or: # Check whether the resident trigger is allowed
-              - "{{ trigger.id != 't_open_6' }}" # Continue if other trigger
-              - "{{ trigger.id == 't_open_6' and resident_flags.opening_enabled }}" # Only continue if permitted
+              - "{{ trigger.id != 't_open_6' }}"  # Continue if other trigger
+              - and:  # For t_open_6: check conditions
+                  - "{{ trigger.id == 't_open_6' }}"
+                  - or:
+                      - and:  # Immediate opening: only during daytime phase
+                          - "{{ resident_flags.opening_enabled }}"
+                          - "{{ is_daytime_phase }}"
+                      - "{{ should_be_open_now }}"  # OR all conditions met
           - or: # Resident status must always be checked
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -3979,41 +4126,18 @@ actions:
                   - "{{ resident_flags.allow_opening }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
           - or: # Now we have to check different opening scenarios
-              - and: # Control via times disabled
-                  - "{{ is_time_control_disabled }}"
-              - and: # Opening - Up late reached
-                  - "{{ is_time_field_enabled }}"
-                  - "{{ now() >= today_at(time_up_late_today) }}"
-                  - "{{ now() <= today_at(time_down_late_today) - timedelta(seconds = 5) }}"
-              - and: # Opening - Scheduler changes to on w/o brightness and sun
+              - "{{ is_time_control_disabled }}"
+              - "{{ is_time_up_late }}"
+              - and: # Scheduler trigger without brightness/sun
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
-                  - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
+                  - "{{ not is_brightness_enabled }}"
                   - "{{ not is_sun_elevation_enabled }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
-                  - "{{ trigger.id in ['t_open_3', 't_open_6'] }}" # Scheduler -> true / Resident -> false # TODO Why is the resident trigger here?
-              - and: # Opening - Up early reached or schedule helper is on and brightness/sun above minimum
-                  - or:
-                      - and:
-                          - "{{ is_time_control_disabled }}"
-                      - and:
-                          - "{{ is_time_field_enabled }}"
-                          - "{{ now() >= today_at(time_up_early_today) }}"
-                          - "{{ now() <= today_at(time_up_late_today) + timedelta(seconds = 5) }}"
-                      - and:
-                          - "{{ is_schedule_helper_enabled }}"
-                          - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
-                          - "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(seconds = 5) }}"
-                          - "{{ now() <= today_at([time_up_late, time_up_late_non_workday] | max) + timedelta(seconds = 5) }}"
-                  - or:
-                      - or:
-                          - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)) }}"
-                      - or:
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up) }}"
-
+                  - "{{ trigger.id in ['t_open_3', 't_open_6'] }}"
+              - and: # Early opening with environmental conditions
+                  - "{{ is_daytime_phase }}"
+                  - "{{ environment_allows_opening }}"
         sequence:
           - delay:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -4111,13 +4235,11 @@ actions:
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_flags.closing_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_flags.closing_multiple_times and (helper_ts.closed < today_at(time_down_early_today) | as_timestamp) }}"
+
           - or:
-              - and: # Control via times disabled
-                  - "{{ is_time_control_disabled }}"
-              - and: # Closing - Down late reached
-                  - "{{ is_time_field_enabled }}"
-                  - "{{ now() >= today_at(time_down_late_today) }}"
-              - and: # Closing - Scheduler changes to off
+              - "{{ is_time_control_disabled }}"
+              - "{{ is_time_down_late }}"
+              - and: # Scheduler trigger
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
                   # Commented out due to #170.
@@ -4127,33 +4249,14 @@ actions:
                   # - "{{ not is_sun_elevation_enabled }}"
                   - "{{ is_state(time_schedule_helper, 'off') }}"
                   - "{{ trigger.id == 't_close_3' }}"
-              - and: # Closing - Down early reached and brightness/sun below minimum
-                  - or:
-                      - and: # Control via times disabled
-                          - "{{ is_time_control_disabled }}"
-                      - and:
-                          - "{{ is_time_field_enabled }}"
-                          - "{{ now() >= today_at(time_down_early_today) }}"
-                          - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-                      - and:
-                          - "{{ is_schedule_helper_enabled }}"
-                          - "{{ time_schedule_helper != [] }}"
-                          - "{{ is_state(time_schedule_helper, 'on') }}" # If sun/brightness control is also enabled, the cover opened during the scheduler-ON phase.
-                          - "{{ now() >= today_at([time_down_early, time_down_early_non_workday] | min) - timedelta(seconds = 5) }}"
-                          - "{{ now() <= today_at([time_down_late, time_down_late_non_workday] | max) + timedelta(seconds = 5) }}"
-                  - or:
-                      - or:
-                          - "{{ is_brightness_enabled and default_brightness_sensor == [] }}"
-                          - "{{ is_brightness_enabled and default_brightness_sensor != [] and (states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)) }}"
-                      - or:
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor == [] }}"
-                          - "{{ is_sun_elevation_enabled and default_sun_sensor != [] and (current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down) }}"
-              - and: # Closing - due to resident goes sleeping
+              - and: # Early closing with environmental conditions
+                  - "{{ is_evening_phase }}"
+                  - "{{ environment_allows_closing }}"
+              - and: # Resident goes sleeping
                   - "{{ trigger.id == 't_close_6' }}"
                   - "{{ resident_sensor != [] }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
                   - "{{ resident_flags.closing_enabled }}"
-
         sequence:
           - choose:
               #################################
@@ -4390,17 +4493,8 @@ actions:
                           - and:
                               - "{{ is_cover_tilt_enabled_and_possible }}"
                               - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
-                      - or: # Here the shading is executed during the day and therefore the time comparison must be made here.
-                          - and:
-                              - "{{ is_time_control_disabled }}"
-                          - and:
-                              - "{{ is_time_field_enabled }}"
-                              - "{{ now() >= today_at(time_up_early_today) }}"
-                              - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-                          - and:
-                              - "{{ is_schedule_helper_enabled }}"
-                              - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                      - or: # Shading during daytime window
+                          - "{{ is_daytime_window }}"
                       - or:
                           - "{{ resident_sensor == [] }}"
                           - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -4469,17 +4563,7 @@ actions:
                       - "{{ helper_status.shading_start_pending }}"
                       - "{{ shading_start_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
-                          - and:
-                              - "{{ is_time_control_disabled }}"
-                              - "{{ helper_status.open }}"
-                          - and:
-                              - "{{ is_time_field_enabled }}"
-                              - "{{ now() >= today_at(time_up_early_today) }}"
-                              - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-                          - and:
-                              - "{{ is_schedule_helper_enabled }}"
-                              - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                          - "{{ is_daytime_window }}"
                       - "{{ (as_timestamp(now()) - helper_json.shading.t) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
@@ -4555,16 +4639,7 @@ actions:
               - "{{ (force_disabled.ventilate or enable_background_state_tracking) }}"
               - "{{ (force_disabled.shading_start or enable_background_state_tracking) }}"
           - or:
-              - and:
-                  - "{{ is_time_control_disabled }}"
-              - and:
-                  - "{{ is_time_field_enabled }}"
-                  - "{{ now() >= today_at(time_up_early_today) }}"
-                  - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-              - and:
-                  - "{{ is_schedule_helper_enabled }}"
-                  - "{{ time_schedule_helper != [] }}"
-                  - "{{ is_state(time_schedule_helper, 'on') }}"
+              - "{{ is_daytime_window }}"
           - "{{ not (helper_status.manual and override_flags.shading) }}" # Override check
           - "{{ not helper_status.closed }}"
           - or:
@@ -4777,17 +4852,7 @@ actions:
                       - "{{ helper_status.shading_end_pending }}"
                       - "{{ shading_end_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
-                          - and:
-                              - "{{ is_time_control_disabled }}"
-                              - "{{ is_helper_shading }}"
-                          - and:
-                              - "{{ is_time_field_enabled }}"
-                              - "{{ now() >= today_at(time_up_early_today) }}"
-                              - "{{ now() <= today_at(time_down_late_today) + timedelta(seconds = 5) }}"
-                          - and:
-                              - "{{ is_schedule_helper_enabled }}"
-                              - "{{ time_schedule_helper != [] }}"
-                              - "{{ is_state(time_schedule_helper, 'on') }}"
+                          - "{{ is_daytime_window }}"
                       - "{{ (as_timestamp(now()) - helper_json.shading.t) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
