@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.11.28
+    **Version**: 2025.11.29
 
     ### 🔗 Resources & Support
 
@@ -199,7 +199,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # 🚀 CCA 2025.11.28 - Background State Memory, New Shading Logic & Native Awning Support
+    # 🚀 CCA 2025.11.29 - Background State Memory, New Shading Logic & Native Awning Support
 
       ## 🧠 Background State Memory & Force Return
 
@@ -2801,7 +2801,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.11.28"
+  version: "2025.11.29"
 
   # Basic entity state reading
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3449,7 +3449,7 @@ variables:
 
   # ========== ENVIRONMENTAL CONDITIONS ==========
 
-  # Brightness conditions
+  # OPENING: Not enabled = no obstacle (correct OR logic)
   brightness_above_open_threshold: >-
     {{
       not is_brightness_enabled or
@@ -3457,14 +3457,6 @@ variables:
       states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
     }}
 
-  brightness_below_close_threshold: >-
-    {{
-      not is_brightness_enabled or
-      default_brightness_sensor == [] or
-      states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
-    }}
-
-  # Sun elevation conditions
   sun_above_open_threshold: >-
     {{
       not is_sun_elevation_enabled or
@@ -3472,20 +3464,31 @@ variables:
       current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up
     }}
 
-  sun_below_close_threshold: >-
+  # CLOSING: Only check if enabled (AND logic!)
+  brightness_below_close_threshold: >-
     {{
-      not is_sun_elevation_enabled or
-      default_sun_sensor == [] or
-      current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down
+      is_brightness_enabled and
+      (
+        default_brightness_sensor == [] or
+        states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
+      )
     }}
 
-  # Combined environmental check for opening
+  sun_below_close_threshold: >-
+    {{
+      is_sun_elevation_enabled and
+      (
+        default_sun_sensor == [] or
+        current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down
+      )
+    }}
+
+  # Combined environmental checks
   environment_allows_opening: >-
     {{
       brightness_above_open_threshold or sun_above_open_threshold
     }}
 
-  # Combined environmental check for closing
   environment_allows_closing: >-
     {{
       brightness_below_close_threshold or sun_below_close_threshold
