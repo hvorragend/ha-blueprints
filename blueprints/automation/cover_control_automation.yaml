@@ -3449,49 +3449,38 @@ variables:
 
   # ========== ENVIRONMENTAL CONDITIONS ==========
 
-  # OPENING: Not enabled = no obstacle (correct OR logic)
-  brightness_above_open_threshold: >-
-    {{
-      not is_brightness_enabled or
-      default_brightness_sensor == [] or
-      states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
-    }}
-
-  sun_above_open_threshold: >-
-    {{
-      not is_sun_elevation_enabled or
-      default_sun_sensor == [] or
-      current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up
-    }}
-
-  # CLOSING: Only check if enabled (AND logic!)
-  brightness_below_close_threshold: >-
-    {{
-      is_brightness_enabled and
-      (
-        default_brightness_sensor == [] or
-        states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
-      )
-    }}
-
-  sun_below_close_threshold: >-
-    {{
-      is_sun_elevation_enabled and
-      (
-        default_sun_sensor == [] or
-        current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down
-      )
-    }}
-
-  # Combined environmental checks
+  # ALL enabled sensors must allow opening (AND logic)
   environment_allows_opening: >-
     {{
-      brightness_above_open_threshold or sun_above_open_threshold
+      (
+        not is_brightness_enabled or
+        default_brightness_sensor == [] or
+        states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
+      ) and
+      (
+        not is_sun_elevation_enabled or
+        default_sun_sensor == [] or
+        current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up
+      )
     }}
 
+  # At least one enabled sensor must require closing (OR logic)
   environment_allows_closing: >-
     {{
-      brightness_below_close_threshold or sun_below_close_threshold
+      (
+        is_brightness_enabled and
+        (
+          default_brightness_sensor == [] or
+          states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
+        )
+      ) or
+      (
+        is_sun_elevation_enabled and
+        (
+          default_sun_sensor == [] or
+          current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down
+        )
+      )
     }}
 
   # ========== COMBINED CONDITIONS ==========
@@ -3502,17 +3491,17 @@ variables:
       is_daytime_phase and
       not is_evening_phase and
       (
-        not is_brightness_enabled and not is_sun_elevation_enabled or
+        (not is_brightness_enabled and not is_sun_elevation_enabled) or
         environment_allows_opening
       )
     }}
 
-  # Should cover be closed right now? (for resident logic)
+  # Should cover be closed right now? (not use atm)
   should_be_closed_now: >-
     {{
       is_evening_phase and
       (
-        not is_brightness_enabled and not is_sun_elevation_enabled or
+        (not is_brightness_enabled and not is_sun_elevation_enabled) or
         environment_allows_closing
       )
     }}
@@ -4134,7 +4123,7 @@ actions:
               - and: # Scheduler trigger without brightness/sun
                   - "{{ is_schedule_helper_enabled }}"
                   - "{{ time_schedule_helper != [] }}"
-                  - "{{ not is_brightness_enabled }}"
+                  - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
                   - "{{ not is_sun_elevation_enabled }}"
                   - "{{ is_state(time_schedule_helper, 'on') }}"
                   - "{{ trigger.id in ['t_open_3', 't_open_6'] }}"
