@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.11.29
+    **Version**: 2025.12.02
 
     ### 🔗 Resources & Support
 
@@ -199,7 +199,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # 🚀 CCA 2025.11.29 - Background State Memory, New Shading Logic & Native Awning Support
+    # 🚀 CCA 2025.12.02 - Background State Memory, New Shading Logic & Native Awning Support
 
       ## 🧠 Background State Memory & Force Return
 
@@ -294,6 +294,23 @@ blueprint:
         - Reliable tilt without manual delay tuning
         - Fully backward compatible
         - Timeout protection with warning logs
+
+
+      ## ✨ Seasonal Sun Elevation Adaptation / Dynamic Sun Elevation
+
+      - **Problem solved:** Fixed sun elevation thresholds don't work optimally year-round. In winter the sun stays lower, in summer higher. With fixed values your covers open/close at the wrong solar times.
+
+      - **Solution:** Optional template sensors automatically adapt thresholds to the season. Thanks, Zanuuu, for this idea in issue #285.
+        - **Sun Elevation Up Sensor (Dynamic)** – Optional: Sensor for seasonal opening thresholds
+        - **Sun Elevation Down Sensor (Dynamic)** – Optional: Sensor for seasonal closing thresholds
+
+      - New guide with step-by-step instructions: [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md)
+
+      - **Benefits**:
+        - No more DST adjustments – No manual changes needed when clocks shift
+        - Year-round optimization – Covers open/close at consistent solar times
+        - Set and forget – Configure once, works automatically forever
+        - Smooth transitions – Gradual threshold changes throughout the year
 
 
       ## 🧱 Stability & Hysteresis Improvements
@@ -625,7 +642,6 @@ blueprint:
     position_section:
       name: "Cover Position Settings"
       icon: mdi:window-shutter-settings
-
       description: >-
         <br /><center>
           <details>
@@ -930,6 +946,24 @@ blueprint:
       name: "Time Control Configuration"
       icon: mdi:clock-time-two-outline
       collapsed: true
+      description: >-
+        <br /><center>
+          <details>
+              <summary><code><strong>CLICK HERE: CCA Time Control - How It Works</strong></code></summary>
+              <br />
+              <strong>⏰ Time Control Modes:</strong><br />
+              - <strong>Input Fields:</strong> Use time inputs directly in this section (recommended)<br />
+              - <strong>Schedule Helper:</strong> Use external schedule entity for flexible weekday configuration<br />
+              - <strong>Disabled:</strong> No time-based triggers, only brightness/sun/manual control<br />
+              <br />
+              <strong>📖 Detailed Documentation:</strong><br />
+              For comprehensive explanations, examples, and timing diagrams, see:<br />
+              <a href="https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/TIME_CONTROL_VISUALIZATION.md">Time Control Guide</a><br />
+              <br />
+              Topics covered: Early/Late times, environmental interaction, workday scheduling, schedule helper behavior, and troubleshooting.<br />
+              </code>
+          </details>
+        </center><br />
       input:
         time_control:
           name: "⏲️ Selection of time control options"
@@ -1267,6 +1301,35 @@ blueprint:
               unit_of_measurement: °
               step: 0.1
               mode: slider
+
+        sun_elevation_up_sensor:
+          name: "☀️ Sun Elevation Up Sensor (Dynamic - Optional)"
+          description: >-
+            Optional template sensor that dynamically calculates elevation threshold for opening based on season.
+            If configured, this overrides the fixed 'Sun Elevation Up' value above.
+            <br /><br />
+            **Recommended**: Use a template sensor with seasonal interpolation to handle DST and seasonal variations.
+            See [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md) for setup instructions.
+            <br /><br />
+            `Optional`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain: [sensor, input_number]
+
+        sun_elevation_down_sensor:
+          name: "☀️ Sun Elevation Down Sensor (Dynamic - Optional)"
+          description: >-
+            Optional template sensor that dynamically calculates elevation threshold for closing based on season.
+            If configured, this overrides the fixed 'Sun Elevation Down' value above.
+            <br /><br />
+            `Optional`
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain: [sensor, input_number]
 
     contacts_section:
       name: "Contact Sensors for Ventilation"
@@ -2712,6 +2775,10 @@ trigger_variables:
   sun_elevation_up: !input sun_elevation_up
   sun_elevation_down: !input sun_elevation_down
 
+  # Dynamic sun elevation sensors (optional)
+  sun_elevation_up_sensor: !input sun_elevation_up_sensor
+  sun_elevation_down_sensor: !input sun_elevation_down_sensor
+
   # Ventilation/Contact sensors
   contact_window_opened: !input contact_window_opened
   contact_window_tilted: !input contact_window_tilted
@@ -2801,7 +2868,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.11.29"
+  version: "2025.12.02"
 
   # Basic entity state reading
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -2832,6 +2899,24 @@ variables:
 
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
+
+  # Current sun elevation thresholds (dynamic or fixed)
+  sun_elevation_up_current: >-
+    {% set sensor = sun_elevation_up_sensor %}
+    {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+      {{ states(sensor) | float }}
+    {% else %}
+      {{ sun_elevation_up | float }}
+    {% endif %}
+
+  sun_elevation_down_current: >-
+    {% set sensor = sun_elevation_down_sensor %}
+    {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+      {{ states(sensor) | float }}
+    {% else %}
+      {{ sun_elevation_down | float }}
+    {% endif %}
+
   is_today_off: "{{ workday_sensor_today != [] and is_state(workday_sensor_today, 'off') }}"
   is_tomorrow_off: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'off') }}"
   is_tomorrow_on: "{{ workday_sensor_tomorrow != [] and is_state(workday_sensor_tomorrow, 'on') }}"
@@ -3460,7 +3545,7 @@ variables:
       (
         not is_sun_elevation_enabled or
         default_sun_sensor == [] or
-        current_sun_elevation | float(default=sun_elevation_up) > sun_elevation_up
+        current_sun_elevation | float(default=sun_elevation_up_current) > sun_elevation_up_current
       )
     }}
 
@@ -3478,7 +3563,7 @@ variables:
         is_sun_elevation_enabled and
         (
           default_sun_sensor == [] or
-          current_sun_elevation | float(default=sun_elevation_down) < sun_elevation_down
+          current_sun_elevation | float(default=sun_elevation_down_current) < sun_elevation_down_current
         )
       )
     }}
@@ -3554,8 +3639,16 @@ triggers:
     enabled: "{{ is_brightness_enabled and default_brightness_sensor != [] }}"
     id: "t_open_4"
 
+  # Trigger on fixed or dynamic sensor threshold
   - platform: template
-    value_template: "{{ state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_up) > sun_elevation_up }}"
+    value_template: >-
+      {% set sensor = sun_elevation_up_sensor %}
+      {% set current_elevation = state_attr(default_sun_sensor, 'elevation') | float(0) %}
+      {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+        {{ current_elevation > (states(sensor) | float) }}
+      {% else %}
+        {{ current_elevation > sun_elevation_up }}
+      {% endif %}
     for:
       seconds: !input sun_time_duration
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
@@ -3626,7 +3719,14 @@ triggers:
     id: "t_close_4"
 
   - platform: template
-    value_template: "{{ state_attr(default_sun_sensor, 'elevation') | float(default=sun_elevation_down) < sun_elevation_down }}"
+    value_template: >-
+      {% set sensor = sun_elevation_down_sensor %}
+      {% set current_elevation = state_attr(default_sun_sensor, 'elevation') | float(0) %}
+      {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+        {{ current_elevation < (states(sensor) | float) }}
+      {% else %}
+        {{ current_elevation < sun_elevation_down }}
+      {% endif %}
     for:
       seconds: !input sun_time_duration
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
@@ -5899,6 +5999,81 @@ actions:
                       shading_forecast_temp == []
                     }}
                   message: "Forecast END condition enabled but threshold not configured"
+
+                # ========== DYNAMIC SUN ELEVATION SENSOR CHECKS ==========
+
+                - condition: >-
+                    {{
+                      sun_elevation_up_sensor != [] and
+                      states(sun_elevation_up_sensor) in ['unknown', 'unavailable']
+                    }}
+                  message: "Dynamic sun elevation up sensor '{{ sun_elevation_up_sensor }}' is unavailable. Check sensor configuration"
+
+                - condition: >-
+                    {{
+                      sun_elevation_up_sensor != [] and
+                      states(sun_elevation_up_sensor) not in invalid_states and
+                      not is_number(states(sun_elevation_up_sensor))
+                    }}
+                  message: "Dynamic sun elevation up sensor '{{ sun_elevation_up_sensor }}' has non-numeric state: '{{ states(sun_elevation_up_sensor) }}'"
+
+                - condition: >-
+                    {{
+                      sun_elevation_up_sensor != [] and
+                      is_number(states(sun_elevation_up_sensor)) and
+                      (states(sun_elevation_up_sensor) | float < -90 or states(sun_elevation_up_sensor) | float > 90)
+                    }}
+                  message: "Dynamic sun elevation up sensor value ({{ states(sun_elevation_up_sensor) }}°) is outside valid range (-90° to 90°)"
+
+                - condition: >-
+                    {{
+                      sun_elevation_down_sensor != [] and
+                      states(sun_elevation_down_sensor) in ['unknown', 'unavailable']
+                    }}
+                  message: "Dynamic sun elevation down sensor '{{ sun_elevation_down_sensor }}' is unavailable. Check sensor configuration"
+
+                - condition: >-
+                    {{
+                      sun_elevation_down_sensor != [] and
+                      states(sun_elevation_down_sensor) not in invalid_states and
+                      not is_number(states(sun_elevation_down_sensor))
+                    }}
+                  message: "Dynamic sun elevation down sensor '{{ sun_elevation_down_sensor }}' has non-numeric state: '{{ states(sun_elevation_down_sensor) }}'"
+
+                - condition: >-
+                    {{
+                      sun_elevation_down_sensor != [] and
+                      is_number(states(sun_elevation_down_sensor)) and
+                      (states(sun_elevation_down_sensor) | float < -90 or states(sun_elevation_down_sensor) | float > 90)
+                    }}
+                  message: "Dynamic sun elevation down sensor value ({{ states(sun_elevation_down_sensor) }}°) is outside valid range (-90° to 90°)"
+
+                - condition: >-
+                    {{
+                      sun_elevation_up_sensor != [] and
+                      sun_elevation_down_sensor != [] and
+                      is_number(states(sun_elevation_up_sensor)) and
+                      is_number(states(sun_elevation_down_sensor)) and
+                      (states(sun_elevation_up_sensor) | float) <= (states(sun_elevation_down_sensor) | float)
+                    }}
+                  message: "Dynamic sun elevation up sensor ({{ states(sun_elevation_up_sensor) }}°) should be higher than down sensor ({{ states(sun_elevation_down_sensor) }}°)"
+
+                - condition: >-
+                    {{
+                      sun_elevation_up_sensor != [] and
+                      sun_elevation_down_sensor == [] and
+                      sun_elevation_up <= sun_elevation_down
+                    }}
+                  message: "WARNING: Using dynamic sensor for UP but fixed value for DOWN. Thresholds may be inconsistent (up={{ sun_elevation_up_sensor }}°, down={{ sun_elevation_down }}°)"
+
+                - condition: >-
+                    {{
+                      sun_elevation_up_sensor == [] and
+                      sun_elevation_down_sensor != [] and
+                      sun_elevation_up <= sun_elevation_down
+                    }}
+                  message: "WARNING: Using dynamic sensor for DOWN but fixed value for UP. Thresholds may be inconsistent (up={{ sun_elevation_up }}°, down={{ sun_elevation_down_sensor }}°)"
+
 
               sequence:
                 - if:
