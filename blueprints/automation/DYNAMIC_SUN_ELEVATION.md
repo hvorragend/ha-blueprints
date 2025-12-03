@@ -62,7 +62,13 @@ Sun Elevation Threshold Throughout Year (50°N)
 Add this to your `configuration.yaml` or create a new file in `packages/`:
 ```yaml
 template:
-  - sensor:
+  - trigger:
+      - trigger: time
+        at: "00:01:00"
+      - platform: event
+        event_type:
+          - homeassistant_started
+    sensor:
       # ========================================
       # Dynamic Sun Elevation - Opening
       # ========================================
@@ -72,23 +78,23 @@ template:
         icon: mdi:weather-sunset-up
         state: >
           {% set day = now().timetuple().tm_yday %}
-          {% set lat = state_attr('zone.home', 'latitude') | float(50.0) %}
-          
+          {% set lat = state_attr('zone.home', 'latitude') | float(52.0) %}
+
           {# Reference values for 50°N #}
           {% set summer = 5.0 %}
-          {% set winter = -2.0 %}
-          
+          {% set winter = 2.0 %}
+
           {# Sinusoidal interpolation (physically correct) #}
           {# Day 80.75 ≈ March 21 (spring equinox) as reference #}
           {% set seasonal_factor = sin(2 * pi * (day - 80.75) / 365) %}
           {% set base = winter + (summer - winter) * (seasonal_factor + 1) / 2 %}
-          
+
           {# Latitude adjustment: ±0.2° per degree from 50°N #}
           {% set adjustment = (lat - 50) * 0.2 %}
           {% set final = base + adjustment %}
-          
+
           {{ final | round(1) }}
-      
+
       # ========================================
       # Dynamic Sun Elevation - Closing
       # ========================================
@@ -98,20 +104,20 @@ template:
         icon: mdi:weather-sunset-down
         state: >
           {% set day = now().timetuple().tm_yday %}
-          {% set lat = state_attr('zone.home', 'latitude') | float(50.0) %}
-          
+          {% set lat = state_attr('zone.home', 'latitude') | float(52.0) %}
+
           {# Reference values for 50°N #}
-          {% set summer = 3.0 %}
-          {% set winter = -4.0 %}
-          
+          {% set summer = 2.0 %}
+          {% set winter = -1.0 %}
+
           {# Sinusoidal interpolation (physically correct) #}
           {% set seasonal_factor = sin(2 * pi * (day - 80.75) / 365) %}
           {% set base = winter + (summer - winter) * (seasonal_factor + 1) / 2 %}
-          
+
           {# Latitude adjustment #}
           {% set adjustment = (lat - 50) * 0.2 %}
           {% set final = base + adjustment %}
-          
+
           {{ final | round(1) }}
 ```
 
