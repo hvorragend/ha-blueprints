@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.02
+    **Version**: 2025.12.03
 
     ### 🔗 Resources & Support
 
@@ -199,7 +199,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # 🚀 CCA 2025.12.02 - Background State Memory, New Shading Logic & Native Awning Support
+    # 🚀 CCA 2025.12.03 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
 
       ## 🧠 Background State Memory & Force Return
 
@@ -278,6 +278,30 @@ blueprint:
 
       - **Full hysteresis for all temperature paths**
         Hysteresis is applied not only to current temperature sensors 1 and 2, but also to forecast temperature, dramatically reducing unnecessary open/close cycles around threshold values.
+
+
+      ## 📅 Calendar Integration for Time Control
+
+      - **New Feature:** Use Home Assistant calendars for flexible cover scheduling!
+
+      - ### What's New?
+        - **Calendar Control Mode**: Select "Use a Home Assistant calendar" in Time Control Configuration
+        - **Simple Event Titles**: Just create calendar events with titles:
+          - "Open Cover" for daytime window
+          - "Close Cover" for evening window
+        - **Instant Response**: Automation reacts immediately when events start or end
+
+      - ### Benefits Over Time Scheduler:
+        - **More Flexible**: Different times for each day of the week
+        - **Exception Handling**: Easy to create holiday/vacation schedules
+        - **No Reloads Needed**: Change times in calendar, automation adapts instantly
+        - **Visual Planning**: See your schedule in calendar view
+        - **Family Friendly**: Anyone can adjust schedule in calendar app
+
+      - ### Example Schedule:
+        - **Monday-Friday**: "Open Cover" 06:00-20:00
+        - **Saturday-Sunday**: "Open Cover" 08:00-22:00
+        - **Vacation Week**: "Close Cover" all day (keep closed)
 
 
       ## 🔄 Tilt Position Control - Wait Until Idle Mode
@@ -397,6 +421,18 @@ blueprint:
 
       - **Variables refactoring:**
         Consolidated 80+ flag variables into maintainable dictionaries. No functional changes.
+
+
+      ## ⏰ Time Early and Time Late can now be identical for both Open and Close
+
+      - **Change:** Both Early and Late times can now be set to the same value (e.g., Time Up Early and Time Up Late both at 07:00, or Time Down Early and Time Down Late both at 22:00) to guarantee opening/closing at that exact time, regardless of environmental conditions.
+
+      - **Previous behavior:** With different Early and Late times, covers opened/closed at the early time as soon as conditions were met—even when Brightness/Sun Elevation were disabled.
+
+      - **Migration:**
+        - For fixed opening/closing times without early triggering: Set both Early and Late times to identical values
+        - For flexible opening/closing (early when conditions met, late as fallback): Keep Early before Late and enable Brightness/Sun Elevation
+
 
       ## ⚠️ Breaking Changes & Migration
 
@@ -972,15 +1008,15 @@ blueprint:
             <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
             <br />
             <ins>Input fields for time control</ins><br />
-            The times for opening and closing the cover are usually configured here in the blueprint.
+            The times for opening and closing the cover are configured here in the blueprint.
             There are various input fields here for this purpose.
             Even if you only want to control the covers using brightness values or the sun elevation,
             it is important to specify times. The times are used to divide the day into "morning" (up) and "evening" (down).
             <br /><br />
-            <ins>Schedule Helper</ins><br />
-            However, you can also activate a scheduler helper mode at this point.
-            This would allow you to configure a different time period for keeping the cover open for each day.
-            Further information on this and the definition of the helper can be found below.
+            <ins>Calendar Control</ins><br />
+            You can use a Home Assistant calendar to define when covers should be open or closed.
+            Create calendar events with titles "Open Cover" (for daytime) or "Close Cover" (for evening).
+            The automation reacts immediately when events start or end.
             <br /><br />
             <ins>Disable time control and all time triggers</ins><br />
             Finally, you can also deactivate the time control completely.
@@ -995,8 +1031,8 @@ blueprint:
               options:
                 - label: "✏️ Use the time input fields in this blueprint section"
                   value: "time_control_input"
-                - label: "⏲️ Use an external schedule helper"
-                  value: "time_control_schedule"
+                - label: "📅 Use a Home Assistant calendar"
+                  value: "time_control_calendar"
                 - label: "🚫 Disable time control and all time triggers"
                   value: "time_control_disabled"
               sort: false
@@ -1113,60 +1149,63 @@ blueprint:
                 - domain:
                     - binary_sensor
 
-        time_schedule_helper:
-          name: "⏲️ Cover driving time schedule helper"
+        calendar_entity:
+          name: "📅 Calendar Entity"
           description: >-
-            If enabled <em>"⏲️ Use an external schedule helper"</em> above, please select the schedule helper here.
-            Of course, it is also important that the times in the helper are configured accordingly.
-            Please create only one period in total. Example: Start at 08:00 and end at 22:00.
-            The helper can be created [here](https://my.home-assistant.io/redirect/helpers/).
+            Select a Home Assistant calendar for time control.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> How to use calendar control</code></summary>
+
+            **Event Titles (case-insensitive):**
+            - **"Open Cover"** - Marks the daytime window (cover should be open)
+            - **"Close Cover"** - Marks the evening window (cover should be closed)
+
+            **How it works:**
+            - When an "Open Cover" event starts, the automation treats it like morning time
+            - When a "Close Cover" event starts, the automation treats it like evening time
+            - Events can span multiple days
+            - Multiple events per day are supported
+
+            **Example schedule:**
+            - Monday to Friday: "Open Cover" from 06:00-20:00
+            - Saturday/Sunday: "Open Cover" from 08:00-22:00
+            - Automatically handles weekday/weekend differences
+
+            **Advantages over time input:**
+            - ✅ No need for separate workday/non-workday times
+            - ✅ Can define different times for each day
+            - ✅ Can create exceptions (holidays, vacations)
+            - ✅ Changes take effect immediately without automation reload
+
+            </details>
             <br /><br />`Optional`
-
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Important difference to the usual input fields</code></summary>
-            <br />
-            The behaviour when using the schedule Helper is different to the pure time input.
-
-              - <ins>Without brightness or sun elevation control:</ins>
-                As soon as the helper state is switched from <strong>OFF</strong> to <strong>ON</strong>, the cover is opened.
-                The cover is closed when the helper state changes from <strong>ON</strong> to <strong>OFF</strong>.
-
-              - <ins>With brightness or sun elevation control:</ins>
-                The cover opens when the threshold is exceeded and the helper is <strong>ON</strong>.
-                The cover closes when the level is below the threshold and the helper is <strong>ON</strong>, or when the schedule helper changes from <strong>ON</strong> to <strong>OFF</strong> (Latest time for closing the cover).
-
-            Unfortunately, the HA core currently only has a 30-minute time grid for the time configuration.
-
-            </details>
-            <br />
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Important configuration instructions</code></summary>
-            <br />
-            It is not possible to find out more about the status of the schedule helper in Home Assistant.
-            I never know whether we are at the beginning or end of the period.
-            However, this is important to avoid bouncing when controlling the brightness, for example.
-            In order to recognise whether we are still in the opening period or the closing period,
-            it is necessary to enter a very rough time period in the time variables in the blueprint.
-            <br /><br />
-            <ins>Example:</ins>
-            If the schedule helper goes to the "ON" status at 08:00 and to the "OFF" status at 18:00, it is sufficient to configure the times as follows:
-            <br /><br />
-            Time For Drive Up - Early: 06:00<br />
-            Time For Drive Up - Late: 12:00<br /><br />
-            Time For Drive Down - Early: 16:00<br />
-            Time For Drive Down - Late: 22:00<br />
-            <br />
-            The times are not used for triggering, but only to divide the day into two halves!
-
-            </details>
-
           default: []
           selector:
             entity:
               filter:
-                - domain:
-                    - schedule
+                - domain: calendar
               multiple: false
+
+        calendar_open_title:
+          name: "📂 Open Event Title"
+          description: >-
+            Title of calendar events that define the daytime window
+            (case-insensitive match).
+            Default: "Open Cover".
+          default: "Open Cover"
+          selector:
+            text: {}
+
+        calendar_close_title:
+          name: "📁 Close Event Title"
+          description: >-
+            Title of calendar events that define the evening/close window
+            (case-insensitive match).
+            Default: "Close Cover".
+          default: "Close Cover"
+          selector:
+            text: {}
 
     brightness_section:
       name: "Brightness Configuration"
@@ -2719,6 +2758,7 @@ trigger_variables:
   blind: !input blind
   cover_type: !input cover_type
   is_awning: "{{ cover_type == 'awning' }}"
+  resident_sensor: !input resident_sensor
 
   # Positions
   open_position: !input open_position
@@ -2762,7 +2802,14 @@ trigger_variables:
   workday_sensor_today: !input workday_sensor
   workday_sensor_tomorrow: !input workday_sensor_tomorrow
   time_control: !input time_control
-  time_schedule_helper: !input time_schedule_helper
+
+  # Calendar configuration
+  calendar_entity: !input calendar_entity
+  calendar_open_title: !input calendar_open_title
+  calendar_close_title: !input calendar_close_title
+  calendar_open_title_lc: "{{ (calendar_open_title | default('')) | lower | trim }}"
+  calendar_close_title_lc: "{{ (calendar_close_title | default('')) | lower | trim }}"
+  is_calendar_enabled: "{{ 'time_control_calendar' in time_control and calendar_entity != [] }}"
 
   # Brightness configuration
   default_brightness_sensor: !input default_brightness_sensor
@@ -2775,7 +2822,7 @@ trigger_variables:
   sun_elevation_up: !input sun_elevation_up
   sun_elevation_down: !input sun_elevation_down
 
-  # Dynamic sun elevation sensors (optional)
+  # Dynamic sun elevation sensors
   sun_elevation_up_sensor: !input sun_elevation_up_sensor
   sun_elevation_down_sensor: !input sun_elevation_down_sensor
 
@@ -2828,7 +2875,6 @@ trigger_variables:
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
-  is_schedule_helper_enabled: "{{ 'time_control_schedule' in time_control and time_schedule_helper != [] }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
   # Ventilation and tilt are only available for blinds, not awnings
@@ -2868,7 +2914,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.12.02"
+  version: "2025.12.03"
 
   # Basic entity state reading
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3031,36 +3077,6 @@ variables:
     use_weather: "{{ shading_forecast_sensor != [] and shading_forecast_temp_sensor == [] }}"
     prevent_service: "{{ 'weather_attributes' in shading_forecast_type }}"
 
-  # Forecast data normalisation.
-  # Temperature from sensor (priority) or weather entity
-  forecast_temp_raw: >-
-    {% set sensor = shading_forecast_temp_sensor %}
-    {% set weather = shading_forecast_sensor %}
-    {% if sensor != [] and states(sensor) not in invalid_states %}
-      {{ states(sensor) | float(default=None) }}
-    {% elif weather == [] or states(weather) in invalid_states %}
-      {{ None }}
-    {% elif 'weather_attributes' in shading_forecast_type %}
-      {{ state_attr(weather, 'temperature') | float(default=None) }}
-    {% elif weather_forecast is defined and weather in weather_forecast %}
-      {{ weather_forecast[weather].forecast[0].temperature | default(None) | float(default=None) }}
-    {% else %}
-      {{ None }}
-    {% endif %}
-
-  # Weather condition (only from weather entity)
-  forecast_weather_condition_raw: >-
-    {% set weather = shading_forecast_sensor %}
-    {% if weather == [] or states(weather) in invalid_states %}
-      {{ None }}
-    {% elif 'weather_attributes' in shading_forecast_type %}
-      {{ state_attr(weather, 'condition') }}
-    {% elif weather_forecast is defined and weather in weather_forecast %}
-      {{ weather_forecast[weather].forecast[0].condition | default(None) }}
-    {% else %}
-      {{ None }}
-    {% endif %}
-
   # Shading condition enablement
   # Which START conditions are enabled (combines AND + OR lists)
   shading_start_condition_enabled:
@@ -3081,280 +3097,6 @@ variables:
     temp2: "{{ 'cond_temp2' in shading_conditions_end_and or 'cond_temp2' in shading_conditions_end_or }}"
     forecast_temp: "{{ 'cond_forecast_temp' in shading_conditions_end_and or 'cond_forecast_temp' in shading_conditions_end_or }}"
     forecast_weather: "{{ 'cond_forecast_weather' in shading_conditions_end_and or 'cond_forecast_weather' in shading_conditions_end_or }}"
-
-  # SHADING START - Individual Condition Evaluations
-  # All START conditions evaluated and stored in one dictionary
-  shading_start_condition_states:
-    azimuth_valid: >-
-      {{
-        not is_shading_enabled or
-        not shading_start_condition_enabled.azimuth or
-        default_sun_sensor == [] or
-        (
-          current_sun_azimuth | float(default=0) > shading_azimuth_start and
-          current_sun_azimuth | float(default=0) < shading_azimuth_end
-        )
-      }}
-    elevation_valid: >-
-      {{
-        not is_shading_enabled or
-        not shading_start_condition_enabled.elevation or
-        default_sun_sensor == [] or
-        (
-          current_sun_elevation | float(default=0) > shading_elevation_min and
-          current_sun_elevation | float(default=0) < shading_elevation_max
-        )
-      }}
-    brightness_valid: >-
-      {{
-        not is_shading_enabled or
-        not shading_start_condition_enabled.brightness or
-        shading_brightness_sensor == [] or
-        (
-          states(shading_brightness_sensor) not in invalid_states and
-          states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis)
-        )
-      }}
-    temp1_valid: >-
-      {{
-        not is_shading_enabled or
-        not shading_start_condition_enabled.temp1 or
-        shading_temperatur_sensor1 == [] or
-        (
-          states(shading_temperatur_sensor1) not in invalid_states and
-          states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1)
-        )
-      }}
-    temp2_valid: >-
-      {{
-        not is_shading_enabled or
-        not shading_start_condition_enabled.temp2 or
-        shading_temperatur_sensor2 == [] or
-        (
-          states(shading_temperatur_sensor2) not in invalid_states and
-          states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2)
-        )
-      }}
-    forecast_temp_valid: >-
-      {{
-        not is_shading_enabled or
-        not shading_start_condition_enabled.forecast_temp or
-        shading_forecast_temp == [] or
-        (
-          forecast_temp_raw is not none and
-          forecast_temp_raw > (shading_forecast_temp + shading_forecast_temp_hysteresis)
-        ) or
-        (
-          'shading_compare_forecast_with_sensor2' in shading_config and
-          shading_temperatur_sensor2 != [] and
-          shading_forecast_temp != [] and
-          (states(shading_temperatur_sensor2) | float(default=0) > (shading_forecast_temp + shading_forecast_temp_hysteresis))
-        )
-      }}
-    forecast_weather_valid: >-
-      {{
-        not is_shading_enabled or
-        not shading_start_condition_enabled.forecast_weather or
-        shading_weather_conditions == [] or
-        forecast_source.use_sensor or
-        (
-          forecast_weather_condition_raw is not none and
-          forecast_weather_condition_raw not in invalid_states and
-          forecast_weather_condition_raw in shading_weather_conditions
-        )
-      }}
-
-  # SHADING START - Combined AND/OR Logic
-  # START AND: All required conditions must be true
-  shading_start_and_result: >-
-    {{
-      (
-        ('cond_azimuth' not in shading_conditions_start_and or
-        default_sun_sensor == [] or
-        shading_start_condition_states.azimuth_valid)
-        and
-        ('cond_elevation' not in shading_conditions_start_and or
-        default_sun_sensor == [] or
-        shading_start_condition_states.elevation_valid)
-        and
-        ('cond_brightness' not in shading_conditions_start_and or
-        shading_brightness_sensor == [] or
-        shading_start_condition_states.brightness_valid)
-        and
-        ('cond_temp1' not in shading_conditions_start_and or
-        shading_temperatur_sensor1 == [] or
-        shading_start_condition_states.temp1_valid)
-        and
-        ('cond_temp2' not in shading_conditions_start_and or
-        shading_temperatur_sensor2 == [] or
-        shading_start_condition_states.temp2_valid)
-        and
-        ('cond_forecast_temp' not in shading_conditions_start_and or
-        shading_forecast_temp == [] or
-        shading_start_condition_states.forecast_temp_valid)
-        and
-        ('cond_forecast_weather' not in shading_conditions_start_and or
-        shading_weather_conditions == [] or
-        shading_start_condition_states.forecast_weather_valid)
-      )
-    }}
-
-  # START OR: At least one optional condition must be true (or none required)
-  shading_start_or_result: >-
-    {{
-      (shading_conditions_start_or | count == 0) or
-      (
-        ('cond_azimuth' in shading_conditions_start_or and
-        default_sun_sensor != [] and
-        shading_start_condition_states.azimuth_valid)
-        or
-        ('cond_elevation' in shading_conditions_start_or and
-        default_sun_sensor != [] and
-        shading_start_condition_states.elevation_valid)
-        or
-        ('cond_brightness' in shading_conditions_start_or and
-        shading_brightness_sensor != [] and
-        shading_start_condition_states.brightness_valid)
-        or
-        ('cond_temp1' in shading_conditions_start_or and
-        shading_temperatur_sensor1 != [] and
-        shading_start_condition_states.temp1_valid)
-        or
-        ('cond_temp2' in shading_conditions_start_or and
-        shading_temperatur_sensor2 != [] and
-        shading_start_condition_states.temp2_valid)
-        or
-        ('cond_forecast_temp' in shading_conditions_start_or and
-        shading_forecast_temp != [] and
-        shading_start_condition_states.forecast_temp_valid)
-        or
-        ('cond_forecast_weather' in shading_conditions_start_or and
-        shading_weather_conditions != [] and
-        shading_start_condition_states.forecast_weather_valid)
-      )
-    }}
-
-  # Final START condition: All AND conditions + at least one OR condition
-  shading_start_conditions_met: >-
-    {{
-      is_shading_enabled and
-      shading_start_and_result and
-      shading_start_or_result
-    }}
-
-  # SHADING END - Individual Condition Evaluations
-  # All END conditions evaluated with inverse logic and stored in one dictionary
-  shading_end_condition_states:
-    azimuth_invalid: >-
-      {{
-        is_shading_enabled and
-        shading_end_condition_enabled.azimuth and
-        default_sun_sensor != [] and
-        (
-          current_sun_azimuth | float(default=999) <= shading_azimuth_start or
-          current_sun_azimuth | float(default=0) >= shading_azimuth_end
-        )
-      }}
-    elevation_invalid: >-
-      {{
-        is_shading_enabled and
-        shading_end_condition_enabled.elevation and
-        default_sun_sensor != [] and
-        (
-          current_sun_elevation | float(default=999) <= shading_elevation_min or
-          current_sun_elevation | float(default=0) >= shading_elevation_max
-        )
-      }}
-    brightness_invalid: >-
-      {{
-        is_shading_enabled and
-        shading_end_condition_enabled.brightness and
-        shading_brightness_sensor != [] and
-        states(shading_brightness_sensor) not in invalid_states and
-        states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis)
-      }}
-    temp1_invalid: >-
-      {{
-        is_shading_enabled and
-        shading_end_condition_enabled.temp1 and
-        shading_temperatur_sensor1 != [] and
-        states(shading_temperatur_sensor1) not in invalid_states and
-        states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1)
-      }}
-    temp2_invalid: >-
-      {{
-        is_shading_enabled and
-        shading_end_condition_enabled.temp2 and
-        shading_temperatur_sensor2 != [] and
-        states(shading_temperatur_sensor2) not in invalid_states and
-        states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2)
-      }}
-    forecast_temp_invalid: >-
-      {{
-        is_shading_enabled and
-        shading_end_condition_enabled.forecast_temp and
-        shading_forecast_temp != [] and
-        forecast_temp_raw is not none and
-        forecast_temp_raw < (shading_forecast_temp - shading_forecast_temp_hysteresis)
-      }}
-    forecast_weather_invalid: >-
-      {{
-        is_shading_enabled and
-        shading_end_condition_enabled.forecast_weather and
-        shading_weather_conditions != [] and
-        (
-          forecast_weather_condition_raw is none or
-          forecast_weather_condition_raw in invalid_states or
-          forecast_weather_condition_raw not in shading_weather_conditions
-        )
-      }}
-
-  # SHADING END - Combined AND/OR Logic
-  # END AND: All specified conditions must become invalid
-  shading_end_and_result: >-
-    {{
-      shading_conditions_end_and | count > 0 and
-      (
-        ('cond_azimuth' not in shading_conditions_end_and or shading_end_condition_states.azimuth_invalid)
-        and
-        ('cond_elevation' not in shading_conditions_end_and or shading_end_condition_states.elevation_invalid)
-        and
-        ('cond_brightness' not in shading_conditions_end_and or shading_end_condition_states.brightness_invalid)
-        and
-        ('cond_temp1' not in shading_conditions_end_and or shading_end_condition_states.temp1_invalid)
-        and
-        ('cond_temp2' not in shading_conditions_end_and or shading_end_condition_states.temp2_invalid)
-        and
-        ('cond_forecast_temp' not in shading_conditions_end_and or shading_end_condition_states.forecast_temp_invalid)
-        and
-        ('cond_forecast_weather' not in shading_conditions_end_and or shading_end_condition_states.forecast_weather_invalid)
-      )
-    }}
-
-  # END OR: At least one specified condition must become invalid
-  shading_end_or_result: >-
-    {{
-      shading_conditions_end_or | count > 0 and
-      (
-        shading_end_condition_states.azimuth_invalid or
-        shading_end_condition_states.elevation_invalid or
-        shading_end_condition_states.brightness_invalid or
-        shading_end_condition_states.temp1_invalid or
-        shading_end_condition_states.temp2_invalid or
-        shading_end_condition_states.forecast_temp_invalid or
-        shading_end_condition_states.forecast_weather_invalid
-      )
-    }}
-
-  # Final END condition: AND result OR OR result
-  shading_end_conditions_met: >-
-    {{
-      is_shading_enabled and
-      (
-        shading_end_and_result or
-        shading_end_or_result
-      )
-    }}
 
   # Cover Status Helper – JSON parsing
   # Determine if status helper is properly configured and valid
@@ -3420,7 +3162,6 @@ variables:
     any: "{{ not force_disabled.up or not force_disabled.down or not force_disabled.ventilate or not force_disabled.shading_start }}"
 
   # Resident sensor configuration
-  resident_sensor: !input resident_sensor
   resident_config: !input resident_config
   resident_flags:
     opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
@@ -3466,131 +3207,6 @@ variables:
   check_config_debuglevel: !input check_config_debuglevel
   check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
 
-  # ========== TIME PHASE DETECTION ==========
-
-  # Morning/Day phase: Cover should be open (up_early to down_early)
-  is_daytime_phase: >-
-    {{
-      is_time_control_disabled or
-      (
-        is_time_field_enabled and
-        now() >= today_at(time_up_early_today) and
-        now() < today_at(time_down_early_today)
-      ) or
-      (
-        is_schedule_helper_enabled and
-        time_schedule_helper != [] and
-        is_state(time_schedule_helper, 'on')
-      )
-    }}
-
-  # Evening/Night phase: Cover should be closed (from down_early onwards)
-  is_evening_phase: >-
-    {{
-      not is_time_control_disabled and
-      (
-        (
-          is_time_field_enabled and
-          now() >= today_at(time_down_early_today)
-        ) or
-        (
-          is_schedule_helper_enabled and
-          time_schedule_helper != [] and
-          is_state(time_schedule_helper, 'off')
-        )
-      )
-    }}
-
-  # Late opening time reached (for "up late" trigger)
-  is_time_up_late: >-
-    {{
-      is_time_field_enabled and
-      now() >= today_at(time_up_late_today) and
-      now() <= today_at(time_down_late_today) - timedelta(seconds = 5)
-    }}
-
-  # Late closing time reached (for "down late" trigger)
-  is_time_down_late: >-
-    {{
-      is_time_field_enabled and
-      now() >= today_at(time_down_late_today)
-    }}
-
-  # Daytime window for shading (with tolerance)
-  is_daytime_window: >-
-    {{
-      is_time_control_disabled or
-      (
-        is_time_field_enabled and
-        now() >= today_at(time_up_early_today) and
-        now() <= today_at(time_down_late_today) + timedelta(seconds = 5)
-      ) or
-      (
-        is_schedule_helper_enabled and
-        time_schedule_helper != [] and
-        is_state(time_schedule_helper, 'on')
-      )
-    }}
-
-  # ========== ENVIRONMENTAL CONDITIONS ==========
-
-  # ALL enabled sensors must allow opening (AND logic)
-  environment_allows_opening: >-
-    {{
-      (
-        not is_brightness_enabled or
-        default_brightness_sensor == [] or
-        states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
-      ) and
-      (
-        not is_sun_elevation_enabled or
-        default_sun_sensor == [] or
-        current_sun_elevation | float(default=sun_elevation_up_current) > sun_elevation_up_current
-      )
-    }}
-
-  # At least one enabled sensor must require closing (OR logic)
-  environment_allows_closing: >-
-    {{
-      (
-        is_brightness_enabled and
-        (
-          default_brightness_sensor == [] or
-          states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
-        )
-      ) or
-      (
-        is_sun_elevation_enabled and
-        (
-          default_sun_sensor == [] or
-          current_sun_elevation | float(default=sun_elevation_down_current) < sun_elevation_down_current
-        )
-      )
-    }}
-
-  # ========== COMBINED CONDITIONS ==========
-
-  # Should cover be open right now? (for resident logic)
-  should_be_open_now: >-
-    {{
-      is_daytime_phase and
-      not is_evening_phase and
-      (
-        (not is_brightness_enabled and not is_sun_elevation_enabled) or
-        environment_allows_opening
-      )
-    }}
-
-  # Should cover be closed right now? (not use atm)
-  should_be_closed_now: >-
-    {{
-      is_evening_phase and
-      (
-        (not is_brightness_enabled and not is_sun_elevation_enabled) or
-        environment_allows_closing
-      )
-    }}
-
 # CCA uses 'queued' mode to prevent race conditions when multiple sensors
 # change state simultaneously (e.g., window sensor + lock sensor).
 # - If automation is running, new triggers are queued (max 10)
@@ -3628,11 +3244,6 @@ triggers:
     id: "t_open_2"
 
   - platform: template
-    value_template: "{{ states(time_schedule_helper) in ['true', 'on'] }}"
-    enabled: "{{ is_schedule_helper_enabled and time_schedule_helper != [] }}"
-    id: "t_open_3"
-
-  - platform: template
     value_template: "{{ states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis) }}"
     for:
       seconds: !input brightness_time_duration
@@ -3658,6 +3269,7 @@ triggers:
     entity_id: !input resident_sensor
     from: "on"
     to: "off"
+    enabled: "{{ resident_sensor != [] }}"
     id: "t_open_6"
 
   - platform: state
@@ -3707,11 +3319,6 @@ triggers:
     id: "t_close_2"
 
   - platform: template
-    value_template: "{{ states(time_schedule_helper) in ['false', 'off'] }}"
-    enabled: "{{ is_schedule_helper_enabled and time_schedule_helper != [] }}"
-    id: "t_close_3"
-
-  - platform: template
     value_template: "{{ states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis) }}"
     for:
       seconds: !input brightness_time_duration
@@ -3736,6 +3343,7 @@ triggers:
     entity_id: !input resident_sensor
     from: "off"
     to: "on"
+    enabled: "{{ resident_sensor != [] }}"
     id: "t_close_6"
 
   - platform: state
@@ -3751,6 +3359,24 @@ triggers:
     to: "off"
     enabled: "{{ auto_down_force != [] }}"
     id: "t_force_disabled"
+
+  ########################################
+  # Calendar-based triggers
+  ########################################
+
+# Calendar event starts (state becomes "on")
+  - platform: state
+    entity_id: !input calendar_entity
+    to: "on"
+    enabled: "{{ is_calendar_enabled }}"
+    id: "t_calendar_event_start"
+
+  # Calendar event ends (state becomes "off")
+  - platform: state
+    entity_id: !input calendar_entity
+    to: "off"
+    enabled: "{{ is_calendar_enabled }}"
+    id: "t_calendar_event_end"
 
   #################################################
   # Trigger for ventilation - COMBINED
@@ -3998,6 +3624,17 @@ conditions:
   - or:
       - "{{ trigger.to_state is not defined }}" # for "platform: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger
+  - or:
+      - "{{ trigger.id is not defined }}"
+      - "{{ not trigger.id | regex_match('^t_calendar_event') }}"
+      - and:
+          - "{{ trigger.id | regex_match('^t_calendar_event') }}"
+          - "{{ state_attr(calendar_entity, 'message') is not none }}"
+          - >-
+            {{
+              calendar_open_title_lc in (state_attr(calendar_entity, 'message') | lower) or
+              calendar_close_title_lc in (state_attr(calendar_entity, 'message') | lower)
+            }}
   - condition: template
     value_template: >-
       {% if is_status_helper_enabled %}
@@ -4128,7 +3765,9 @@ actions:
                 {% set dict_new = dict(dict_var, **(update_values | default({})) ) %}
                 {{ dict_new | to_json }}
 
-  # Querying the weather forecast  #############################################
+  # ════════════════════════════════════════════════════════════════════════════
+  # Load weather forecast data from service (only when needed)
+  # ════════════════════════════════════════════════════════════════════════════
   - if:
       - "{{ is_shading_enabled }}"
       - "{{ forecast_source.use_weather and not forecast_source.prevent_service }}"
@@ -4143,6 +3782,612 @@ actions:
           type: !input shading_forecast_type
         response_variable: weather_forecast
         continue_on_error: true
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Load calendar events for today (00:00 to 23:59)
+  # ════════════════════════════════════════════════════════════════════════════
+  - if:
+      # Only load when calendar is enabled and entity is valid
+      - "{{ is_calendar_enabled }}"
+      - "{{ calendar_entity != [] }}"
+      - "{{ states(calendar_entity) not in invalid_states }}"
+      - "{{ trigger.id is defined }}"
+      # Performance: Only load on relevant triggers
+      - or:
+          - "{{ trigger.id | regex_match('^t_open') }}"
+          - "{{ trigger.id | regex_match('^t_close') }}"
+          - "{{ trigger.id | regex_match('^t_shading_start') }}"
+          - "{{ trigger.id | regex_match('^t_calendar_event') }}"
+          - "{{ trigger.id == 't_force_disabled' }}"
+    then:
+      - action: calendar.get_events
+        target:
+          entity_id: !input calendar_entity
+        data:
+          # Get all events for today (00:00:00 to 23:59:59)
+          start_date_time: "{{ today_at('00:00:00').isoformat() }}"
+          end_date_time: "{{ (today_at('23:59:59') + timedelta(seconds=1)).isoformat() }}"
+        response_variable: calendar_events
+        continue_on_error: true  # Don't fail if calendar is temporarily unavailable
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Recalculate ALL forecast-dependent variables (even if forecast wasn't loaded)
+  # This ensures variables are always defined and prevents crashes
+  # ════════════════════════════════════════════════════════════════════════════
+  - variables:
+      # Forecast data normalisation.
+      # Temperature from sensor (priority) or weather entity
+      forecast_temp_raw: >-
+        {% set sensor = shading_forecast_temp_sensor %}
+        {% set weather = shading_forecast_sensor %}
+        {% if sensor != [] and states(sensor) not in invalid_states %}
+          {{ states(sensor) | float(default=None) }}
+        {% elif weather == [] or states(weather) in invalid_states %}
+          {{ None }}
+        {% elif 'weather_attributes' in shading_forecast_type %}
+          {{ state_attr(weather, 'temperature') | float(default=None) }}
+        {% elif weather_forecast is defined and weather in weather_forecast %}
+          {{ weather_forecast[weather].forecast[0].temperature | default(None) | float(default=None) }}
+        {% else %}
+          {{ None }}
+        {% endif %}
+
+      # Weather condition (only from weather entity)
+      forecast_weather_condition_raw: >-
+        {% set weather = shading_forecast_sensor %}
+        {% if weather == [] or states(weather) in invalid_states %}
+          {{ None }}
+        {% elif 'weather_attributes' in shading_forecast_type %}
+          {{ state_attr(weather, 'condition') }}
+        {% elif weather_forecast is defined and weather in weather_forecast %}
+          {{ weather_forecast[weather].forecast[0].condition | default(None) }}
+        {% else %}
+          {{ None }}
+        {% endif %}
+
+      # SHADING START - Individual Condition Evaluations
+      # All START conditions evaluated and stored in one dictionary
+      shading_start_condition_states:
+        azimuth_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.azimuth or
+            default_sun_sensor == [] or
+            (
+              current_sun_azimuth | float(default=0) > shading_azimuth_start and
+              current_sun_azimuth | float(default=0) < shading_azimuth_end
+            )
+          }}
+        elevation_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.elevation or
+            default_sun_sensor == [] or
+            (
+              current_sun_elevation | float(default=0) > shading_elevation_min and
+              current_sun_elevation | float(default=0) < shading_elevation_max
+            )
+          }}
+        brightness_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.brightness or
+            shading_brightness_sensor == [] or
+            (
+              states(shading_brightness_sensor) not in invalid_states and
+              states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis)
+            )
+          }}
+        temp1_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.temp1 or
+            shading_temperatur_sensor1 == [] or
+            (
+              states(shading_temperatur_sensor1) not in invalid_states and
+              states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1)
+            )
+          }}
+        temp2_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.temp2 or
+            shading_temperatur_sensor2 == [] or
+            (
+              states(shading_temperatur_sensor2) not in invalid_states and
+              states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2)
+            )
+          }}
+        forecast_temp_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.forecast_temp or
+            shading_forecast_temp == [] or
+            (
+              forecast_temp_raw is not none and
+              forecast_temp_raw > (shading_forecast_temp + shading_forecast_temp_hysteresis)
+            ) or
+            (
+              'shading_compare_forecast_with_sensor2' in shading_config and
+              shading_temperatur_sensor2 != [] and
+              shading_forecast_temp != [] and
+              (states(shading_temperatur_sensor2) | float(default=0) > (shading_forecast_temp + shading_forecast_temp_hysteresis))
+            )
+          }}
+        forecast_weather_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.forecast_weather or
+            shading_weather_conditions == [] or
+            forecast_source.use_sensor or
+            (
+              forecast_weather_condition_raw is not none and
+              forecast_weather_condition_raw not in invalid_states and
+              forecast_weather_condition_raw in shading_weather_conditions
+            )
+          }}
+
+      # SHADING START - Combined AND/OR Logic
+      # START AND: All required conditions must be true
+      shading_start_and_result: >-
+        {{
+          (
+            ('cond_azimuth' not in shading_conditions_start_and or
+            default_sun_sensor == [] or
+            shading_start_condition_states.azimuth_valid)
+            and
+            ('cond_elevation' not in shading_conditions_start_and or
+            default_sun_sensor == [] or
+            shading_start_condition_states.elevation_valid)
+            and
+            ('cond_brightness' not in shading_conditions_start_and or
+            shading_brightness_sensor == [] or
+            shading_start_condition_states.brightness_valid)
+            and
+            ('cond_temp1' not in shading_conditions_start_and or
+            shading_temperatur_sensor1 == [] or
+            shading_start_condition_states.temp1_valid)
+            and
+            ('cond_temp2' not in shading_conditions_start_and or
+            shading_temperatur_sensor2 == [] or
+            shading_start_condition_states.temp2_valid)
+            and
+            ('cond_forecast_temp' not in shading_conditions_start_and or
+            shading_forecast_temp == [] or
+            shading_start_condition_states.forecast_temp_valid)
+            and
+            ('cond_forecast_weather' not in shading_conditions_start_and or
+            shading_weather_conditions == [] or
+            shading_start_condition_states.forecast_weather_valid)
+          )
+        }}
+
+      # START OR: At least one optional condition must be true (or none required)
+      shading_start_or_result: >-
+        {{
+          (shading_conditions_start_or | count == 0) or
+          (
+            ('cond_azimuth' in shading_conditions_start_or and
+            default_sun_sensor != [] and
+            shading_start_condition_states.azimuth_valid)
+            or
+            ('cond_elevation' in shading_conditions_start_or and
+            default_sun_sensor != [] and
+            shading_start_condition_states.elevation_valid)
+            or
+            ('cond_brightness' in shading_conditions_start_or and
+            shading_brightness_sensor != [] and
+            shading_start_condition_states.brightness_valid)
+            or
+            ('cond_temp1' in shading_conditions_start_or and
+            shading_temperatur_sensor1 != [] and
+            shading_start_condition_states.temp1_valid)
+            or
+            ('cond_temp2' in shading_conditions_start_or and
+            shading_temperatur_sensor2 != [] and
+            shading_start_condition_states.temp2_valid)
+            or
+            ('cond_forecast_temp' in shading_conditions_start_or and
+            shading_forecast_temp != [] and
+            shading_start_condition_states.forecast_temp_valid)
+            or
+            ('cond_forecast_weather' in shading_conditions_start_or and
+            shading_weather_conditions != [] and
+            shading_start_condition_states.forecast_weather_valid)
+          )
+        }}
+
+      # Final START condition: All AND conditions + at least one OR condition
+      shading_start_conditions_met: >-
+        {{
+          is_shading_enabled and
+          shading_start_and_result and
+          shading_start_or_result
+        }}
+
+      # SHADING END - Individual Condition Evaluations
+      # All END conditions evaluated with inverse logic and stored in one dictionary
+      shading_end_condition_states:
+        azimuth_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.azimuth and
+            default_sun_sensor != [] and
+            (
+              current_sun_azimuth | float(default=999) <= shading_azimuth_start or
+              current_sun_azimuth | float(default=0) >= shading_azimuth_end
+            )
+          }}
+        elevation_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.elevation and
+            default_sun_sensor != [] and
+            (
+              current_sun_elevation | float(default=999) <= shading_elevation_min or
+              current_sun_elevation | float(default=0) >= shading_elevation_max
+            )
+          }}
+        brightness_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.brightness and
+            shading_brightness_sensor != [] and
+            states(shading_brightness_sensor) not in invalid_states and
+            states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis)
+          }}
+        temp1_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.temp1 and
+            shading_temperatur_sensor1 != [] and
+            states(shading_temperatur_sensor1) not in invalid_states and
+            states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1)
+          }}
+        temp2_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.temp2 and
+            shading_temperatur_sensor2 != [] and
+            states(shading_temperatur_sensor2) not in invalid_states and
+            states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2)
+          }}
+        forecast_temp_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.forecast_temp and
+            shading_forecast_temp != [] and
+            forecast_temp_raw is not none and
+            forecast_temp_raw < (shading_forecast_temp - shading_forecast_temp_hysteresis)
+          }}
+        forecast_weather_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.forecast_weather and
+            shading_weather_conditions != [] and
+            (
+              forecast_weather_condition_raw is none or
+              forecast_weather_condition_raw in invalid_states or
+              forecast_weather_condition_raw not in shading_weather_conditions
+            )
+          }}
+
+      # SHADING END - Combined AND/OR Logic
+      # END AND: All specified conditions must become invalid
+      shading_end_and_result: >-
+        {{
+          shading_conditions_end_and | count > 0 and
+          (
+            ('cond_azimuth' not in shading_conditions_end_and or shading_end_condition_states.azimuth_invalid)
+            and
+            ('cond_elevation' not in shading_conditions_end_and or shading_end_condition_states.elevation_invalid)
+            and
+            ('cond_brightness' not in shading_conditions_end_and or shading_end_condition_states.brightness_invalid)
+            and
+            ('cond_temp1' not in shading_conditions_end_and or shading_end_condition_states.temp1_invalid)
+            and
+            ('cond_temp2' not in shading_conditions_end_and or shading_end_condition_states.temp2_invalid)
+            and
+            ('cond_forecast_temp' not in shading_conditions_end_and or shading_end_condition_states.forecast_temp_invalid)
+            and
+            ('cond_forecast_weather' not in shading_conditions_end_and or shading_end_condition_states.forecast_weather_invalid)
+          )
+        }}
+
+      # END OR: At least one specified condition must become invalid
+      shading_end_or_result: >-
+        {{
+          shading_conditions_end_or | count > 0 and
+          (
+            shading_end_condition_states.azimuth_invalid or
+            shading_end_condition_states.elevation_invalid or
+            shading_end_condition_states.brightness_invalid or
+            shading_end_condition_states.temp1_invalid or
+            shading_end_condition_states.temp2_invalid or
+            shading_end_condition_states.forecast_temp_invalid or
+            shading_end_condition_states.forecast_weather_invalid
+          )
+        }}
+
+      # Final END condition: AND result OR OR result
+      shading_end_conditions_met: >-
+        {{
+          is_shading_enabled and
+          (
+            shading_end_and_result or
+            shading_end_or_result
+          )
+        }}
+
+
+      # ╔════════════════════════════════════════════════════════════════════╗
+      # ║ CALENDAR EVENT PARSING                                             ║
+      # ║ Parse today's calendar events to extract time windows              ║
+      # ╚════════════════════════════════════════════════════════════════════╝
+
+      # Parse "Open Cover" event from today's calendar events
+      # Returns dictionary with: found (bool), start (datetime), end (datetime)
+      calendar_open_event: >-
+        {% set result = namespace(found=false, start=none, end=none) %}
+        {% if is_calendar_enabled and calendar_events is defined and calendar_entity in calendar_events %}
+          {% set events = calendar_events[calendar_entity].events | default([]) %}
+          {% for event in events %}
+            {% set summary = (event.summary | default('')) | lower | trim %}
+            {% if calendar_open_title_lc != '' and calendar_open_title_lc in summary %}
+              {% set result.found = true %}
+              {% set result.start = event.start %}
+              {% set result.end = event.end %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ {
+          'found': result.found,
+          'start': result.start,
+          'end': result.end
+        } }}
+
+      # Parse "Close Cover" event from today's calendar events
+      calendar_close_event: >-
+        {% set result = namespace(found=false, start=none, end=none) %}
+        {% if is_calendar_enabled and calendar_events is defined and calendar_entity in calendar_events %}
+          {% set events = calendar_events[calendar_entity].events | default([]) %}
+          {% for event in events %}
+            {% set summary = (event.summary | default('')) | lower | trim %}
+            {% if calendar_close_title_lc != '' and calendar_close_title_lc in summary %}
+              {% set result.found = true %}
+              {% set result.start = event.start %}
+              {% set result.end = event.end %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {{ {
+          'found': result.found,
+          'start': result.start,
+          'end': result.end
+        } }}
+
+      # ╔════════════════════════════════════════════════════════════════════╗
+      # ║ CALENDAR TIMESTAMPS                                                ║
+      # ║ Convert event times to timestamps for numeric comparisons          ║
+      # ╚════════════════════════════════════════════════════════════════════╝
+
+      # Current time as timestamp (for calendar time comparisons)
+      now_ts: "{{ as_timestamp(now()) }}"
+
+      # Open event start time (timestamp) - equivalent to time_up_early
+      calendar_open_start: >-
+        {% if calendar_open_event.found and calendar_open_event.start is not none %}
+          {{ as_timestamp(calendar_open_event.start) }}
+        {% else %}
+          {{ none }}
+        {% endif %}
+
+      # Open event end time (timestamp) - equivalent to time_up_late
+      calendar_open_end: >-
+        {% if calendar_open_event.found and calendar_open_event.end is not none %}
+          {{ as_timestamp(calendar_open_event.end) }}
+        {% else %}
+          {{ none }}
+        {% endif %}
+
+      # Close event start time (timestamp) - equivalent to time_down_early
+      calendar_close_start: >-
+        {% if calendar_close_event.found and calendar_close_event.start is not none %}
+          {{ as_timestamp(calendar_close_event.start) }}
+        {% else %}
+          {{ none }}
+        {% endif %}
+
+      # Close event end time (timestamp) - equivalent to time_down_late
+      calendar_close_end: >-
+        {% if calendar_close_event.found and calendar_close_event.end is not none %}
+          {{ as_timestamp(calendar_close_event.end) }}
+        {% else %}
+          {{ none }}
+        {% endif %}
+
+      # ╔════════════════════════════════════════════════════════════════════╗
+      # ║ TIME PHASE DETECTION (UNIFIED FOR TIME AND CALENDAR)               ║
+      # ║ These variables work for BOTH time input and calendar mode         ║
+      # ╚════════════════════════════════════════════════════════════════════╝
+
+      # Opening Phase = Time window between early and late opening
+      # Used for: Environmental condition checks during opening window
+      is_opening_phase: >-
+        {{
+          (
+            is_time_field_enabled and
+            now() >= today_at(time_up_early_today) and
+            now() < today_at(time_up_late_today)
+          ) or
+          (
+            is_calendar_enabled and
+            calendar_open_start is not none and
+            calendar_open_end is not none and
+            now_ts >= calendar_open_start and
+            now_ts < calendar_open_end
+          )
+        }}
+
+      # Daytime Phase = Cover should be open (after opening until closing starts)
+      # Used for: Resident logic, general "day" detection, shading availability
+      is_daytime_phase: >-
+        {{
+          is_time_control_disabled or
+          (
+            is_time_field_enabled and
+            now() >= today_at(time_up_early_today) and
+            now() < today_at(time_down_early_today)) or
+          (
+            is_calendar_enabled and
+            calendar_open_start is not none and
+            calendar_close_start is not none and
+            now_ts >= calendar_open_start and
+            now_ts < calendar_close_start)
+        }}
+
+      # Closing Phase = Time window between early and late closing
+      # Used for: Environmental condition checks during closing window
+      is_closing_phase: >-
+        {{
+          (
+            is_time_field_enabled and
+            now() >= today_at(time_down_early_today) and
+            now() < today_at(time_down_late_today)
+          ) or
+          (
+            is_calendar_enabled and
+            calendar_close_start is not none and
+            calendar_close_end is not none and
+            now_ts >= calendar_close_start and
+            now_ts < calendar_close_end
+          )
+        }}
+
+      # Evening Phase = Cover should be closed (from closing time onwards)
+      # Used for: Prevent unwanted opening after close time
+      is_evening_phase: >-
+        {{
+          not is_time_control_disabled and
+          (
+            (
+              is_time_field_enabled and
+              now() >= today_at(time_down_early_today)
+            ) or
+            (
+              is_calendar_enabled and
+              calendar_close_start is not none and
+              now_ts >= calendar_close_start
+            )
+          )
+        }}
+
+      # Late opening time reached (forced opening trigger)
+      is_time_up_late: >-
+        {{
+          (
+            is_time_field_enabled and
+            now() >= today_at(time_up_late_today) and
+            now() <= today_at(time_down_late_today) - timedelta(seconds = 5)
+          ) or
+          (
+            is_calendar_enabled and
+            calendar_open_end is not none and
+            now_ts >= calendar_open_end
+          )
+        }}
+
+      # Late closing time reached (forced closing trigger)
+      is_time_down_late: >-
+        {{
+          (
+            is_time_field_enabled and
+            now() >= today_at(time_down_late_today)
+          ) or
+          (
+            is_calendar_enabled and
+            calendar_close_end is not none and
+            now_ts >= calendar_close_end
+          )
+        }}
+
+      # Extended daytime window: Allows shading even during closing phase
+      # Used in: All shading logic to ensure shading only during daytime
+      is_shading_allowed_window: >-
+        {{
+          is_time_control_disabled or
+          (
+            is_time_field_enabled and
+            now() >= today_at(time_up_early_today) and
+            now() <= today_at(time_down_late_today) + timedelta(seconds = 5)
+          ) or
+          (
+            is_calendar_enabled and
+            calendar_open_start is not none and
+            calendar_close_end is not none and
+            now_ts >= calendar_open_start and
+            now_ts <= calendar_close_end
+          )
+        }}
+
+      # ========== ENVIRONMENTAL CONDITIONS ==========
+
+      # ALL enabled sensors must allow opening (AND logic)
+      environment_allows_opening: >-
+        {{
+          (
+            not is_brightness_enabled or
+            default_brightness_sensor == [] or
+            states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
+          ) and
+          (
+            not is_sun_elevation_enabled or
+            default_sun_sensor == [] or
+            current_sun_elevation | float(default=sun_elevation_up_current) > sun_elevation_up_current
+          )
+        }}
+
+      # At least one enabled sensor must require closing (OR logic)
+      environment_allows_closing: >-
+        {{
+          (
+            is_brightness_enabled and
+            (
+              default_brightness_sensor == [] or
+              states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
+            )
+          ) or
+          (
+            is_sun_elevation_enabled and
+            (
+              default_sun_sensor == [] or
+              current_sun_elevation | float(default=sun_elevation_down_current) < sun_elevation_down_current
+            )
+          )
+        }}
+
+      # ========== COMBINED CONDITIONS ==========
+
+      # Should cover be open right now? (for resident logic)
+      should_be_open_now: >-
+        {{
+          is_daytime_phase and
+          not is_evening_phase and
+          (
+            (not is_brightness_enabled and not is_sun_elevation_enabled) or
+            environment_allows_opening
+          )
+        }}
+
+      # Should cover be closed right now? (not use atm)
+      should_be_closed_now: >-
+        {{
+          is_evening_phase and
+          (
+            (not is_brightness_enabled and not is_sun_elevation_enabled) or
+            environment_allows_closing
+          )
+        }}
 
   # Initialise empty helper with JSON default values ###########################
   - if:
@@ -4183,12 +4428,11 @@ actions:
       #   Source: All (Open, Close, Ventilation, Shading)
       #   Target: Open, Shading
       ############################################################
-
       - alias: "Check for opening"
         conditions:
           - "{{ is_up_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_open|t_force_disabled)') }}"
+          - "{{ trigger.id | regex_match('^(t_open|t_force_disabled|t_calendar_event)') }}"
           - condition: !input auto_up_condition
           - and:
               - "{{ (force_disabled.down or enable_background_state_tracking) }}"
@@ -4217,18 +4461,11 @@ actions:
               - and:
                   - "{{ resident_flags.allow_opening }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
-          - or: # Now we have to check different opening scenarios
+          - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - "{{ is_time_up_late }}"
-              - and: # Scheduler trigger without brightness/sun
-                  - "{{ is_schedule_helper_enabled }}"
-                  - "{{ time_schedule_helper != [] }}"
-                  - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
-                  - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state(time_schedule_helper, 'on') }}"
-                  - "{{ trigger.id in ['t_open_3', 't_open_6'] }}"
               - and: # Early opening with environmental conditions
-                  - "{{ is_daytime_phase }}"
+                  - "{{ is_opening_phase or is_daytime_phase }}"
                   - "{{ environment_allows_opening }}"
         sequence:
           - delay:
@@ -4312,7 +4549,7 @@ actions:
         conditions:
           - "{{ is_down_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_close|t_force_disabled)') }}"
+          - "{{ trigger.id | regex_match('^(t_close|t_force_disabled|t_calendar_event)') }}"
           - condition: !input auto_down_condition
           - and:
               - "{{ (force_disabled.up or enable_background_state_tracking) }}"
@@ -4327,22 +4564,11 @@ actions:
               - "{{ not is_status_helper_enabled }}"
               - "{{ not prevent_flags.closing_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_flags.closing_multiple_times and (helper_ts.closed < today_at(time_down_early_today) | as_timestamp) }}"
-
-          - or:
+          - or: # Closing scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - "{{ is_time_down_late }}"
-              - and: # Scheduler trigger
-                  - "{{ is_schedule_helper_enabled }}"
-                  - "{{ time_schedule_helper != [] }}"
-                  # Commented out due to #170.
-                  # Always shut down when the scheduler becomes inactive. This is effectively the “at the latest at” time.
-                  # Otherwise it could happen that the blind does not close if it is still too bright.
-                  # - "{{ not is_brightness_enabled }}" # Only if stand-alone w/o brightness and sun. The cover is then opened on the ON trigger.
-                  # - "{{ not is_sun_elevation_enabled }}"
-                  - "{{ is_state(time_schedule_helper, 'off') }}"
-                  - "{{ trigger.id == 't_close_3' }}"
               - and: # Early closing with environmental conditions
-                  - "{{ is_evening_phase }}"
+                  - "{{ is_closing_phase or is_evening_phase }}"
                   - "{{ environment_allows_closing }}"
               - and: # Resident goes sleeping
                   - "{{ trigger.id == 't_close_6' }}"
@@ -4586,7 +4812,7 @@ actions:
                               - "{{ is_cover_tilt_enabled_and_possible }}"
                               - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
                       - or: # Shading during daytime window
-                          - "{{ is_daytime_window }}"
+                          - "{{ is_shading_allowed_window }}"
                       - or:
                           - "{{ resident_sensor == [] }}"
                           - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -4655,7 +4881,7 @@ actions:
                       - "{{ helper_status.shading_start_pending }}"
                       - "{{ shading_start_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
-                          - "{{ is_daytime_window }}"
+                          - "{{ is_shading_allowed_window }}"
                       - "{{ (as_timestamp(now()) - helper_json.shading.t) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
@@ -4731,7 +4957,7 @@ actions:
               - "{{ (force_disabled.ventilate or enable_background_state_tracking) }}"
               - "{{ (force_disabled.shading_start or enable_background_state_tracking) }}"
           - or:
-              - "{{ is_daytime_window }}"
+              - "{{ is_shading_allowed_window }}"
           - "{{ not (helper_status.manual and override_flags.shading) }}" # Override check
           - "{{ not helper_status.closed }}"
           - or:
@@ -4944,7 +5170,7 @@ actions:
                       - "{{ helper_status.shading_end_pending }}"
                       - "{{ shading_end_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
-                          - "{{ is_daytime_window }}"
+                          - "{{ is_shading_allowed_window }}"
                       - "{{ (as_timestamp(now()) - helper_json.shading.t) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
@@ -5764,8 +5990,6 @@ actions:
                   message: "Cover status helper must have minimum length of 254 characters (currently: {{ state_attr(cover_status_helper, 'max') }})"
                 - condition: "{{ (is_shading_enabled or is_ventilation_enabled) and not is_status_helper_enabled }}"
                   message: "Shading and ventilation features require a cover status helper. Please configure one"
-                - condition: "{{ is_schedule_helper_enabled and time_schedule_helper == [] }}"
-                  message: "Schedule helper mode selected but no schedule helper entity specified"
 
                 # ========== TILT FEATURE CHECKS ==========
                 - condition: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') is none }}"
@@ -5808,15 +6032,6 @@ actions:
                       states(workday_sensor_tomorrow) not in ['on', 'off', 'unknown', 'unavailable']
                     }}
                   message: "Workday sensor tomorrow has invalid state '{{ states(workday_sensor_tomorrow) }}'. Expected: on or off"
-
-                # ========== SCHEDULE HELPER CHECKS ==========
-                - condition: >-
-                    {{
-                      is_schedule_helper_enabled and
-                      time_schedule_helper not in [[], none] and
-                      states(time_schedule_helper) not in ['on', 'off', 'unknown', 'unavailable']
-                    }}
-                  message: "Schedule helper has invalid state '{{ states(time_schedule_helper) }}'. Expected: on or off"
 
                 # ========== FORCE ENTITY CHECKS ==========
                 - condition: >-
@@ -6074,6 +6289,68 @@ actions:
                     }}
                   message: "WARNING: Using dynamic sensor for DOWN but fixed value for UP. Thresholds may be inconsistent (up={{ sun_elevation_up }}°, down={{ sun_elevation_down_sensor }}°)"
 
+                # ========== CALENDAR CONFIGURATION CHECKS ==========
+
+                - condition: >-
+                    {{
+                      is_calendar_enabled and
+                      calendar_entity == []
+                    }}
+                  message: "Calendar control enabled but no calendar entity selected"
+
+                - condition: >-
+                    {{
+                      is_calendar_enabled and
+                      calendar_entity != [] and
+                      states(calendar_entity) in ['unknown', 'unavailable']
+                    }}
+                  message: "Calendar entity '{{ calendar_entity }}' is unavailable. Check calendar integration"
+
+                - condition: >-
+                    {{
+                      is_calendar_enabled and
+                      calendar_entity != [] and
+                      state_attr(calendar_entity, 'message') is none
+                    }}
+                  message: "Calendar entity '{{ calendar_entity }}' does not have 'message' attribute. Ensure it's a valid calendar entity"
+
+                - condition: >-
+                    {{
+                      is_calendar_enabled and
+                      calendar_open_title == calendar_close_title and
+                      calendar_open_title != ''
+                    }}
+                  message: "Open and Close event titles are identical ('{{ calendar_open_title }}'). Use different titles"
+
+                - condition: >-
+                    {{
+                      is_calendar_enabled and
+                      (calendar_open_title | trim == '' or calendar_close_title | trim == '')
+                    }}
+                  message: "Calendar event titles cannot be empty. Configure 'Open Event Title' and 'Close Event Title'"
+
+                - condition: >-
+                    {{
+                      is_calendar_enabled and
+                      calendar_events is defined and
+                      calendar_entity in calendar_events and
+                      calendar_open_event.found and
+                      calendar_close_event.found and
+                      calendar_open_end is not none and
+                      calendar_close_start is not none and
+                      calendar_open_end > calendar_close_start
+                    }}
+                  message: "WARNING: Open event ends ({{ calendar_open_end | timestamp_custom('%H:%M') }}) after Close event starts ({{ calendar_close_start | timestamp_custom('%H:%M') }}). Events should not overlap"
+
+                - condition: >-
+                    {{
+                      is_calendar_enabled and
+                      calendar_events is defined and
+                      calendar_entity in calendar_events and
+                      not calendar_open_event.found and
+                      not calendar_close_event.found
+                    }}
+                  message: "WARNING: No matching calendar events found today. Check event titles: Open='{{ calendar_open_title }}', Close='{{ calendar_close_title }}'"
 
               sequence:
                 - if:
