@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.03
+    **Version**: 2025.12.10
 
     ### 🔗 Resources & Support
 
@@ -199,7 +199,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # 🚀 CCA 2025.12.03 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
+    # 🚀 CCA 2025.12.10 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
 
       ## 🧠 Background State Memory & Force Return
 
@@ -392,6 +392,25 @@ blueprint:
         If you upgrade from an older CCA version:
         - **Blinds/Shutters**: Select "Blind / Roller Shutter" (default)
         - **No more changes needed** to your existing configuration
+
+
+      ## 📍 Flexible Position Source Support
+
+      - **Works with more cover types**
+        CCA now supports covers that don't use the standard `current_position` attribute.
+
+      - **New Position Settings:**
+        - **Position Source Type**: Choose how your cover reports its position
+          - Standard `current_position` (default)
+          - Alternative `position` attribute
+          - External sensor
+        - **Custom Position Sensor**: Use any sensor for position tracking
+
+      - **When to use:**
+        - Your cover doesn't show positions in CCA
+        - Manual changes aren't detected
+        - You have custom position sensors
+
 
       ## 🛠️ Reliability, Fixes & Internal Optimizations
 
@@ -693,6 +712,37 @@ blueprint:
               Please ensure that all position values are unique and do not conflict with each other.<br />
       collapsed: true
       input:
+        position_source:
+          name: "📍 Position Source Type"
+          description: >-
+            How does your cover provide position information?
+            <details>
+            <summary><code><strong>CLICK HERE: When to use each option</strong></code></summary>
+
+              - **current_position attribute** (Standard): Most covers use this. If CCA detects positions correctly, keep this setting.
+              - **position attribute**: Select this if your cover entity has a 'position' attribute but no 'current_position' attribute. Check in Developer Tools → States if unsure.
+              - **Custom sensor**:   Use this if: Your cover doesn't report positions at all / You have an external sensor tracking the cover position / Manual position changes aren't detected with the other options
+
+            </details>
+          default: "current_position_attr"
+          selector:
+            select:
+              options:
+                - label: "Use current_position attribute (standard)"
+                  value: "current_position_attr"
+                - label: "Use position attribute"
+                  value: "position_attr"
+                - label: "Use custom position sensor"
+                  value: "custom_sensor"
+              mode: dropdown
+        custom_position_sensor:
+          name: "📍 Custom Position Sensor"
+          description: "Select sensor that provides position (0-100%). Only used if 'Custom sensor' selected above"
+          default: []
+          selector:
+            entity:
+              domain: sensor
+
         cover_type:
           name: "🎯 Cover Type"
           description: >-
@@ -2763,6 +2813,10 @@ trigger_variables:
   is_awning: "{{ cover_type == 'awning' }}"
   resident_sensor: !input resident_sensor
 
+  # Position source configuration
+  position_source: !input position_source
+  custom_position_sensor: !input custom_position_sensor
+
   # Positions
   open_position: !input open_position
   close_position: !input close_position
@@ -2917,11 +2971,25 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.12.03"
+  version: "2025.12.10"
 
-  # Basic entity state reading
+  # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
-  current_position: "{{ state_attr(blind, 'current_position') | int(default=101) }}"
+
+  # Get current position based on configuration
+  current_position: >-
+    {% set source = position_source %}
+    {% if source == 'current_position_attr' %}
+      {{ state_attr(blind, 'current_position') | int(default=101) }}
+    {% elif source == 'position_attr' %}
+      {{ state_attr(blind, 'position') | int(default=101) }}
+    {% elif source == 'custom_sensor' and custom_position_sensor != [] %}
+      {{ states(custom_position_sensor) | int(default=101) }}
+    {% else %}
+      {{ 101 }}
+    {% endif %}
+
+  # Same for tilt if enabled
   current_tilt_position: "{{ state_attr(blind, 'current_tilt_position') | int(default=101) }}"
 
   # COVER TYPE & POSITION COMPARISON LOGIC
@@ -3584,16 +3652,41 @@ triggers:
   # Trigger for manual cover controls
   ########################################
 
+  # Variant 1: current_position attribute (standard)
   - platform: state
     entity_id: !input blind
     attribute: current_position
-    id: "t_manual_1"
+    id: "t_manual_position"
     for: "00:01:00"
+    enabled: "{{ position_source == 'current_position_attr' }}"
+
+  # Variant 2: position attribute (alternative)
+  - platform: state
+    entity_id: !input blind
+    attribute: position
+    id: "t_manual_position"
+    for: "00:01:00"
+    enabled: "{{ position_source == 'position_attr' }}"
+
+  # Variant 3: custom sensor
+  - platform: state
+    entity_id: !input custom_position_sensor
+    id: "t_manual_position"
+    for: "00:01:00"
+    enabled: "{{ position_source == 'custom_sensor' and custom_position_sensor != [] }}"
+
+  # Tilt detection
+  - platform: state
+    entity_id: !input blind
+    attribute: current_tilt_position
+    id: "t_manual_tilt"
+    for: "00:01:00"
+    enabled: "{{ is_cover_tilt_enabled }}"
 
   - platform: template
     value_template: "{{ now() >= today_at(reset_override_time) }}"
     enabled: "{{ is_reset_fixed_time }}"
-    id: "t_manual_2"
+    id: "t_manual_reset_time"
     for: "00:00:02"
 
   - platform: template
@@ -3609,14 +3702,8 @@ triggers:
          now() >= ((helper_state | from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local
       }}
     enabled: "{{ is_reset_timeout and cover_status_helper != [] }}"
-    id: "t_manual_3"
+    id: "t_manual_reset_timeout"
     for: "00:00:02"
-
-  - platform: state
-    entity_id: !input blind
-    attribute: current_tilt_position
-    id: "t_manual_4"
-    for: "00:01:00"
 
 ################################################################################
 # GLOBAL CONDITIONS
@@ -5592,29 +5679,43 @@ actions:
       - alias: "Checking for manual position changes"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_manual_1', 't_manual_4'] }}"
+          - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
           - "{{ this.attributes.current | int(99) == 0 }}" # Avoid multiple triggering. Problem: A recognised position change can interrupt ongoing delays (contact changes).
           - "{{ 'cover_helper_enabled' in cover_status_options }}" # Do not use 'is_status_helper_enabled' (with the embedded regex here), because it could be set after variable declaration
           - "{{ cover_status_helper != [] }}"
           - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}" # Drive time + trigger waiting time
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
-          - or:
+          - or: # Position change detection - flexible based on source
               - and:
-                  - "{{ is_number(trigger.to_state.attributes.current_position | default(none)) }}" # Avoid status change from -unavailable- (common with Homematic)
-                  - "{{ is_number(trigger.from_state.attributes.current_position | default(none)) }}"
-                  - "{{ trigger.to_state.attributes.current_position != trigger.from_state.attributes.current_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
-              - and:
-                  - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}" # Avoid status change from -unavailable- (common with Homematic)
+                  - "{{ trigger.id == 't_manual_position' }}"
+                  - or:
+                      - and: # Standard: current_position attribute
+                          - "{{ position_source == 'current_position_attr' }}"
+                          - "{{ is_number(trigger.to_state.attributes.current_position | default(none)) }}"
+                          - "{{ is_number(trigger.from_state.attributes.current_position | default(none)) }}"
+                          - "{{ trigger.to_state.attributes.current_position != trigger.from_state.attributes.current_position }}"
+                      - and: # Alternative: position attribute
+                          - "{{ position_source == 'position_attr' }}"
+                          - "{{ is_number(trigger.to_state.attributes.position | default(none)) }}"
+                          - "{{ is_number(trigger.from_state.attributes.position | default(none)) }}"
+                          - "{{ trigger.to_state.attributes.position != trigger.from_state.attributes.position }}"
+                      - and: # Custom sensor: state change
+                          - "{{ position_source == 'custom_sensor' }}"
+                          - "{{ is_number(trigger.to_state.state | default(none)) }}"
+                          - "{{ is_number(trigger.from_state.state | default(none)) }}"
+                          - "{{ trigger.to_state.state != trigger.from_state.state }}"
+              - and: # Tilt change detection
+                  - "{{ trigger.id == 't_manual_tilt' }}"
+                  - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}"
                   - "{{ is_number(trigger.from_state.attributes.current_tilt_position | default(none)) }}"
-                  - "{{ trigger.to_state.attributes.current_tilt_position != trigger.from_state.attributes.current_tilt_position }}" # Probably not necessary, otherwise the trigger would not have been activated.
-
+                  - "{{ trigger.to_state.attributes.current_tilt_position != trigger.from_state.attributes.current_tilt_position }}"
         sequence:
           - variables:
               ts_now: "{{ as_timestamp(now()) | round(0) }}"
           - choose:
               - conditions: # Manually tilted
-                  - "{{ trigger.id == 't_manual_4' }}"
+                  - "{{ trigger.id == 't_manual_tilt' }}"
                 sequence:
                   - variables:
                       update_values:
@@ -5728,7 +5829,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ not is_reset_disabled }}"
-          - "{{ trigger.id in ['t_manual_2', 't_manual_3'] }}"
+          - "{{ trigger.id in ['t_manual_reset_time', 't_manual_reset_timeout'] }}"
         sequence:
           - variables:
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
@@ -6354,6 +6455,36 @@ actions:
                       not calendar_close_event.found
                     }}
                   message: "WARNING: No matching calendar events found today. Check event titles: Open='{{ calendar_open_title }}', Close='{{ calendar_close_title }}'"
+
+                # Check for position source consistency
+                - condition: >-
+                    {{
+                      position_source == 'position_attr' and
+                      state_attr(blind, 'position') is none
+                    }}
+                  message: "Position source set to 'position' attribute but cover doesn't have this attribute"
+
+                - condition: >-
+                    {{
+                      position_source == 'current_position_attr' and
+                      state_attr(blind, 'current_position') is none
+                    }}
+                  message: "Position source set to 'current_position' attribute but cover doesn't have this attribute (try 'position' or custom sensor)"
+
+                - condition: >-
+                    {{
+                      position_source == 'custom_sensor' and
+                      (custom_position_sensor == [] or states(custom_position_sensor) in invalid_states)
+                    }}
+                  message: "Custom position sensor selected but not configured or unavailable"
+
+                - condition: >-
+                    {{
+                      position_source == 'custom_sensor' and
+                      custom_position_sensor != [] and
+                      not is_number(states(custom_position_sensor))
+                    }}
+                  message: "Custom position sensor '{{ custom_position_sensor }}' has non-numeric value: '{{ states(custom_position_sensor) }}'"
 
               sequence:
                 - if:
