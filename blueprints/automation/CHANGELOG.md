@@ -192,6 +192,25 @@
     - **Blinds/Shutters**: Select "Blind / Roller Shutter" (default)
     - **No more changes needed** to your existing configuration
 
+
+  ## 📍 Flexible Position Source Support
+
+  - **Works with more cover types**
+    CCA now supports covers that don't use the standard `current_position` attribute.
+
+  - **New Position Settings:**
+    - **Position Source Type**: Choose how your cover reports its position
+      - Standard `current_position` (default)
+      - Alternative `position` attribute
+      - External sensor
+    - **Custom Position Sensor**: Use any sensor for position tracking
+
+  - **When to use:**
+    - Your cover doesn't show positions in CCA
+    - Manual changes aren't detected
+    - You have custom position sensors
+
+
   ## 🛠️ Reliability, Fixes & Internal Optimizations
 
   - **Fix for `current_tilt_position` errors**
