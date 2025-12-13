@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.10
+    **Version**: 2025.12.13
 
     ### 🔗 Resources & Support
 
@@ -199,7 +199,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # 🚀 CCA 2025.12.10 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
+    # 🚀 CCA 2025.12.134 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
 
       ## 🧠 Background State Memory & Force Return
 
@@ -2971,7 +2971,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.12.10"
+  version: "2025.12.13"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -4627,8 +4627,6 @@ actions:
                       - choose: []
                         default: !input auto_up_action
 
-          # - stop: "Stop automation: OPEN"
-
       ############################################################
       # ANCHOR (1): CLOSE
       #   Source: All (Open, Close, Ventilation, Shading)
@@ -4802,8 +4800,6 @@ actions:
                   - choose: []
                     default: !input auto_down_action
 
-          # - stop: "Stop automation: CLOSE"
-
       ############################################################
       # ANCHOR (2): SHADING START
       #   Source: Open
@@ -4958,8 +4954,6 @@ actions:
                           - *tilt_move_action
                       - *helper_update
 
-              # - stop: "Stop automation: SHADING START"
-
             else: # Shading conditions were no longer met or not met again.
               - choose:
                   #####################################################################
@@ -4996,7 +4990,6 @@ actions:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now}}"
                       - *helper_update
-
 
       ############################################################
       # ANCHOR (3): SHADING Tilt
@@ -5280,20 +5273,17 @@ actions:
                       - "{{ helper_status.shading_end_pending }}"
                     sequence:
                       - variables:
-                          # timeout_exceeded: "{{ shading_end_max_duration > 0 and (as_timestamp(now()) - helper_json.shading.t) > shading_end_max_duration }}"
-                          # periodic_disabled: "{{ shading_end_max_duration == 0 }}"
                           update_values:
                             shading: { a: 1, t: "{{ helper_json.shading.t }}", p: 0, q: 0 }
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
 
-              # - stop: "Stop automation: SHADING END"
-
-
       ############################################################
-      # ANCHOR (5): CONTACT CHANGED
-      #   Source: Shading, Close, Open
-      #   Target: Ventilation (Open/Partial), or back to previous state
+      # ANCHOR (5): CONTACT SENSOR HANDLING
+      #   Handles all contact sensor state changes:
+      #   - Window opened → Full ventilation (lockout protection)
+      #   - Window tilted → Partial ventilation
+      #   - Window closed → Return to previous state (open/close/shading)
       ############################################################
 
       - alias: "Contact sensor state changed"
@@ -5302,13 +5292,8 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] or trigger.id == 't_force_disabled' }}"
           - "{{ is_status_helper_enabled }}"
-          - condition: !input auto_ventilate_condition
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
-          - and:
-              - "{{ (force_disabled.up or enable_background_state_tracking) }}"
-              - "{{ (force_disabled.down or enable_background_state_tracking) }}"
-              - "{{ (force_disabled.shading_start or enable_background_state_tracking) }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -5316,24 +5301,35 @@ actions:
                   - "{{ resident_flags.allow_ventilation }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
         sequence:
-          - delay: # Wait for all sensor changes to settle
+          # Wait for all sensor changes to settle
+          - delay:
               seconds: !input contact_delay_status
-          - variables: # Re-evaluate BOTH sensors with current values
+
+          # Re-evaluate BOTH sensors with current values after delay
+          - variables:
               contact_opened_now: "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
               contact_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
+
           - choose:
               ###################################
-              # Window handle to open. Open cover
+              # VENTILATION START: Window fully opened
+              # Opens cover completely for lockout protection
               ###################################
-              - alias: "Window handle to open. Open cover"
+              - alias: "Window opened - Full ventilation (lockout)"
                 conditions:
                   - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
+                  # Force functions allow ventilation start
+                  - "{{ force_disabled.up or enable_background_state_tracking }}"
+                  - "{{ force_disabled.down or enable_background_state_tracking }}"
+                  - "{{ force_disabled.shading_start or enable_background_state_tracking }}"
+                  # User-defined condition for starting ventilation
+                  - condition: !input auto_ventilate_condition
                 sequence:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
                         vfull: { a: 1, t: "{{ ts_now }}" }
@@ -5342,27 +5338,35 @@ actions:
                   - *tilt_move_action
                   - *helper_update
 
-              ############################################################################
-              # Window tilted (not fully opened) - Partial ventilation
-              ############################################################################
+              ###################################
+              # VENTILATION START: Window tilted
+              # Moves cover to ventilation position
+              ###################################
               - alias: "Window tilted - Partial ventilation"
                 conditions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
+                  # Force functions allow ventilation start
+                  - "{{ force_disabled.up or enable_background_state_tracking }}"
+                  - "{{ force_disabled.down or enable_background_state_tracking }}"
+                  - "{{ force_disabled.shading_start or enable_background_state_tracking }}"
+                  # User-defined condition for starting ventilation
+                  - condition: !input auto_ventilate_condition
+                  # Position check: Only move if cover is below ventilation position (or option enabled)
                   - or:
                       - "{{ position_comparisons.current_below_ventilate }}"
                       - and:
                           - "{{ is_cover_tilt_enabled_and_possible }}"
                           - "{{ position_comparisons.current_below_ventilate or current_position == ventilate_position }}"
-                          - "{{ (current_tilt_position <= ventilate_tilt_position) }}"
-                      - "{{ ventilation_flags.if_lower_enabled and position_comparisons.current_above_ventilate or current_position == ventilate_position }}"
+                          - "{{ current_tilt_position <= ventilate_tilt_position }}"
+                      - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         vpart: { a: 1, t: "{{ ts_now }}" }
                         vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
@@ -5373,97 +5377,38 @@ actions:
                   - choose: []
                     default: !input auto_ventilate_action
 
-          # - stop: "Stop automation: CONTACT OPEN"
-
-      ############################################################
-      # ANCHOR (6): CONTACT CLOSED
-      #   Source: Ventilation, Lockout
-      #   Target: Open, Close, Shading
-      ############################################################
-
-      - alias: "Contact sensor closed"
-        conditions:
-          - "{{ is_ventilation_enabled }}"
-          - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] }}"
-          - "{{ is_status_helper_enabled }}"
-          - condition: !input auto_ventilate_end_condition
-          - "{{ trigger.from_state.state not in invalid_states }}"
-          - "{{ trigger.to_state.state not in invalid_states }}"
-          - and:
-              - "{{ force_disabled.up }}"
-              - "{{ force_disabled.down }}"
-              - "{{ force_disabled.ventilate }}"
-              - "{{ force_disabled.shading_start }}"
-          - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Override check
-        sequence:
-          # Wait for all sensor changes to settle
-          - delay:
-              seconds: !input contact_delay_status
-
-          # Re-evaluate BOTH sensors with current values
-          - variables:
-              contact_opened_now: "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
-              contact_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
-
-          # Only proceed if BOTH sensors are now closed/off
-          - condition: template
-            value_template: "{{ not contact_opened_now and not contact_tilted_now }}"
-
-          # Additional check: Was there ventilation active before?
-          - condition: template
-            value_template: >-
-              {{
-                helper_status.vent_partial or
-                helper_status.vent_full or
-                in_ventilate_position or
-                in_open_position
-              }}
-
-          - if:
-              - "{{ ventilation_flags.delay_enabled }}"
-            then:
-              - delay:
-                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-
-          - choose:
-              #####################################################
-              # Contact sensor closed. Activate partial ventilation
-              #####################################################
-              - alias: "Contact sensor closed. Activate partial ventilation"
+              ###################################
+              # VENTILATION END: Window closed - Return to SHADING
+              ###################################
+              - alias: "Window closed - Return to shading"
                 conditions:
-                  - "{{ helper_status.vent_full }}" # Was fully ventilated before :-)
-                  - "{{ contact_tilted_now }}" # Tilted sensor still active
-                sequence:
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
-                      update_values:
-                        vpart: { a: 1, t: "{{ ts_now }}" }
-                        vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
-                        t: "{{ ts_now }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
-
-              ##########################################
-              # Contact sensor closed. Activate shading
-              ##########################################
-              - alias: "Contact sensor closed. Activate shading"
-                conditions:
+                  - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - "{{ helper_status.shaded }}"
+                  # Was ventilating before
+                  - or:
+                      - "{{ helper_status.vent_partial }}"
+                      - "{{ helper_status.vent_full }}"
+                      - "{{ in_ventilate_position }}"
+                      - "{{ in_open_position }}"
+                  # All force functions must be disabled
+                  - "{{ force_disabled.up and force_disabled.down and force_disabled.ventilate and force_disabled.shading_start }}"
+                  # Skip if manual override for ventilation is active
+                  - "{{ not (helper_status.manual and override_flags.ventilation) }}"
+                  # User-defined condition for ending ventilation
+                  - condition: !input auto_ventilate_end_condition
                 sequence:
+                  # Optional delay if enabled
+                  - if:
+                      - "{{ ventilation_flags.delay_enabled }}"
+                    then:
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - choose: []
                     default: !input auto_shading_start_action_before
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_json.close.t }}" }
@@ -5478,20 +5423,39 @@ actions:
                   - choose: []
                     default: !input auto_shading_start_action
 
-              ########################################
-              # Contact sensor closed. Open the cover
-              ########################################
-              - alias: "Contact sensor closed. Open the cover"
+              ###################################
+              # VENTILATION END: Window closed - Return to OPEN
+              ###################################
+              - alias: "Window closed - Return to open position"
                 conditions:
+                  - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - "{{ helper_status.open }}"
                   - "{{ not helper_status.shaded }}"
+                  # Was ventilating before
+                  - or:
+                      - "{{ helper_status.vent_partial }}"
+                      - "{{ helper_status.vent_full }}"
+                      - "{{ in_ventilate_position }}"
+                      - "{{ in_open_position }}"
+                  # All force functions must be disabled
+                  - "{{ force_disabled.up and force_disabled.down and force_disabled.ventilate and force_disabled.shading_start }}"
+                  # Skip if manual override for ventilation is active
+                  - "{{ not (helper_status.manual and override_flags.ventilation) }}"
+                  # User-defined condition for ending ventilation
+                  - condition: !input auto_ventilate_end_condition
                 sequence:
+                  # Optional delay if enabled
+                  - if:
+                      - "{{ ventilation_flags.delay_enabled }}"
+                    then:
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - choose: []
                     default: !input auto_up_action_before
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 1, t: "{{ ts_now }}" }
                         close: { a: 0, t: "{{ helper_json.close.t }}" }
@@ -5509,19 +5473,38 @@ actions:
                   - choose: []
                     default: !input auto_up_action
 
-              ########################################
-              # Contact sensor closed. Close the cover
-              ########################################
-              - alias: "Contact sensor closed. Close the cover"
+              ###################################
+              # VENTILATION END: Window closed - Return to CLOSE
+              ###################################
+              - alias: "Window closed - Return to close position"
                 conditions:
+                  - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - "{{ helper_status.closed }}"
+                  # Was ventilating before
+                  - or:
+                      - "{{ helper_status.vent_partial }}"
+                      - "{{ helper_status.vent_full }}"
+                      - "{{ in_ventilate_position }}"
+                      - "{{ in_open_position }}"
+                  # All force functions must be disabled
+                  - "{{ force_disabled.up and force_disabled.down and force_disabled.ventilate and force_disabled.shading_start }}"
+                  # Skip if manual override for ventilation is active
+                  - "{{ not (helper_status.manual and override_flags.ventilation) }}"
+                  # User-defined condition for ending ventilation
+                  - condition: !input auto_ventilate_end_condition
                 sequence:
+                  # Optional delay if enabled
+                  - if:
+                      - "{{ ventilation_flags.delay_enabled }}"
+                    then:
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - choose: []
                     default: !input auto_down_action_before
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         open: { a: 0, t: "{{ helper_json.open.t }}" }
                         close: { a: 1, t: "{{ ts_now }}" }
@@ -5536,10 +5519,8 @@ actions:
                   - choose: []
                     default: !input auto_down_action
 
-          # - stop: "Stop automation: CONTACT CLOSED"
-
       ############################################################
-      # ANCHOR (7): FORCE OPEN
+      # ANCHOR (6): FORCE OPEN
       ############################################################
 
       - alias: "Forced opening of the cover"
@@ -5569,10 +5550,9 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_up_action
-          # - stop: "Stop automation: FORCE OPEN"
 
       ############################################################
-      # ANCHOR (8): FORCE CLOSE
+      # ANCHOR (7): FORCE CLOSE
       ############################################################
 
       - alias: "Forced closing of the cover"
@@ -5602,10 +5582,9 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_down_action
-          # - stop: "Stop automation: FORCE CLOSE"
 
       ############################################################
-      # ANCHOR (9): FORCE VENTILATION
+      # ANCHOR (8): FORCE VENTILATION
       ############################################################
 
       - alias: "Forced ventilation of the cover"
@@ -5636,10 +5615,9 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_ventilate_action
-          # - stop: "Stop automation: FORCE VENTILATION"
 
       ############################################################
-      # ANCHOR (10): FORCE SHADING START
+      # ANCHOR (9): FORCE SHADING START
       ############################################################
 
       - alias: "Forced activating of the sun shading"
@@ -5670,10 +5648,9 @@ actions:
           - *helper_update
           - choose: []
             default: !input auto_shading_start_action
-          # - stop: "Stop automation: FORCE SHADING START"
 
       ############################################################
-      # ANCHOR (11): MANUAL
+      # ANCHOR (10): MANUAL
       ############################################################
 
       - alias: "Checking for manual position changes"
@@ -5822,7 +5799,7 @@ actions:
                     default: !input auto_manual_action
 
       ############################################################
-      # ANCHOR (12): RESET MANUAL DETECTION
+      # ANCHOR (11): RESET MANUAL DETECTION
       ############################################################
 
       - alias: "Reset manual detection"
@@ -5841,7 +5818,7 @@ actions:
             default: !input auto_override_reset_action
 
       ############################################################
-      # ANCHOR (13): RETURN TO BACKGROUND STATE AFTER FORCE DISABLE
+      # ANCHOR (12): RETURN TO BACKGROUND STATE AFTER FORCE DISABLE
       ############################################################
 
       - alias: "Return to background position after force disable"
@@ -5926,7 +5903,7 @@ actions:
             default: []
 
       ############################################################
-      # ANCHOR (14): RESET SHADING STATUS AT MIDNIGHT
+      # ANCHOR (13): RESET SHADING STATUS AT MIDNIGHT
       ############################################################
 
       - alias: "Reset shading status that is no longer required - but still saved"
@@ -6495,5 +6472,3 @@ actions:
                         level: "{{ check_config_debuglevel }}"
                         message: "CCA Config issue: {{ repeat.item.message }} - {{ this.entity_id }}"
                         logger: "blueprints.hvorragend.cca"
-
-      # - stop: "Stopping the automation - DEFAULT"
