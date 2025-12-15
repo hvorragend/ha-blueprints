@@ -93,10 +93,6 @@ blueprint:
     <details>
     <summary><strong>⚠️ Essential Prerequisites</strong></summary>
 
-    **Required:**
-    - A Home Assistant `cover` entity with `current_position` attribute
-    - Home Assistant **2024.10.0 or newer**
-
     **Strongly Recommended:**
     - Text Helper (254 characters) for cover status tracking
     - Sun integration enabled (`sun.sun`) for sun-based features
@@ -122,7 +118,6 @@ blueprint:
     - `shading_position` should be higher than `close_position`
     - `shading_position` should be lower than `open_position`
     - `resident_sensor` is only allowed to be on/off/true/false
-    - cover must have a `current_position` attribute
 
     </details>
 
@@ -633,7 +628,7 @@ blueprint:
         cover_status_options:
           name: "🦮 Status detection of the cover"
           description: >
-            It is essential that the cover has the <em>current_position</em> attribute.
+            It is essential that the cover has a position detection attribute or sensor.
             Regardless of which option is selected here, the position detection is based on this attribute.
             The <em>current_tilt_position</em> attribute is <ins>not</ins> taken into account.
 
@@ -899,7 +894,6 @@ blueprint:
             ⚠️ <strong>Note:</strong> Tilt control is only available for blinds/shutters, not for awnings.
             <br /><br />
             If the cover and the integration support it, the tilt position of the cover can be set. The standard attribute ‘current_tilt_position’ is used for this.
-            However, the ‘current_position’ attribute is still used exclusively for the actual position detection in the blueprint.
           default: cover_tilt_disabled
           selector:
             select:
@@ -3341,14 +3335,14 @@ triggers:
     from: "off"
     to: "on"
     enabled: "{{ auto_up_force != [] }}"
-    id: "t_force_open_on"
+    id: "t_force_enabled_open"
 
   - platform: state
     entity_id: !input auto_up_force
     from: "on"
     to: "off"
     enabled: "{{ auto_up_force != [] }}"
-    id: "t_force_disabled"
+    id: "t_force_disabled_open"
 
   ########################################
   # Trigger for closing cover
@@ -3415,14 +3409,14 @@ triggers:
     from: "off"
     to: "on"
     enabled: "{{ auto_down_force != [] }}"
-    id: "t_force_close_on"
+    id: "t_force_enabled_close"
 
   - platform: state
     entity_id: !input auto_down_force
     from: "on"
     to: "off"
     enabled: "{{ auto_down_force != [] }}"
-    id: "t_force_disabled"
+    id: "t_force_disabled_close"
 
   ########################################
   # Calendar-based triggers
@@ -3466,14 +3460,14 @@ triggers:
     from: "off"
     to: "on"
     enabled: "{{ auto_ventilate_force != [] }}"
-    id: "t_force_vent_on"
+    id: "t_force_enabled_ventilate"
 
   - platform: state
     entity_id: !input auto_ventilate_force
     from: "on"
     to: "off"
     enabled: "{{ auto_ventilate_force != [] }}"
-    id: "t_force_disabled"
+    id: "t_force_disabled_ventilate"
 
   ########################################
   # Triggers for shading start
@@ -3533,14 +3527,14 @@ triggers:
     from: "off"
     to: "on"
     enabled: "{{ auto_shading_start_force != [] }}"
-    id: "t_force_shading_start_on"
+    id: "t_force_enabled_shading"
 
   - platform: state
     entity_id: !input auto_shading_start_force
     from: "on"
     to: "off"
     enabled: "{{ auto_shading_start_force != [] }}"
-    id: "t_force_disabled"
+    id: "t_force_disabled_shading"
 
   ########################################
   # Triggers for shading tilt
@@ -3554,7 +3548,7 @@ triggers:
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1
       }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt_1
+    id: "t_shading_tilt_1"
 
   - platform: template
     value_template: >-
@@ -3565,7 +3559,7 @@ triggers:
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_1
       }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt_2
+    id: "t_shading_tilt_2"
 
   - platform: template
     value_template: >-
@@ -3576,7 +3570,7 @@ triggers:
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_2
       }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt_3
+    id: "t_shading_tilt_3"
 
   - platform: template
     value_template: >-
@@ -3586,7 +3580,7 @@ triggers:
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_3
       }}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and is_cover_tilt_enabled and default_sun_sensor != [] }}"
-    id: t_shading_tilt_4
+    id: "t_shading_tilt_4"
 
   ########################################
   # Triggers for shading end
@@ -3645,28 +3639,20 @@ triggers:
   # Trigger for manual cover controls
   ########################################
 
-  # Variant 1: current_position attribute (standard)
-  - platform: state
-    entity_id: !input blind
-    attribute: current_position
+  # Position detection via unified template trigger
+  - platform: template
+    value_template: >-
+      {% if position_source == 'current_position_attr' %}
+        {{ state_attr(blind, 'current_position') }}
+      {% elif position_source == 'position_attr' %}
+        {{ state_attr(blind, 'position') }}
+      {% elif position_source == 'custom_sensor' and custom_position_sensor != [] %}
+        {{ states(custom_position_sensor) }}
+      {% else %}
+        none
+      {% endif %}
     id: "t_manual_position"
     for: "00:01:00"
-    enabled: "{{ position_source == 'current_position_attr' }}"
-
-  # Variant 2: position attribute (alternative)
-  - platform: state
-    entity_id: !input blind
-    attribute: position
-    id: "t_manual_position"
-    for: "00:01:00"
-    enabled: "{{ position_source == 'position_attr' }}"
-
-  # Variant 3: custom sensor
-  - platform: state
-    entity_id: !input custom_position_sensor
-    id: "t_manual_position"
-    for: "00:01:00"
-    enabled: "{{ position_source == 'custom_sensor' and custom_position_sensor != [] }}"
 
   # Tilt detection
   - platform: state
@@ -3679,7 +3665,7 @@ triggers:
   - platform: template
     value_template: "{{ now() >= today_at(reset_override_time) }}"
     enabled: "{{ is_reset_fixed_time }}"
-    id: "t_manual_reset_time"
+    id: "t_reset_fixedtime"
     for: "00:00:02"
 
   - platform: template
@@ -3695,7 +3681,7 @@ triggers:
          now() >= ((helper_state | from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local
       }}
     enabled: "{{ is_reset_timeout and cover_status_helper != [] }}"
-    id: "t_manual_reset_timeout"
+    id: "t_reset_timeout"
     for: "00:00:02"
 
 ################################################################################
@@ -3881,7 +3867,7 @@ actions:
           - "{{ trigger.id | regex_match('^t_close') }}"
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id == 't_force_disabled' }}"
+          - "{{ trigger.id.startswith('t_force_disabled') }}"
     then:
       - action: calendar.get_events
         target:
@@ -5283,7 +5269,7 @@ actions:
         conditions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] or trigger.id == 't_force_disabled' }}"
+          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] or trigger.id.startswith('t_force_disabled') }}"
           - "{{ is_status_helper_enabled }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
@@ -5519,7 +5505,7 @@ actions:
       - alias: "Forced opening of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_open_on' }}"
+          - "{{ trigger.id == 't_force_enabled_open' }}"
           - "{{ force_disabled.down }}"
           - "{{ force_disabled.ventilate }}"
           - "{{ force_disabled.shading_start }}"
@@ -5551,7 +5537,7 @@ actions:
       - alias: "Forced closing of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_close_on' }}"
+          - "{{ trigger.id == 't_force_enabled_close' }}"
           - "{{ force_disabled.up }}"
           - "{{ force_disabled.ventilate }}"
           - "{{ force_disabled.shading_start }}"
@@ -5583,7 +5569,7 @@ actions:
       - alias: "Forced ventilation of the cover"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_vent_on' }}"
+          - "{{ trigger.id == 't_force_enabled_ventilate' }}"
           - "{{ is_status_helper_enabled }}"
           - "{{ force_disabled.up }}"
           - "{{ force_disabled.down }}"
@@ -5616,7 +5602,7 @@ actions:
       - alias: "Forced activating of the sun shading"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_shading_start_on' }}"
+          - "{{ trigger.id == 't_force_enabled_shading' }}"
           - "{{ is_status_helper_enabled }}"
           - "{{ force_disabled.up }}"
           - "{{ force_disabled.down }}"
@@ -5645,7 +5631,6 @@ actions:
       ############################################################
       # ANCHOR (10): MANUAL
       ############################################################
-
       - alias: "Checking for manual position changes"
         conditions:
           - "{{ trigger.id is defined }}"
@@ -5656,25 +5641,12 @@ actions:
           - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}" # Drive time + trigger waiting time
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
-          - or: # Position change detection - flexible based on source
-              - and:
+          - or:
+              - and: # Position change detection
                   - "{{ trigger.id == 't_manual_position' }}"
-                  - or:
-                      - and: # Standard: current_position attribute
-                          - "{{ position_source == 'current_position_attr' }}"
-                          - "{{ is_number(trigger.to_state.attributes.current_position | default(none)) }}"
-                          - "{{ is_number(trigger.from_state.attributes.current_position | default(none)) }}"
-                          - "{{ trigger.to_state.attributes.current_position != trigger.from_state.attributes.current_position }}"
-                      - and: # Alternative: position attribute
-                          - "{{ position_source == 'position_attr' }}"
-                          - "{{ is_number(trigger.to_state.attributes.position | default(none)) }}"
-                          - "{{ is_number(trigger.from_state.attributes.position | default(none)) }}"
-                          - "{{ trigger.to_state.attributes.position != trigger.from_state.attributes.position }}"
-                      - and: # Custom sensor: state change
-                          - "{{ position_source == 'custom_sensor' }}"
-                          - "{{ is_number(trigger.to_state.state | default(none)) }}"
-                          - "{{ is_number(trigger.from_state.state | default(none)) }}"
-                          - "{{ trigger.to_state.state != trigger.from_state.state }}"
+                  - "{{ is_number(trigger.to_state.state) }}"
+                  - "{{ is_number(trigger.from_state.state) }}"
+                  - "{{ trigger.to_state.state != trigger.from_state.state }}"
               - and: # Tilt change detection
                   - "{{ trigger.id == 't_manual_tilt' }}"
                   - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}"
@@ -5799,7 +5771,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ not is_reset_disabled }}"
-          - "{{ trigger.id in ['t_manual_reset_time', 't_manual_reset_timeout'] }}"
+          - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout'] }}"
         sequence:
           - variables:
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
@@ -5816,7 +5788,7 @@ actions:
 
       - alias: "Return to background position after force disable"
         conditions:
-          - "{{ trigger.id == 't_force_disabled' }}"
+          - "{{ trigger.id.startswith('t_force_disabled') }}"
           - "{{ enable_background_state_tracking }}"
           - "{{ is_status_helper_enabled }}"
           # All force functions must now be disabled
