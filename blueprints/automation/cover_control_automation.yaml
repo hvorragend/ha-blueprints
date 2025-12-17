@@ -353,7 +353,6 @@ blueprint:
         Fixed issue (#174) where cover remained closed when resident left room during daytime with all opening conditions met.
         Cover now evaluates time window and environmental conditions (brightness, sun) when resident leaves.
         Prevents unwanted opening during evening/night hours (after time_down_early).
-      - "Open immediately" resident option now respects daytime phase (only opens before time_down_early).
 
 
       ## 🏖️ Awning & Sunshade Support
@@ -2316,14 +2315,18 @@ blueprint:
 
         resident_config:
           name: "🛌 Resident Configuration"
-          description: "Additional configuration options"
+          description: |
+            Configure how the automation responds to resident sensor changes.
+
+            - **Opening enabled**: Cover opens when resident wakes up, but only if time, brightness, and sun elevation conditions are met
+            - **Closing enabled**: Cover closes when resident goes to sleep (immediate, ignores other conditions)
           default: []
           selector:
             select:
               options:
-                - label: "🔼 Open the cover shortly after the sensor switches to 'off/false'?"
+                - label: "🔼 Enable automatic opening when resident wakes up (respects all opening conditions)"
                   value: "resident_opening_enabled"
-                - label: "🔻 Close the cover shortly after the sensor switches to 'on/true'?"
+                - label: "🔻 Enable automatic closing when resident goes to sleep (immediate)"
                   value: "resident_closing_enabled"
                 - label: "🥵 Allow sun protection when resident is still present"
                   value: "resident_allow_shading"
@@ -4502,14 +4505,11 @@ actions:
               - "{{ not prevent_flags.opening_multiple_times }}"
               - "{{ is_status_helper_enabled and prevent_flags.opening_multiple_times and (now().day != helper_ts.open|timestamp_custom('%-d')|int) }}"
           - or: # Check whether the resident trigger is allowed
-              - "{{ trigger.id != 't_open_6' }}"  # Continue if other trigger
+              - "{{ trigger.id != 't_open_6' }}"
               - and:  # For t_open_6: check conditions
                   - "{{ trigger.id == 't_open_6' }}"
-                  - or:
-                      - and:  # Immediate opening: only during daytime phase
-                          - "{{ resident_flags.opening_enabled }}"
-                          - "{{ is_daytime_phase }}"
-                      - "{{ should_be_open_now }}"  # OR all conditions met
+                  - "{{ resident_flags.opening_enabled }}"
+                  - "{{ should_be_open_now }}"
           - or: # Resident status must always be checked
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -4521,6 +4521,7 @@ actions:
               - "{{ is_time_up_late }}"
               - and: # Early opening with environmental conditions
                   - "{{ is_opening_phase or is_daytime_phase }}"
+                  - "{{ not is_evening_phase }}"
                   - "{{ environment_allows_opening }}"
         sequence:
           - delay:
@@ -5163,13 +5164,15 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ helper_status.shading_end_pending }}"
                       - or:
-                          - "{{ current_sun_azimuth > shading_azimuth_end }}"
-                          - "{{ current_sun_elevation > shading_elevation_max }}"
-                          - "{{ current_sun_elevation < shading_elevation_min }}"
-                          - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
-                          - "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
-                          - "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
-                          - "{{ shading_end_condition_states.forecast_temp_invalid }}" # Checks during shading end execution whether conditions are still valid
+                          - "{{ enable_background_state_tracking }}"
+                          - or:
+                              - "{{ current_sun_azimuth > shading_azimuth_end }}"
+                              - "{{ current_sun_elevation > shading_elevation_max }}"
+                              - "{{ current_sun_elevation < shading_elevation_min }}"
+                              - "{{ shading_brightness_sensor != [] and states(shading_brightness_sensor) | float(default=999999) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
+                              - "{{ shading_temperatur_sensor1 != [] and states(shading_temperatur_sensor1) | float(default=999) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+                              - "{{ shading_temperatur_sensor2 != [] and states(shading_temperatur_sensor2) | float(default=999) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+                              - "{{ shading_end_condition_states.forecast_temp_invalid }}" # Checks during shading end execution whether conditions are still valid
                     sequence:
                       - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                           seconds: >
