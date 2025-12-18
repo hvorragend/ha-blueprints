@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.17
+    **Version**: 2025.12.18
 
     ### 🔗 Resources & Support
 
@@ -194,7 +194,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
 
-    # 🚀 CCA 2025.12.17 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
+    # 🚀 CCA 2025.12.18 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
 
       ## 🧠 Background State Memory & Force Return
 
@@ -2961,7 +2961,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.12.17"
+  version: "2025.12.18"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -5333,12 +5333,21 @@ actions:
                   - condition: !input auto_ventilate_condition
                   # Position check: Only move if cover is below ventilation position (or option enabled)
                   - or:
+                      # Standard: Cover is below ventilate position
                       - "{{ position_comparisons.current_below_ventilate }}"
+                      # Tilt-enabled covers at or near ventilate position
                       - and:
                           - "{{ is_cover_tilt_enabled_and_possible }}"
                           - "{{ position_comparisons.current_below_ventilate or current_position == ventilate_position }}"
                           - "{{ current_tilt_position <= ventilate_tilt_position }}"
+                      # User option: Allow from higher positions
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
+                      # Transition from full to partial ventilation (handle: open → tilted)
+                      - and:
+                          - "{{ is_status_helper_enabled }}"
+                          - "{{ helper_status.vfull }}"
+                          - "{{ position_comparisons.current_above_ventilate }}"
+
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
