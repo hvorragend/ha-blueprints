@@ -1181,6 +1181,18 @@ action:
 - `p` (pending): Shading start pending execution time
 - `q` (pending): Shading end pending execution time
 
+**Common State Scenarios:**
+
+| Scenario | open | close | shading | vpart | vfull | Description |
+|----------|------|-------|---------|-------|-------|-------------|
+| Cover is open | 1 | 0 | 0 | 0 | 0 | Normal daytime state |
+| Cover is closed | 0 | 1 | 0 | 0 | 0 | Normal nighttime state |
+| Shading active | 1 | 0 | 1 | 0 | 0 | Sun protection engaged |
+| Shading + pending open | 1 | 0 | 1 | 0 | 0 | Waiting for shading to end |
+| Window tilted (ventilation) | 1 | 0 | 0 | 1 | 0 | Partial opening for air flow |
+| Window open (lockout) | 1 | 0 | 0 | 0 | 1 | Full opening + lockout protection |
+| Manual adjustment | * | * | * | * | * | Depends on what was adjusted |
+
 ---
 
 ### Q: Can I view the helper contents?
