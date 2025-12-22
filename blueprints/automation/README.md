@@ -1,326 +1,466 @@
 # ☀️ Cover Control Automation (CCA)
 
+**Version: 2025.12.22** | Comprehensive Home Assistant Blueprint for Intelligent Cover Control
+
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://community-assets.home-assistant.io/original/4X/d/7/6/d7625545838a4970873f3a996172212440b7e0ae.svg
 )](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fhvorragend%2Fha-blueprints%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fcover_control_automation.yaml)
 
-🔗 [Community-Link](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)  | 🔗 [Full Changelog on Github](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)  | 🔗 [Older Changelog (Archiv)](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md)
+**Resources:**
+- 🗣️ [Community Discussion](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
+- 📚 [Full Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+- 📦 [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
+- 📖 [Time Control Visualization](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/TIME_CONTROL_VISUALIZATION.md)
+- 📖 [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md)
 
-**If you would like to support me or say thank you, please click here:**
+**Support Development:**
+🙏 [PayPal Donation](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) | 🙏 [Buy me a Coffee](https://buymeacoffee.com/herr.vorragend)
 
-🙏 [PayPal Donation](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) |  🙏 [Buy me a coffee](https://buymeacoffee.com/herr.vorragend)
+---
 
+## ✨ Key Features
 
-## 🔥 FEATURES
+### 📍 **Time Control & Scheduling**
+- **Flexible Time Input**: Traditional time-based opening/closing with workday/non-workday support
+- **Calendar Integration**: Create "Open Cover" / "Close Cover" events in Home Assistant calendars for visual, family-friendly scheduling
+- **Early/Late Triggers**: Separate early and late times for flexible opening/closing windows
+- **Identical Times Support**: Can set early and late times to identical values for guaranteed exact timing
 
-1. **Opening and Closing**: Automatically opens and closes roller shutters based on brightness, sun elevation, and within specified time windows.
-2. **Ventilation Feature**: Supports two-way sensors for ventilation, allowing for partial opening to ventilate the room.
-3. **Resident Feature**: Keeps the cover closed if a resident is detected as asleep, ensuring comfort and privacy.
-4. **Drive Delay**: Offers both fixed and random delays for driving the covers, providing flexibility in operation.
-5. **Trigger Waiting Time**: Configurable waiting time for triggers to avoid rapid, unnecessary movements.
-6. **Position Tolerance**: Adjustable tolerance for cover positions to account for minor discrepancies in cover movement.
-7. **Dynamic Conditions**: Features can be activated or deactivated based on dynamic conditions such as:
-   - **Vacation Mode**: Keeps covers closed during vacations.
-   - **Party Mode**: Prevents covers from closing during parties.
-   - **Shading Boolean**: Controls shading activation and deactivation.
-   - **Maintenance Mode**: Suspends cover control during maintenance or cleaning.
-8. **Manual Override Detection**: Detects manual overrides and adjusts automation to prevent conflicts.
-9. **Time-Based Control**: Configures cover control based on workdays and non-workdays, allowing different schedules.
-10. **Sun Elevation-Based Control**: Adjusts cover positions based on the sun's elevation to optimize natural light and heat.
-11. **Brightness-Based Control**: Uses ambient brightness levels to manage cover positions, enhancing energy efficiency.
-12. **Position Management**: Manages multiple positions for different states such as open, close, ventilate, and shading. Added the option to save the current status in a helper. This has the advantage that the roller blind can also be in other positions and the automation can still be executed. And manual interventions are not constantly overridden with every trigger.
-13. **Sun Shading / Sun Protection**: Extensive automatic sun shading with many different setting options: Sun azimuth, Sun elevation, Solar irradiation/Light intensity/Illuminance,  Weather Conditions, Temperature sensors (compare thresholds for indoor and/or outdoor sensors), weather forecast comparison
+### ☀️ **Advanced Sun Shading / Sun Protection**
+- **Flexible AND/OR Logic Builder**: Customize which shading conditions must ALL be met (AND) vs which act as optional boosters (OR)
+- **Independent START/END Configuration**: Separate logic for starting and ending shading with dedicated retry timeouts
+- **Multi-Condition Support**:
+  - ☀️ Sun position (azimuth & elevation)
+  - 🔅 Light brightness/illuminance
+  - 🌡️ Temperature sensors (indoor/outdoor/forecast)
+  - 🌦️ Weather forecasts (daily/hourly/current conditions)
+  - 📊 Per-condition on/off switches
+- **Hysteresis Support**: Prevents rapid on/off cycling with configurable hysteresis for all temperature-based triggers
+- **Unified Retry Logic**: Periodic condition checks with timeout protection for stable behavior
 
-## ❓ FAQ
+### 📅 **Dynamic Sun Elevation Adaptation**
+- **Seasonal Auto-Adjustment**: Optional template sensors automatically adapt elevation thresholds to the season
+- **No Manual DST Adjustments**: Covers open/close at consistent solar times year-round
+- **Smooth Transitions**: Gradual threshold changes throughout the year
+
+### 🪟 **Ventilation Management**
+- **Window State Detection**: Automatically responds to tilted (partial) and fully opened windows
+- **Lockout Protection**: Prevents accidental closure during ventilation (prevents residents getting locked in)
+- **Flexible Ventilation Positioning**: Optional delay after window closes, support for higher positions
+- **Integration with Shading**: Can transition from shading to ventilation when window tilts
+- **Race Condition Protection**: Handles multiple simultaneous sensor changes safely
+
+### 🎯 **Cover Type Support**
+- **Blinds/Roller Shutters**: Standard logic (0% = closed down, 100% = open up)
+- **Awnings/Sunshades**: Inverted logic (0% = retracted, 100% = extended)
+- **Automatic Position Logic Adaptation**: Blueprint adapts comparison logic based on cover type
+- **Transparent for End Users**: Position values work intuitively for each cover type
+
+### 🖐️ **Manual Override Intelligence**
+- **Smart Detection**: Recognizes manual cover adjustments automatically
+- **Respects User Decisions**: Honors manual adjustments for configurable timeout period (default 1 hour)
+- **Automatic Resume**: Automation resumes after timeout or manual reset
+- **Persistent Status Tracking**: Maintains state across Home Assistant restarts via Cover Status Helper
+
+### 🧱 **Tilt Position Control**
+- **Multi-Stage Support**: Up to 4 elevation-based tilt positions for optimal shading angles
+- **Z-Wave Compatibility**: "Wait Until Idle" mode for devices that block tilt during motor movement
+- **Optional Reposition**: Can close blinds before tilting for accurate positioning
+- **Flexible Configuration**: Fixed delay or dynamic wait until idle with timeout protection
+
+### 🏠 **Resident Detection & Sleep Schedules**
+- **Privacy Protection**: Closes covers when resident goes to sleep
+- **Flexible Waking Logic**: Can open covers when resident wakes based on environmental conditions
+- **Selective Feature Control**: Choose which features (open/close/shading/ventilation) are allowed per resident
+
+### 🚀 **Force Functions & Emergency Control**
+- **Weather Protection**: Force-close for rain, force-open for wind/frost
+- **Background State Tracking**: Automatically returns to target position when force is disabled
+- **Real-Time Status Updates**: Helper continues tracking target state even during force functions
+- **All Position Types**: Return-to-background works for open, close, shading, and ventilation
+- **Safeguard Checks**: Only one force function can be active simultaneously
+
+### 🔌 **Flexible Position Source Support**
+- **Multiple Position Attributes**: Works with `current_position`, `position`, or custom sensors
+- **Alternative Position Tracking**: Use external sensors when cover doesn't report positions
+- **Automatic Detection**: Handles missing attributes gracefully
+
+### ✅ **Extensive Configuration Validation**
+- **Online Configuration Validator**: Web-based tool to validate YAML before deployment
+- **80+ Validation Checks**: Organized into 19 logical sections with clear headers
+- **Client-Side Processing**: Privacy-friendly - no data sent to external servers
+- **Instant Feedback**: Get actionable error messages and migration guidance
+- **In-Blueprint Validation**: Optional basic plausibility check during execution
+
+---
+
+## 🚀 Quick Start (5 Steps)
+
+1. **Create a Helper**: Set up a text input helper with **minimum 254 characters** (Settings → Devices & Services → Helpers)
+2. **Select Your Cover**: Choose the blind or shutter to automate
+3. **Enable Features**: Activate the features you need (morning opening? Sun protection? Ventilation mode?)
+4. **Configure Basics**: Set opening/closing times and connect your sensors
+5. **Test & Refine**: Run the automation and adjust thresholds as needed
+
+---
+
+## 📋 Essential Prerequisites
+
+### Required
+- Home Assistant **2024.10.0** or higher
+- Text Helper with **minimum 254 characters** (for advanced features)
+- Cover entity with `current_position` attribute (or alternative position source)
+- `sun.sun` entity enabled for sun-based features
+
+### Important Configuration Rules
+- ⏰ **Time ordering**: `time_up_early` < `time_up_late` (and non-workday variants)
+- 📍 **Position hierarchy (Blinds)**: `open_position` > `ventilate_position` > `close_position`
+- 📍 **Position hierarchy (Awnings)**: `open_position` < `ventilate_position` < `close_position`
+- ☀️ **Sun values**: `azimuth_start` < `azimuth_end`, `elevation_min` < `elevation_max`
+- 🔅 **Brightness values**: `brightness_start` > `brightness_end`
+- 💬 **Resident sensor**: Must be binary (on/off, true/false only)
+
+---
+
+## ❓ Frequently Asked Questions
 
 ### General Questions
 
-- **What are the minimum requirements for using the CCA Blueprint?**
-   - The cover/shutter must have a `current_position` attribute.
-   - Shutters need to be properly integrated into Home Assistant.
-   - The `sun.sun` entity must be enabled and working correctly.
-   - Minimum required version of Home Assistant: **2024.6.0**
+**Q: Can I automate multiple covers with one automation?**
+A: Create **one automation per cover** for reliable results. While cover groups are technically possible, position detection becomes inaccurate when covers are at different positions simultaneously.
+
+**Q: What's the minimum Home Assistant version required?**
+A: **2024.10.0** or higher. The blueprint uses modern features not available in older versions.
+
+**Q: Do I need the Cover Status Helper for all features?**
+A: The helper is **required** for sun shading and ventilation. Time-based opening/closing works with basic position detection alone, but you lose manual override protection and advanced features.
 
 ### Configuration Questions
-- **How do I set up the basic position settings?**
-   - Set `open_position` (typically 100).
-   - Set `close_position` (typically 0).
-   - Configure `drive_time` (default 90 seconds).
 
-- **What are the important configuration rules?**
-   - Ensure time settings follow logical order (early times before late times).
-   - Position values should be hierarchical: `open_position > ventilate_position > close_position`.
+**Q: How do I set up multiple covers in different rooms?**
+A: Create a separate CCA automation for each cover. This ensures accurate position detection and independent control logic.
+
+**Q: Can I use different time schedules for weekdays and weekends?**
+A: Yes! Use the **workday sensor** (e.g., Workday integration) to automatically switch between workday/non-workday times. Or use **Calendar Mode** for even more flexibility with different times per day.
+
+**Q: What does "Pending" status mean in the helper?**
+A: Conditions are actively being evaluated. The automation is waiting for stable sensor readings. Increase the "Maximum duration for retry" if conditions frequently fluctuate.
 
 ### Feature Questions
-- **How does the ventilation feature work?**
-   - Supports two-way sensors for partial opening to ventilate the room.
-   - Or use the sensors for lock-out protection
 
-- **What is the resident feature?**
-   - Keeps the cover closed if a resident is detected as asleep.
-   
-- **How can I detect manual overrides?**
-   - The blueprint includes a feature to detect manual overrides and adjust automation accordingly.
+**Q: How does the ventilation feature work?**
+A: Two-way sensors detect window states:
+- **Opened fully**: Cover moves to open position (lockout protection prevents closing)
+- **Tilted**: Cover moves to ventilation position instead of closing
+- **Closed**: Automation resumes normal operation
 
-- **How do the shading start conditions work?**
-   - If multiple criteria (e.g. temperature sensors and/or azimuth and/or elevation) are defined, shading will not occur until all criteria are met.
+**Q: What is the resident feature?**
+A: Keeps the cover closed when a resident is detected as asleep. Optionally, covers open automatically when the resident wakes up (respecting time and environmental conditions).
 
-- **How can I use additional conditions like vacation mode or party mode?**
-   - Activate vacation mode to keep covers closed during vacations.
-   - Use party mode to prevent covers from closing during parties.
+**Q: How can I detect manual overrides?**
+A: The blueprint automatically tracks when you manually move a cover. You can configure how long to respect this manual adjustment before automation resumes control.
+
+**Q: How does shading start/end with AND/OR logic?**
+A: 
+- **START AND**: All selected conditions must be valid to start shading
+- **START OR**: At least one selected condition must be valid (optional boosters)
+- **END AND**: All selected conditions must become invalid to end shading
+- **END OR**: At least one selected condition must become invalid to end shading
+
+Example: Start when (azimuth AND elevation) OR brightness - Shading starts if both sun position conditions are met OR brightness is high.
 
 ### Advanced Questions
-- **Can I configure the blueprint based on sun elevation and brightness?**
-    - Yes, the blueprint allows adjustments based on sun elevation and ambient brightness levels.
 
-- **How do I manage multiple positions for different states?**
-    - The blueprint supports managing positions for open, close, ventilate, and shading.
+**Q: Can I configure sun elevation and brightness independently?**
+A: Yes! You can enable/disable each condition separately:
+- Brightness-based triggers only during morning/evening
+- Sun elevation-based triggers during the day
+- Temperature-based triggers during hot periods
+- Or combine them with flexible AND/OR logic
 
-## 📺 SCREENSHOTS
+**Q: Can I use shading during specific seasons only?**
+A: Yes! Add a custom condition that checks a helper (e.g., input_boolean for "summer_shading_enabled") to enable/disable shading dynamically.
 
-![image](https://github.com/user-attachments/assets/c213d5ec-f1d4-4830-8e4d-43bc7f46cf44)
-
-![image](https://github.com/user-attachments/assets/e89777fc-73e8-4d79-a01e-e85e36c3450c)
-
-## ❓ Troubleshooting Questions
-
-The CCA blueprint is powerful but requires precise configuration. Below are typical errors users encounter:
-
-### Incomplete or Invalid Configuration
-- Time ranges must be logically ordered (e.g., `time_up_early` < `time_up_late`).
-- Azimuth values (e.g., `shading_azimuth_start` and `shading_azimuth_end`) must form a valid range.
-- Missing required fields can cause the automation to fail silently.
-
-👁️ More important configuration notes
-- `time_up_early` should be earlier `than time_up_late`
-- `time_up_early_non_workday` should be earlier than `time_up_late`
-- `time_down_early` should be earlier than `time_down_late`
-- `shading_azimuth_start` should be lower than `shading_azimuth_end`
-- `shading_elevation_min` should be lower than `shading_elevation_max`
-- `shading_sun_brightness_start` should be higher than `shading_sun_brightness_end`
-- `open_position` should be higher than `closed_position`
-- `open_position` should be higher than `ventilate_position`
-- `closed_position` should be lower than `ventilate_position`
-- `shading_cover_position` should be higher than `closed_position`
-- `shading_cover_position` should be lower than `open_position`
-- `resident` is only allowed to be on/off/true/false
-- cover must have a `current_position` attribute
-
-
-### Why is my trigger sequence not executed even though all conditions are met?
-
-- This is often because the blueprint is configured so that certain actions can only be executed once a day. Particularly in the initial phase, you try out a lot and so an action could theoretically have already been noted as executed.
-
-### What should I do if the cover positions are not working correctly?
-   - Verify your cover reports `current_position` correctly.
-   - Ensure position values don’t conflict with each other.
-   - Check if manual control is working properly.
-   - Improper position values (e.g., `open_position` should be greater than `closed_position`). And the `shading_position` must be unique; i.e. it must not match any other values.
-
-
-### Trying to Trigger the Automation Manually
-- This blueprint is **not** designed for manual triggering.
-- Manually clicking "Run" will not produce the expected behavior.
-
-### Missing or Invalid Entities
-- Required entities like `sun.sun`, sensors, and weather data must be available and return valid values.
-- If entities return `unknown`, `unavailable`, or are missing, actions may be skipped.
-
-### Using an Outdated Blueprint Version
-- The blueprint is frequently updated.
-- Re-import and review after updates.
-- Check changelogs for new options or breaking changes.
-
---- 
-
-## 🥵 Common Issues with Sun Protection / Sunshade Control 
-
-###  Inaccurate Weather Forecast Blocking Activation
-
-If you're using a weather forecast sensor (e.g., OpenWeatherMap), inaccurate "cloudy" or "partlycloudy" predictions may prevent sun shading, even when it's actually sunny.
-
-**Tip:** Use the action `weather.get_forecasts` in the developer console and see what response your weather integration gives.
-
-###  Incorrect Azimuth or Elevation Settings
-
-Improper configuration of the sun’s azimuth or elevation ranges may prevent activation:
-
-- `shading_azimuth_start` must be **less than** `shading_azimuth_end`.
-- `shading_elevation_min` should reflect realistic sun elevation levels in your region and time of year.
-
-###  Activation Delay (`shading_wait`)
-
-The `shading_waitingtime_start` parameter defines a wait time (in seconds) between all shading conditions being met and the actual activation. 
-
-This often causes users to think shading isn't working, especially when the sun conditions change quickly.
-
-###  Manual Control Preventing Automation
-
-If blinds are manually moved, the automation may stop responding unless you properly reset the manual override. Or has the automation been modified in the meantime or has Home Assistant even been restarted?
-
-###  Grouped Covers Causing Conflicts
-
-Grouping multiple blinds into one cover entity can lead to issues. If one blind in the group is manually closed, it may prevent the automation from moving any of them.
-
-###  Missing or Misconfigured Sensors
-
-Missing required entities like:
-
-- `sun.sun` (for sun position)
-- Brightness sensors
-- No definition of necessary helper (e.g. `cover_status_helper`)
-
-...can cause the sun shading logic to silently fail.
-
-###  Time Window Misconfiguration
-
-Shading will not activate outside the specified time range, even if all sun conditions are satisfied.
-
-**Check:** `time_up_early` and `time_down_late` settings to ensure they include your intended shading hours.
-
-### Problem with ending the shading
-Check if the conditions for ending shading (e.g., sun elevation dropping below shading_elevation_min) are correctly configured.
+**Q: How do I handle extremely variable weather conditions?**
+A: Increase the "Start/End Waiting Time" (default 300 seconds) and "Maximum duration for retry" (default 7200 seconds). This prevents rapid on/off cycling when conditions fluctuate frequently.
 
 ---
 
-## 🔢 Why Are My Numeric Triggers Not Firing?
+## 🥵 Common Issues with Sun Protection
 
-### How does the threshold concept apply to the Cover Control Automation?
+### Inaccurate Weather Forecast Blocking Activation
 
-- In the CCA Automation, a *threshold* defines the specific brightness level at which your covers (e.g., blinds or shades) are expected to react. For example, if the threshold is set to 75, the automation will only trigger actions (such as opening or closing the covers) when the brightness value crosses that point - either by rising above or falling below it.
+If using a weather forecast sensor (e.g., OpenWeatherMap), inaccurate "cloudy" or "partlycloudy" predictions may prevent sun shading even when it's actually sunny.
 
-### Can you provide an example of how thresholds work in the CCA?
+**Solution:**
+- Don't rely solely on weather conditions - combine with brightness sensor or temperature threshold
+- Use "Independent Temperature Comparison" to shade based on actual heat, not forecast
+- Check your weather integration's accuracy against real conditions
 
-- Let’s say the brightness sensor currently reads **50**, and your CCA Automation is configured to close the covers at a threshold of **75**. If the brightness increases to **60** or even **74**, the automation will *not* fire. It only triggers once the value crosses the threshold—such as reaching **76**. Similarly, the same logic applies when the brightness is dropping below a set lower threshold.
+### Shading Not Starting Despite Ideal Conditions
 
-### Why might the CCA Automation not trigger, even though I expect it to?
+Possible causes:
+- **Waiting time not met**: Conditions must remain stable for the configured waiting time
+- **Multiple conditions conflicting**: Review AND/OR logic to ensure all required conditions are actually met
+- **Time window closed**: Shading only activates during the configured daytime window
+- **Manual override active**: Cover was manually adjusted - automation is respecting that choice
 
-- If your CCA Automation isn't firing, it could be because the brightness value hasn't actually *crossed* the threshold - only approaching it isn’t enough. Automations using numeric state triggers in Home Assistant only activate when the value transitions from one side of the threshold to the other.
+**Solution:**
+- Check traces to see which conditions are blocking activation
+- Reduce waiting time if weather conditions are stable in your area
+- Use the online validator to check AND/OR logic configuration
 
-### What should I check if my CCA Automation isn’t working as expected?
+### Shading Won't End
 
-- Start by confirming the current brightness level and compare it to your defined threshold values. Ensure that the values are actually moving across the threshold. Next, review your automation conditions to verify that all necessary criteria are being met (e.g., time of day, sun position, presence status, etc.). Lastly, consider checking the automation's trace or logs in Home Assistant to see if and when the trigger conditions are evaluated.
+Possible causes:
+- **End conditions still valid**: One or more end conditions haven't become invalid yet
+- **Temperature above threshold**: Even if sun moved away, temperature is keeping shading active
+- **Forecast still predicting sun**: Weather forecast hasn't updated yet
 
+**Solution:**
+- Review which end conditions are enabled
+- Increase end condition hysteresis to allow earlier closing
+- Disable forecast-based shading if your weather service is unreliable
 
 ---
 
-## 🧪 How to Use Traces Effectively
+## 🔆 Understanding Thresholds and Numeric State Triggers
 
-Traces allow you to inspect exactly what happened when an automation was run.
+### What is a Threshold?
 
-### Increase Stored Traces (Optional)
-To store more traces, add this to the automation YAML:
+A **threshold** is a specific value where an automation triggers when crossed. For example, if brightness threshold is 75, the automation triggers when brightness **crosses** that value (either going up or down).
+
+### How Crossing Works
+
+If brightness is **50** and your threshold is **75**:
+- Brightness rises to 60, 70, 74 → **No trigger** (hasn't crossed threshold yet)
+- Brightness reaches 76 → **Trigger fires!** (crossed the threshold)
+- Brightness then drops to 74 → **No trigger** (already below threshold)
+- Brightness drops to 73 → **Trigger fires again!** (crossed back over threshold)
+
+### Critical: Hysteresis Prevents Flickering
+
+If a threshold is set exactly at a value that fluctuates (e.g., brightness bouncing around 75), the automation would trigger constantly.
+
+**Hysteresis solution:**
+- Set hysteresis of 2 lux on brightness threshold of 75
+- Activates at 77 lux, deactivates at 73 lux
+- Prevents triggering from small fluctuations around the threshold
+
+---
+
+## 🧪 Debugging with Traces
+
+Traces show exactly what happened when an automation ran. They're invaluable for troubleshooting.
+
+### Enable Extended Trace Storage
+
+Add to your automation YAML (optional, for up to 20 traces):
 ```yaml
 trace:
   stored_traces: 20
 ```
 
-<sub>See also: https://www.home-assistant.io/docs/automation/troubleshooting/</sub>
+### How to Access Traces
 
+1. Go to **Settings → Automations & Scenes**
+2. Click on your CCA automation
+3. Select the **Traces** tab
+4. Click on a trace to view execution details
+5. Use arrow symbols to navigate between steps
+6. Look for your expected trigger in the trigger table below
 
-### Providing the traces
-1. Go to **Settings → Automations & Scenes**.
-2. Click on the relevant CCA automation.
-3. Select the **Traces** tab to view execution steps.
-4. Use the arrow symbols to switch back and forth between the traces and search for the trigger (see trigger table) that should actually trigger something.
-5. Please note that traces for the trigger “`t_manual_x`” are not relevant for debugging. Traces are only required in very rare cases. Then I would also point this out. These triggers are reactions to manual position changes or the attempt to recognize previous actions from the blueprint. If there are problems, then rarely with this trigger, but with the trigger directly before it.
-6. Download the trace and make the file available in the thread via filehosters such as Pastebin.
+### What Traces Show
 
-#### Uploading the JSON File
+- **Trigger**: Which trigger fired the automation
+- **Conditions**: Whether each condition was true/false
+- **Actions**: Which actions were executed and in what order
+- **Variables**: Calculated values at each step
 
-Since the forum does not support uploading `.json` files directly, please use one of the following services to host your file and share the link in your post:
+### When You Don't Need Traces
 
-|Service|Link|Account Required?|Notes|
-| --- | --- | --- | --- |
-|[Pastebin](https://pastebin.com)|✅ For "Unlisted" pastes|Supports syntax highlighting for JSON.||
-|[GitHub Gist](https://gist.github.com)|❌ Optional GitHub account|Ideal for structured files; public or secret.||
-|[Hastebin](https://hastebin.com)|❌ No|Fast & simple; may expire over time.||
-|[0bin](https://0bin.net)|❌ No|End-to-end encrypted; privacy-focused.||
-|[file.io](https://www.file.io)|❌ No|File auto-deletes after one download.||
+Manual position change triggers (`t_manual_*`) are usually not the issue. If problems exist, look at the trigger **before** the manual detection trigger. Manual triggers are reaction events, not causation events.
 
----
+### Sharing Traces for Support
 
-#### 🧩 Pastebin Example
+Since the forum doesn't support `.json` uploads, use these services:
 
-1. Go to https://pastebin.com.
-2. Paste your **entire JSON content**.
-3. Set **Syntax Highlighting** to `json`.
-4. Set **Paste Exposure** to `Unlisted`.
-5. Click **“Create New Paste”**.
-6. Copy the generated link and include it in your forum reply.
+| Service | Account Required | Notes |
+|---------|------------------|-------|
+| [Pastebin](https://pastebin.com) | ✅ For "Unlisted" | Syntax highlighting for JSON |
+| [GitHub Gist](https://gist.github.com) | ❌ Optional | Ideal for structured files |
+| [Hastebin](https://hastebin.com) | ❌ | Fast & simple |
+| [0bin](https://0bin.net) | ❌ | End-to-end encrypted |
+| [file.io](https://www.file.io) | ❌ | Auto-deletes after download |
 
-By providing the trace in this format, it’s much easier to identify bugs, unexpected behavior, or misconfigurations in your automation setup. Thank you!
+**To share via Pastebin:**
+1. Download the trace JSON from Home Assistant
+2. Go to https://pastebin.com
+3. Paste the entire JSON content
+4. Set Syntax Highlighting to `json`
+5. Set Exposure to `Unlisted`
+6. Click "Create New Paste"
+7. Share the generated link
 
 ---
 
 ## 📬 Tips for Creating Helpful Support Requests
 
-When asking for help on the forum, include:
+When posting on the community forum:
 
-- 🧾 **Your automation YAML configuration** (exported instance).
-- 📷 **The exported trace** (especially of failed runs).
-- ✅ **Expected behavior** vs ❌ **Actual result**.
-- **Tip**: Please do not summarize so many independent problems in one post. It makes support easier for me if we could focus on one possible error per post.
-
-
----
-
-### ✅ Summary
-
-- Set up the CCA blueprint carefully with correct values and entity references.
-- Do **not** trigger it manually.
-- Keep the blueprint up to date.
-- Use **Traces** to debug and provide structured support requests.
+1. **Include your automation YAML** (exported from your Home Assistant instance)
+2. **Provide the trace file** (especially for failed runs) - use one of the services above
+3. **Describe expected vs actual behavior** clearly
+4. **Focus on one problem per post** - easier to troubleshoot that way
+5. **Check the changelog** - your issue may already be fixed in a newer version
 
 ---
 
-## 🛎️ Trigger overview
+## 🛎️ Trigger Overview
 
-|**Trigger** | **Function** | **Description**|
-|--- | --- | ---|
-|`t_open_1 - 6` | Cover Opening | Trigger for opening|
-|`t_close_1 - 6` | Cover Closing | Trigger for closing|
-|`t_contact_tilted_on` / `t_contact_opened_on` | Ventilation | Responds to the status of the window contact|
-|`t_shading_start_pending_1 - 5` | Shading Pending | Checks relevant conditions (azimuth, elevation, temperature)|
-|`t_shading_start_execution` | Shading Executed | Activated when conditions are met|
-|`t_manual_1 - 3` | Manual Position Detection | Monitors manual changes and resets status|
+| Trigger | Function | When It Fires |
+|---------|----------|---------------|
+| `t_open_1` | Opening | Early opening time reached |
+| `t_open_2` | Opening | Late opening time reached |
+| `t_open_4` | Opening | Brightness above threshold for duration |
+| `t_open_5` | Opening | Sun elevation above threshold for duration |
+| `t_open_6` | Opening | Resident wakes up (leaves sleeping state) |
+| `t_close_1` | Closing | Early closing time reached |
+| `t_close_2` | Closing | Late closing time reached |
+| `t_close_4` | Closing | Brightness below threshold for duration |
+| `t_close_5` | Closing | Sun elevation below threshold for duration |
+| `t_close_6` | Closing | Resident goes to sleep |
+| `t_contact_tilted_changed` | Ventilation | Window tilted state changed |
+| `t_contact_opened_changed` | Ventilation | Window opened state changed |
+| `t_shading_start_pending_*` | Shading | Shading conditions being evaluated |
+| `t_shading_start_execution` | Shading | Shading conditions confirmed, execution time |
+| `t_shading_tilt_*` | Shading | Tilt position adjustment based on sun elevation |
+| `t_shading_end_pending_*` | Shading | End conditions being evaluated |
+| `t_shading_end_execution` | Shading | End conditions confirmed, execution time |
+| `t_force_enabled_*` | Force | Force function activated |
+| `t_force_disabled_*` | Force | Force function deactivated (return to background) |
+| `t_manual_position` | Manual | Manual cover position change detected |
+| `t_manual_tilt` | Manual | Manual tilt change detected |
+| `t_reset_fixedtime` | Override Reset | Manual override timeout reached (fixed time) |
+| `t_reset_timeout` | Override Reset | Manual override timeout reached (duration-based) |
+| `t_calendar_event_start` | Calendar | Calendar event started |
+| `t_calendar_event_end` | Calendar | Calendar event ended |
+
+---
+
+## 📋 Cover Status Helper - JSON Structure
+
+The Cover Status Helper is a text input that stores the current cover state as JSON. It tracks what the automation intends to do, even when force functions are active.
+
+### JSON Structure
+
+```json
+{
+  "open": {"a": 1, "t": 1234567890},
+  "close": {"a": 0, "t": 1234567890},
+  "shading": {"a": 1, "t": 1234567890, "p": 0, "q": 0},
+  "vpart": {"a": 0, "t": 1234567890},
+  "vfull": {"a": 0, "t": 1234567890},
+  "manual": {"a": 0, "t": 1234567890},
+  "v": 5,
+  "t": 1234567890
+}
+```
+
+### Field Meanings
+
+| Field | Description | Active Values | Notes |
+|-------|-------------|----------------|-------|
+| **open** | Cover is open or was last opened | 0/1 | Timestamp when state changed |
+| **close** | Cover is closed or was last closed | 0/1 | Timestamp when state changed |
+| **shading** | Cover is in shading mode | 0/1 | Active state, p=pending start, q=pending end |
+| **shading.p** | Shading start pending (waiting) | 0 or timestamp | Unix timestamp of when to execute |
+| **shading.q** | Shading end pending (waiting) | 0 or timestamp | Unix timestamp of when to execute |
+| **vpart** | Partial ventilation (window tilted) | 0/1 | Timestamp when activated |
+| **vfull** | Full ventilation/lockout (window open) | 0/1 | Timestamp when activated |
+| **manual** | Manual operation detected | 0/1 | Timestamp when detected |
+| **v** | Version number | 5 | Allows format upgrades |
+| **t** | Last global status change | Unix timestamp | Overall helper update time |
+
+### Common State Scenarios
+
+| Scenario | open | close | shading | vpart | vfull | Description |
+|----------|------|-------|---------|-------|-------|-------------|
+| Cover is open | 1 | 0 | 0 | 0 | 0 | Normal daytime state |
+| Cover is closed | 0 | 1 | 0 | 0 | 0 | Normal nighttime state |
+| Shading active | 1 | 0 | 1 | 0 | 0 | Sun protection engaged |
+| Shading + pending open | 1 | 0 | 1 | 0 | 0 | Waiting for shading to end |
+| Window tilted (ventilation) | 1 | 0 | 0 | 1 | 0 | Partial opening for air flow |
+| Window open (lockout) | 1 | 0 | 0 | 0 | 1 | Full opening + lockout protection |
+| Manual adjustment | * | * | * | * | * | Depends on what was adjusted |
 
 ---
 
-## 📋 Cover Status Helper - Contents
+## 🎓 Understanding Cover Types
 
-The Cover Status Helper is the central control element in the latest version of the Cover Control Automation (CCA). It tracks the current state of the roller blinds.
+### Blinds / Roller Shutters (Standard)
+- **0% = Fully Closed** (down)
+- **100% = Fully Open** (up)
+- **Intermediate positions** = Partially open
 
+Position hierarchy: `open (100) > shading (25) > ventilate (30) > close (0)`
 
-#### Structure and Meaning of the Individual States
+Example configuration:
+```
+Open Position: 100%
+Shading Position: 25%
+Ventilate Position: 30%
+Close Position: 0%
+```
 
-Each of these states is an object with at least two key values:
+### Awnings / Sunshades (Inverted)
+- **0% = Fully Retracted** (closed)
+- **100% = Fully Extended** (open)
+- **Intermediate positions** = Partially extended
 
-|**State** | **Description** | **a (active)** | **t (timestamp)**|
-|--- | --- | --- | ---|
-|`open` | Cover is open or was last opened | `0` / `1` | Time the open occurred|
-|`close` | Cover is closed or was last closed | `0` / `1` | Time the close occurred|
-|`shading` | Cover is in shading mode | `0` / `1` | Time shading activated|
-|`shading.p` | Shading detected, not yet started (Pending) | `0` / `1` | End of the waiting time (for trigger)|
-|`shading.q` | Time shading was actually executed (Executed) | `0` / `1` | Time executed|
-|`vpart` | Partly open for ventilation (window tilted)  | `0` / `1` | Time activated|
-|`vfull` | Fully open for maximum ventilation (lock-out protection) | `0` / `1` | Time intervention|
-|`manual` | Manual operation detected (UI, switch, etc.) | `0` / `1` | Time intervention|
-|`v` | Version of the status format | – | –|
-|`t` | Timestamp of last global status change | – | Unix time|
+Position hierarchy: `open (0) < ventilate (25) < shading (75) < close (100)`
 
+Example configuration:
+```
+Open Position: 0%
+Shading Position: 75%
+Close Position: 100%
+```
 
-## 🪟 Cover Status Helper - State Overview
-
-This table provides an overview of the different states used in the Cover Status Helper.
-Each row represents a specific scenario with corresponding binary values for each state variable.
-
-|Scenario Description|`open`|`close`|`shading`|`vpart`|`vfull`|
-| --- | --- | --- | --- | --- | --- |
-|Cover is open|1|0|0|0|0|
-|Cover is closed|0|1|0|0|0|
-|Shading active, then returns to open|1|0|1|0|0|
-|Cover is still closed, then moves to shading instead of fully opening|0|1|1|0|0|
-|Lockout protection active when closing|0|1|0|0|1|
-|Window tilted – no lockout, cover moves to ventilation position instead of closing|0|1|0|1|0|
+**Note:** The blueprint automatically adjusts all comparison logic based on the selected cover type. You don't need to worry about inversion - just set positions intuitively for your hardware.
 
 ---
+
+## ✅ Troubleshooting Checklist
+
+- [ ] Cover has `current_position` attribute (or alternative source configured)
+- [ ] Helper has minimum 254 characters length
+- [ ] Sun entity (`sun.sun`) is enabled and working
+- [ ] All required sensors are available and returning valid values
+- [ ] Time values are in correct order (early < late)
+- [ ] Position values follow hierarchy rules
+- [ ] Resident sensor (if used) is binary (on/off or true/false)
+- [ ] No multiple force functions active simultaneously
+- [ ] Calendar events (if used) have correct titles
+- [ ] Blueprint is version 2024.10.0 or higher
+- [ ] Checked the online validator for configuration errors
+
+---
+
+## 📺 Screenshots
+
+![CCA Automation Configuration UI](https://github.com/user-attachments/assets/c213d5ec-f1d4-4830-8e4d-43bc7f46cf44)
+
+![CCA Shading Configuration](https://github.com/user-attachments/assets/e89777fc-73e8-4d79-a01e-e85e36c3450c)
+
+---
+
+## 📝 License & Attribution
+
+This blueprint is open-source. When modifying or redistributing:
+- Maintain attribution to the original author
+- Link to the original [GitHub repository](https://github.com/hvorragend/ha-blueprints)
+- Respect all license terms
+
+⚠️ **Copies created via "Take Control"** are not officially supported. Custom modifications may prevent technical support.
+
+ 
