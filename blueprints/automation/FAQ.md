@@ -1816,6 +1816,229 @@ Disables default cover commands for custom integrations
 
 ---
 
+## ✅ Troubleshooting Checklist
+
+Before posting for support, verify these essential points:
+
+- [ ] Cover has `current_position` attribute (or alternative source configured)
+- [ ] Helper has minimum 254 characters length
+- [ ] Sun entity (`sun.sun`) is enabled and working
+- [ ] All required sensors are available and returning valid values
+- [ ] Time values are in correct order (early < late for same action)
+- [ ] Position values follow hierarchy rules (considering tolerance)
+- [ ] Resident sensor (if used) is binary (on/off or true/false only)
+- [ ] No multiple force functions active simultaneously
+- [ ] Calendar events (if used) have correct titles
+- [ ] Blueprint is version 2024.10.0 or higher
+- [ ] Checked the [online validator](https://hvorragend.github.io/ha-blueprints/validator/) for configuration errors
+- [ ] No typos in entity IDs or sensor names
+
+---
+
+## 🎓 Understanding Cover Types Details
+
+### Blinds / Roller Shutters (Standard)
+
+**Position Logic:**
+- **0% = Fully Closed** (down)
+- **100% = Fully Open** (up)
+- **Intermediate positions** = Partially open
+
+**Position Hierarchy:**
+```
+100% (Open)
+  ↓
+25% (Shading)
+  ↓
+30% (Ventilate)
+  ↓
+0% (Close)
+```
+
+**Example Configuration:**
+```yaml
+Cover Type: Blind / Roller Shutter
+Open Position: 100%
+Shading Position: 25%
+Ventilate Position: 30%
+Close Position: 0%
+Position Tolerance: 5%
+```
+
+**Real-World Examples:**
+- Roller shutters (Somfy, Shelly, Z-Wave)
+- Vertical blinds
+- Horizontal blinds with up/down movement
+- Most integrated covers use this logic
+
+---
+
+### Awnings / Sunshades (Inverted)
+
+**Position Logic:**
+- **0% = Fully Retracted** (closed/stored)
+- **100% = Fully Extended** (open/deployed)
+- **Intermediate positions** = Partially extended
+
+**Position Hierarchy:**
+```
+100% (Close)
+  ↓
+75% (Shading)
+  ↓
+0% (Open)
+```
+
+**Example Configuration:**
+```yaml
+Cover Type: Awning / Sunshade
+Open Position: 0%
+Shading Position: 75%
+Close Position: 100%
+```
+
+**Real-World Examples:**
+- Retractable awnings
+- External sunshades
+- Motorized outdoor blinds
+- Terrace covers
+
+**How CCA Adapts:**
+The blueprint automatically:
+- ✅ Inverts comparison logic (> becomes <)
+- ✅ Adjusts position hierarchies
+- ✅ Reverses open/close direction
+- ✅ Makes everything transparent to end user
+
+You simply set positions intuitively and CCA handles the rest!
+
+---
+
+## 📊 Complete Trigger Overview & Reference
+
+All triggers available in CCA and their purposes:
+
+### Time-Based Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_open_1` | Opening | Early opening time reached |
+| `t_open_2` | Opening | Late opening time reached (guaranteed if conditions didn't trigger early) |
+| `t_close_1` | Closing | Early closing time reached |
+| `t_close_2` | Closing | Late closing time reached (guaranteed if conditions didn't trigger early) |
+
+### Condition-Based Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_open_4` | Opening | Brightness above threshold maintained for configured duration |
+| `t_open_5` | Opening | Sun elevation above threshold maintained for configured duration |
+| `t_close_4` | Closing | Brightness below threshold maintained for configured duration |
+| `t_close_5` | Closing | Sun elevation below threshold maintained for configured duration |
+
+### Resident-Based Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_open_6` | Opening | Resident wakes up (resident sensor changes from on to off) |
+| `t_close_6` | Closing | Resident goes to sleep (resident sensor changes from off to on) |
+
+### Calendar Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_calendar_event_start` | Calendar | Calendar event becomes active (cover configured action starts) |
+| `t_calendar_event_end` | Calendar | Calendar event ends (cover configured action ends) |
+
+### Ventilation/Contact Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_contact_tilted_changed` | Ventilation | Window/door tilted state changed |
+| `t_contact_opened_changed` | Ventilation | Window/door fully opened state changed |
+
+### Shading Start Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_shading_start_pending_1` | Shading | Sun Azimuth condition evaluated |
+| `t_shading_start_pending_2` | Shading | Sun Elevation condition evaluated |
+| `t_shading_start_pending_3` | Shading | Brightness condition evaluated |
+| `t_shading_start_pending_4` | Shading | Temperature Sensor 1 condition evaluated |
+| `t_shading_start_pending_5` | Shading | Temperature Sensor 2/Forecast condition evaluated |
+| `t_shading_start_execution` | Shading | Start pending time elapsed + conditions confirmed → execute shading |
+
+### Shading Tilt Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_shading_tilt_1` | Shading | Sun elevation < tilt threshold 1 |
+| `t_shading_tilt_2` | Shading | Sun elevation < tilt threshold 2 |
+| `t_shading_tilt_3` | Shading | Sun elevation < tilt threshold 3 |
+| `t_shading_tilt_4` | Shading | Sun elevation < tilt threshold 4 |
+
+### Shading End Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_shading_end_pending_1` | Shading | Sun Azimuth out of range |
+| `t_shading_end_pending_2` | Shading | Sun Elevation out of range |
+| `t_shading_end_pending_3` | Shading | Brightness below threshold |
+| `t_shading_end_pending_4` | Shading | Temperature Sensor 1 below threshold |
+| `t_shading_end_pending_5` | Shading | Temperature Sensor 2/Forecast below threshold |
+| `t_shading_end_execution` | Shading | End pending time elapsed + conditions confirmed → end shading |
+| `t_shading_reset` | Shading | Midnight reset of daily shading counter |
+
+### Manual Override Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_manual_position` | Manual | Manual cover position change detected |
+| `t_manual_tilt` | Manual | Manual tilt position change detected |
+
+### Override Reset Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_reset_fixedtime` | Override Reset | Manual override timeout reset at configured time (midnight or specified time) |
+| `t_reset_timeout` | Override Reset | Manual override timeout expired (duration-based) |
+
+### Force Function Triggers
+
+| Trigger ID | Category | Description |
+|------------|----------|-------------|
+| `t_force_enabled_open` | Force | Force-Open activated |
+| `t_force_enabled_close` | Force | Force-Close activated |
+| `t_force_enabled_shade` | Force | Force-Shade activated |
+| `t_force_enabled_ventilate` | Force | Force-Ventilate activated |
+| `t_force_disabled_open` | Force | Force-Open deactivated → return to target |
+| `t_force_disabled_close` | Force | Force-Close deactivated → return to target |
+| `t_force_disabled_shade` | Force | Force-Shade deactivated → return to target |
+| `t_force_disabled_ventilate` | Force | Force-Ventilate deactivated → return to target |
+
+### Debugging with Trigger Overview
+
+**What to look for:**
+- ✅ **Did the right trigger fire?** Check trigger list for expected action
+- ✅ **Did unexpected triggers fire?** May explain unwanted behavior
+- ✅ **Is a trigger missing?** Check conditions in automation trace
+- ✅ **Trigger fired but no action?** Problem is in conditions/actions, not trigger
+
+**Example debugging:**
+```
+Problem: "Covers don't open at 07:00"
+
+Check trace:
+- ❌ t_open_1 didn't fire
+- ❌ t_open_2 didn't fire
+- ❌ t_open_4 didn't fire
+- ❌ t_open_5 didn't fire
+
+Likely causes: Manual override active OR time values incorrect
+```
+
+---
+
 ## 📚 Additional Resources
 
 **Official Documentation:**
