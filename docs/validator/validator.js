@@ -92,7 +92,7 @@ class CCAValidator {
             'drive_delay_fix', 'drive_delay_random',
             
             // Force
-            'enable_background_state_tracking',
+            'auto_recover_after_force',
             'auto_up_force', 'auto_down_force', 'auto_ventilate_force', 'auto_shading_start_force',
             
             // Conditions

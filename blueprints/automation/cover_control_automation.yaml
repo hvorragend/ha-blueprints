@@ -220,7 +220,7 @@ blueprint:
       ## 🧠 Background State Memory & Force Return
 
       - **Automatic return to target state after force disable**
-        When `enable_background_state_tracking` is enabled, the cover automatically returns to the position stored in the helper (background state) after a force function is disabled. This enables seamless transitions from emergency states back to normal automation.
+        When `auto_recover_after_force` is enabled, the cover automatically returns to the position stored in the helper (background state) after a force function is disabled. This enables seamless transitions from emergency states back to normal automation.
 
       - **Continuous helper updates during force functions**
         The helper now continues to update in the background even when force functions are active, ensuring the target state always reflects the current automation intent. For example, if Force-Open is active but it's evening close time, the helper stores "close" as the background state.
@@ -229,7 +229,7 @@ blueprint:
         Return-to-background works for all cover states: open, close, shading, and ventilation positions. The automation intelligently determines which position to return to based on the helper's background state.
 
       - **Backward compatible (opt-in)**
-        The feature is disabled by default (`enable_background_state_tracking = false`), preserving existing behavior. Users must explicitly enable it to use the new functionality.
+        The feature is disabled by default (`auto_recover_after_force = auto_recover_disabled`), preserving existing behavior. Users must explicitly enable it to use the new functionality.
 
       ### 💡 Practical use cases
 
@@ -2746,14 +2746,52 @@ blueprint:
       icon: mdi:arm-flex
       collapsed: true
       input:
-        enable_background_state_tracking:
+        auto_recover_after_force:
           name: "🔙 Return to Target State After Force Disable"
           description: >-
-            If enabled, the cover will automatically return to the target position stored in the helper (background state) when a force function is disabled.
-            The helper will also continue to update its status in the background even when force functions are active, so the cover can always return to the current target state.
-          default: false
+            **🚀 Seamless control with automatic recovery!**
+
+            When enabled, the cover automatically returns to its intended position when a force function is disabled. 
+
+            <details>
+            <summary><code><strong>HOW IT WORKS:</strong> Smart Background Tracking</code></summary>
+
+
+            **Continuous Status Tracking:**
+
+            - The helper constantly monitors what the cover *should* be doing (open, close, shading, ventilate)
+
+            - Even when a force function is active, the background state is always up-to-date
+
+            - When the force function is disabled, the cover knows exactly where to return
+
+
+            **Perfect for:**
+
+            - 🌧️ Rain Protection (force-close, auto-recover to shading)
+
+            - 💨 Wind Protection (force-open, auto-recover to normal state)
+
+            - ❄️ Frost Protection (force-open, auto-resume after sunrise)
+
+            - 🔥 Emergency Scenarios (temporary manual control, then auto-recovery)
+
+            - 🏠 Cleaning/Maintenance (force-open, then auto-return when done)
+
+
+            </details>
+          default: auto_recover_disabled
           selector:
-            boolean: {}
+            select:
+              options:
+                - label: "✅ Enable Automatic Return to Target State"
+                  value: "auto_recover_enabled"
+                - label: "❌ Disable Automatic Return to Target State"
+                  value: "auto_recover_disabled"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
 
         auto_up_force:
           name: "🔼 Force Immediate Opening via Entity"
@@ -3401,7 +3439,8 @@ variables:
     opening_multiple_times: "{{ 'prevent_opening_multiple_times' in prevent_config }}"
     closing_multiple_times: "{{ 'prevent_closing_multiple_times' in prevent_config }}"
 
-  enable_background_state_tracking: !input enable_background_state_tracking
+  auto_recover_after_force: !input auto_recover_after_force
+  is_auto_recover_enabled: "{{ 'auto_recover_enabled' in auto_recover_after_force }}"
 
   # Configuration check
   check_config: !input check_config
@@ -3959,7 +3998,7 @@ actions:
         if:
           - "{{ is_status_helper_enabled }}"
           - or:
-              - "{{ enable_background_state_tracking }}"
+              - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.any }}"
         then:
           - service: input_text.set_value
@@ -4642,9 +4681,9 @@ actions:
           - condition: !input auto_up_condition
           - or: # When background state tracking is enabled, let BRANCH 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not enable_background_state_tracking }}"
+              - "{{ not is_auto_recover_enabled }}"
           - or:
-              - "{{ enable_background_state_tracking }}"
+              - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.open }}"
           - or: # Check the helper status or the target status (issue #244)
               - "{{ is_status_helper_enabled and not helper_status.open }}"
@@ -4763,9 +4802,9 @@ actions:
           - condition: !input auto_down_condition
           - or: # When background state tracking is enabled, let BRANCH 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not enable_background_state_tracking }}"
+              - "{{ not is_auto_recover_enabled }}"
           - or:
-              - "{{ enable_background_state_tracking }}"
+              - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.close }}"
           - or: # Check the helper status or the target status
               - "{{ is_status_helper_enabled and not helper_status.closed }}"
@@ -4939,9 +4978,9 @@ actions:
           - condition: !input auto_shading_start_condition
           - or: # When background state tracking is enabled, let BRANCH 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not enable_background_state_tracking }}"
+              - "{{ not is_auto_recover_enabled }}"
           - or:
-              - "{{ enable_background_state_tracking }}"
+              - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.shading }}"
           - or: # Check the helper status or the target status
               - "{{ not helper_status.shaded }}"
@@ -5017,7 +5056,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ helper_status.shading_start_pending }}" # Only when it comes back from pending status
                       - or: # Position check: Skip if force active with background tracking (helper update only)
-                          - "{{ is_cover_movement_blocked.any and enable_background_state_tracking }}"
+                          - "{{ is_cover_movement_blocked.any and is_auto_recover_enabled }}"
                           - and:
                               - "{{ not is_cover_tilt_enabled_and_possible }}"
                               - "{{ position_comparisons.current_above_shading }}"
@@ -5160,7 +5199,7 @@ actions:
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_end_condition
           - or:
-              - "{{ enable_background_state_tracking }}"
+              - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.any }}" # All force functions must now be disabled
           - or:
               - "{{ is_shading_allowed_window }}"
@@ -5314,7 +5353,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ helper_status.shading_end_pending }}"
                       - or:
-                          - "{{ enable_background_state_tracking }}"
+                          - "{{ is_auto_recover_enabled }}"
                           - or:
                               - "{{ current_sun_azimuth > shading_azimuth_end }}"
                               - "{{ current_sun_elevation > shading_elevation_max }}"
@@ -5421,7 +5460,7 @@ actions:
           - "{{ trigger.to_state.state not in invalid_states }}"
           - or: # When background state tracking is enabled, let ANCHOR 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not enable_background_state_tracking }}"
+              - "{{ not is_auto_recover_enabled }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -5448,7 +5487,7 @@ actions:
                   - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
                   - or: # Force functions allow ventilation start
-                      - "{{ enable_background_state_tracking }}"
+                      - "{{ is_auto_recover_enabled }}"
                       - "{{ not is_cover_movement_blocked.ventilate }}"
                   # User-defined condition for starting ventilation
                   - condition: !input auto_ventilate_condition
@@ -5477,7 +5516,7 @@ actions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
                   - or: # Force functions allow ventilation start
-                      - "{{ enable_background_state_tracking }}"
+                      - "{{ is_auto_recover_enabled }}"
                       - "{{ not is_cover_movement_blocked.ventilate }}"
                   # User-defined condition for starting ventilation
                   - condition: !input auto_ventilate_condition
@@ -5535,7 +5574,7 @@ actions:
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_cover_movement_blocked.any }}"
-                      - "{{ enable_background_state_tracking }}"
+                      - "{{ is_auto_recover_enabled }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
@@ -5580,7 +5619,7 @@ actions:
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_cover_movement_blocked.any }}"
-                      - "{{ enable_background_state_tracking }}"
+                      - "{{ is_auto_recover_enabled }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
@@ -5627,7 +5666,7 @@ actions:
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_cover_movement_blocked.any }}"
-                      - "{{ enable_background_state_tracking }}"
+                      - "{{ is_auto_recover_enabled }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
@@ -5942,7 +5981,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id.startswith('t_force_disabled') }}"
-          - "{{ enable_background_state_tracking }}"
+          - "{{ is_auto_recover_enabled }}"
           - "{{ is_status_helper_enabled }}"
           - "{{ not is_cover_movement_blocked.any }}" # All force functions must now be disabled
         sequence:
