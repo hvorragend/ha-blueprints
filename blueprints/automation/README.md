@@ -7,10 +7,10 @@
 
 **Resources:**
 - 🗣️ [Community Discussion](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
-- 📚 [Full Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md)
+- 📚 [Full Changelog](CHANGELOG.md)
 - 📦 [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
-- 📖 [Time Control Visualization](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/TIME_CONTROL_VISUALIZATION.md)
-- 📖 [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md)
+- 📖 [Time Control Visualization](TIME_CONTROL_VISUALIZATION.md)
+- 📖 [Dynamic Sun Elevation Guide](DYNAMIC_SUN_ELEVATION.md)
 
 **Support Development:**
 🙏 [PayPal Donation](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ) | 🙏 [Buy me a Coffee](https://buymeacoffee.com/herr.vorragend)
