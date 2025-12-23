@@ -1098,6 +1098,42 @@
                 <div class="panel-content collapsible visible" id="helperContent"></div>
             </div>
 
+            <!-- Timing Analysis -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="timingHeader">
+                    <h3>⏱️ Timing Analysis</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="timingContent"></div>
+            </div>
+
+            <!-- Variable Changes Timeline -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="varChangesHeader">
+                    <h3>📈 Variable Changes Timeline</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="varChangesContent"></div>
+            </div>
+
+            <!-- Action Execution Details -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="actionDetailsHeader">
+                    <h3>⚙️ Action Execution Details</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="actionDetailsContent"></div>
+            </div>
+
+            <!-- Position Tracking -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="positionTrackingHeader">
+                    <h3>📍 Position Tracking</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="positionTrackingContent"></div>
+            </div>
+
             <!-- Execution Path -->
             <div class="analysis-panel">
                 <div class="panel-header" id="pathHeader">
@@ -1238,7 +1274,7 @@
         document.getElementById('downloadReport').addEventListener('click', downloadReport);
 
         // Toggle panels
-        ['branchTreeHeader', 'conditionErrorHeader', 'conditionSummaryHeader', 'shadingDiveHeader', 'pendingTimelineHeader', 'helperHeader', 'pathHeader', 'varsHeader', 'jsonHeader'].forEach(id => {
+        ['branchTreeHeader', 'conditionErrorHeader', 'conditionSummaryHeader', 'shadingDiveHeader', 'pendingTimelineHeader', 'helperHeader', 'timingHeader', 'varChangesHeader', 'actionDetailsHeader', 'positionTrackingHeader', 'pathHeader', 'varsHeader', 'jsonHeader'].forEach(id => {
             const element = document.getElementById(id);
             if (element) {
                 element.addEventListener('click', function() {
@@ -1431,6 +1467,10 @@
             }
             
             renderHelperStatus(variables);
+            renderTimingAnalysis(innerTrace, timestamp.start);
+            renderVariableChangesTimeline(innerTrace, timestamp.start);
+            renderActionExecutionDetails(innerTrace);
+            renderPositionTracking(innerTrace, variables, timestamp.start);
             renderExecutionPath(steps, lastStep);
             renderVariables(variables);
             document.getElementById('jsonPre').textContent = JSON.stringify(trace, null, 2);
@@ -2345,6 +2385,249 @@
                     </div>
                 ` : ''}
             `;
+        }
+
+        // NEW: Timing Analysis
+        function renderTimingAnalysis(innerTrace, startTime) {
+            const steps = [];
+            let prevTime = startTime ? new Date(startTime) : null;
+
+            for (const [path, stepArray] of Object.entries(innerTrace)) {
+                if (stepArray && stepArray.length > 0) {
+                    const step = stepArray[0];
+                    if (step.timestamp) {
+                        const currentTime = new Date(step.timestamp);
+                        let delay = null;
+                        if (prevTime) {
+                            delay = (currentTime - prevTime) / 1000; // seconds
+                        }
+                        steps.push({ path, timestamp: step.timestamp, delay });
+                        prevTime = currentTime;
+                    }
+                }
+            }
+
+            // Find significant delays
+            const significantDelays = steps.filter(s => s.delay !== null && s.delay > 1);
+            const maxDelay = significantDelays.length > 0 ? Math.max(...significantDelays.map(s => s.delay)) : 0;
+
+            let html = '<div style="display: grid; gap: 1rem;">';
+            
+            // Summary stats
+            html += `
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 8px;">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Total Steps</div>
+                        <div style="font-size: 1.5rem; font-weight: 600;">${steps.length}</div>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 8px;">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Max Delay</div>
+                        <div style="font-size: 1.5rem; font-weight: 600; color: ${maxDelay > 5 ? 'var(--accent-yellow)' : 'var(--accent-green)'};">
+                            ${maxDelay > 0 ? maxDelay.toFixed(2) + 's' : 'N/A'}
+                        </div>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 1rem; border-radius: 8px;">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">Delays > 1s</div>
+                        <div style="font-size: 1.5rem; font-weight: 600;">${significantDelays.length}</div>
+                    </div>
+                </div>
+            `;
+
+            // Show significant delays
+            if (significantDelays.length > 0) {
+                html += '<div style="margin-top: 1rem;"><h4 style="margin-bottom: 0.75rem; font-size: 0.9rem; color: var(--text-secondary);">Significant Delays (>1s)</h4>';
+                html += '<div style="display: flex; flex-direction: column; gap: 0.5rem;">';
+                significantDelays.slice(0, 10).forEach(step => {
+                    const delayClass = step.delay > 5 ? 'var(--accent-yellow)' : 'var(--accent-cyan)';
+                    html += `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 8px;">
+                            <div style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary);">${step.path}</div>
+                            <div style="font-weight: 600; color: ${delayClass};">${step.delay.toFixed(2)}s</div>
+                        </div>
+                    `;
+                });
+                html += '</div></div>';
+            }
+
+            html += '</div>';
+            document.getElementById('timingContent').innerHTML = html;
+        }
+
+        // NEW: Variable Changes Timeline
+        function renderVariableChangesTimeline(innerTrace, startTime) {
+            const changes = [];
+            const start = startTime ? new Date(startTime) : null;
+
+            for (const [path, stepArray] of Object.entries(innerTrace)) {
+                if (stepArray && stepArray.length > 0) {
+                    const step = stepArray[0];
+                    if (step.changed_variables && step.timestamp) {
+                        const time = new Date(step.timestamp);
+                        const relativeTime = start ? ((time - start) / 1000).toFixed(2) : null;
+                        
+                        // Extract key variable changes
+                        const vars = step.changed_variables;
+                        const keyChanges = [];
+                        
+                        if (vars.target_position !== undefined) keyChanges.push(`target_position: ${vars.target_position}`);
+                        if (vars.target_tilt_position !== undefined) keyChanges.push(`target_tilt_position: ${vars.target_tilt_position}`);
+                        if (vars.update_values) {
+                            const updates = vars.update_values;
+                            if (updates.open) keyChanges.push(`open: a=${updates.open.a}`);
+                            if (updates.close) keyChanges.push(`close: a=${updates.close.a}`);
+                            if (updates.shading) keyChanges.push(`shading: a=${updates.shading.a}, p=${updates.shading.p || 0}, q=${updates.shading.q || 0}`);
+                            if (updates.vpart) keyChanges.push(`vpart: a=${updates.vpart.a}`);
+                            if (updates.vfull) keyChanges.push(`vfull: a=${updates.vfull.a}`);
+                            if (updates.manual) keyChanges.push(`manual: a=${updates.manual.a}`);
+                        }
+                        
+                        if (keyChanges.length > 0) {
+                            changes.push({ path, timestamp: step.timestamp, relativeTime, changes: keyChanges });
+                        }
+                    }
+                }
+            }
+
+            if (changes.length === 0) {
+                document.getElementById('varChangesContent').innerHTML = '<div class="no-shading-info">No variable changes detected in this trace.</div>';
+                return;
+            }
+
+            let html = '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
+            changes.forEach(change => {
+                html += `
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; border-left: 3px solid var(--accent-blue);">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                            <div style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan);">${change.path}</div>
+                            ${change.relativeTime !== null ? `<div style="font-size: 0.75rem; color: var(--text-muted);">+${change.relativeTime}s</div>` : ''}
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                            ${change.changes.map(c => `<span style="padding: 0.25rem 0.5rem; background: var(--bg-primary); border-radius: 4px; font-size: 0.75rem; font-family: var(--font-mono);">${c}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            document.getElementById('varChangesContent').innerHTML = html;
+        }
+
+        // NEW: Action Execution Details
+        function renderActionExecutionDetails(innerTrace) {
+            const actions = [];
+
+            for (const [path, stepArray] of Object.entries(innerTrace)) {
+                if (stepArray && stepArray.length > 0) {
+                    const step = stepArray[0];
+                    if (step.result && step.result.params) {
+                        const params = step.result.params;
+                        if (params.service || params.action) {
+                            actions.push({
+                                path,
+                                timestamp: step.timestamp,
+                                service: params.service || params.action,
+                                domain: params.domain,
+                                target: params.target,
+                                data: params.service_data || params.data
+                            });
+                        }
+                    }
+                }
+            }
+
+            if (actions.length === 0) {
+                document.getElementById('actionDetailsContent').innerHTML = '<div class="no-shading-info">No service calls detected in this trace.</div>';
+                return;
+            }
+
+            let html = '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
+            actions.forEach(action => {
+                const serviceName = `${action.domain || ''}.${action.service || ''}`.replace(/^\./, '');
+                html += `
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; border-left: 3px solid var(--accent-green);">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                            <div style="font-weight: 600; color: var(--accent-green);">${serviceName}</div>
+                            <div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">${action.path}</div>
+                        </div>
+                        ${action.target && action.target.entity_id ? `
+                            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);">
+                                <strong>Target:</strong> ${Array.isArray(action.target.entity_id) ? action.target.entity_id.join(', ') : action.target.entity_id}
+                            </div>
+                        ` : ''}
+                        ${action.data && Object.keys(action.data).length > 0 ? `
+                            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);">
+                                <strong>Data:</strong> <span style="font-family: var(--font-mono);">${JSON.stringify(action.data, null, 2)}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            html += '</div>';
+            document.getElementById('actionDetailsContent').innerHTML = html;
+        }
+
+        // NEW: Position Tracking
+        function renderPositionTracking(innerTrace, variables, startTime) {
+            const positions = [];
+            const start = startTime ? new Date(startTime) : null;
+            const initialPosition = variables.current_position;
+
+            // Track position changes
+            for (const [path, stepArray] of Object.entries(innerTrace)) {
+                if (stepArray && stepArray.length > 0) {
+                    const step = stepArray[0];
+                    if (step.changed_variables && step.changed_variables.target_position !== undefined && step.timestamp) {
+                        const time = new Date(step.timestamp);
+                        const relativeTime = start ? ((time - start) / 1000).toFixed(2) : null;
+                        positions.push({
+                            path,
+                            timestamp: step.timestamp,
+                            relativeTime,
+                            targetPosition: step.changed_variables.target_position,
+                            targetTilt: step.changed_variables.target_tilt_position
+                        });
+                    }
+                }
+            }
+
+            if (positions.length === 0) {
+                document.getElementById('positionTrackingContent').innerHTML = `
+                    <div class="no-shading-info">
+                        No position changes detected. Current position: ${initialPosition !== undefined ? initialPosition + '%' : 'N/A'}
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div style="margin-bottom: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 8px;">
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Initial Position</div>
+                    <div style="font-size: 1.25rem; font-weight: 600;">${initialPosition !== undefined ? initialPosition + '%' : 'N/A'}</div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            `;
+
+            positions.forEach(pos => {
+                const positionLabel = pos.targetPosition === 0 ? 'Close (0%)' : 
+                                    pos.targetPosition === 100 ? 'Open (100%)' : 
+                                    `${pos.targetPosition}%`;
+                html += `
+                    <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 8px; border-left: 3px solid var(--accent-purple);">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                            <div style="font-weight: 600; color: var(--accent-purple);">${positionLabel}</div>
+                            ${pos.relativeTime !== null ? `<div style="font-size: 0.75rem; color: var(--text-muted);">+${pos.relativeTime}s</div>` : ''}
+                        </div>
+                        <div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">${pos.path}</div>
+                        ${pos.targetTilt !== undefined ? `
+                            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);">
+                                Tilt: ${pos.targetTilt}%
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            document.getElementById('positionTrackingContent').innerHTML = html;
         }
 
         function renderExecutionPath(steps, lastStep) {
