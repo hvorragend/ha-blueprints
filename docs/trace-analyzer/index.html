@@ -1,0 +1,1515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCA Trace Analyzer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a24;
+            --bg-card: #16161f;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-yellow: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+            --accent-orange: #f97316;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border-color: #2a2a3a;
+            --border-highlight: #3b3b4f;
+            --shadow-glow: rgba(59, 130, 246, 0.15);
+            --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+        header { text-align: center; margin-bottom: 3rem; padding: 2rem 0; }
+
+        .logo { display: inline-flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+
+        .logo-icon {
+            width: 48px; height: 48px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 20px var(--shadow-glow);
+        }
+
+        h1 {
+            font-size: 2.5rem; font-weight: 700;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent-cyan));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+
+        .subtitle { color: var(--text-secondary); font-size: 1.1rem; margin-top: 0.5rem; }
+
+        .version-badge {
+            display: inline-block;
+            background: var(--bg-tertiary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: var(--accent-cyan);
+            border: 1px solid var(--border-color);
+            margin-top: 1rem;
+        }
+
+        .upload-section { margin-bottom: 2rem; }
+
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 16px;
+            padding: 3rem 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: var(--bg-secondary);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .upload-area::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(6, 182, 212, 0.05));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .upload-area:hover, .upload-area.drag-over {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 30px var(--shadow-glow);
+        }
+
+        .upload-area:hover::before, .upload-area.drag-over::before { opacity: 1; }
+
+        .upload-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.7; }
+        .upload-text { color: var(--text-secondary); margin-bottom: 1rem; }
+        .upload-text strong { color: var(--accent-blue); }
+        .file-input { display: none; }
+        .upload-hint { font-size: 0.85rem; color: var(--text-muted); }
+
+        .results-section { display: none; }
+        .results-section.visible { display: block; animation: fadeIn 0.4s ease; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .summary-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .summary-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+        }
+
+        .summary-card.status-stopped::before { background: var(--accent-red); }
+        .summary-card.status-finished::before { background: var(--accent-green); }
+        .summary-card.trigger-info::before { background: var(--accent-blue); }
+        .summary-card.branch-info::before { background: var(--accent-purple); }
+        .summary-card.last-step-info::before { background: var(--accent-orange); }
+
+        .card-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            word-break: break-word;
+        }
+
+        .card-detail {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .card-mono {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            background: var(--bg-tertiary);
+            padding: 0.5rem;
+            border-radius: 6px;
+            margin-top: 0.5rem;
+            word-break: break-all;
+        }
+
+        .analysis-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .panel-header:hover { background: var(--bg-tertiary); }
+
+        .panel-header h3 {
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .panel-header.success { background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05)); }
+        .panel-header.warning { background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05)); }
+        .panel-header.error { background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05)); }
+
+        .panel-toggle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            transition: transform 0.3s ease;
+        }
+
+        .panel-header.expanded .panel-toggle { transform: rotate(180deg); }
+
+        .panel-content {
+            padding: 1.5rem;
+        }
+
+        .panel-content.collapsible { display: none; }
+        .panel-content.collapsible.visible { display: block; }
+
+        .last-step-analysis {
+            background: linear-gradient(135deg, rgba(249, 115, 22, 0.1), rgba(249, 115, 22, 0.05));
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .last-step-analysis h4 {
+            color: var(--accent-orange);
+            margin-bottom: 1rem;
+            font-size: 1rem;
+        }
+
+        .last-step-path {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            background: var(--bg-primary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            word-break: break-all;
+        }
+
+        .last-step-interpretation {
+            background: var(--bg-tertiary);
+            padding: 1rem;
+            border-radius: 8px;
+        }
+
+        .last-step-interpretation p {
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .last-step-interpretation strong {
+            color: var(--text-primary);
+        }
+
+        .helper-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 1rem;
+        }
+
+        .helper-item {
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .helper-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+
+        .helper-value { font-size: 1.1rem; font-weight: 600; }
+        .helper-value.active { color: var(--accent-green); }
+        .helper-value.inactive { color: var(--text-muted); }
+
+        .execution-step {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+            padding: 0.75rem;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .step-status {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        .step-status.pass { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+        .step-status.fail { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
+        .step-status.exec { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+        .step-status.last { background: rgba(249, 115, 22, 0.3); color: var(--accent-orange); }
+
+        .step-content { flex-grow: 1; }
+
+        .step-path {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--accent-cyan);
+            word-break: break-all;
+        }
+
+        .step-result {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .step-time {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .variables-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .var-group { margin-bottom: 0.5rem; }
+
+        .var-group-title {
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+        }
+
+        .var-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 0.25rem 0;
+            font-size: 0.8rem;
+            gap: 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .var-item:last-child { border-bottom: none; }
+
+        .var-name {
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            flex-shrink: 0;
+            max-width: 45%;
+        }
+
+        .var-value {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            text-align: right;
+            word-break: break-word;
+            color: var(--text-secondary);
+        }
+
+        .var-value.bool-true { color: var(--accent-green); }
+        .var-value.bool-false { color: var(--accent-red); }
+        .var-value.number { color: var(--accent-cyan); }
+
+        .quick-actions {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .action-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+            font-family: var(--font-sans);
+        }
+
+        .action-btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-blue);
+        }
+
+        .action-btn.primary {
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+            border: none;
+        }
+
+        .suggestions-list {
+            list-style: none;
+            margin-top: 1rem;
+        }
+
+        .suggestions-list li {
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .suggestions-list li::before { content: '💡'; flex-shrink: 0; }
+
+        pre {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+            overflow: auto;
+            background: var(--bg-primary);
+            padding: 1rem;
+            border-radius: 8px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border-color);
+            margin-top: 3rem;
+        }
+
+        footer a { color: var(--accent-cyan); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 768px) {
+            .container { padding: 1rem; }
+            h1 { font-size: 1.75rem; }
+            .summary-grid { grid-template-columns: 1fr; }
+        }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-tertiary); }
+        ::-webkit-scrollbar-thumb { background: var(--border-highlight); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        .branch-badge {
+            display: inline-block;
+            background: rgba(139, 92, 246, 0.2);
+            color: var(--accent-purple);
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        .condition-result {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        .condition-result.true {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .condition-result.false {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 0.4rem 0.8rem;
+            border: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s ease;
+        }
+
+        .filter-btn:hover, .filter-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        .step-count {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-left: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">🔍</div>
+                <h1>CCA Trace Analyzer</h1>
+            </div>
+            <p class="subtitle">Analyze Home Assistant automation traces to understand what happened</p>
+            <span class="version-badge">v3.0 - For CCA Blueprint v2025.12.22+</span>
+        </header>
+
+        <section class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📄</div>
+                <p class="upload-text">
+                    <strong>Drop your trace JSON file here</strong><br>
+                    or click to browse
+                </p>
+                <p class="upload-hint">
+                    Download: Home Assistant → Automations → CCA → ⋮ → Traces → Select trace → ⬇️ Download
+                </p>
+                <input type="file" class="file-input" id="fileInput" accept=".json,application/json">
+            </div>
+        </section>
+
+        <section class="results-section" id="resultsSection">
+            <div class="quick-actions">
+                <button class="action-btn primary" id="newAnalysis">📤 Analyze Another</button>
+                <button class="action-btn" id="copyReport">📋 Copy Report</button>
+                <button class="action-btn" id="downloadReport">💾 Download Report</button>
+            </div>
+
+            <div class="summary-grid" id="summaryGrid"></div>
+
+            <!-- Last Step Analysis - NEW AND IMPORTANT -->
+            <div class="analysis-panel" id="lastStepPanel">
+                <div class="panel-header warning">
+                    <h3>🎯 Last Step Analysis</h3>
+                </div>
+                <div class="panel-content" id="lastStepContent"></div>
+            </div>
+
+            <!-- Helper Status -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="helperHeader">
+                    <h3>🦮 Helper Status at Trigger Time</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="helperContent"></div>
+            </div>
+
+            <!-- Execution Path -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="pathHeader">
+                    <h3>📍 Execution Path <span class="step-count" id="stepCount"></span></h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="pathContent">
+                    <div class="filter-buttons" id="filterButtons"></div>
+                    <div id="executionSteps"></div>
+                </div>
+            </div>
+
+            <!-- Variables -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="varsHeader">
+                    <h3>📊 Key Variables</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="varsContent"></div>
+            </div>
+
+            <!-- Raw JSON -->
+            <div class="analysis-panel">
+                <div class="panel-header" id="jsonHeader">
+                    <h3>📄 Raw Trace Data</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible" id="jsonContent">
+                    <pre id="jsonPre"></pre>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <footer>
+        <p>
+            CCA Trace Analyzer • 
+            <a href="https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539" target="_blank">CCA Community Thread</a> •
+            <a href="https://github.com/hvorragend/ha-blueprints/issues" target="_blank">GitHub Issues</a>
+        </p>
+    </footer>
+
+    <script>
+        // =====================================================================
+        // CCA TRACE ANALYZER v3
+        // Properly handles Home Assistant trace structure
+        // =====================================================================
+
+        // Branch definitions from CCA Blueprint
+        const BRANCH_DEFINITIONS = {
+            0: { name: 'Opening', description: 'Automatic cover opening control', icon: '🔼' },
+            1: { name: 'Closing', description: 'Automatic cover closing control', icon: '🔻' },
+            2: { name: 'Shading Start', description: 'Activates sun protection/shading', icon: '☀️' },
+            3: { name: 'Shading Tilt', description: 'Adjusts tilt during active shading', icon: '📐' },
+            4: { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
+            5: { name: 'Contact Sensor', description: 'Window/door state changes (ventilation)', icon: '🪟' },
+            6: { name: 'Force Open', description: 'Forced opening via entity', icon: '⬆️' },
+            7: { name: 'Force Close', description: 'Forced closing via entity', icon: '⬇️' },
+            8: { name: 'Force Ventilate', description: 'Forced ventilation via entity', icon: '💨' },
+            9: { name: 'Force Shading', description: 'Forced shading via entity', icon: '🌞' },
+            10: { name: 'Manual Detection', description: 'Detects manual position changes', icon: '🖐️' },
+            11: { name: 'Reset Override', description: 'Resets manual override status', icon: '🔄' },
+            12: { name: 'Return After Force', description: 'Returns to background state after force disable', icon: '↩️' },
+            13: { name: 'Midnight Reset', description: 'Resets shading status at end of day', icon: '🌙' }
+        };
+
+        // Trigger ID explanations
+        const TRIGGER_EXPLANATIONS = {
+            't_open_1': 'Time-based opening (early time reached)',
+            't_open_2': 'Time-based opening (late time reached)',
+            't_open_4': 'Brightness exceeded opening threshold',
+            't_open_5': 'Sun elevation exceeded opening threshold',
+            't_open_6': 'Resident woke up (sensor turned off)',
+            't_close_1': 'Time-based closing (early time reached)',
+            't_close_2': 'Time-based closing (late time reached)',
+            't_close_4': 'Brightness dropped below closing threshold',
+            't_close_5': 'Sun elevation dropped below closing threshold',
+            't_close_6': 'Resident went to sleep (sensor turned on)',
+            't_calendar_event_start': 'Calendar event started',
+            't_calendar_event_end': 'Calendar event ended',
+            't_contact_tilted_changed': 'Window tilt sensor changed',
+            't_contact_opened_changed': 'Window open sensor changed',
+            't_shading_start_pending_1': 'Sun position entered shading range',
+            't_shading_start_pending_2': 'Brightness exceeded shading threshold',
+            't_shading_start_pending_3': 'Temperature 1 exceeded threshold',
+            't_shading_start_pending_4': 'Temperature 2 exceeded threshold',
+            't_shading_start_pending_5': 'Weather condition matched',
+            't_shading_start_pending_6': 'Pre-opening forecast check (1h before)',
+            't_shading_start_execution': 'Shading start waiting period completed',
+            't_shading_end_pending_1': 'Temperature 1 dropped below threshold',
+            't_shading_end_pending_2': 'Temperature 2 dropped below threshold',
+            't_shading_end_pending_3': 'Brightness dropped below threshold',
+            't_shading_end_pending_4': 'Weather condition no longer met',
+            't_shading_end_pending_5': 'Sun position left shading range',
+            't_shading_end_execution': 'Shading end waiting period completed',
+            't_shading_tilt_1': 'Sun elevation change (below level 1)',
+            't_shading_tilt_2': 'Sun elevation change (level 1-2)',
+            't_shading_tilt_3': 'Sun elevation change (level 2-3)',
+            't_shading_tilt_4': 'Sun elevation change (above level 3)',
+            't_shading_reset': 'Midnight shading reset',
+            't_manual_position': 'Cover position changed manually',
+            't_manual_tilt': 'Cover tilt changed manually',
+            't_reset_fixedtime': 'Fixed time override reset',
+            't_reset_timeout': 'Timeout override reset',
+            't_force_enabled_open': 'Force open entity activated',
+            't_force_enabled_close': 'Force close entity activated',
+            't_force_enabled_ventilate': 'Force ventilate entity activated',
+            't_force_enabled_shading': 'Force shading entity activated',
+            't_force_disabled_open': 'Force open entity deactivated',
+            't_force_disabled_close': 'Force close entity deactivated',
+            't_force_disabled_ventilate': 'Force ventilate entity deactivated',
+            't_force_disabled_shading': 'Force shading entity deactivated'
+        };
+
+        // State
+        let currentTrace = null;
+        let currentFilter = 'all';
+
+        // DOM Elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const resultsSection = document.getElementById('resultsSection');
+
+        // Event Listeners
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+        uploadArea.addEventListener('drop', handleFileDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+
+        document.getElementById('newAnalysis').addEventListener('click', () => {
+            resultsSection.classList.remove('visible');
+            fileInput.value = '';
+        });
+
+        document.getElementById('copyReport').addEventListener('click', copyReport);
+        document.getElementById('downloadReport').addEventListener('click', downloadReport);
+
+        // Toggle panels
+        ['helperHeader', 'pathHeader', 'varsHeader', 'jsonHeader'].forEach(id => {
+            document.getElementById(id).addEventListener('click', function() {
+                this.classList.toggle('expanded');
+                const content = this.nextElementSibling;
+                content.classList.toggle('visible');
+            });
+        });
+
+        function handleFileDrop(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file) processFile(file);
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) processFile(file);
+        }
+
+        function processFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                let jsonText = e.target.result;
+                let trace = null;
+                let repaired = false;
+
+                // First try: Parse as-is
+                try {
+                    trace = JSON.parse(jsonText);
+                } catch (err) {
+                    console.warn('Initial parse failed, attempting repair...', err.message);
+                    
+                    // Second try: Repair truncated JSON
+                    try {
+                        trace = repairTruncatedJson(jsonText);
+                        repaired = true;
+                    } catch (repairErr) {
+                        console.error('Repair failed:', repairErr);
+                        alert('Error parsing JSON: ' + err.message + '\n\nThe file appears to be truncated or corrupted. Try re-downloading the trace from Home Assistant.');
+                        return;
+                    }
+                }
+
+                if (trace) {
+                    currentTrace = trace;
+                    currentTrace._repaired = repaired;
+                    analyzeTrace(trace);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        /**
+         * Attempts to repair truncated JSON by:
+         * 1. Cutting off at the "config" section (which we don't need anyway)
+         * 2. Or finding the last complete trace entry
+         * 3. Closing all open brackets
+         */
+        function repairTruncatedJson(jsonText) {
+            console.log('Attempting to repair truncated JSON...');
+            
+            let text = jsonText;
+            
+            // Strategy 1: Cut off at "config" section - we don't need it!
+            // The config section contains static blueprint YAML, not runtime data
+            const configMatch = text.match(/,\s*"config"\s*:\s*\{/);
+            if (configMatch) {
+                const configPos = configMatch.index;
+                console.log(`Found "config" section at position ${configPos}, cutting it off`);
+                text = text.substring(0, configPos);
+            } else {
+                // Strategy 2: Find last complete line before truncation
+                const lines = text.split('\n');
+                let validLines = [];
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (line.includes('"') && !isLineComplete(line)) {
+                        console.log(`Stopping at line ${i + 1}: incomplete string`);
+                        break;
+                    }
+                    validLines.push(lines[i]);
+                }
+                text = validLines.join('\n');
+            }
+            
+            // Remove trailing comma if present
+            text = text.replace(/,\s*$/, '');
+            
+            // Count remaining open brackets
+            const openBraces = (text.match(/{/g) || []).length;
+            const closeBraces = (text.match(/}/g) || []).length;
+            const openBrackets = (text.match(/\[/g) || []).length;
+            const closeBrackets = (text.match(/]/g) || []).length;
+            
+            // Add closing brackets
+            const neededBraces = openBraces - closeBraces;
+            const neededBrackets = openBrackets - closeBrackets;
+            
+            // Close in reverse order of typical nesting
+            let closing = '';
+            for (let i = 0; i < neededBrackets; i++) closing += ']';
+            for (let i = 0; i < neededBraces; i++) closing += '}';
+            
+            text += closing;
+            
+            console.log(`Repair: removed config section, added ${neededBrackets} ] and ${neededBraces} }`);
+            
+            const result = JSON.parse(text);
+            console.log('Repair successful!');
+            return result;
+        }
+
+        function isLineComplete(line) {
+            // A line is complete if quotes are balanced
+            let inString = false;
+            let escaped = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (char === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (char === '"') {
+                    inString = !inString;
+                }
+            }
+            
+            return !inString; // Complete if not inside a string
+        }
+
+        function analyzeTrace(trace) {
+            // Extract main info from trace structure
+            const traceInfo = trace.trace || {};
+            const lastStep = traceInfo.last_step || 'N/A';
+            const runId = traceInfo.run_id || 'N/A';
+            const state = traceInfo.state || 'unknown';
+            const scriptExecution = traceInfo.script_execution || 'unknown';
+            const timestamp = traceInfo.timestamp || {};
+            const innerTrace = traceInfo.trace || {};
+
+            // Find trigger info
+            const triggerInfo = extractTriggerInfo(innerTrace);
+
+            // Find which branch was executed
+            const branchInfo = extractBranchInfo(lastStep, innerTrace);
+
+            // Get all variables from trigger step
+            const variables = extractVariables(innerTrace);
+
+            // Parse execution steps
+            const steps = parseExecutionSteps(innerTrace, lastStep);
+
+            // Render everything
+            renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId);
+            renderLastStepAnalysis(lastStep, innerTrace, branchInfo);
+            renderHelperStatus(variables);
+            renderExecutionPath(steps, lastStep);
+            renderVariables(variables);
+            document.getElementById('jsonPre').textContent = JSON.stringify(trace, null, 2);
+
+            resultsSection.classList.add('visible');
+        }
+
+        function extractTriggerInfo(innerTrace) {
+            // Find the trigger step (trigger/N)
+            for (const key of Object.keys(innerTrace)) {
+                if (key.startsWith('trigger/')) {
+                    const step = innerTrace[key][0];
+                    if (step && step.changed_variables && step.changed_variables.trigger) {
+                        const trigger = step.changed_variables.trigger;
+                        return {
+                            id: trigger.id || 'unknown',
+                            idx: trigger.idx || key.split('/')[1],
+                            platform: trigger.platform || 'unknown',
+                            description: trigger.description || TRIGGER_EXPLANATIONS[trigger.id] || 'Unknown trigger',
+                            entityId: trigger.entity_id || 'N/A'
+                        };
+                    }
+                }
+            }
+            return { id: 'unknown', idx: '?', platform: 'unknown', description: 'Trigger info not found' };
+        }
+
+        function extractBranchInfo(lastStep, innerTrace) {
+            // Parse branch from path like "action/6/choose/1/sequence/..."
+            // action/6 is the main choose block, choose/N is the branch number
+            const match = lastStep.match(/action\/\d+\/choose\/(\d+)/);
+            if (match) {
+                const branchNum = parseInt(match[1]);
+                const branchDef = BRANCH_DEFINITIONS[branchNum];
+                return {
+                    number: branchNum,
+                    name: branchDef ? branchDef.name : `Branch ${branchNum}`,
+                    description: branchDef ? branchDef.description : 'Unknown branch',
+                    icon: branchDef ? branchDef.icon : '❓',
+                    matched: true
+                };
+            }
+            
+            // Check if stopped before branch evaluation
+            if (lastStep.match(/^condition\/\d+/)) {
+                return {
+                    number: null,
+                    name: 'Global Conditions',
+                    description: 'Stopped at global condition check before branch evaluation',
+                    icon: '🚫',
+                    matched: false
+                };
+            }
+
+            return {
+                number: null,
+                name: 'No Branch',
+                description: 'No branch was matched or executed',
+                icon: '❓',
+                matched: false
+            };
+        }
+
+        function extractVariables(innerTrace) {
+            // Get variables from the trigger step
+            for (const key of Object.keys(innerTrace)) {
+                if (key.startsWith('trigger/')) {
+                    const step = innerTrace[key][0];
+                    if (step && step.changed_variables) {
+                        return step.changed_variables;
+                    }
+                }
+            }
+            return {};
+        }
+
+        function parseExecutionSteps(innerTrace, lastStep) {
+            const steps = [];
+            
+            for (const [path, stepArray] of Object.entries(innerTrace)) {
+                if (stepArray && stepArray.length > 0) {
+                    const step = stepArray[0];
+                    steps.push({
+                        path: path,
+                        timestamp: step.timestamp,
+                        result: step.result,
+                        isLast: path === lastStep,
+                        hasChangedVars: !!step.changed_variables
+                    });
+                }
+            }
+
+            // Sort by timestamp
+            steps.sort((a, b) => {
+                if (!a.timestamp || !b.timestamp) return 0;
+                return new Date(a.timestamp) - new Date(b.timestamp);
+            });
+
+            return steps;
+        }
+
+        function renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId) {
+            const startTime = timestamp.start ? new Date(timestamp.start).toLocaleString() : 'N/A';
+            const endTime = timestamp.finish ? new Date(timestamp.finish).toLocaleString() : 'N/A';
+            const duration = timestamp.start && timestamp.finish ? 
+                ((new Date(timestamp.finish) - new Date(timestamp.start)) / 1000).toFixed(1) + 's' : 'N/A';
+
+            const repairWarning = currentTrace._repaired ? `
+                <div class="summary-card" style="grid-column: 1 / -1; background: rgba(59, 130, 246, 0.1); border-color: var(--accent-blue);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.5rem;">ℹ️</span>
+                        <div>
+                            <div class="card-value" style="color: var(--accent-cyan); font-size: 1rem;">File Optimized</div>
+                            <div class="card-detail">The static "config" section was removed (contains only blueprint YAML, not runtime data). All execution data is intact.</div>
+                        </div>
+                    </div>
+                </div>
+            ` : '';
+
+            document.getElementById('summaryGrid').innerHTML = `${repairWarning}
+                <div class="summary-card status-${scriptExecution}">
+                    <div class="card-label">Execution Status</div>
+                    <div class="card-value">
+                        ${scriptExecution === 'finished' ? '✅ Finished' : 
+                          state === 'stopped' ? '🛑 Stopped' : '⏳ ' + state}
+                    </div>
+                    <div class="card-detail">Duration: ${duration}</div>
+                    <div class="card-mono">${startTime}</div>
+                </div>
+
+                <div class="summary-card trigger-info">
+                    <div class="card-label">Trigger</div>
+                    <div class="card-value">${triggerInfo.id}</div>
+                    <div class="card-detail">${TRIGGER_EXPLANATIONS[triggerInfo.id] || triggerInfo.description}</div>
+                    <div class="card-mono">${triggerInfo.entityId}</div>
+                </div>
+
+                <div class="summary-card branch-info">
+                    <div class="card-label">Branch Executed</div>
+                    <div class="card-value">
+                        ${branchInfo.icon} ${branchInfo.number !== null ? `(${branchInfo.number}) ` : ''}${branchInfo.name}
+                    </div>
+                    <div class="card-detail">${branchInfo.description}</div>
+                </div>
+
+                <div class="summary-card last-step-info">
+                    <div class="card-label">Last Step</div>
+                    <div class="card-value" style="font-size: 0.9rem;">${interpretLastStep(lastStep)}</div>
+                    <div class="card-mono">${lastStep}</div>
+                </div>
+            `;
+        }
+
+        function interpretLastStep(lastStep) {
+            // Parse the path and give a human-readable interpretation
+            const parts = lastStep.split('/');
+            
+            if (lastStep.includes('choose') && lastStep.includes('default')) {
+                return '✅ Default action in branch';
+            }
+            if (lastStep.includes('sequence') && lastStep.includes('then')) {
+                return '✅ Then-block executed';
+            }
+            if (lastStep.includes('condition') && !lastStep.includes('choose')) {
+                return '🚫 Stopped at global condition';
+            }
+            if (lastStep.includes('choose') && lastStep.includes('conditions')) {
+                const condMatch = lastStep.match(/conditions\/(\d+)/);
+                return `🔍 Branch condition ${condMatch ? condMatch[1] : '?'} checked`;
+            }
+            if (lastStep.includes('delay')) {
+                return '⏳ Delay completed';
+            }
+            if (lastStep.includes('action') && lastStep.includes('set_value')) {
+                return '💾 Helper updated';
+            }
+
+            return parts[parts.length - 1] || 'Unknown';
+        }
+
+        function renderLastStepAnalysis(lastStep, innerTrace, branchInfo) {
+            const lastStepData = innerTrace[lastStep];
+            let interpretation = '';
+            let suggestions = [];
+
+            if (branchInfo.matched) {
+                interpretation = `
+                    <p><strong>Branch ${branchInfo.number} (${branchInfo.name})</strong> was successfully entered and executed.</p>
+                `;
+
+                if (lastStep.includes('default')) {
+                    interpretation += `<p>The automation reached the <strong>default action</strong> within the branch, meaning the main path was taken.</p>`;
+                }
+
+                if (lastStep.includes('then/0')) {
+                    interpretation += `<p>A conditional block's <strong>then</strong> section was executed (condition was true).</p>`;
+                }
+
+                // Check if it was a cover movement or helper update
+                if (lastStepData && lastStepData[0]) {
+                    const result = lastStepData[0].result;
+                    if (result && result.choice === 'default') {
+                        interpretation += `<p>Result: <code>choice: default</code> - Standard path taken.</p>`;
+                    }
+                }
+
+                suggestions = [
+                    'This trace shows successful execution through the selected branch.',
+                    'Check the cover entity to verify the expected position was reached.',
+                    'If cover did not move, check the "prevent_flags" settings.'
+                ];
+
+            } else {
+                interpretation = `<p>The automation <strong>did not enter any branch</strong>. It stopped at: <code>${lastStep}</code></p>`;
+                
+                // Analyze why no branch was matched
+                if (lastStep.includes('condition')) {
+                    interpretation += `<p>A <strong>global condition</strong> or branch condition was not met.</p>`;
+                    suggestions = [
+                        'Check the condition evaluations in the Execution Path below.',
+                        'Look for conditions that returned "false".',
+                        'Common causes: wrong time window, feature not enabled, helper status mismatch.'
+                    ];
+                }
+            }
+
+            document.getElementById('lastStepContent').innerHTML = `
+                <div class="last-step-analysis">
+                    <h4>🎯 What happened at the last step?</h4>
+                    <div class="last-step-path">${lastStep}</div>
+                    <div class="last-step-interpretation">
+                        ${interpretation}
+                    </div>
+                </div>
+                ${suggestions.length > 0 ? `
+                    <ul class="suggestions-list">
+                        ${suggestions.map(s => `<li>${s}</li>`).join('')}
+                    </ul>
+                ` : ''}
+            `;
+        }
+
+        function renderHelperStatus(variables) {
+            const helperStatus = variables.helper_status || {};
+            const helperJson = variables.helper_json || {};
+
+            const items = [
+                { key: 'open', label: 'Open' },
+                { key: 'closed', label: 'Closed' },
+                { key: 'shaded', label: 'Shaded' },
+                { key: 'shading_start_pending', label: 'Start Pending' },
+                { key: 'shading_end_pending', label: 'End Pending' },
+                { key: 'vpart', label: 'V-Part' },
+                { key: 'vfull', label: 'V-Full' },
+                { key: 'manual', label: 'Manual' }
+            ];
+
+            document.getElementById('helperContent').innerHTML = `
+                <div class="helper-grid">
+                    ${items.map(item => {
+                        const value = helperStatus[item.key];
+                        const isActive = value === true;
+                        return `
+                            <div class="helper-item">
+                                <div class="helper-label">${item.label}</div>
+                                <div class="helper-value ${isActive ? 'active' : 'inactive'}">
+                                    ${isActive ? '✓ ON' : '– OFF'}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                ${helperJson.t ? `
+                    <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted);">
+                        Helper last updated: ${new Date(helperJson.t * 1000).toLocaleString()}
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function renderExecutionPath(steps, lastStep) {
+            document.getElementById('stepCount').textContent = `(${steps.length} steps)`;
+
+            // Create filter buttons
+            const filters = [
+                { id: 'all', label: 'All' },
+                { id: 'conditions', label: 'Conditions' },
+                { id: 'actions', label: 'Actions' },
+                { id: 'failed', label: '❌ Failed' }
+            ];
+
+            document.getElementById('filterButtons').innerHTML = filters.map(f => `
+                <button class="filter-btn ${currentFilter === f.id ? 'active' : ''}" data-filter="${f.id}">
+                    ${f.label}
+                </button>
+            `).join('');
+
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    currentFilter = btn.dataset.filter;
+                    renderExecutionPath(steps, lastStep);
+                });
+            });
+
+            // Filter steps
+            let filteredSteps = steps;
+            if (currentFilter === 'conditions') {
+                filteredSteps = steps.filter(s => s.path.includes('condition'));
+            } else if (currentFilter === 'actions') {
+                filteredSteps = steps.filter(s => !s.path.includes('condition'));
+            } else if (currentFilter === 'failed') {
+                filteredSteps = steps.filter(s => s.result && s.result.result === false);
+            }
+
+            document.getElementById('executionSteps').innerHTML = filteredSteps.map(step => {
+                let statusClass = 'exec';
+                let statusIcon = '▶';
+
+                if (step.isLast) {
+                    statusClass = 'last';
+                    statusIcon = '🎯';
+                } else if (step.result) {
+                    if (step.result.result === true) {
+                        statusClass = 'pass';
+                        statusIcon = '✓';
+                    } else if (step.result.result === false) {
+                        statusClass = 'fail';
+                        statusIcon = '✗';
+                    } else if (step.result.choice !== undefined) {
+                        statusClass = 'pass';
+                        statusIcon = '→';
+                    }
+                }
+
+                const time = step.timestamp ? new Date(step.timestamp).toLocaleTimeString() : '';
+                let resultStr = '';
+                if (step.result) {
+                    if (step.result.result !== undefined) {
+                        resultStr = `Result: ${step.result.result}`;
+                    } else if (step.result.choice !== undefined) {
+                        resultStr = `Choice: ${step.result.choice}`;
+                    }
+                }
+
+                return `
+                    <div class="execution-step">
+                        <div class="step-status ${statusClass}">${statusIcon}</div>
+                        <div class="step-content">
+                            <div class="step-path">${step.path}</div>
+                            ${resultStr ? `<div class="step-result">${resultStr}</div>` : ''}
+                        </div>
+                        <div class="step-time">${time}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderVariables(variables) {
+            const groups = {
+                'Cover & Position': [
+                    'blind', 'cover_type', 'is_awning',
+                    'current_position', 'current_tilt_position',
+                    'open_position', 'close_position', 'shading_position', 'ventilate_position',
+                    'position_tolerance',
+                    'in_open_position', 'in_close_position', 'in_shading_position', 'in_ventilate_position'
+                ],
+                'Position Comparisons': [
+                    'position_comparisons'
+                ],
+                'Features Enabled': [
+                    'is_up_enabled', 'is_down_enabled', 'is_shading_enabled', 'is_ventilation_enabled',
+                    'is_brightness_enabled', 'is_sun_elevation_enabled',
+                    'is_cover_tilt_enabled', 'is_cover_tilt_enabled_and_possible',
+                    'is_status_helper_enabled', 'is_auto_recover_enabled'
+                ],
+                'Time Configuration': [
+                    'time_control', 'is_time_field_enabled', 'is_time_control_disabled', 'is_calendar_enabled',
+                    'time_up_early', 'time_up_late', 'time_down_early', 'time_down_late',
+                    'time_up_early_today', 'time_up_late_today', 'time_down_early_today', 'time_down_late_today',
+                    'is_today_off', 'is_tomorrow_off', 'is_tomorrow_on'
+                ],
+                'Sun & Brightness': [
+                    'current_sun_azimuth', 'current_sun_elevation',
+                    'sun_elevation_up', 'sun_elevation_down',
+                    'sun_elevation_up_current', 'sun_elevation_down_current',
+                    'brightness_up', 'brightness_down', 'brightness_hysteresis'
+                ],
+                'Shading Configuration': [
+                    'shading_azimuth_start', 'shading_azimuth_end',
+                    'shading_elevation_min', 'shading_elevation_max',
+                    'shading_sun_brightness_start', 'shading_sun_brightness_end',
+                    'shading_min_temperatur1', 'shading_min_temperatur2',
+                    'shading_forecast_temp',
+                    'shading_waitingtime_start', 'shading_waitingtime_end'
+                ],
+                'Shading Conditions': [
+                    'shading_conditions_start_and', 'shading_conditions_start_or',
+                    'shading_conditions_end_and', 'shading_conditions_end_or',
+                    'shading_start_condition_enabled', 'shading_end_condition_enabled'
+                ],
+                'Helper Status': [
+                    'helper_status', 'helper_json', 'helper_ts'
+                ],
+                'Blocking & Force': [
+                    'is_cover_movement_blocked',
+                    'auto_up_force', 'auto_down_force', 'auto_ventilate_force', 'auto_shading_start_force'
+                ],
+                'Override & Manual': [
+                    'override_flags', 'ignore_after_manual_config',
+                    'is_reset_disabled', 'is_reset_fixed_time', 'is_reset_timeout'
+                ],
+                'Prevent Flags': [
+                    'prevent_flags', 'prevent_config'
+                ],
+                'Ventilation & Contacts': [
+                    'ventilation_flags', 'contact_window_opened', 'contact_window_tilted',
+                    'lockout_tilted_when_closing', 'lockout_tilted_when_shading_starts', 'lockout_tilted_when_shading_ends'
+                ],
+                'Resident': [
+                    'resident_sensor', 'resident_flags', 'resident_config'
+                ],
+                'Delays & Timing': [
+                    'drive_delay_fix', 'drive_delay_random', 'drive_time',
+                    'brightness_time_duration', 'sun_time_duration',
+                    'contact_delay_trigger', 'contact_delay_status'
+                ],
+                'Forecast': [
+                    'forecast_source', 'shading_forecast_sensor', 'shading_forecast_type'
+                ],
+                'Tilt Settings': [
+                    'open_tilt_position', 'close_tilt_position', 'ventilate_tilt_position',
+                    'shading_tilt_position',
+                    'shading_tilt_position_0', 'shading_tilt_position_1', 'shading_tilt_position_2', 'shading_tilt_position_3',
+                    'shading_tilt_elevation_1', 'shading_tilt_elevation_2', 'shading_tilt_elevation_3'
+                ],
+                'Sensors': [
+                    'default_brightness_sensor', 'default_sun_sensor',
+                    'shading_brightness_sensor', 'shading_temperatur_sensor1', 'shading_temperatur_sensor2',
+                    'workday_sensor_today', 'workday_sensor_tomorrow'
+                ],
+                'System': [
+                    'version', 'blind_entities', 'cover_status_helper'
+                ]
+            };
+
+            let html = '<div class="variables-grid">';
+
+            for (const [groupName, varNames] of Object.entries(groups)) {
+                const groupVars = varNames.filter(name => variables[name] !== undefined);
+                if (groupVars.length === 0) continue;
+
+                html += `<div class="var-group"><div class="var-group-title">${groupName}</div>`;
+                for (const name of groupVars) {
+                    const value = variables[name];
+                    html += renderVariableItem(name, value);
+                }
+                html += '</div>';
+            }
+
+            html += '</div>';
+            document.getElementById('varsContent').innerHTML = html;
+        }
+
+        function renderVariableItem(name, value) {
+            let displayValue = '';
+            let valueClass = '';
+            let isExpandable = false;
+
+            if (value === null || value === undefined) {
+                displayValue = 'null';
+                valueClass = 'bool-false';
+            } else if (typeof value === 'boolean') {
+                displayValue = value ? '✓ true' : '✗ false';
+                valueClass = value ? 'bool-true' : 'bool-false';
+            } else if (typeof value === 'number') {
+                displayValue = String(value);
+                valueClass = 'number';
+            } else if (Array.isArray(value)) {
+                if (value.length === 0) {
+                    displayValue = '[ ]';
+                    valueClass = 'bool-false';
+                } else if (value.length <= 3 && value.every(v => typeof v === 'string')) {
+                    displayValue = value.join(', ');
+                } else {
+                    displayValue = `[${value.length} items]`;
+                    isExpandable = true;
+                }
+            } else if (typeof value === 'object') {
+                // Format objects nicely
+                const keys = Object.keys(value);
+                if (keys.length <= 4) {
+                    // Small object: show inline
+                    const parts = keys.map(k => {
+                        const v = value[k];
+                        if (typeof v === 'boolean') return `${k}: ${v ? '✓' : '✗'}`;
+                        if (typeof v === 'number') return `${k}: ${v}`;
+                        return `${k}: ${JSON.stringify(v)}`;
+                    });
+                    displayValue = parts.join(' | ');
+                } else {
+                    displayValue = `{${keys.length} keys}`;
+                    isExpandable = true;
+                }
+            } else if (typeof value === 'string') {
+                displayValue = value;
+                if (value === '' || value === '[]') {
+                    valueClass = 'bool-false';
+                }
+            } else {
+                displayValue = String(value);
+            }
+
+            // Truncate long values
+            if (displayValue.length > 80) {
+                displayValue = displayValue.substring(0, 77) + '...';
+            }
+
+            const expandableData = isExpandable ? 
+                `data-full="${encodeURIComponent(JSON.stringify(value, null, 2))}"` : '';
+
+            return `
+                <div class="var-item" ${expandableData}>
+                    <span class="var-name">${name}</span>
+                    <span class="var-value ${valueClass}">${displayValue}</span>
+                </div>
+            `;
+        }
+
+        function generateReport() {
+            if (!currentTrace) return '';
+
+            const traceInfo = currentTrace.trace || {};
+            const innerTrace = traceInfo.trace || {};
+            const triggerInfo = extractTriggerInfo(innerTrace);
+            const branchInfo = extractBranchInfo(traceInfo.last_step, innerTrace);
+            const variables = extractVariables(innerTrace);
+            const helperStatus = variables.helper_status || {};
+
+            return `
+CCA TRACE ANALYSIS REPORT
+=========================
+Generated: ${new Date().toISOString()}
+
+SUMMARY
+-------
+Status: ${traceInfo.script_execution || traceInfo.state}
+Start: ${traceInfo.timestamp?.start || 'N/A'}
+End: ${traceInfo.timestamp?.finish || 'N/A'}
+Run ID: ${traceInfo.run_id || 'N/A'}
+
+TRIGGER
+-------
+ID: ${triggerInfo.id}
+Description: ${TRIGGER_EXPLANATIONS[triggerInfo.id] || triggerInfo.description}
+Entity: ${triggerInfo.entityId}
+
+BRANCH
+------
+Number: ${branchInfo.number !== null ? branchInfo.number : 'None'}
+Name: ${branchInfo.name}
+Description: ${branchInfo.description}
+
+LAST STEP
+---------
+Path: ${traceInfo.last_step}
+Interpretation: ${interpretLastStep(traceInfo.last_step)}
+
+HELPER STATUS
+-------------
+Open: ${helperStatus.open}
+Closed: ${helperStatus.closed}
+Shaded: ${helperStatus.shaded}
+Start Pending: ${helperStatus.shading_start_pending}
+End Pending: ${helperStatus.shading_end_pending}
+V-Part: ${helperStatus.vpart}
+V-Full: ${helperStatus.vfull}
+Manual: ${helperStatus.manual}
+
+KEY VARIABLES
+-------------
+Position: ${variables.current_position}
+is_up_enabled: ${variables.is_up_enabled}
+is_down_enabled: ${variables.is_down_enabled}
+is_shading_enabled: ${variables.is_shading_enabled}
+in_open_position: ${variables.in_open_position}
+in_close_position: ${variables.in_close_position}
+
+---
+Generated by CCA Trace Analyzer v3
+            `.trim();
+        }
+
+        function copyReport() {
+            const report = generateReport();
+            navigator.clipboard.writeText(report).then(() => {
+                const btn = document.getElementById('copyReport');
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => btn.textContent = '📋 Copy Report', 2000);
+            });
+        }
+
+        function downloadReport() {
+            const report = generateReport();
+            const blob = new Blob([report], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `cca-trace-report-${new Date().toISOString().slice(0,10)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
