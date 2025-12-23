@@ -739,6 +739,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function displayResults(result) {
         resultsSection.classList.remove('hidden');
+        resultsSection.classList.add('visible');
         
         summary.className = 'summary ' + (result.valid ? 'valid' : 'invalid');
         summary.innerHTML = `
@@ -766,7 +767,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 div.className = `issue ${issue.severity}`;
                 div.innerHTML = `
                     <span class="severity-icon">${getSeverityIcon(issue.severity)}</span>
-                    <span class="message">${escapeHtml(issue.message)}</span>
+                    <div class="issue-content">
+                        <div class="issue-message">${escapeHtml(issue.message)}</div>
+                    </div>
                 `;
                 issuesList.appendChild(div);
             });
