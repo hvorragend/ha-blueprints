@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.22
+    **Version**: 2025.12.23
 
     ### 🔗 Resources & Support
 
@@ -188,7 +188,7 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md) | **Previous Changelog**: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md)
 
-    # 🚀 CCA 2025.12.22 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
+    # 🚀 CCA 2025.12.23 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
 
       ## 🧠 Background State Memory & Force Return
 
@@ -609,7 +609,7 @@ blueprint:
 
 
             <details>
-            <summary><code><strong>⚙️ CLICK HERE:</strong> Notes on multiple triggering<</code></summary>
+            <summary><code><strong>⚙️ CLICK HERE:</strong> Notes on multiple triggering</code></summary>
 
 
             Even if multiple opening, closing, shading, etc. is activated, this only works if a trigger is available.
@@ -3118,7 +3118,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.12.22"
+  version: "2025.12.23"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3764,6 +3764,7 @@ triggers:
   - trigger: template
     value_template: >-
       {{
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_start) < shading_azimuth_start) or
         (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
@@ -4312,6 +4313,8 @@ actions:
         }}
 
       # END OR: At least one specified condition must become invalid
+      # TODO: Unlike shading_start_or_result, this checks ALL conditions regardless of whether they are in shading_conditions_end_or list.
+      #       This is inconsistent behavior that may cause unexpected shading end triggers. Consider aligning with START logic.
       shading_end_or_result: >-
         {{
           shading_conditions_end_or | count > 0 and
@@ -5677,7 +5680,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_enabled_open' }}"
-          - "{{ not is_cover_movement_blocked.up }}"
+          - "{{ not is_cover_movement_blocked.open }}"
         sequence:
           - choose: []
             default: !input auto_up_action_before
