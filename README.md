@@ -16,7 +16,11 @@ Located in [`blueprints/automation/`](blueprints/automation/), **Cover Control A
 - **🛝 Awning Support** — Works with traditional blinds, roller shutters, awnings, and sunshades
 - **⚙️ Highly Configurable** — Fine-tune hysteresis, delays, thresholds, and conditions to match your exact needs
 
-**→ Full documentation, changelog, and debugging tools:** [Go to CCA README](blueprints/automation/README.md) | 🔍 **Quick Debugging**: [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/)
+**→ Full documentation, changelog, and debugging tools:**
+- 📖 [Go to CCA README](blueprints/automation/README.md)
+- 📦 [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
+- 🔍 [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/)
+
 
 ---
 
