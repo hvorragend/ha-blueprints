@@ -690,9 +690,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const fileUpload = document.getElementById('file-upload');
     const yamlInput = document.getElementById('yaml-input');
     const validateBtn = document.getElementById('validate-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const copyBtn = document.getElementById('copy-btn');
+    const exportBtn = document.getElementById('export-btn');
+    const filterSelect = document.getElementById('filter-select');
+    const validationStatus = document.getElementById('validation-status');
     const resultsSection = document.getElementById('results-section');
     const summary = document.getElementById('summary');
     const issuesList = document.getElementById('issues-list');
+    
+    let currentResult = null;
+    let currentFilter = 'all';
 
     fileUpload.addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -718,28 +726,109 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    clearBtn.addEventListener('click', function() {
+        if (confirm('Clear the current configuration?')) {
+            yamlInput.value = '';
+            yamlInput.focus();
+            resultsSection.classList.remove('visible');
+            resultsSection.classList.add('hidden');
+            currentResult = null;
+            validationStatus.textContent = '';
+            exportBtn.style.display = 'none';
+            filterSelect.value = 'all';
+            currentFilter = 'all';
+        }
+    });
+
+    copyBtn.addEventListener('click', function() {
+        if (yamlInput.value.trim()) {
+            navigator.clipboard.writeText(yamlInput.value).then(() => {
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = '✓ Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                alert('Failed to copy to clipboard');
+            });
+        }
+    });
+
+    exportBtn.addEventListener('click', function() {
+        if (currentResult) {
+            exportResults(currentResult);
+        }
+    });
+
+    filterSelect.addEventListener('change', function() {
+        currentFilter = this.value;
+        if (currentResult) {
+            displayResults(currentResult);
+        }
+    });
+
+    // Keyboard shortcuts
+    yamlInput.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            validateConfiguration();
+        }
+    });
+
     function validateConfiguration() {
         console.log('Starting validation...');
         const yamlText = yamlInput.value.trim();
         
         if (!yamlText) {
-            alert('Please provide a configuration to validate');
+            validationStatus.textContent = '⚠️ Please provide a configuration to validate';
+            validationStatus.style.color = 'var(--accent-yellow)';
             return;
         }
 
-        try {
-            const result = validator.validate(yamlText);
-            console.log('Validation result:', result);
-            displayResults(result);
-        } catch (error) {
-            console.error('Validation error:', error);
-            alert('Error during validation: ' + error.message);
-        }
+        // Show loading state
+        validateBtn.disabled = true;
+        validateBtn.innerHTML = '<span class="loading"></span>Validating...';
+        validationStatus.textContent = '⏳ Validating configuration...';
+        validationStatus.style.color = 'var(--accent-blue)';
+
+        // Use setTimeout to allow UI to update before heavy computation
+        setTimeout(() => {
+            try {
+                const startTime = performance.now();
+                const result = validator.validate(yamlText);
+                const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+                
+                console.log('Validation result:', result);
+                currentResult = result;
+                displayResults(result);
+                
+                validationStatus.textContent = `✓ Validated in ${duration}s`;
+                validationStatus.style.color = result.valid ? 'var(--accent-green)' : 'var(--accent-yellow)';
+            } catch (error) {
+                console.error('Validation error:', error);
+                validationStatus.textContent = '❌ Validation error: ' + error.message;
+                validationStatus.style.color = 'var(--accent-red)';
+                alert('Error during validation: ' + error.message);
+            } finally {
+                validateBtn.disabled = false;
+                validateBtn.textContent = '✓ Validate Configuration';
+            }
+        }, 10);
     }
 
     function displayResults(result) {
         resultsSection.classList.remove('hidden');
         resultsSection.classList.add('visible');
+        
+        // Update filter select to show counts
+        filterSelect.innerHTML = `
+            <option value="all">All Issues (${result.errors.length + result.warnings.length + result.info.length})</option>
+            <option value="error">Errors (${result.errors.length})</option>
+            <option value="warning">Warnings (${result.warnings.length})</option>
+            <option value="info">Info (${result.info.length})</option>
+        `;
+        filterSelect.value = currentFilter;
         
         summary.className = 'summary ' + (result.valid ? 'valid' : 'invalid');
         summary.innerHTML = `
@@ -753,15 +842,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
         issuesList.innerHTML = '';
         
-        const allIssues = [
+        let allIssues = [
             ...result.errors.map(e => ({...e, severity: 'error'})),
             ...result.warnings.map(w => ({...w, severity: 'warning'})),
             ...result.info.map(i => ({...i, severity: 'info'}))
         ];
         
+        // Apply filter
+        if (currentFilter !== 'all') {
+            allIssues = allIssues.filter(issue => issue.severity === currentFilter);
+        }
+        
         if (allIssues.length === 0) {
-            issuesList.innerHTML = '<div class="no-issues">✨ No issues found! Your configuration looks good.</div>';
+            if (currentFilter === 'all') {
+                issuesList.innerHTML = '<div class="no-issues">✨ No issues found! Your configuration looks good.</div>';
+            } else {
+                issuesList.innerHTML = `<div class="no-issues">No ${currentFilter} issues found.</div>`;
+            }
         } else {
+            // Sort: errors first, then warnings, then info
+            allIssues.sort((a, b) => {
+                const order = { 'error': 0, 'warning': 1, 'info': 2 };
+                return order[a.severity] - order[b.severity];
+            });
+            
             allIssues.forEach(issue => {
                 const div = document.createElement('div');
                 div.className = `issue ${issue.severity}`;
@@ -775,7 +879,42 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
+        // Show/hide export button
+        exportBtn.style.display = allIssues.length > 0 ? 'inline-block' : 'none';
+
         resultsSection.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function exportResults(result) {
+        const timestamp = new Date().toISOString();
+        const report = `CCA Configuration Validation Report
+Generated: ${new Date().toLocaleString()}
+${'='.repeat(50)}
+
+Status: ${result.valid ? '✅ VALID' : '❌ INVALID'}
+
+Summary:
+- Errors: ${result.errors.length}
+- Warnings: ${result.warnings.length}
+- Info Messages: ${result.info.length}
+
+${result.errors.length > 0 ? `\nERRORS:\n${'-'.repeat(50)}\n${result.errors.map((e, i) => `${i + 1}. ${e.message}`).join('\n')}\n` : ''}
+${result.warnings.length > 0 ? `\nWARNINGS:\n${'-'.repeat(50)}\n${result.warnings.map((w, i) => `${i + 1}. ${w.message}`).join('\n')}\n` : ''}
+${result.info.length > 0 ? `\nINFO:\n${'-'.repeat(50)}\n${result.info.map((info, i) => `${i + 1}. ${info.message}`).join('\n')}\n` : ''}
+
+${result.valid ? '\n✨ Configuration is valid and ready to use!' : '\n⚠️ Please fix the errors before deploying.'}
+
+---
+Generated by CCA Configuration Validator
+`;
+
+        const blob = new Blob([report], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `cca-validation-${timestamp.slice(0, 10)}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     function getSeverityIcon(severity) {
