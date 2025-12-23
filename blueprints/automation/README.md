@@ -9,6 +9,7 @@
 - 🗣️ [Community Discussion](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
 - 📚 [Full Changelog](CHANGELOG.md)
 - 📦 [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
+- 🔍 [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/)
 - ❓ [FAQ & Troubleshooting](FAQ.md)
 - 📖 [Time Control Visualization](TIME_CONTROL_VISUALIZATION.md)
 - 📖 [Dynamic Sun Elevation Guide](DYNAMIC_SUN_ELEVATION.md)
