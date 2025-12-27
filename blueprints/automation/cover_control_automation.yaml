@@ -4739,6 +4739,7 @@ actions:
                     then:
                       - choose: []
                         default: !input auto_shading_start_action
+                  - stop: "Opening skipped: Shading detected"
 
               ###################################
               # Cover should be opened
@@ -4775,6 +4776,7 @@ actions:
                     then:
                       - choose: []
                         default: !input auto_up_action
+                  - stop: "Opening executed"
 
       ############################################################
       # BRANCH (1): CLOSE
@@ -4843,6 +4845,7 @@ actions:
                         manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                         t: "{{ ts_now }}"
                   - *helper_update
+                  - stop: "Closing skipped: Lockout enabled"
 
               ############################################################################
               # Window tilted. No lockout. Move to ventilation position instead of closing
@@ -4886,6 +4889,7 @@ actions:
                     then:
                       - choose: []
                         default: !input auto_ventilate_action
+                  - stop: "Closing skipped: Window tilted (Ventilation activated)"
 
               ###################################
               # Cover is already (almost) closed
@@ -5008,6 +5012,7 @@ actions:
                             shading: {a: 1, t: "{{ ts_now }}", p: "{{ (ts_now + local_waitingtime_start) | round(0) }}", q: 0}
                             t: "{{ ts_now }}"
                       - *helper_update
+                      - stop: "Shading Start Pending: Waiting"
 
                   ##################################################
                   # Consider lockout protection when shading starts
@@ -5037,6 +5042,7 @@ actions:
                             manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                             t: "{{ ts_now }}"
                       - *helper_update
+                      - stop: "Shading Start skipped: Lockout enabled"
 
                   ###################################
                   # Start Shading
@@ -5089,6 +5095,7 @@ actions:
                         then:
                           - choose: []
                             default: !input auto_shading_start_action
+                      - stop: "Shading Start executed"
 
                   ####################################
                   # Save shading state for the future
@@ -5110,6 +5117,7 @@ actions:
                         then:
                           - *tilt_move_action
                       - *helper_update
+                      - stop: "Shading Start skipped: State saved"
 
             else: # Shading conditions were no longer met or not met again.
               - choose:
@@ -5132,6 +5140,7 @@ actions:
                             shading: { a: 1, t: "{{ helper_json.shading.t }}", p: "{{ (ts_now + local_waitingtime_start) | round(0) }}", q: 0 }
                             t: "{{ ts_now }}"
                       - *helper_update
+                      - stop: "Shading Start Pending: Continue waiting"
 
                   ######################################################################
                   # Shading start / Stop retry (timeout OR outside time window OR disabled)
@@ -5147,6 +5156,7 @@ actions:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now}}"
                       - *helper_update
+                      - stop: "Shading Start aborted: Timeout or invalid"
 
       ############################################################
       # BRANCH (3): SHADING Tilt
@@ -5231,6 +5241,7 @@ actions:
                             shading: { a: 1, t: "{{ ts_now }}", p: 0, q: "{{ (ts_now + (local_waitingtime_end | int)) | round(0) }}" }
                             t: "{{ ts_now }}"
                       - *helper_update
+                      - stop: "Shading End Pending: Waiting"
 
                   ######################################
                   # Only tilt open after shading ends
@@ -5253,6 +5264,7 @@ actions:
                         then:
                           - *tilt_move_action
                       - *helper_update
+                      - stop: "Shading End: Tilt executed"
 
                   ######################################
                   # Lockout protection when shading ends
@@ -5283,6 +5295,7 @@ actions:
                             manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                             t: "{{ ts_now }}"
                       - *helper_update
+                      - stop: "Shading End skipped: Lockout enabled"
 
                   ################################
                   # Ventilation after shading ends
@@ -5335,6 +5348,7 @@ actions:
                         then:
                           - choose: []
                             default: !input auto_ventilate_action
+                      - stop: "Shading End: Ventilation activated"
 
                   ########################################################
                   # Move cover after shading end - conditions still valid
@@ -5418,6 +5432,7 @@ actions:
                             shading: { a: 1, t: "{{ helper_json.shading.t }}", p: 0, q: "{{ (ts_now + local_waitingtime_end) | round(0) }}" }
                             t: "{{ ts_now }}"
                       - *helper_update
+                      - stop: "Shading End Pending: Continue waiting"
 
                   ######################################################################
                   # Shading end / Stop retry (timeout OR outside time window OR disabled)
@@ -5432,6 +5447,7 @@ actions:
                             shading: { a: 1, t: "{{ helper_json.shading.t }}", p: 0, q: 0 }
                             t: "{{ as_timestamp(now()) | round(0) }}"
                       - *helper_update
+                      - stop: "Shading End aborted: Timeout or invalid"
 
       ############################################################
       # BRANCH (5): CONTACT SENSOR HANDLING
@@ -5497,6 +5513,7 @@ actions:
                       - *cover_move_action
                       - *tilt_move_action
                   - *helper_update
+                  - stop: "Ventilation Start (Full) executed"
 
               ###################################
               # VENTILATION START: Window tilted
@@ -5550,6 +5567,7 @@ actions:
                     then:
                       - choose: []
                         default: !input auto_ventilate_action
+                  - stop: "Ventilation Start (Partial) executed"
 
               ###################################
               # VENTILATION END: Window closed - Return to SHADING
@@ -5594,6 +5612,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_shading_start_action
+                  - stop: "Ventilation End: Return to Shading executed"
 
               ###################################
               # VENTILATION END: Window closed - Return to OPEN
@@ -5642,6 +5661,7 @@ actions:
                       - *tilt_move_action
                   - choose: []
                     default: !input auto_up_action
+                  - stop: "Ventilation End: Return to Open executed"
 
               ###################################
               # VENTILATION END: Window closed - Return to CLOSE
@@ -5686,6 +5706,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_down_action
+                  - stop: "Ventilation End: Return to Close executed"
 
       ############################################################
       # BRANCH (6): FORCE OPEN
@@ -5852,6 +5873,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
+                  - stop: "Manual Tilt detected"
 
               - conditions: # Manually opened
                   - "{{ is_up_enabled }}"
@@ -5872,6 +5894,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
+                  - stop: "Manual Open detected"
 
               - conditions: # Manually ventilated
                   - "{{ is_ventilation_enabled }}"
@@ -5890,6 +5913,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
+                  - stop: "Manual Ventilation detected"
 
               - conditions: # Manually shaded
                   - "{{ is_shading_enabled }}"
@@ -5907,6 +5931,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
+                  - stop: "Manual Shading detected"
 
               - conditions: # Manually closed
                   - "{{ is_down_enabled }}"
@@ -5928,6 +5953,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
+                  - stop: "Manual Close detected"
 
               - conditions: # Defined positions cannot be assigned
                   - not:
@@ -5948,6 +5974,7 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
+                  - stop: "Manual position (unknown) detected"
 
       ############################################################
       # BRANCH (11): RESET MANUAL DETECTION
@@ -6006,6 +6033,7 @@ actions:
                   - *tilt_move_action
                   - choose: []
                     default: !input auto_down_action
+                  - stop: "Return to Close executed"
 
               # Return to SHADING position
               - conditions:
@@ -6020,6 +6048,7 @@ actions:
                   - *tilt_move_action
                   - choose: []
                     default: !input auto_shading_start_action
+                  - stop: "Return to Shading executed"
 
               # Return to VENTILATION position (partial)
               - conditions:
@@ -6034,6 +6063,7 @@ actions:
                   - *tilt_move_action
                   - choose: []
                     default: !input auto_ventilate_action
+                  - stop: "Return to Ventilation executed"
 
               # Return to OPEN position
               - conditions:
@@ -6048,6 +6078,7 @@ actions:
                   - *tilt_move_action
                   - choose: []
                     default: !input auto_up_action
+                  - stop: "Return to Open executed"
             default: []
 
       ############################################################
