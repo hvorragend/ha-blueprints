@@ -1274,17 +1274,26 @@
             let trace = null;
             let repaired = false;
 
-            try {
-                trace = JSON.parse(jsonText);
-            } catch (err) {
-                console.warn('Initial parse failed, attempting repair...');
+            // Pre-processing: Handle objects if already parsed by proxy (e.g. allorigins)
+            if (typeof jsonText === 'object' && jsonText !== null) {
+                trace = jsonText;
+            } else if (typeof jsonText === 'string') {
+                // Handling BOM (Byte Order Mark) which can cause JSON.parse to fail
+                const cleanText = jsonText.trim().replace(/^\uFEFF/, '');
+
+                // First try: Parse as-is
                 try {
-                    trace = repairTruncatedJson(jsonText);
-                    repaired = true;
-                } catch (repairErr) {
-                    console.error('Repair failed:', repairErr);
-                    alert('Error parsing JSON for ' + filename);
-                    return;
+                    trace = JSON.parse(cleanText);
+                } catch (err) {
+                    console.warn('Initial parse failed, attempting repair...', err.message);
+                    try {
+                        trace = repairTruncatedJson(cleanText);
+                        repaired = true;
+                    } catch (repairErr) {
+                        console.error('Repair failed:', repairErr);
+                        alert('Error parsing JSON for ' + filename + ': ' + err.message);
+                        return;
+                    }
                 }
             }
 
@@ -1302,18 +1311,84 @@
             }
         }
 
+        /**
+         * Attempts to repair truncated JSON by:
+         * 1. Cutting off at the "config" section (which we don't need anyway)
+         * 2. Or finding the last complete trace entry
+         * 3. Closing all open brackets
+         */
         function repairTruncatedJson(jsonText) {
+            console.log('Attempting to repair truncated JSON...');
+
             let text = jsonText;
+
+            // Strategy 1: Cut off at "config" section - we don't need it!
             const configMatch = text.match(/,\s*"config"\s*:\s*\{/);
-            if (configMatch) text = text.substring(0, configMatch.index);
+            if (configMatch) {
+                const configPos = configMatch.index;
+                console.log(`Found "config" section at position ${configPos}, cutting it off`);
+                text = text.substring(0, configPos);
+            } else {
+                // Strategy 2: Find last complete line before truncation
+                const lines = text.split('\n');
+                let validLines = [];
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (line.includes('"') && !isLineComplete(line)) {
+                        console.log(`Stopping at line ${i + 1}: incomplete string`);
+                        break;
+                    }
+                    validLines.push(lines[i]);
+                }
+                text = validLines.join('\n');
+            }
+
+            // Remove trailing comma if present
             text = text.replace(/,\s*$/, '');
+
+            // Count remaining open brackets
             const openBraces = (text.match(/{/g) || []).length;
             const closeBraces = (text.match(/}/g) || []).length;
             const openBrackets = (text.match(/\[/g) || []).length;
             const closeBrackets = (text.match(/]/g) || []).length;
-            for (let i = 0; i < openBrackets - closeBrackets; i++) text += ']';
-            for (let i = 0; i < openBraces - closeBraces; i++) text += '}';
+
+            // Add closing brackets
+            const neededBraces = openBraces - closeBraces;
+            const neededBrackets = openBrackets - closeBrackets;
+
+            let closing = '';
+            for (let i = 0; i < neededBrackets; i++) closing += ']';
+            for (let i = 0; i < neededBraces; i++) closing += '}';
+
+            text += closing;
+
+            console.log(`Repair: added ${neededBrackets} ] and ${neededBraces} }`);
+
             return JSON.parse(text);
+        }
+
+        function isLineComplete(line) {
+            // A line is complete if quotes are balanced
+            let inString = false;
+            let escaped = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (char === '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (char === '"') {
+                    inString = !inString;
+                }
+            }
+
+            return !inString; // Complete if not inside a string
         }
 
         function extractTraceData(trace, filename) {

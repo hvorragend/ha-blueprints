@@ -1675,18 +1675,26 @@
             let trace = null;
             let repaired = false;
 
-            // First try: Parse as-is
-            try {
-                trace = JSON.parse(jsonText);
-            } catch (err) {
-                console.warn('Initial parse failed, attempting repair...', err.message);
+            // Pre-processing: Handle objects if already parsed by proxy (e.g. allorigins)
+            if (typeof jsonText === 'object' && jsonText !== null) {
+                trace = jsonText;
+            } else if (typeof jsonText === 'string') {
+                // Handling BOM (Byte Order Mark) which can cause JSON.parse to fail
+                const cleanText = jsonText.trim().replace(/^\uFEFF/, '');
+
+                // First try: Parse as-is
                 try {
-                    trace = repairTruncatedJson(jsonText);
-                    repaired = true;
-                } catch (repairErr) {
-                    console.error('Repair failed:', repairErr);
-                    alert('Error parsing JSON: ' + err.message + '\n\nThe trace data appears to be corrupted.');
-                    return;
+                    trace = JSON.parse(cleanText);
+                } catch (err) {
+                    console.warn('Initial parse failed, attempting repair...', err.message);
+                    try {
+                        trace = repairTruncatedJson(cleanText);
+                        repaired = true;
+                    } catch (repairErr) {
+                        console.error('Repair failed:', repairErr);
+                        alert('Error parsing JSON: ' + err.message + '\n\nThe trace data appears to be corrupted.');
+                        return;
+                    }
                 }
             }
 
