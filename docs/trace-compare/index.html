@@ -1435,11 +1435,23 @@
             let stopReason = null;
             if (state !== 'finished' && state !== 'stopped') {
                 stopReason = (state === 'failed') ? 'Execution failed' : 'Terminated unexpectedly';
-            } else if (state === 'stopped' && lastStep.includes('condition/')) {
-                // If it was a natural stop at a condition, find which one
+            } else if (state === 'stopped') {
                 const stepData = innerTrace[lastStep];
-                const condResult = stepData && stepData[0] ? stepData[0].result : null;
-                stopReason = condResult?.message || `Condition not met`;
+                const firstStep = stepData && stepData[0];
+
+                if (firstStep) {
+                    // Check for explicit stop reasons
+                    if (firstStep.stop) {
+                        stopReason = firstStep.stop;
+                    } else if (firstStep.result && firstStep.result.stop) {
+                        stopReason = firstStep.result.stop;
+                    }
+                    // Fallback for failed conditions
+                    else if (lastStep.includes('condition/')) {
+                        const condResult = firstStep.result;
+                        stopReason = condResult?.message || `Condition not met`;
+                    }
+                }
             }
 
             // Extract all variables (Deep Merge)
