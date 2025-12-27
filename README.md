@@ -20,6 +20,7 @@ Located in [`blueprints/automation/`](blueprints/automation/), **Cover Control A
 - 📖 [Go to CCA README](blueprints/automation/README.md)
 - 📦 [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
 - 🔍 [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/)
+- 🔄 [Trace Compare](https://hvorragend.github.io/ha-blueprints/trace-compare/)
 
 
 ---
