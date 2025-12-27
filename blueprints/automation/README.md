@@ -10,6 +10,7 @@
 - 📚 [Full Changelog](CHANGELOG.md)
 - 📦 [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
 - 🔍 [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/)
+- 🔄 [Trace Compare](https://hvorragend.github.io/ha-blueprints/trace-compare/)
 - ❓ [FAQ & Troubleshooting](FAQ.md)
 - 📖 [Time Control Visualization](TIME_CONTROL_VISUALIZATION.md)
 - 📖 [Dynamic Sun Elevation Guide](DYNAMIC_SUN_ELEVATION.md)
