@@ -482,7 +482,8 @@
             border-radius: 16px;
             padding: 1.5rem;
             margin-bottom: 2rem;
-            overflow: hidden;
+            /* Allow tooltip to overflow if needed */
+            overflow: visible;
         }
 
         .timeline-header {
@@ -501,10 +502,11 @@
 
         .timeline-canvas-wrapper {
             position: relative;
-            height: 180px;
+            height: 220px;
             background: var(--bg-tertiary);
             border-radius: 8px;
-            overflow: hidden;
+            /* Allow tooltip to overflow */
+            overflow: visible;
         }
 
         .timeline-canvas {
@@ -967,7 +969,7 @@
                 </div>
             </div>
             <div class="file-items" id="fileItems"></div>
-            <div style="margin-top: 1rem; text-align: center;">
+            <div style="margin: 1rem 0; text-align: center;">
                 <button class="action-btn primary" id="analyzeBtn" disabled>📊 Analyze & Compare</button>
             </div>
         </div>
@@ -993,6 +995,7 @@
                     <h3>📍 Cover Position & Helper Trend</h3>
                     <div class="chart-canvas-wrapper">
                         <canvas id="positionChart" class="chart-canvas"></canvas>
+                        <div class="timeline-tooltip" id="positionTooltip"></div>
                     </div>
                     <div class="chart-legend" id="positionLegend"></div>
                 </div>
@@ -1391,6 +1394,28 @@
             return !inString; // Complete if not inside a string
         }
 
+        function formatHelperValue(hJson) {
+            if (!hJson || typeof hJson !== 'object') return String(hJson || 'unknown');
+
+            // CCA Status Object structure
+            const keys = [
+                'opening', 'closing', 'open', 'close', 'closed', 'shading', 'shaded',
+                'shading_start_pending', 'shading_end_pending',
+                'vpart', 'vfull', 'manual'
+            ];
+            for (const key of keys) {
+                const status = hJson[key];
+                if (status && (status.a === 1 || status.a === true)) {
+                    let label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+                    if (label === 'Close') label = 'Closed';
+                    if (label === 'Shading') label = 'Shaded';
+                    return label;
+                }
+            }
+            if (hJson.cover_status) return String(hJson.cover_status);
+            return 'unknown';
+        }
+
         function extractTraceData(trace, filename) {
             const tInfo = trace.trace || {};
             const innerTrace = tInfo.trace || {};
@@ -1405,41 +1430,87 @@
                 branch = { number: num, ...BRANCH_DEFINITIONS[num] };
             }
 
-            // Determine if stopped at condition
-            let finalStatus = (state === 'finished') ? 'finished' : 'stopped';
+            // Status Merger: Treat "finished" and "stopped" as Finished
+            let finalStatus = (state === 'finished' || state === 'stopped') ? 'finished' : 'failed';
             let stopReason = null;
-            if (finalStatus === 'stopped') {
-                if (lastStep.includes('condition/')) {
-                    const condId = lastStep.split('/').pop();
-                    stopReason = `Condition ${condId} not met`;
-                } else if (state === 'failed') {
-                    finalStatus = 'failed';
-                    stopReason = 'Execution failed';
-                } else {
-                    stopReason = 'Terminated unexpectedly';
-                }
+            if (state !== 'finished' && state !== 'stopped') {
+                stopReason = (state === 'failed') ? 'Execution failed' : 'Terminated unexpectedly';
+            } else if (state === 'stopped' && lastStep.includes('condition/')) {
+                // If it was a natural stop at a condition, find which one
+                const stepData = innerTrace[lastStep];
+                const condResult = stepData && stepData[0] ? stepData[0].result : null;
+                stopReason = condResult?.message || `Condition not met`;
             }
 
-            // Extract variables from the most relevant step
+            // Extract all variables (Deep Merge)
             let vars = {};
-            const stepKeys = Object.keys(innerTrace).reverse();
-            for (const key of stepKeys) {
+            for (const key of Object.keys(innerTrace)) {
                 const steps = innerTrace[key];
-                if (steps && steps[0]?.variables) {
-                    vars = { ...steps[0].variables, ...vars };
-                    if (vars.current_position !== undefined) break; // We found the main vars
+                for (const step of steps) {
+                    if (step.variables) vars = { ...vars, ...step.variables };
+                    if (step.changed_variables) vars = { ...vars, ...step.changed_variables };
                 }
             }
 
-            // Fix position: check current_position vs var_target_pos
+            // Extreme Fallback for helper_json
+            if (!vars.helper_json) {
+                const searchObj = (obj, depth = 0) => {
+                    if (!obj || typeof obj !== 'object' || depth > 8) return null;
+                    if (obj.helper_json) return obj.helper_json;
+                    for (const k in obj) {
+                        const found = searchObj(obj[k], depth + 1);
+                        if (found) return found;
+                    }
+                    return null;
+                };
+                vars.helper_json = searchObj(trace);
+            }
+
+            // Position Recognition
             let position = vars.current_position;
             if (vars.var_target_pos !== undefined) position = vars.var_target_pos;
+
+            // Scan for service calls that set position
+            for (const [path, steps] of Object.entries(innerTrace)) {
+                for (const step of steps) {
+                    if (step.result && step.result.params) {
+                        const p = step.result.params;
+                        if (p.service === 'set_cover_position') {
+                            position = p.service_data?.position ?? p.data?.position;
+                        } else if (p.service === 'open_cover') {
+                            position = 100;
+                        } else if (p.service === 'close_cover') {
+                            position = 0;
+                        }
+                    }
+                }
+            }
 
             // Extract Pending Durations
             let pendingStart = null;
             let pendingExec = null;
             if (vars.shading_start_pending_duration) pendingStart = vars.shading_start_pending_duration;
             if (vars.shading_end_pending_duration) pendingStart = vars.shading_end_pending_duration;
+
+            // Helper State Logic
+            let helperJson = vars.helper_json || {};
+            if (typeof helperJson === 'string' && (helperJson.trim().startsWith('{') || helperJson.trim().startsWith('['))) {
+                try { helperJson = JSON.parse(helperJson); } catch (e) { }
+            }
+            const prevHelper = formatHelperValue(helperJson);
+            let newHelper = 'no change';
+            for (const [path, steps] of Object.entries(innerTrace)) {
+                for (const step of steps) {
+                    if (step.result && step.result.params && step.result.params.service === 'set_value' && step.result.params.domain === 'input_text') {
+                        const potVal = step.result.params.service_data?.value || step.result.params.data?.value;
+                        if (potVal && typeof potVal === 'object') {
+                            newHelper = formatHelperValue(potVal);
+                        } else if (potVal) {
+                            newHelper = potVal;
+                        }
+                    }
+                }
+            }
 
             return {
                 filename,
@@ -1449,19 +1520,37 @@
                 branch,
                 trigger: extractTrigger(innerTrace),
                 variables: vars,
+                currentPosition: vars.current_position,
                 position: position,
-                helperState: vars.var_status_cover || vars.shading_status_helper || 'unknown',
+                helperState: newHelper !== 'no change' ? newHelper : prevHelper,
+                prevHelper,
+                newHelper,
                 pendingStart,
                 pendingExec,
+                lastStep,
                 raw: trace
             };
         }
 
         function extractTrigger(innerTrace) {
-            const triggerStep = innerTrace['trigger'] || innerTrace['trigger/0'];
-            if (triggerStep && triggerStep[0]?.variables?.trigger) {
-                const t = triggerStep[0].variables.trigger;
-                return { id: t.id, description: TRIGGER_EXPLANATIONS[t.id] || t.id };
+            for (const key of Object.keys(innerTrace)) {
+                if (key.startsWith('trigger')) {
+                    const steps = innerTrace[key];
+                    if (steps && steps[0]?.variables?.trigger) {
+                        const t = steps[0].variables.trigger;
+                        return {
+                            id: t.id || 'unknown',
+                            description: t.description || TRIGGER_EXPLANATIONS[t.id] || 'Unknown trigger'
+                        };
+                    }
+                    if (steps && steps[0]?.changed_variables?.trigger) {
+                        const t = steps[0].changed_variables.trigger;
+                        return {
+                            id: t.id || 'unknown',
+                            description: t.description || TRIGGER_EXPLANATIONS[t.id] || 'Unknown trigger'
+                        };
+                    }
+                }
             }
             return null;
         }
@@ -1476,10 +1565,12 @@
                     <span class="file-item-icon">${item.branch?.icon || '📄'}</span>
                     <div class="file-item-info">
                         <div class="file-item-name">${item.filename}</div>
-                        <div class="file-item-meta">${formatTimestamp(item.timestamp)}</div>
+                        <div class="file-item-meta">
+                            <span style="color:var(--accent-purple)">${item.trigger?.id || 'manual'}</span> • ${formatTimestamp(item.timestamp)}
+                        </div>
                     </div>
                     <div class="file-item-status">
-                        <span class="status-badge ${item.state}">${item.state}</span>
+                        <span class="status-badge ${item.state}">${item.state === 'finished' ? item.lastStep : item.state}</span>
                     </div>
                     <div class="file-item-actions">
                         <button class="action-btn small" onclick="openInAnalyzer(${index})" title="Analyze this single trace">🔍</button>
@@ -1538,8 +1629,8 @@
                 stateCounts: { finished, stopped, failed }
             };
 
-            renderResults();
             resultsSection.classList.add('visible');
+            renderResults();
             window.scrollTo({ top: resultsSection.offsetTop - 50, behavior: 'smooth' });
         }
 
@@ -1557,22 +1648,24 @@
             const hours = Math.floor(duration / (1000 * 60 * 60));
             const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
 
+            const uniqueBranches = new Set(loadedTraces.filter(t => t.branch).map(t => t.branch.number)).size;
+
             document.getElementById('summaryStats').innerHTML = `
                 <div class="stat-card primary">
                     <div class="stat-value">${loadedTraces.length}</div>
                     <div class="stat-label">Total Traces</div>
-                </div>
-                <div class="stat-card primary">
-                    <div class="stat-value">${hours}h ${minutes}m</div>
-                    <div class="stat-label">Time Span</div>
                 </div>
                 <div class="stat-card success">
                     <div class="stat-value">${analyzedData.stateCounts.finished}</div>
                     <div class="stat-label">Finished</div>
                 </div>
                 <div class="stat-card warning">
-                    <div class="stat-value">${analyzedData.stateCounts.stopped}</div>
-                    <div class="stat-label">Stopped</div>
+                    <div class="stat-value">${uniqueBranches}</div>
+                    <div class="stat-label">Unique Branches</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="stat-value">${analyzedData.stateCounts.failed}</div>
+                    <div class="stat-label">Failed</div>
                 </div>
             `;
         }
@@ -1619,8 +1712,7 @@
             loadedTraces.forEach(t => {
                 const x = padding.left + ((new Date(t.timestamp).getTime() - startTime) / timeRange) * (w - padding.left - padding.right);
 
-                let color = '#10b981';
-                if (t.state === 'stopped') color = '#f59e0b';
+                let color = '#10b981'; // Green for finished/stopped
                 if (t.state === 'failed') color = '#ef4444';
 
                 ctx.strokeStyle = color;
@@ -1656,14 +1748,25 @@
                         </div>
                         <div class="tooltip-row">
                             <span class="tooltip-label">Status</span>
-                            <span class="status-badge ${found.state}">${found.state}</span>
+                            <span class="status-badge ${found.state}">${found.state === 'finished' ? (found.lastStep || 'finished') : found.state}</span>
                         </div>
                         ${found.stopReason ? `<div class="reason-text">${found.stopReason}</div>` : ''}
                         ${found.trigger ? `<div class="tooltip-row" style="margin-top: 5px;"><span class="tooltip-label">Trigger</span><span class="tooltip-value">${found.trigger.id}</span></div>` : ''}
                         <div class="tooltip-row"><span class="tooltip-label">Pos</span><span class="tooltip-value">${found.position}%</span></div>
                     `;
+
+                    // Position tooltip nicely relative to the target dot
                     tooltip.style.left = Math.min(found._x + 20, w - 280) + 'px';
-                    tooltip.style.top = (found._y - 50) + 'px';
+
+                    // Adjust top position to prevent bottom overflow
+                    // If we are in the lower half of the wrapper, move tooltip up
+                    const tooltipHeight = tooltip.offsetHeight || 180;
+                    if (found._y > h / 2) {
+                        tooltip.style.top = (found._y - tooltipHeight - 10) + 'px';
+                    } else {
+                        tooltip.style.top = (found._y + 10) + 'px';
+                    }
+
                     tooltip.classList.add('visible');
                 } else tooltip.classList.remove('visible');
             };
@@ -1689,22 +1792,109 @@
                 ctx.fillStyle = '#64748b'; ctx.font = '9px mono'; ctx.fillText(p + '%', 5, y + 3);
             });
 
-            // Position Line
+            // Target Position Line (dashed)
+            ctx.setLineDash([5, 5]);
             ctx.beginPath();
             loadedTraces.forEach((t, i) => {
                 const x = padding.left + ((new Date(t.timestamp).getTime() - startTime) / timeRange) * (w - padding.left - padding.right);
                 const y = padding.top + ((100 - (t.position || 0)) / 100) * (h - padding.top - padding.bottom);
                 if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             });
-            ctx.lineWidth = 3; ctx.strokeStyle = '#8b5cf6'; ctx.stroke();
+            ctx.lineWidth = 2; ctx.strokeStyle = '#8b5cf6'; ctx.stroke();
+            ctx.setLineDash([]); // Reset dash
 
+            // Current Position Line (solid)
+            ctx.beginPath();
+            loadedTraces.forEach((t, i) => {
+                const x = padding.left + ((new Date(t.timestamp).getTime() - startTime) / timeRange) * (w - padding.left - padding.right);
+                const y = padding.top + ((100 - (t.currentPosition || 0)) / 100) * (h - padding.top - padding.bottom);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.lineWidth = 3; ctx.strokeStyle = '#06b6d4'; ctx.stroke();
+
+            // Dots for current position
             loadedTraces.forEach(t => {
                 const x = padding.left + ((new Date(t.timestamp).getTime() - startTime) / timeRange) * (w - padding.left - padding.right);
-                const y = padding.top + ((100 - (t.position || 0)) / 100) * (h - padding.top - padding.bottom);
-                ctx.fillStyle = '#8b5cf6'; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill();
+                const y = padding.top + ((100 - (t.currentPosition || 0)) / 100) * (h - padding.top - padding.bottom);
+                const yTarget = padding.top + ((100 - (t.position || 0)) / 100) * (h - padding.top - padding.bottom);
+
+                ctx.fillStyle = '#06b6d4';
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Store positions for tooltip
+                t._posX = x;
+                t._posY = y;
+                t._posYTgt = yTarget;
             });
 
-            document.getElementById('positionLegend').innerHTML = '<div class="legend-item"><div class="legend-color" style="background:#8b5cf6"></div><span>Cover Position %</span></div>';
+            // Tooltip handler for position chart
+            const tooltip = document.getElementById('positionTooltip');
+            canvas.onmousemove = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+
+                let found = null;
+                for (const t of loadedTraces) {
+                    // Check horizontal proximity primarily, as points are distributed by time
+                    if (Math.abs(mx - t._posX) < 15) {
+                        found = t;
+                        break;
+                    }
+                }
+
+                if (found) {
+                    tooltip.innerHTML = `
+                        <div class="tooltip-header" style="border-bottom-color: var(--accent-cyan)">
+                            <span class="tooltip-icon">📍</span>
+                            <span class="tooltip-title">Position Trend</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Time</span>
+                            <span class="tooltip-value">${formatTimestamp(found.timestamp)}</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Current Pos</span>
+                            <span class="tooltip-value" style="color:var(--accent-cyan)">${found.currentPosition ?? 0}%</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Target Pos</span>
+                            <span class="tooltip-value" style="color:var(--accent-purple)">${found.position ?? 0}%</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">State</span>
+                            <span class="tooltip-value" style="font-size: 0.75rem">${found.helperState}</span>
+                        </div>
+                    `;
+
+                    const tooltipHeight = tooltip.offsetHeight || 150;
+                    const tooltipWidth = 260;
+
+                    // Position calculations
+                    let xPos = found._posX + 15;
+                    let yPos = Math.min(found._posY, found._posYTgt) - 20;
+
+                    // Boundary checks
+                    if (xPos + tooltipWidth > w) xPos = found._posX - tooltipWidth - 15;
+                    if (yPos < 10) yPos = Math.max(found._posY, found._posYTgt) + 20;
+                    if (yPos + tooltipHeight > h) yPos = h - tooltipHeight - 10;
+
+                    tooltip.style.left = xPos + 'px';
+                    tooltip.style.top = yPos + 'px';
+                    tooltip.classList.add('visible');
+                } else {
+                    tooltip.classList.remove('visible');
+                }
+            };
+
+            canvas.onmouseleave = () => tooltip.classList.remove('visible');
+
+            document.getElementById('positionLegend').innerHTML = `
+                <div class="legend-item"><div class="legend-color" style="background:#06b6d4"></div><span>Current Position %</span></div>
+                <div class="legend-item"><div class="legend-color" style="background:#8b5cf6; border:1px dashed #fff"></div><span>Target Position %</span></div>
+            `;
         }
 
         function renderTimingChart() {
@@ -1764,31 +1954,42 @@
 
         function renderStateProgression() {
             const table = document.getElementById('stateTable');
-            table.querySelector('thead').innerHTML = '<tr><th>Timestamp</th><th>Trigger</th><th>Status / Reason</th><th>Helper</th><th>Position</th><th>Change</th><th>Actions</th></tr>';
+            table.querySelector('thead').innerHTML = '<tr><th>Timestamp</th><th>Trigger / Branch</th><th>Status / Reason</th><th>Helper</th><th>Position</th><th>Change (Target)</th><th>Actions</th></tr>';
 
-            let lastPos = null;
             table.querySelector('tbody').innerHTML = loadedTraces.map((t, idx) => {
                 let changeStr = '<span class="position-change none">-</span>';
-                if (lastPos !== null && t.position !== null) {
-                    const diff = t.position - lastPos;
-                    if (diff > 0) changeStr = `<span class="position-change up">↑ ${diff}%</span>`;
-                    else if (diff < 0) changeStr = `<span class="position-change down">↓ ${Math.abs(diff)}%</span>`;
+
+                // Calculate change performed BY THIS TRACE (target position vs starting position)
+                if (t.currentPosition !== undefined && t.position !== undefined && t.currentPosition !== null && t.position !== null) {
+                    const diff = t.position - t.currentPosition;
+                    if (diff > 0) changeStr = `<span class="position-change up" title="Target position increased by ${diff}% in this trace">↑ ${diff}%</span>`;
+                    else if (diff < 0) changeStr = `<span class="position-change down" title="Target position decreased by ${Math.abs(diff)}% in this trace">↓ ${Math.abs(diff)}%</span>`;
                 }
-                lastPos = t.position;
 
                 return `
                     <tr>
                         <td class="mono">${formatTimestamp(t.timestamp)}</td>
-                        <td><span class="mono">${t.trigger?.id || '-'}</span></td>
                         <td>
-                            <span class="status-badge ${t.state}">${t.state}</span>
+                            <div style="font-weight:600; color:var(--accent-purple)">${t.trigger?.id || '-'}</div>
+                            <div style="font-size:0.75rem; opacity:0.7">${t.branch ? t.branch.icon + ' ' + t.branch.name : 'No Branch'}</div>
+                        </td>
+                        <td>
+                            <span class="status-badge ${t.state}">${t.state === 'finished' ? t.lastStep : t.state}</span>
                             ${t.stopReason ? `<span class="reason-text">${t.stopReason}</span>` : ''}
                         </td>
-                        <td><span class="status-badge" style="background:rgba(255,255,255,0.05)">${t.helperState}</span></td>
-                        <td class="mono">${t.position ?? '-'}%</td>
+                        <td>
+                            <div class="status-badge" style="background:rgba(255,255,255,0.05)">${t.helperState}</div>
+                            ${t.newHelper !== 'no change' ? `<div style="font-size:0.7rem; color:var(--accent-green); margin-top:2px;">(was ${t.prevHelper})</div>` : ''}
+                        </td>
+                        <td>
+                            <div class="mono">${t.currentPosition ?? '-'}% <span style="opacity:0.5; font-size:0.8em;">(cur)</span></div>
+                            <div class="mono" style="color:var(--accent-purple)">${t.position ?? '-'}% <span style="opacity:0.5; font-size:0.8em;">(tgt)</span></div>
+                        </td>
                         <td>${changeStr}</td>
                         <td>
-                            <button class="action-btn small" onclick="openInAnalyzer(${idx})" title="Full Analysis">🔍 Analyze</button>
+                            <div style="display:flex; gap:0.5rem;">
+                                <button class="action-btn small" onclick="openInAnalyzer(${idx})" title="Full Analysis">🔍 Analyze</button>
+                            </div>
                         </td>
                     </tr>
                 `;

@@ -1268,8 +1268,6 @@
                 <button class="action-btn primary" id="newAnalysis">📤 Analyze Another</button>
                 <button class="action-btn" id="copyReport">📋 Copy Report</button>
                 <button class="action-btn" id="downloadReport">💾 Download Report</button>
-                <a href="https://hvorragend.github.io/ha-blueprints/validator/" target="_blank" class="action-btn">✅
-                    Configuration Validator</a>
             </div>
 
             <div class="summary-grid" id="summaryGrid"></div>
@@ -1596,15 +1594,12 @@
             try {
                 const urlObj = new URL(url);
 
-                // Gist handling: gist.github.com/user/id -> gist.githubusercontent.com/user/id/raw
                 if (urlObj.hostname === 'gist.github.com') {
                     const parts = urlObj.pathname.split('/').filter(p => p);
                     if (parts.length >= 2) {
                         url = `https://gist.githubusercontent.com/${parts[0]}/${parts[1]}/raw`;
                     }
-                }
-                // Pastebin handling: pastebin.com/id -> pastebin.com/raw/id
-                else if (urlObj.hostname === 'pastebin.com' && !urlObj.pathname.startsWith('/raw/')) {
+                } else if (urlObj.hostname === 'pastebin.com' && !urlObj.pathname.startsWith('/raw/')) {
                     const id = urlObj.pathname.substring(1);
                     if (id) url = `https://pastebin.com/raw/${id}`;
                 }
@@ -1619,80 +1614,68 @@
                 let response;
                 let errorDetails = '';
 
-                // Try direct fetch first
                 try {
                     response = await fetch(url);
                 } catch (fetchErr) {
-                    console.warn(`Direct fetch failed: ${fetchErr.message}`);
                     errorDetails += `Direct: ${fetchErr.message}\n`;
                 }
 
-                // If direct failed or returned error, try Proxy 1 (corsproxy.io)
                 if (!response || !response.ok) {
-                    console.log('Attempting fetch via corsproxy.io...');
                     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
                     try {
                         response = await fetch(proxyUrl);
                     } catch (proxyErr) {
-                        console.warn(`corsproxy.io failed: ${proxyErr.message}`);
                         errorDetails += `Proxy 1: ${proxyErr.message}\n`;
                     }
                 }
 
-                // If still failed, try Proxy 2 (allorigins.win)
                 if (!response || !response.ok) {
-                    console.log('Attempting fetch via allorigins.win...');
                     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
                     try {
                         const proxyResponse = await fetch(proxyUrl);
                         if (proxyResponse.ok) {
                             const data = await proxyResponse.json();
-                            processJsonText(data.contents);
-                            return; // Success!
+                            const filename = url.split('/').pop() || 'remote_trace';
+                            processJsonText(data.contents, filename);
+                            return;
                         }
                     } catch (proxyErr) {
-                        console.warn(`allorigins.win failed: ${proxyErr.message}`);
                         errorDetails += `Proxy 2: ${proxyErr.message}\n`;
                     }
                 }
 
                 if (response && response.ok) {
                     const jsonText = await response.text();
-                    processJsonText(jsonText);
+                    const filename = url.split('/').pop() || 'remote_trace';
+                    processJsonText(jsonText, filename);
                 } else {
                     throw new Error(errorDetails || `Status: ${response?.status || 'Unknown'}`);
                 }
             } catch (err) {
                 console.error('All fetch attempts failed:', err);
-                alert(`Could not fetch the trace.\n\nPastebin often blocks direct access and some proxies might also be limited.\n\nDetails:\n${err.message}\n\nPlease try "Manual JSON Paste" or download the file.`);
+                alert(`Could not fetch the trace.\n\nDetails:\n${err.message}`);
             } finally {
                 fetchUrlBtn.disabled = false;
                 fetchUrlBtn.textContent = '🔍 Fetch Trace';
             }
         }
 
-        function processJsonText(jsonText) {
+        function processJsonText(jsonText, filename = 'pasted_trace.json') {
             let trace = null;
             let repaired = false;
 
-            // Pre-processing: Handle objects if already parsed by proxy (e.g. allorigins)
             if (typeof jsonText === 'object' && jsonText !== null) {
                 trace = jsonText;
             } else if (typeof jsonText === 'string') {
-                // Handling BOM (Byte Order Mark) which can cause JSON.parse to fail
                 const cleanText = jsonText.trim().replace(/^\uFEFF/, '');
-
-                // First try: Parse as-is
                 try {
                     trace = JSON.parse(cleanText);
                 } catch (err) {
-                    console.warn('Initial parse failed, attempting repair...', err.message);
                     try {
                         trace = repairTruncatedJson(cleanText);
                         repaired = true;
                     } catch (repairErr) {
-                        console.error('Repair failed:', repairErr);
-                        alert('Error parsing JSON: ' + err.message + '\n\nThe trace data appears to be corrupted.');
+                        alert('Error parsing JSON: ' + err.message);
                         return;
                     }
                 }
@@ -1701,6 +1684,7 @@
             if (trace) {
                 currentTrace = trace;
                 currentTrace._repaired = repaired;
+                currentTrace._filename = filename;
                 try {
                     analyzeTrace(trace);
                 } catch (analysisErr) {
@@ -1712,7 +1696,7 @@
 
         function processFile(file) {
             const reader = new FileReader();
-            reader.onload = (e) => processJsonText(e.target.result);
+            reader.onload = (e) => processJsonText(e.target.result, file.name);
             reader.readAsText(file);
         }
 
@@ -2293,9 +2277,10 @@
                     }
 
                     // Check if this was the default branch
-                    if (lastStep.includes('default/') && i === 13) {
-                        status = 'fail';
-                        reason = 'Default branch - no matching branch found';
+                    if (lastStep.includes('default/')) {
+                        if (i === 13 && status === 'skip') {
+                            // Don't mark branch 13 as fail just because it fallthrough to default
+                        }
                     }
 
                     const icon = branchDef ? branchDef.icon : '❓';
@@ -2316,6 +2301,23 @@
                                 </div>
                                 <div class="branch-description">${desc}</div>
                                 <div class="branch-reason ${status}">${reason}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                if (lastStep.includes('default/')) {
+                    // Only highlight as the path if it's the TOP LEVEL default action (not nested)
+                    const isMainDefault = lastStep.includes('action/6/default');
+                    html += `
+                        <div class="branch-item ${isMainDefault ? 'executed' : ''}" style="${isMainDefault ? 'border-left-color: var(--accent-green); background: rgba(0, 255, 136, 0.05);' : 'border-left-color: var(--border-color); background: var(--bg-tertiary); opacity: 0.8;'}">
+                            <div class="branch-icon">⚙️</div>
+                            <div class="branch-content">
+                                <div class="branch-title">
+                                    → Default Action
+                                </div>
+                                <div class="branch-description">No specific branch conditions were met. Automation took the default path.</div>
+                                <div class="branch-reason ${isMainDefault ? 'executed' : ''}" style="${isMainDefault ? 'border-left-color: var(--accent-green);' : 'border-left-color: var(--border-color);'}">Default execution path</div>
                             </div>
                         </div>
                     `;
@@ -2429,12 +2431,13 @@
                 return lastStep;
             }
             // If we stopped in a choose block, analyze which condition failed
-            const chooseMatch = lastStep.match(/action\/6\/choose\/(\d+)\/sequence/);
+            const chooseMatch = lastStep.match(/choose\/(\d+)\/sequence/);
             if (chooseMatch) {
-                return `action/6/choose/${chooseMatch[1]}/conditions`;
+                return lastStep.replace('/sequence', '/conditions');
             }
             return null;
         }
+
 
         // Extract condition chain details
         function extractConditionChain(innerTrace, path) {
@@ -2552,16 +2555,42 @@
         }
 
         function extractVariables(innerTrace) {
-            // Get variables from the trigger step
+            let allVars = {};
+
+            // 1. Shallow collect from all steps (prioritize later steps)
             for (const key of Object.keys(innerTrace)) {
-                if (key.startsWith('trigger/')) {
-                    const step = innerTrace[key][0];
-                    if (step && step.changed_variables) {
-                        return step.changed_variables;
-                    }
+                const steps = innerTrace[key];
+                for (const step of steps) {
+                    if (step.variables) allVars = { ...allVars, ...step.variables };
+                    if (step.changed_variables) allVars = { ...allVars, ...step.changed_variables };
                 }
             }
-            return {};
+
+            // 2. Deep scan: If helper_json is still missing, look INTO every variable for it
+            if (!allVars.helper_json) {
+                for (const key of Object.keys(innerTrace)) {
+                    const steps = innerTrace[key];
+                    for (const step of steps) {
+                        const searchObj = (vars) => {
+                            if (!vars || typeof vars !== 'object') return null;
+                            if (vars.helper_json) return vars.helper_json;
+                            for (const k in vars) {
+                                const found = searchObj(vars[k]);
+                                if (found) return found;
+                            }
+                            return null;
+                        };
+                        const found = searchObj(step.variables) || searchObj(step.changed_variables);
+                        if (found) {
+                            allVars.helper_json = found;
+                            break;
+                        }
+                    }
+                    if (allVars.helper_json) break;
+                }
+            }
+
+            return allVars;
         }
 
         function parseExecutionSteps(innerTrace, lastStep) {
@@ -2590,8 +2619,7 @@
         }
 
         function renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId) {
-            const startTime = timestamp.start ? new Date(timestamp.start).toLocaleString() : 'N/A';
-            const endTime = timestamp.finish ? new Date(timestamp.finish).toLocaleString() : 'N/A';
+            const startTime = timestamp.start ? new Date(timestamp.start).toLocaleString('de-DE') : 'N/A';
             const duration = timestamp.start && timestamp.finish ?
                 ((new Date(timestamp.finish) - new Date(timestamp.start)) / 1000).toFixed(1) + 's' : 'N/A';
 
@@ -2607,15 +2635,17 @@
                 </div>
             ` : '';
 
+            // Handle "Stopped" vs "Finished" - merger logic
+            const statusDisplay = (scriptExecution === 'finished' || state === 'stopped') ? '✅ Finished' : '🛑 Stopped';
+            const statusClass = (scriptExecution === 'finished' || state === 'stopped') ? 'status-finished' : 'status-stopped';
+
             document.getElementById('summaryGrid').innerHTML = `${repairWarning}
-                <div class="summary-card status-${scriptExecution}">
+                <div class="summary-card ${statusClass}">
                     <div class="card-label">Execution Status</div>
-                    <div class="card-value">
-                        ${scriptExecution === 'finished' ? '✅ Finished' :
-                    state === 'stopped' ? '🛑 Stopped' : '⏳ ' + state}
-                    </div>
+                    <div class="card-value">${statusDisplay}</div>
                     <div class="card-detail">Duration: ${duration}</div>
-                    <div class="card-mono">${startTime}</div>
+                    <div class="card-detail">${startTime}</div>
+                    <div class="card-mono" style="margin-top: 0.5rem; font-size: 0.7rem; opacity: 0.7;">Source: ${currentTrace._filename || 'manual'}</div>
                 </div>
 
                 <div class="summary-card trigger-info">
@@ -2705,7 +2735,16 @@
 
                 // Analyze why no branch was matched
                 if (lastStep.includes('condition')) {
-                    interpretation += `<p>A <strong>global condition</strong> or branch condition was not met.</p>`;
+                    const condResult = lastStepData && lastStepData[0] ? lastStepData[0].result : null;
+                    const condName = (condResult && condResult.message) ? condResult.message : 'Condition check';
+
+                    interpretation += `
+                        <div class="fail-badge" style="display:inline-block; background:rgba(239, 68, 68, 0.2); color:var(--accent-red); padding:0.2rem 0.6rem; border-radius:4px; font-weight:600; margin-bottom:1rem;">
+                            ❌ Condition not met
+                        </div>
+                        <p>The execution stopped because a requirement was not fulfilled: <strong>${condName}</strong></p>
+                    `;
+
                     suggestions = [
                         'Check the condition evaluations in the Execution Path below.',
                         'Look for conditions that returned "false".',
@@ -2717,22 +2756,93 @@
             document.getElementById('lastStepContent').innerHTML = `
                 <div class="last-step-analysis">
                     <h4>🎯 What happened at the last step?</h4>
-                    <div class="last-step-path">${lastStep}</div>
+                    <div class="last-step-path" style="font-family:var(--font-mono); font-size:0.8rem; background:var(--bg-primary); padding:0.5rem; border-radius:4px; margin-bottom:1rem; opacity:0.8;">${lastStep}</div>
                     <div class="last-step-interpretation">
                         ${interpretation}
                     </div>
                 </div>
                 ${suggestions.length > 0 ? `
-                    <ul class="suggestions-list">
+                    <ul class="suggestions-list" style="margin-top:1.5rem; border-top:1px solid var(--border-color); padding-top:1rem;">
                         ${suggestions.map(s => `<li>${s}</li>`).join('')}
                     </ul>
                 ` : ''}
             `;
         }
 
+        function formatHelperValue(hJson) {
+            if (!hJson || typeof hJson !== 'object') return String(hJson || 'unknown');
+
+            // CCA Status Object structure: { "key": { "a": 1, "t": ... }, ... }
+            const keys = [
+                'open', 'close', 'closed', 'shading', 'shaded',
+                'shading_start_pending', 'shading_end_pending',
+                'vpart', 'vfull', 'manual'
+            ];
+            for (const key of keys) {
+                const status = hJson[key];
+                if (status && (status.a === 1 || status.a === true)) {
+                    // Prettify the key
+                    let label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+                    if (label === 'Close') label = 'Closed';
+                    if (label === 'Shading') label = 'Shaded';
+                    return label;
+                }
+            }
+
+            // Fallback for string keys if present
+            if (hJson.cover_status) return String(hJson.cover_status);
+
+            return 'unknown';
+        }
+
         function renderHelperStatus(variables) {
             const helperStatus = variables.helper_status || {};
-            const helperJson = variables.helper_json || {};
+            let helperJson = variables.helper_json;
+
+            // Extreme Fallback: Search the entire currentTrace object for helper_json if missing
+            if (!helperJson && currentTrace) {
+                const deepSearch = (obj, depth = 0) => {
+                    if (!obj || typeof obj !== 'object' || depth > 10) return null;
+                    if (obj.helper_json) return obj.helper_json;
+                    for (const k in obj) {
+                        const found = deepSearch(obj[k], depth + 1);
+                        if (found) return found;
+                    }
+                    return null;
+                };
+                helperJson = deepSearch(currentTrace);
+            }
+            if (!helperJson) helperJson = {};
+
+            // Robust parsing if it's a string
+            if (typeof helperJson === 'string' && (helperJson.trim().startsWith('{') || helperJson.trim().startsWith('['))) {
+                try {
+                    helperJson = JSON.parse(helperJson);
+                } catch (e) {
+                    console.warn('Failed to parse helper_json string:', helperJson);
+                }
+            }
+
+            const innerTrace = currentTrace.trace?.trace || {};
+
+            // Extract previous and new values
+            const prevValue = formatHelperValue(helperJson);
+            let newValue = 'no change';
+
+            // Find new value from actions
+            for (const [path, steps] of Object.entries(innerTrace)) {
+                for (const step of steps) {
+                    if (step.result && step.result.params && step.result.params.service === 'set_value' && step.result.params.domain === 'input_text') {
+                        let potentialValue = step.result.params.service_data?.value || step.result.params.data?.value || 'empty';
+                        // Handle object values (sometimes stored as { value: '...' })
+                        if (typeof potentialValue === 'object' && potentialValue !== null) {
+                            newValue = formatHelperValue(potentialValue);
+                        } else {
+                            newValue = potentialValue;
+                        }
+                    }
+                }
+            }
 
             const items = [
                 { key: 'open', label: 'Open' },
@@ -2745,7 +2855,19 @@
                 { key: 'manual', label: 'Manual' }
             ];
 
-            document.getElementById('helperContent').innerHTML = `
+            let html = `
+                <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 12px; border: 1px solid var(--border-color);">
+                    <div style="flex: 1;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.25rem;">Previous Helper Value</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: var(--text-secondary);">${prevValue}</div>
+                    </div>
+                    <div style="display: flex; align-items: center; color: var(--text-muted); font-size: 1.2rem;">➜</div>
+                    <div style="flex: 1; text-align: right;">
+                        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.25rem;">New Helper Value</div>
+                        <div style="font-size: 1.1rem; font-weight: 700; color: ${newValue !== 'no change' ? 'var(--accent-green)' : 'var(--text-muted)'};">${newValue}</div>
+                    </div>
+                </div>
+
                 <div class="helper-grid">
                     ${items.map(item => {
                 const value = helperStatus[item.key];
@@ -2760,12 +2882,18 @@
                         `;
             }).join('')}
                 </div>
-                ${helperJson.t ? `
-                    <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted);">
-                        Helper last updated: ${new Date(helperJson.t * 1000).toLocaleString()}
-                    </div>
-                ` : ''}
             `;
+
+            if (helperJson.t) {
+                html += `
+                    <div style="margin-top: 1rem; font-size: 0.8rem; color: var(--text-muted); display: flex; justify-content: space-between;">
+                        <span>Last Update: ${new Date(helperJson.t * 1000).toLocaleString('de-DE')}</span>
+                        <span style="font-family: var(--font-mono); opacity: 0.5;">t: ${helperJson.t}</span>
+                    </div>
+                `;
+            }
+
+            document.getElementById('helperContent').innerHTML = html;
         }
 
         // NEW: Timing Analysis
