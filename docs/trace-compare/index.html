@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCA Trace Compare</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a24;
+            --bg-card: #16161f;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-yellow: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+            --accent-orange: #f97316;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border-color: #2a2a3a;
+            --border-highlight: #3b3b4f;
+            --shadow-glow: rgba(59, 130, 246, 0.15);
+            --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(139, 92, 246, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(139, 92, 246, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container { max-width: 1600px; margin: 0 auto; padding: 2rem; }
+
+        header { text-align: center; margin-bottom: 3rem; padding: 2rem 0; }
+
+        .logo { display: inline-flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+
+        .logo-icon {
+            width: 48px; height: 48px;
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5rem; font-weight: 700;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent-purple));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+
+        .subtitle { color: var(--text-secondary); font-size: 1.1rem; margin-top: 0.5rem; }
+
+        .version-badge {
+            display: inline-block;
+            background: var(--bg-tertiary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: var(--accent-purple);
+            border: 1px solid var(--border-color);
+            margin-top: 1rem;
+        }
+
+        /* Upload Section */
+        .upload-section { margin-bottom: 2rem; }
+
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 16px;
+            padding: 3rem 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: var(--bg-secondary);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .upload-area::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(6, 182, 212, 0.05));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .upload-area:hover, .upload-area.drag-over {
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 30px rgba(139, 92, 246, 0.2);
+        }
+
+        .upload-area:hover::before, .upload-area.drag-over::before { opacity: 1; }
+
+        .upload-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.7; }
+        .upload-text { color: var(--text-secondary); margin-bottom: 1rem; }
+        .upload-text strong { color: var(--accent-purple); }
+        .file-input { display: none; }
+        .upload-hint { font-size: 0.85rem; color: var(--text-muted); }
+
+        /* File List */
+        .file-list {
+            margin-top: 1.5rem;
+            display: none;
+        }
+
+        .file-list.visible { display: block; }
+
+        .file-list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .file-list-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .file-count {
+            background: var(--accent-purple);
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        .file-list-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .file-items {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .file-item:hover {
+            border-color: var(--border-highlight);
+        }
+
+        .file-item-icon {
+            font-size: 1.25rem;
+        }
+
+        .file-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-item-name {
+            font-weight: 500;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-item-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .file-item-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-badge {
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .status-badge.finished {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .status-badge.stopped {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+
+        .file-item-remove {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+            font-size: 1rem;
+            transition: color 0.2s;
+        }
+
+        .file-item-remove:hover {
+            color: var(--accent-red);
+        }
+
+        /* Action Buttons */
+        .action-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+            font-family: var(--font-sans);
+            text-decoration: none;
+        }
+
+        .action-btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-purple);
+        }
+
+        .action-btn.primary {
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+            border: none;
+        }
+
+        .action-btn.danger {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        .action-btn.danger:hover {
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        /* Results Section */
+        .results-section { display: none; }
+        .results-section.visible { display: block; animation: fadeIn 0.4s ease; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Summary Stats */
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        /* Timeline */
+        .timeline-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .timeline-header h3 {
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .timeline-canvas-wrapper {
+            position: relative;
+            height: 200px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .timeline-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .timeline-tooltip {
+            position: absolute;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-highlight);
+            border-radius: 8px;
+            padding: 0.75rem;
+            font-size: 0.8rem;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 100;
+            max-width: 300px;
+        }
+
+        .timeline-tooltip.visible { opacity: 1; }
+
+        /* Charts Grid */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            overflow: hidden;
+        }
+
+        .chart-card h3 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chart-canvas-wrapper {
+            height: 250px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .chart-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Branch Stats */
+        .branch-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .branch-stat-item {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .branch-stat-icon {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .branch-stat-name {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .branch-stat-count {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .branch-stat-bar {
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+
+        .branch-stat-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        /* State Progression Table */
+        .state-table-wrapper {
+            overflow-x: auto;
+        }
+
+        .state-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .state-table th,
+        .state-table td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .state-table th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .state-table tr:hover td {
+            background: var(--bg-tertiary);
+        }
+
+        .state-table td {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+        }
+
+        .position-change {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .position-change.up {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .position-change.down {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+
+        .position-change.none {
+            color: var(--text-muted);
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border-color);
+            margin-top: 3rem;
+        }
+
+        footer a { color: var(--accent-cyan); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-tertiary); }
+        ::-webkit-scrollbar-thumb { background: var(--border-highlight); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container { padding: 1rem; }
+            h1 { font-size: 1.75rem; }
+            .charts-grid { grid-template-columns: 1fr; }
+            .summary-stats { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        /* Legend */
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        /* Analysis Panel */
+        .analysis-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .panel-header:hover { background: var(--bg-tertiary); }
+
+        .panel-header h3 {
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .panel-toggle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            transition: transform 0.3s ease;
+        }
+
+        .panel-header.expanded .panel-toggle { transform: rotate(180deg); }
+
+        .panel-content {
+            padding: 1.5rem;
+        }
+
+        .panel-content.collapsible { display: none; }
+        .panel-content.collapsible.visible { display: block; }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">📊</div>
+                <h1>CCA Trace Compare</h1>
+            </div>
+            <p class="subtitle">Compare multiple CCA traces and visualize state progression over time</p>
+            <span class="version-badge">v1.0 - For CCA Blueprint v2025.12.22+</span>
+        </header>
+
+        <section class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <p class="upload-text">
+                    <strong>Drop multiple trace JSON files here</strong><br>
+                    or click to browse
+                </p>
+                <p class="upload-hint">
+                    Select 2 or more trace files to compare their execution and state changes over time
+                </p>
+                <input type="file" class="file-input" id="fileInput" accept=".json,application/json" multiple>
+            </div>
+
+            <div class="file-list" id="fileList">
+                <div class="file-list-header">
+                    <div class="file-list-title">
+                        Loaded Traces <span class="file-count" id="fileCount">0</span>
+                    </div>
+                    <div class="file-list-actions">
+                        <button class="action-btn" id="addMoreBtn">➕ Add More</button>
+                        <button class="action-btn danger" id="clearAllBtn">🗑️ Clear All</button>
+                    </div>
+                </div>
+                <div class="file-items" id="fileItems"></div>
+                <div style="margin-top: 1rem; text-align: center;">
+                    <button class="action-btn primary" id="analyzeBtn" disabled>📊 Analyze & Compare</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="results-section" id="resultsSection">
+            <!-- Summary Stats -->
+            <div class="summary-stats" id="summaryStats"></div>
+
+            <!-- Timeline -->
+            <div class="timeline-container">
+                <div class="timeline-header">
+                    <h3>📈 Execution Timeline</h3>
+                </div>
+                <div class="timeline-canvas-wrapper">
+                    <canvas id="timelineCanvas" class="timeline-canvas"></canvas>
+                    <div class="timeline-tooltip" id="timelineTooltip"></div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3>📍 Cover Position Over Time</h3>
+                    <div class="chart-canvas-wrapper">
+                        <canvas id="positionChart" class="chart-canvas"></canvas>
+                    </div>
+                    <div class="chart-legend" id="positionLegend"></div>
+                </div>
+                <div class="chart-card">
+                    <h3>☀️ Sun Position Over Time</h3>
+                    <div class="chart-canvas-wrapper">
+                        <canvas id="sunChart" class="chart-canvas"></canvas>
+                    </div>
+                    <div class="chart-legend" id="sunLegend"></div>
+                </div>
+            </div>
+
+            <!-- Branch Statistics -->
+            <div class="analysis-panel">
+                <div class="panel-header expanded" id="branchStatsHeader">
+                    <h3>🏗️ Branch Statistics</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="branchStatsContent">
+                    <div class="branch-stats" id="branchStats"></div>
+                </div>
+            </div>
+
+            <!-- State Progression -->
+            <div class="analysis-panel">
+                <div class="panel-header expanded" id="stateProgressionHeader">
+                    <h3>📋 State Progression</h3>
+                    <span class="panel-toggle">▼</span>
+                </div>
+                <div class="panel-content collapsible visible" id="stateProgressionContent">
+                    <div class="state-table-wrapper">
+                        <table class="state-table" id="stateTable">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="text-align: center; margin-top: 2rem;">
+                <button class="action-btn primary" id="newCompareBtn">📤 New Comparison</button>
+                <a href="../trace-analyzer/" class="action-btn">🔍 Single Trace Analyzer</a>
+            </div>
+        </section>
+    </div>
+
+    <footer>
+        <p>CCA Trace Compare • Made with ❤️ by <a href="https://github.com/hvorragend">hvorragend</a></p>
+        <a href="https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539" target="_blank">CCA Community Thread</a> •
+        <a href="../validator/" target="_blank">📦 Configuration Validator</a> •
+        <a href="../trace-analyzer/" target="_blank">🔍 Trace Analyzer</a> •
+        <a href="https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/FAQ.md" target="_blank">❓ FAQ</a> •
+        <a href="https://github.com/hvorragend/ha-blueprints" target="_blank">📦 GitHub Repository</a>
+    </footer>
+
+    <script>
+        // =====================================================================
+        // CCA TRACE COMPARE v1.0
+        // Compare multiple traces and visualize state progression
+        // =====================================================================
+
+        // Branch definitions from CCA Blueprint
+        const BRANCH_DEFINITIONS = {
+            0: { name: 'Opening', description: 'Automatic cover opening', icon: '🔼' },
+            1: { name: 'Closing', description: 'Automatic cover closing', icon: '🔻' },
+            2: { name: 'Shading Start', description: 'Activates sun protection', icon: '☀️' },
+            3: { name: 'Shading Tilt', description: 'Adjusts tilt during shading', icon: '📐' },
+            4: { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
+            5: { name: 'Contact Sensor', description: 'Window/door state change', icon: '🪟' },
+            6: { name: 'Force Open', description: 'Forced opening', icon: '⬆️' },
+            7: { name: 'Force Close', description: 'Forced closing', icon: '⬇️' },
+            8: { name: 'Force Ventilate', description: 'Forced ventilation', icon: '💨' },
+            9: { name: 'Force Shading', description: 'Forced shading', icon: '🌞' },
+            10: { name: 'Manual Detection', description: 'Manual position change', icon: '🖐️' },
+            11: { name: 'Reset Override', description: 'Resets manual override', icon: '🔄' },
+            12: { name: 'Return After Force', description: 'Returns to background state', icon: '↩️' },
+            13: { name: 'Midnight Reset', description: 'End of day reset', icon: '🌙' }
+        };
+
+        // Trigger explanations
+        const TRIGGER_EXPLANATIONS = {
+            't_open_1': 'Time-based opening (early)',
+            't_open_2': 'Time-based opening (late)',
+            't_open_4': 'Brightness exceeded threshold',
+            't_open_5': 'Sun elevation exceeded threshold',
+            't_open_6': 'Resident woke up',
+            't_close_1': 'Time-based closing (early)',
+            't_close_2': 'Time-based closing (late)',
+            't_close_4': 'Brightness dropped below threshold',
+            't_close_5': 'Sun elevation dropped below threshold',
+            't_close_6': 'Resident went to sleep',
+            't_shading_start_pending_1': 'Sun entered shading range',
+            't_shading_start_pending_2': 'Brightness exceeded threshold',
+            't_shading_start_execution': 'Shading wait completed',
+            't_shading_end_pending_1': 'Temp 1 dropped below threshold',
+            't_shading_end_pending_5': 'Sun left shading range',
+            't_shading_end_execution': 'Shading end wait completed',
+            't_manual_position': 'Manual position change',
+            't_manual_tilt': 'Manual tilt change'
+        };
+
+        // State
+        let loadedTraces = [];
+        let analyzedData = null;
+
+        // DOM Elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const fileItems = document.getElementById('fileItems');
+        const fileCount = document.getElementById('fileCount');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resultsSection = document.getElementById('resultsSection');
+
+        // Event Listeners
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
+        uploadArea.addEventListener('drop', handleFileDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+
+        document.getElementById('addMoreBtn').addEventListener('click', () => fileInput.click());
+        document.getElementById('clearAllBtn').addEventListener('click', clearAllFiles);
+        document.getElementById('analyzeBtn').addEventListener('click', analyzeTraces);
+        document.getElementById('newCompareBtn').addEventListener('click', resetToUpload);
+
+        // Panel toggles
+        ['branchStatsHeader', 'stateProgressionHeader'].forEach(id => {
+            document.getElementById(id).addEventListener('click', function() {
+                this.classList.toggle('expanded');
+                this.nextElementSibling.classList.toggle('visible');
+            });
+        });
+
+        function handleFileDrop(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.json'));
+            if (files.length > 0) processFiles(files);
+        }
+
+        function handleFileSelect(e) {
+            const files = Array.from(e.target.files);
+            if (files.length > 0) processFiles(files);
+        }
+
+        async function processFiles(files) {
+            for (const file of files) {
+                try {
+                    const text = await file.text();
+                    const trace = parseTrace(text);
+                    if (trace) {
+                        loadedTraces.push({
+                            filename: file.name,
+                            trace: trace,
+                            timestamp: extractTimestamp(trace),
+                            state: extractState(trace),
+                            branch: extractBranch(trace),
+                            trigger: extractTrigger(trace),
+                            variables: extractVariables(trace)
+                        });
+                    }
+                } catch (err) {
+                    console.error(`Error parsing ${file.name}:`, err);
+                }
+            }
+
+            // Sort by timestamp
+            loadedTraces.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            updateFileList();
+            fileInput.value = '';
+        }
+
+        function parseTrace(jsonText) {
+            try {
+                return JSON.parse(jsonText);
+            } catch (err) {
+                // Try repair
+                return repairTruncatedJson(jsonText);
+            }
+        }
+
+        function repairTruncatedJson(jsonText) {
+            let text = jsonText;
+            const configMatch = text.match(/,\s*"config"\s*:\s*\{/);
+            if (configMatch) {
+                text = text.substring(0, configMatch.index);
+            }
+            text = text.replace(/,\s*$/, '');
+            const openBraces = (text.match(/{/g) || []).length;
+            const closeBraces = (text.match(/}/g) || []).length;
+            const openBrackets = (text.match(/\[/g) || []).length;
+            const closeBrackets = (text.match(/]/g) || []).length;
+            for (let i = 0; i < openBrackets - closeBrackets; i++) text += ']';
+            for (let i = 0; i < openBraces - closeBraces; i++) text += '}';
+            return JSON.parse(text);
+        }
+
+        function extractTimestamp(trace) {
+            return trace?.trace?.timestamp?.start || trace?.timestamp?.start || new Date().toISOString();
+        }
+
+        function extractState(trace) {
+            return trace?.trace?.state || trace?.state || 'unknown';
+        }
+
+        function extractBranch(trace) {
+            const lastStep = trace?.trace?.last_step || '';
+            const match = lastStep.match(/choose\/(\d+)/);
+            if (match) {
+                const branchNum = parseInt(match[1]);
+                return { number: branchNum, ...BRANCH_DEFINITIONS[branchNum] };
+            }
+            return null;
+        }
+
+        function extractTrigger(trace) {
+            const innerTrace = trace?.trace?.trace || {};
+            const triggerStep = innerTrace['trigger'] || innerTrace['trigger/0'];
+            if (triggerStep && triggerStep[0]?.variables?.trigger) {
+                const triggerId = triggerStep[0].variables.trigger.id;
+                return {
+                    id: triggerId,
+                    description: TRIGGER_EXPLANATIONS[triggerId] || triggerId
+                };
+            }
+            return null;
+        }
+
+        function extractVariables(trace) {
+            const innerTrace = trace?.trace?.trace || {};
+            for (const key of Object.keys(innerTrace)) {
+                if (key.startsWith('trigger')) {
+                    const step = innerTrace[key];
+                    if (step && step[0]?.variables) {
+                        return step[0].variables;
+                    }
+                }
+            }
+            return {};
+        }
+
+        function updateFileList() {
+            fileCount.textContent = loadedTraces.length;
+            analyzeBtn.disabled = loadedTraces.length < 2;
+
+            if (loadedTraces.length > 0) {
+                fileList.classList.add('visible');
+            } else {
+                fileList.classList.remove('visible');
+            }
+
+            fileItems.innerHTML = loadedTraces.map((item, index) => `
+                <div class="file-item">
+                    <span class="file-item-icon">${item.branch?.icon || '📄'}</span>
+                    <div class="file-item-info">
+                        <div class="file-item-name">${item.filename}</div>
+                        <div class="file-item-meta">${formatTimestamp(item.timestamp)}</div>
+                    </div>
+                    <div class="file-item-status">
+                        <span class="status-badge ${item.state}">${item.state}</span>
+                        ${item.branch ? `<span style="font-size: 0.75rem; color: var(--text-secondary)">${item.branch.name}</span>` : ''}
+                    </div>
+                    <button class="file-item-remove" onclick="removeFile(${index})">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(index) {
+            loadedTraces.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearAllFiles() {
+            loadedTraces = [];
+            updateFileList();
+        }
+
+        function resetToUpload() {
+            resultsSection.classList.remove('visible');
+            loadedTraces = [];
+            updateFileList();
+        }
+
+        function formatTimestamp(ts) {
+            const date = new Date(ts);
+            return date.toLocaleString('de-DE', {
+                day: '2-digit', month: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+        }
+
+        function analyzeTraces() {
+            if (loadedTraces.length < 2) return;
+
+            analyzedData = {
+                traces: loadedTraces,
+                timeRange: {
+                    start: new Date(loadedTraces[0].timestamp),
+                    end: new Date(loadedTraces[loadedTraces.length - 1].timestamp)
+                },
+                branchCounts: {},
+                stateCounts: { finished: 0, stopped: 0 }
+            };
+
+            // Count branches and states
+            loadedTraces.forEach(t => {
+                if (t.branch) {
+                    const key = t.branch.number;
+                    analyzedData.branchCounts[key] = (analyzedData.branchCounts[key] || 0) + 1;
+                }
+                if (t.state === 'stopped') analyzedData.stateCounts.stopped++;
+                else analyzedData.stateCounts.finished++;
+            });
+
+            renderResults();
+            resultsSection.classList.add('visible');
+        }
+
+        function renderResults() {
+            renderSummaryStats();
+            renderTimeline();
+            renderPositionChart();
+            renderSunChart();
+            renderBranchStats();
+            renderStateProgression();
+        }
+
+        function renderSummaryStats() {
+            const duration = analyzedData.timeRange.end - analyzedData.timeRange.start;
+            const hours = Math.floor(duration / (1000 * 60 * 60));
+            const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
+
+            document.getElementById('summaryStats').innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${loadedTraces.length}</div>
+                    <div class="stat-label">Total Traces</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${hours}h ${minutes}m</div>
+                    <div class="stat-label">Time Span</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--accent-green)">${analyzedData.stateCounts.finished}</div>
+                    <div class="stat-label">Finished</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--accent-red)">${analyzedData.stateCounts.stopped}</div>
+                    <div class="stat-label">Stopped</div>
+                </div>
+            `;
+        }
+
+        function renderTimeline() {
+            const canvas = document.getElementById('timelineCanvas');
+            const ctx = canvas.getContext('2d');
+            const wrapper = canvas.parentElement;
+
+            canvas.width = wrapper.clientWidth * window.devicePixelRatio;
+            canvas.height = wrapper.clientHeight * window.devicePixelRatio;
+            canvas.style.width = wrapper.clientWidth + 'px';
+            canvas.style.height = wrapper.clientHeight + 'px';
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+            const w = wrapper.clientWidth;
+            const h = wrapper.clientHeight;
+            const padding = { left: 60, right: 30, top: 30, bottom: 40 };
+
+            // Clear
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-tertiary');
+            ctx.fillRect(0, 0, w, h);
+
+            const startTime = analyzedData.timeRange.start.getTime();
+            const endTime = analyzedData.timeRange.end.getTime();
+            const timeRange = endTime - startTime || 1;
+
+            // Draw axis
+            ctx.strokeStyle = '#3b3b4f';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, h - padding.bottom);
+            ctx.lineTo(w - padding.right, h - padding.bottom);
+            ctx.stroke();
+
+            // Draw time labels
+            ctx.fillStyle = '#64748b';
+            ctx.font = '11px "JetBrains Mono"';
+            ctx.textAlign = 'center';
+
+            const numLabels = Math.min(6, loadedTraces.length);
+            for (let i = 0; i < numLabels; i++) {
+                const t = startTime + (timeRange * i / (numLabels - 1 || 1));
+                const x = padding.left + ((t - startTime) / timeRange) * (w - padding.left - padding.right);
+                const date = new Date(t);
+                ctx.fillText(date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), x, h - 10);
+            }
+
+            // Draw traces
+            const centerY = (h - padding.top - padding.bottom) / 2 + padding.top;
+
+            loadedTraces.forEach((trace, i) => {
+                const t = new Date(trace.timestamp).getTime();
+                const x = padding.left + ((t - startTime) / timeRange) * (w - padding.left - padding.right);
+
+                // Line to center
+                ctx.strokeStyle = trace.state === 'stopped' ? '#ef4444' : '#10b981';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(x, h - padding.bottom);
+                ctx.lineTo(x, centerY);
+                ctx.stroke();
+
+                // Circle
+                ctx.beginPath();
+                ctx.arc(x, centerY, 8, 0, Math.PI * 2);
+                ctx.fillStyle = trace.state === 'stopped' ? '#ef4444' : '#10b981';
+                ctx.fill();
+
+                // Icon
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = 'white';
+                ctx.fillText(trace.branch?.icon || '•', x, centerY);
+
+                // Store position for tooltip
+                trace._x = x;
+                trace._y = centerY;
+            });
+
+            // Tooltip handling
+            const tooltip = document.getElementById('timelineTooltip');
+            canvas.onmousemove = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+
+                let found = null;
+                for (const trace of loadedTraces) {
+                    const dx = mx - trace._x;
+                    const dy = my - trace._y;
+                    if (Math.sqrt(dx*dx + dy*dy) < 15) {
+                        found = trace;
+                        break;
+                    }
+                }
+
+                if (found) {
+                    tooltip.innerHTML = `
+                        <div style="font-weight: 600; margin-bottom: 0.25rem;">${found.branch?.icon || ''} ${found.branch?.name || 'Unknown'}</div>
+                        <div style="color: var(--text-secondary); font-size: 0.75rem;">${formatTimestamp(found.timestamp)}</div>
+                        <div style="margin-top: 0.5rem;">
+                            <span class="status-badge ${found.state}">${found.state}</span>
+                        </div>
+                        ${found.trigger ? `<div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted);">${found.trigger.description}</div>` : ''}
+                    `;
+                    tooltip.style.left = (found._x + 15) + 'px';
+                    tooltip.style.top = (found._y - 30) + 'px';
+                    tooltip.classList.add('visible');
+                } else {
+                    tooltip.classList.remove('visible');
+                }
+            };
+
+            canvas.onmouseleave = () => tooltip.classList.remove('visible');
+        }
+
+        function renderPositionChart() {
+            const canvas = document.getElementById('positionChart');
+            const ctx = canvas.getContext('2d');
+            const wrapper = canvas.parentElement;
+
+            canvas.width = wrapper.clientWidth * window.devicePixelRatio;
+            canvas.height = wrapper.clientHeight * window.devicePixelRatio;
+            canvas.style.width = wrapper.clientWidth + 'px';
+            canvas.style.height = wrapper.clientHeight + 'px';
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+            const w = wrapper.clientWidth;
+            const h = wrapper.clientHeight;
+            const padding = { left: 50, right: 20, top: 20, bottom: 30 };
+
+            // Clear
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-tertiary');
+            ctx.fillRect(0, 0, w, h);
+
+            // Extract position data
+            const positionData = loadedTraces.map(t => ({
+                time: new Date(t.timestamp).getTime(),
+                position: t.variables?.current_position ?? null,
+                tilt: t.variables?.current_tilt ?? null
+            })).filter(d => d.position !== null);
+
+            if (positionData.length === 0) {
+                ctx.fillStyle = '#64748b';
+                ctx.font = '14px "Plus Jakarta Sans"';
+                ctx.textAlign = 'center';
+                ctx.fillText('No position data available', w/2, h/2);
+                return;
+            }
+
+            const startTime = analyzedData.timeRange.start.getTime();
+            const endTime = analyzedData.timeRange.end.getTime();
+            const timeRange = endTime - startTime || 1;
+
+            // Draw grid
+            ctx.strokeStyle = '#2a2a3a';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = padding.top + (i / 4) * (h - padding.top - padding.bottom);
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(w - padding.right, y);
+                ctx.stroke();
+
+                ctx.fillStyle = '#64748b';
+                ctx.font = '10px "JetBrains Mono"';
+                ctx.textAlign = 'right';
+                ctx.fillText((100 - i * 25) + '%', padding.left - 5, y + 4);
+            }
+
+            // Draw position line
+            ctx.strokeStyle = '#8b5cf6';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            positionData.forEach((d, i) => {
+                const x = padding.left + ((d.time - startTime) / timeRange) * (w - padding.left - padding.right);
+                const y = padding.top + ((100 - d.position) / 100) * (h - padding.top - padding.bottom);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Draw points
+            positionData.forEach(d => {
+                const x = padding.left + ((d.time - startTime) / timeRange) * (w - padding.left - padding.right);
+                const y = padding.top + ((100 - d.position) / 100) * (h - padding.top - padding.bottom);
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#8b5cf6';
+                ctx.fill();
+            });
+
+            // Legend
+            document.getElementById('positionLegend').innerHTML = `
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #8b5cf6"></div>
+                    <span>Cover Position</span>
+                </div>
+            `;
+        }
+
+        function renderSunChart() {
+            const canvas = document.getElementById('sunChart');
+            const ctx = canvas.getContext('2d');
+            const wrapper = canvas.parentElement;
+
+            canvas.width = wrapper.clientWidth * window.devicePixelRatio;
+            canvas.height = wrapper.clientHeight * window.devicePixelRatio;
+            canvas.style.width = wrapper.clientWidth + 'px';
+            canvas.style.height = wrapper.clientHeight + 'px';
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+            const w = wrapper.clientWidth;
+            const h = wrapper.clientHeight;
+            const padding = { left: 50, right: 20, top: 20, bottom: 30 };
+
+            // Clear
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg-tertiary');
+            ctx.fillRect(0, 0, w, h);
+
+            // Extract sun data
+            const sunData = loadedTraces.map(t => ({
+                time: new Date(t.timestamp).getTime(),
+                azimuth: t.variables?.current_sun_azimuth ?? null,
+                elevation: t.variables?.current_sun_elevation ?? null
+            })).filter(d => d.elevation !== null);
+
+            if (sunData.length === 0) {
+                ctx.fillStyle = '#64748b';
+                ctx.font = '14px "Plus Jakarta Sans"';
+                ctx.textAlign = 'center';
+                ctx.fillText('No sun data available', w/2, h/2);
+                return;
+            }
+
+            const startTime = analyzedData.timeRange.start.getTime();
+            const endTime = analyzedData.timeRange.end.getTime();
+            const timeRange = endTime - startTime || 1;
+
+            const maxElevation = Math.max(...sunData.map(d => d.elevation), 90);
+            const minElevation = Math.min(...sunData.map(d => d.elevation), 0);
+            const elevRange = maxElevation - minElevation || 1;
+
+            // Draw grid
+            ctx.strokeStyle = '#2a2a3a';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = padding.top + (i / 4) * (h - padding.top - padding.bottom);
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(w - padding.right, y);
+                ctx.stroke();
+
+                const val = maxElevation - (i / 4) * elevRange;
+                ctx.fillStyle = '#64748b';
+                ctx.font = '10px "JetBrains Mono"';
+                ctx.textAlign = 'right';
+                ctx.fillText(val.toFixed(0) + '°', padding.left - 5, y + 4);
+            }
+
+            // Draw elevation line
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            sunData.forEach((d, i) => {
+                const x = padding.left + ((d.time - startTime) / timeRange) * (w - padding.left - padding.right);
+                const y = padding.top + ((maxElevation - d.elevation) / elevRange) * (h - padding.top - padding.bottom);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            // Draw points
+            sunData.forEach(d => {
+                const x = padding.left + ((d.time - startTime) / timeRange) * (w - padding.left - padding.right);
+                const y = padding.top + ((maxElevation - d.elevation) / elevRange) * (h - padding.top - padding.bottom);
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#f59e0b';
+                ctx.fill();
+            });
+
+            // Legend
+            document.getElementById('sunLegend').innerHTML = `
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f59e0b"></div>
+                    <span>Sun Elevation</span>
+                </div>
+            `;
+        }
+
+        function renderBranchStats() {
+            const container = document.getElementById('branchStats');
+            const maxCount = Math.max(...Object.values(analyzedData.branchCounts), 1);
+
+            const stats = Object.entries(analyzedData.branchCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([branchNum, count]) => {
+                    const branch = BRANCH_DEFINITIONS[branchNum] || { name: `Branch ${branchNum}`, icon: '❓' };
+                    return `
+                        <div class="branch-stat-item">
+                            <div class="branch-stat-icon">${branch.icon}</div>
+                            <div class="branch-stat-name">${branch.name}</div>
+                            <div class="branch-stat-count">${count}</div>
+                            <div class="branch-stat-bar">
+                                <div class="branch-stat-bar-fill" style="width: ${(count / maxCount) * 100}%"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            container.innerHTML = stats || '<div class="empty-state"><div class="empty-state-icon">📊</div><p>No branch data available</p></div>';
+        }
+
+        function renderStateProgression() {
+            const table = document.getElementById('stateTable');
+            
+            table.querySelector('thead').innerHTML = `
+                <tr>
+                    <th>Time</th>
+                    <th>Branch</th>
+                    <th>Status</th>
+                    <th>Position</th>
+                    <th>Change</th>
+                    <th>Trigger</th>
+                </tr>
+            `;
+
+            let lastPosition = null;
+            const rows = loadedTraces.map(trace => {
+                const position = trace.variables?.current_position;
+                let changeHtml = '<span class="position-change none">-</span>';
+                
+                if (lastPosition !== null && position !== null) {
+                    const diff = position - lastPosition;
+                    if (diff > 0) {
+                        changeHtml = `<span class="position-change up">↑ ${diff}%</span>`;
+                    } else if (diff < 0) {
+                        changeHtml = `<span class="position-change down">↓ ${Math.abs(diff)}%</span>`;
+                    }
+                }
+                lastPosition = position;
+
+                return `
+                    <tr>
+                        <td>${formatTimestamp(trace.timestamp)}</td>
+                        <td>${trace.branch?.icon || ''} ${trace.branch?.name || '-'}</td>
+                        <td><span class="status-badge ${trace.state}">${trace.state}</span></td>
+                        <td>${position !== null && position !== undefined ? position + '%' : '-'}</td>
+                        <td>${changeHtml}</td>
+                        <td style="color: var(--text-muted); font-size: 0.75rem;">${trace.trigger?.description || '-'}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            table.querySelector('tbody').innerHTML = rows;
+        }
+
+        // Handle window resize for charts
+        window.addEventListener('resize', () => {
+            if (analyzedData) {
+                renderTimeline();
+                renderPositionChart();
+                renderSunChart();
+            }
+        });
+    </script>
+</body>
+</html>
