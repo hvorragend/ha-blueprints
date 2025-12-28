@@ -126,8 +126,12 @@ This feature is particularly useful for emergency and weather-based scenarios wh
 - **Problem solved:** Fixed sun elevation thresholds don't work optimally year-round. In winter the sun stays lower, in summer higher. With fixed values your covers open/close at the wrong solar times.
 
 - **Solution:** Optional template sensors automatically adapt thresholds to the season. Thanks, Zanuuu, for this idea in issue #285.
-  - **Sun Elevation Up Sensor (Dynamic)** – Optional: Sensor for seasonal opening thresholds
-  - **Sun Elevation Down Sensor (Dynamic)** – Optional: Sensor for seasonal closing thresholds
+  - **Sun Elevation Up Sensor (Dynamic)** – Optional sensor for seasonal opening thresholds
+    - Cover opens when **current sun elevation is higher** than the sensor value
+    - Example: Sensor = 2.5° → Opens when sun rises above 2.5°
+  - **Sun Elevation Down Sensor (Dynamic)** – Optional sensor for seasonal closing thresholds
+    - Cover closes when **current sun elevation is lower** than the sensor value
+    - Example: Sensor = 0.5° → Closes when sun sets below 0.5°
 
 - New guide with step-by-step instructions: [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md)
 

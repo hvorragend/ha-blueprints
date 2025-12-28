@@ -23,6 +23,23 @@ Fixed sun elevation thresholds don't work optimally throughout the year due to E
 
 **Template sensors with sinusoidal interpolation** automatically adapt thresholds based on the current date, matching the Earth's actual solar cycle.
 
+### How the Sensors Work
+
+The sensors provide **dynamic threshold values** that change throughout the year:
+
+- **Opening Sensor**: Provides the minimum sun elevation required for opening
+  - Cover opens when current sun elevation **rises above** this threshold
+  - Higher values = later opening (sun must climb higher)
+
+- **Closing Sensor**: Provides the maximum sun elevation allowed before closing
+  - Cover closes when current sun elevation **falls below** this threshold
+  - Higher values = later closing (sun can set further)
+
+**Example scenario (Berlin, 52°N):**
+- Summer solstice (June 21): Opening sensor = 5.5°, Closing sensor = 1.5°
+- Winter solstice (Dec 21): Opening sensor = -1.5°, Closing sensor = -5.5°
+- Result: Covers open/close at consistent solar times year-round, despite the sun reaching vastly different maximum elevations
+
 ### Visual Comparison
 ```
 Sun Elevation Threshold Throughout Year (50°N)
@@ -149,13 +166,31 @@ In your CCA automation configuration:
 
 ## 📊 How It Works
 
+### Understanding the Comparison Logic
+
+The dynamic sensors provide **threshold values** that are compared with the **current sun elevation**:
+
+**Opening Logic (Sun Elevation Up):**
+- ✅ Cover **opens** when: `current sun elevation > sensor value`
+- 📈 **Example**: Sensor = 2.5° → Cover opens when sun rises **above** 2.5°
+- 🔄 **Seasonal behavior**:
+  - Summer (sensor = 5.0°): Opens later (sun must climb higher)
+  - Winter (sensor = -2.0°): Opens earlier (sun below horizon is enough)
+
+**Closing Logic (Sun Elevation Down):**
+- ✅ Cover **closes** when: `current sun elevation < sensor value`
+- 📉 **Example**: Sensor = 0.5° → Cover closes when sun sets **below** 0.5°
+- 🔄 **Seasonal behavior**:
+  - Summer (sensor = 2.0°): Closes later (sun can be higher)
+  - Winter (sensor = -4.0°): Closes earlier (closes well before sunset)
+
 ### Automatic Features
 
-✅ **Reads your latitude** from `zone.home` automatically  
-✅ **Calculates optimal thresholds** for your location  
-✅ **Interpolates smoothly** between summer and winter values  
-✅ **Updates daily** to follow sun's annual path  
-✅ **No maintenance** required after initial setup  
+✅ **Reads your latitude** from `zone.home` automatically
+✅ **Calculates optimal thresholds** for your location
+✅ **Interpolates smoothly** between summer and winter values
+✅ **Updates daily** to follow sun's annual path
+✅ **No maintenance** required after initial setup
 
 ### Reference Values
 
