@@ -57,6 +57,17 @@
 
 ---
 
+## 🔧 Bug Fixes
+
+- **Fixed prevent_multiple_times flags respecting manual intervention**: The
+  `prevent_opening_multiple_times`, `prevent_closing_multiple_times`, and
+  `prevent_shading_multiple_times` flags now correctly respect manual user
+  intervention. Automation will not retry if the user manually changed the
+  cover position after an automation attempt, ensuring user decisions are
+  always respected.
+
+---
+
 # 🚀 CCA 2025.12.27 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
 
 ## 🧠 Background State Memory & Force Return
