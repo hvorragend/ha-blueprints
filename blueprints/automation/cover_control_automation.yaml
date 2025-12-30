@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.27
+    **Version**: 2025.12.30
 
     ### 🔗 Resources & Support
 
@@ -188,7 +188,32 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md) | **Previous Changelog**: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md)
 
-    # 🚀 CCA 2025.12.27 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
+    # 🚀 CCA 2025.12.30 - Sun Elevation Modes (Fixed/Dynamic/Hybrid)
+
+      ## ☀️ Three Sun Elevation Modes
+
+      - **Flexible threshold calculation with three distinct modes**
+        Choose how sun elevation thresholds are determined: Fixed (simple), Dynamic (seasonal sensors), or Hybrid (sensor + offset).
+
+      ### 🔒 Fixed Mode (Default)
+      - Uses only configured fixed values. Sensors are ignored. Perfect for simple setups without seasonal needs.
+      - **Backward compatible**: All existing configs automatically use this mode.
+
+      ### 📊 Dynamic Mode
+      - Uses only sensor values. Fixed values ignored. Ideal for automatic seasonal adaptation.
+      - **Sensors required**: Config check validates sensor configuration and numeric states.
+
+      ### 🔄 Hybrid Mode
+      - Combines both: Final threshold = Sensor value + Fixed value as offset.
+      - **Best of both worlds**: Seasonal base + manual fine-tuning per cover.
+
+      ### 🔧 Features
+      - New `sun_elevation_mode` selector with clear descriptions
+      - Updated field descriptions explain behavior in each mode
+      - Comprehensive config validation with helpful error messages
+      - Smart fallback if sensors become unavailable
+
+      ---
 
       ## 🧠 Background State Memory & Force Return
 
@@ -1465,9 +1490,52 @@ blueprint:
               step: 1.0
               unit_of_measurement: seconds
 
+        sun_elevation_mode:
+          name: "☀️ Sun Elevation Mode"
+          description: >-
+            **Select how sun elevation thresholds are determined:**
+            <br /><br />
+            **🔒 Fixed Mode** (Default)
+            <br />
+            Uses only the fixed values configured below (Sun Elevation Value For Opening/Closing).
+            Sensors are ignored even if configured.
+            <br /><br />
+            **📊 Dynamic Mode**
+            <br />
+            Uses only the sensor values (Sun Elevation Up/Down Sensor).
+            Fixed values are ignored. Sensors must be configured and provide valid numeric values.
+            <br /><br />
+            **🔄 Hybrid Mode**
+            <br />
+            Combines both: Sensor value + Fixed value as offset.
+            Example: Sensor=2.0° + Fixed=1.5° = Threshold of 3.5°.
+            Allows seasonal adaptation with manual fine-tuning offset.
+            <br /><br />
+            `Optional` / `Default: Fixed`
+          default: "fixed"
+          selector:
+            select:
+              options:
+                - label: "🔒 Fixed - Use only fixed values"
+                  value: "fixed"
+                - label: "📊 Dynamic - Use only sensor values"
+                  value: "dynamic"
+                - label: "🔄 Hybrid - Sensor + fixed value as offset"
+                  value: "hybrid"
+              sort: false
+              multiple: false
+              custom_value: false
+
         sun_elevation_up:
           name: "☀️ Sun Elevation Value For Opening The Cover"
-          description: "The cover will be <ins>opened</ins> if the sun elevation is over this value"
+          description: >-
+            **Fixed Mode**: Direct threshold value for opening.
+            <br />
+            **Dynamic Mode**: Ignored (sensor value is used).
+            <br />
+            **Hybrid Mode**: Added as offset to sensor value.
+            <br /><br />
+            The cover will be <ins>opened</ins> if the sun elevation is over the calculated threshold.
           default: 0
           selector:
             number:
@@ -1479,7 +1547,14 @@ blueprint:
 
         sun_elevation_down:
           name: "☀️ Sun Elevation Value For Closing The Cover"
-          description: "The cover will be <ins>closed</ins> if the sun elevation is under this value"
+          description: >-
+            **Fixed Mode**: Direct threshold value for closing.
+            <br />
+            **Dynamic Mode**: Ignored (sensor value is used).
+            <br />
+            **Hybrid Mode**: Added as offset to sensor value.
+            <br /><br />
+            The cover will be <ins>closed</ins> if the sun elevation is under the calculated threshold.
           default: 0
           selector:
             number:
@@ -1490,17 +1565,27 @@ blueprint:
               mode: slider
 
         sun_elevation_up_sensor:
-          name: "☀️ Sun Elevation Up Sensor (Dynamic - Optional)"
+          name: "☀️ Sun Elevation Up Sensor (Dynamic/Hybrid - Optional)"
           description: >-
             Optional sensor that provides a **dynamic elevation threshold** for opening based on season.
             This sensor value is compared with the **sun elevation from the sun integration** (`sun.sun` attribute `elevation`).
-            If configured, this overrides the fixed 'Sun Elevation Up' value above.
             <br /><br />
-            **How it works**: The cover opens when the **current sun elevation is higher** than the threshold value provided by this sensor.
-            The sensor provides the ready-to-use threshold (in degrees) — dynamic instead of fixed in the blueprint.
+            **Behavior depends on Sun Elevation Mode:**
+            <br />
+            • **Fixed Mode**: Sensor is ignored even if configured
+            <br />
+            • **Dynamic Mode**: Sensor value is used directly as threshold (required)
+            <br />
+            • **Hybrid Mode**: Sensor value + Fixed value as combined threshold
             <br /><br />
-            **Example**: Sensor value = 2.5° → Cover opens when `sun.sun` elevation rises above 2.5°.
+            **How it works**: The cover opens when the **current sun elevation is higher** than the calculated threshold.
+            The sensor provides the threshold (in degrees) — dynamic instead of fixed in the blueprint.
+            <br /><br />
+            **Example (Dynamic Mode)**: Sensor value = 2.5° → Cover opens when `sun.sun` elevation rises above 2.5°.
             In summer (sensor = 5.0°) the cover opens later than in winter (sensor = -2.0°), matching seasonal sunrise times.
+            <br /><br />
+            **Example (Hybrid Mode)**: Sensor value = 2.0°, Fixed value = 1.5° → Threshold = 3.5°.
+            Allows seasonal adaptation with manual fine-tuning.
             <br /><br />
             **Multiple covers**: For different behavior per cover (e.g., east vs. west facing), create multiple template sensors with different thresholds.
             <br /><br />
@@ -1508,7 +1593,7 @@ blueprint:
             • **Template sensor** with seasonal interpolation for automatic year-round adaptation ([Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md))<br />
             • **Input Number helper** for manual GUI-based configuration via dashboard
             <br /><br />
-            `Optional`
+            `Optional` / `Required for Dynamic Mode`
           default: []
           selector:
             entity:
@@ -1516,17 +1601,27 @@ blueprint:
                 - domain: [sensor, input_number]
 
         sun_elevation_down_sensor:
-          name: "☀️ Sun Elevation Down Sensor (Dynamic - Optional)"
+          name: "☀️ Sun Elevation Down Sensor (Dynamic/Hybrid - Optional)"
           description: >-
             Optional sensor that provides a **dynamic elevation threshold** for closing based on season.
             This sensor value is compared with the **sun elevation from the sun integration** (`sun.sun` attribute `elevation`).
-            If configured, this overrides the fixed 'Sun Elevation Down' value above.
             <br /><br />
-            **How it works**: The cover closes when the **current sun elevation is lower** than the threshold value provided by this sensor.
-            The sensor provides the ready-to-use threshold (in degrees) — dynamic instead of fixed in the blueprint.
+            **Behavior depends on Sun Elevation Mode:**
+            <br />
+            • **Fixed Mode**: Sensor is ignored even if configured
+            <br />
+            • **Dynamic Mode**: Sensor value is used directly as threshold (required)
+            <br />
+            • **Hybrid Mode**: Sensor value + Fixed value as combined threshold
             <br /><br />
-            **Example**: Sensor value = 0.5° → Cover closes when `sun.sun` elevation sets below 0.5°.
+            **How it works**: The cover closes when the **current sun elevation is lower** than the calculated threshold.
+            The sensor provides the threshold (in degrees) — dynamic instead of fixed in the blueprint.
+            <br /><br />
+            **Example (Dynamic Mode)**: Sensor value = 0.5° → Cover closes when `sun.sun` elevation sets below 0.5°.
             In summer (sensor = 2.0°) the cover closes later than in winter (sensor = -4.0°), matching seasonal sunset times.
+            <br /><br />
+            **Example (Hybrid Mode)**: Sensor value = 0.0°, Fixed value = -1.0° → Threshold = -1.0°.
+            Allows seasonal adaptation with manual fine-tuning.
             <br /><br />
             **Multiple covers**: For different behavior per cover (e.g., east vs. west facing), create multiple template sensors with different thresholds.
             <br /><br />
@@ -1534,7 +1629,7 @@ blueprint:
             • **Template sensor** with seasonal interpolation for automatic year-round adaptation ([Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md))<br />
             • **Input Number helper** for manual GUI-based configuration via dashboard
             <br /><br />
-            `Optional`
+            `Optional` / `Required for Dynamic Mode`
           default: []
           selector:
             entity:
@@ -3058,6 +3153,7 @@ trigger_variables:
 
   # Sun configuration
   default_sun_sensor: !input default_sun_sensor
+  sun_elevation_mode: !input sun_elevation_mode
   sun_elevation_up: !input sun_elevation_up
   sun_elevation_down: !input sun_elevation_down
 
@@ -3153,7 +3249,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.12.27"
+  version: "2025.12.30"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3199,21 +3295,47 @@ variables:
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
 
-  # Current sun elevation thresholds (dynamic or fixed)
+  # Current sun elevation thresholds (supports fixed, dynamic, and hybrid modes)
   sun_elevation_up_current: >-
+    {% set mode = sun_elevation_mode %}
     {% set sensor = sun_elevation_up_sensor %}
-    {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
-      {{ states(sensor) | float }}
+    {% set fixed_value = sun_elevation_up | float %}
+    {% set sensor_valid = sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+    {% if mode == 'dynamic' %}
+      {% if sensor_valid %}
+        {{ states(sensor) | float }}
+      {% else %}
+        {{ fixed_value }}
+      {% endif %}
+    {% elif mode == 'hybrid' %}
+      {% if sensor_valid %}
+        {{ (states(sensor) | float) + fixed_value }}
+      {% else %}
+        {{ fixed_value }}
+      {% endif %}
     {% else %}
-      {{ sun_elevation_up | float }}
+      {{ fixed_value }}
     {% endif %}
 
   sun_elevation_down_current: >-
+    {% set mode = sun_elevation_mode %}
     {% set sensor = sun_elevation_down_sensor %}
-    {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
-      {{ states(sensor) | float }}
+    {% set fixed_value = sun_elevation_down | float %}
+    {% set sensor_valid = sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+    {% if mode == 'dynamic' %}
+      {% if sensor_valid %}
+        {{ states(sensor) | float }}
+      {% else %}
+        {{ fixed_value }}
+      {% endif %}
+    {% elif mode == 'hybrid' %}
+      {% if sensor_valid %}
+        {{ (states(sensor) | float) + fixed_value }}
+      {% else %}
+        {{ fixed_value }}
+      {% endif %}
     {% else %}
-      {{ sun_elevation_down | float }}
+      {{ fixed_value }}
     {% endif %}
 
   is_today_off: "{{ workday_sensor_today != [] and is_state(workday_sensor_today, 'off') }}"
@@ -6268,6 +6390,68 @@ actions:
                   message: "resident_sensor has invalid state. Must be: on, off, true, or false"
                 - condition: "{{ is_brightness_enabled and (default_brightness_sensor == [] or not is_number(states(default_brightness_sensor))) }}"
                   message: "Brightness sensor not configured or has non-numeric state"
+
+                # ========== SUN ELEVATION MODE CHECKS ==========
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'dynamic' and
+                      sun_elevation_up_sensor == []
+                    }}
+                  message: "Sun Elevation Mode is 'dynamic' but Sun Elevation Up Sensor is not configured. Configure sensor or change mode to 'fixed'"
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'dynamic' and
+                      sun_elevation_down_sensor == []
+                    }}
+                  message: "Sun Elevation Mode is 'dynamic' but Sun Elevation Down Sensor is not configured. Configure sensor or change mode to 'fixed'"
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'dynamic' and
+                      sun_elevation_up_sensor != [] and
+                      not is_number(states(sun_elevation_up_sensor))
+                    }}
+                  message: "Sun Elevation Up Sensor has non-numeric state. Sensor must provide numeric values in dynamic mode"
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'dynamic' and
+                      sun_elevation_down_sensor != [] and
+                      not is_number(states(sun_elevation_down_sensor))
+                    }}
+                  message: "Sun Elevation Down Sensor has non-numeric state. Sensor must provide numeric values in dynamic mode"
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'hybrid' and
+                      sun_elevation_up_sensor == []
+                    }}
+                  message: "Sun Elevation Mode is 'hybrid' but Sun Elevation Up Sensor is not configured. Configure sensor or change mode to 'fixed'"
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'hybrid' and
+                      sun_elevation_down_sensor == []
+                    }}
+                  message: "Sun Elevation Mode is 'hybrid' but Sun Elevation Down Sensor is not configured. Configure sensor or change mode to 'fixed'"
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'hybrid' and
+                      sun_elevation_up_sensor != [] and
+                      not is_number(states(sun_elevation_up_sensor))
+                    }}
+                  message: "Sun Elevation Up Sensor has non-numeric state. Sensor must provide numeric values in hybrid mode"
+                - condition: >-
+                    {{
+                      is_sun_elevation_enabled and
+                      sun_elevation_mode == 'hybrid' and
+                      sun_elevation_down_sensor != [] and
+                      not is_number(states(sun_elevation_down_sensor))
+                    }}
+                  message: "Sun Elevation Down Sensor has non-numeric state. Sensor must provide numeric values in hybrid mode"
 
                 # ========== HELPER CONFIGURATION CHECKS ==========
                 - condition: "{{ 'cover_helper_enabled' in cover_status_options and state_attr(cover_status_helper, 'max') < 254 }}"

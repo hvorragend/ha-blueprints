@@ -1,6 +1,63 @@
-# 🚀 CCA 2025.12.22 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
+# 🚀 CCA 2025.12.30 - Sun Elevation Modes (Fixed/Dynamic/Hybrid)
 
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
+
+## ☀️ Three Sun Elevation Modes
+
+- **Flexible threshold calculation with three distinct modes**
+  Choose how sun elevation thresholds are determined based on your needs and setup complexity.
+
+### 🔒 Fixed Mode (Default)
+- **Simple and straightforward**
+  Uses only the configured fixed values for sun elevation thresholds. Perfect for users who don't need seasonal adaptation or prefer manual configuration.
+
+- **Sensors are ignored**
+  Even if elevation sensors are configured, they will be ignored in this mode. This ensures predictable behavior and prevents confusion.
+
+- **Backward compatible**
+  All existing configurations without the mode field automatically use Fixed mode, ensuring seamless upgrades.
+
+### 📊 Dynamic Mode
+- **Seasonal adaptation**
+  Uses only sensor values for threshold calculation. The fixed values are completely ignored. Ideal for automatic seasonal adjustments using template sensors.
+
+- **Sensors required**
+  Both up and down sensors must be configured and provide valid numeric values. Config check validates this requirement.
+
+- **Year-round automation**
+  Perfect for users who want fully automated seasonal adaptation without manual intervention. Use with the [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md).
+
+### 🔄 Hybrid Mode
+- **Best of both worlds**
+  Combines sensor value + fixed value as offset. Allows seasonal adaptation with manual fine-tuning capability.
+
+- **Additive calculation**
+  Final threshold = Sensor value + Fixed value. Example: Sensor 2.0° + Fixed 1.5° = Threshold 3.5°.
+
+- **Flexible fine-tuning**
+  Use the sensor for seasonal base values and adjust the fixed offset for per-cover tweaking (e.g., different orientations).
+
+### 🔧 Configuration & Validation
+- **New sun_elevation_mode selector**
+  Easy-to-understand dropdown with clear descriptions for each mode in the Sun Elevation Settings section.
+
+- **Updated field descriptions**
+  All sun elevation fields now explain their behavior in each mode, making configuration intuitive.
+
+- **Comprehensive config checks**
+  Validates that sensors are configured when required (Dynamic/Hybrid modes), ensures sensor states are numeric, and provides clear error messages.
+
+- **Smart fallback behavior**
+  If a sensor becomes unavailable in Dynamic/Hybrid mode, the system falls back to the fixed value to prevent automation failures.
+
+### 💡 Use Cases
+- **Fixed Mode**: Simple setups, manual control preference, no seasonal needs
+- **Dynamic Mode**: Full automation, seasonal adaptation, template sensor enthusiasts
+- **Hybrid Mode**: Seasonal base + manual offset, multi-cover setups with different orientations
+
+---
+
+# 🚀 CCA 2025.12.27 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
 
 ## 🧠 Background State Memory & Force Return
 
