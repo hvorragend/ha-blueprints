@@ -3654,13 +3654,27 @@ variables:
   # Does the cover need to move to reach target?
   needs_movement: "{{ state_current != state_target and not is_forced }}"
 
-  # Legacy compatibility - is_cover_movement_blocked (DEPRECATED - use can_move_* instead)
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DEPRECATED: Legacy is_cover_movement_blocked dictionary
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ⚠️ This dictionary is DEPRECATED and will be removed in a future version.
+  # All internal code has been migrated to the new v6 state manager.
+  #
+  # Migration guide:
+  #   not is_cover_movement_blocked.open      → can_move_open
+  #   not is_cover_movement_blocked.close     → can_move_close
+  #   not is_cover_movement_blocked.shading   → can_move_shade
+  #   not is_cover_movement_blocked.ventilate → can_move_ventilate
+  #   not is_cover_movement_blocked.any       → not is_forced
+  #   is_cover_movement_blocked.any           → is_forced
+  #
+  # Kept for backward compatibility with custom user code only.
   is_cover_movement_blocked:
-    open: "{{ (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true']) }}"
-    close: "{{ (auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true']) }}"
-    ventilate: "{{ (auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true']) }}"
-    shading: "{{ (auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) }}"
-    any: "{{ (auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) or (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true']) }}"
+    open: "{{ not can_move_open }}"
+    close: "{{ not can_move_close }}"
+    ventilate: "{{ not can_move_ventilate }}"
+    shading: "{{ not can_move_shade }}"
+    any: "{{ is_forced }}"
 
   # Resident sensor configuration
   resident_config: !input resident_config
@@ -5086,7 +5100,7 @@ actions:
                         vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                         t: "{{ ts_now }}"
-                  - if: "{{ not is_cover_movement_blocked.shading }}"
+                  - if: "{{ can_move_shade }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
@@ -5094,8 +5108,8 @@ actions:
                         default: !input auto_shading_start_action
                   - if:
                       - or:
-                          - "{{ is_auto_recover_enabled and is_cover_movement_blocked.shading }}"
-                          - "{{ not is_cover_movement_blocked.shading }}"
+                          - "{{ is_auto_recover_enabled and not can_move_shade }}"
+                          - "{{ can_move_shade }}"
                     then:
                       - *helper_update
                   - stop: "Opening skipped: Shading detected"
@@ -5124,7 +5138,7 @@ actions:
                         vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                         t: "{{ ts_now }}"
-                  - if: "{{ not is_cover_movement_blocked.open }}"
+                  - if: "{{ can_move_open }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
@@ -5132,8 +5146,8 @@ actions:
                         default: !input auto_up_action
                   - if:
                       - or:
-                          - "{{ is_auto_recover_enabled and is_cover_movement_blocked.open }}"
-                          - "{{ not is_cover_movement_blocked.open }}"
+                          - "{{ is_auto_recover_enabled and not can_move_open }}"
+                          - "{{ can_move_open }}"
                     then:
                       - *helper_update
                   - stop: "Opening executed"
@@ -5238,7 +5252,7 @@ actions:
                         vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                         t: "{{ ts_now }}"
-                  - if: "{{ not is_cover_movement_blocked.ventilate }}"
+                  - if: "{{ can_move_ventilate }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
@@ -5246,8 +5260,8 @@ actions:
                         default: !input auto_ventilate_action
                   - if:
                       - or:
-                          - "{{ is_auto_recover_enabled and is_cover_movement_blocked.ventilate }}"
-                          - "{{ not is_cover_movement_blocked.ventilate }}"
+                          - "{{ is_auto_recover_enabled and not can_move_ventilate }}"
+                          - "{{ can_move_ventilate }}"
                     then:
                       - *helper_update
                   - stop: "Closing skipped: Window tilted (Ventilation activated)"
@@ -5305,7 +5319,7 @@ actions:
                     vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                     manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                     t: "{{ ts_now }}"
-              - if: "{{ not is_cover_movement_blocked.close }}"
+              - if: "{{ can_move_close }}"
                 then:
                   - *cover_move_action
                   - *tilt_move_action
@@ -5313,8 +5327,8 @@ actions:
                     default: !input auto_down_action
               - if:
                   - or:
-                      - "{{ is_auto_recover_enabled and is_cover_movement_blocked.close }}"
-                      - "{{ not is_cover_movement_blocked.close }}"
+                      - "{{ is_auto_recover_enabled and not can_move_close }}"
+                      - "{{ can_move_close }}"
                 then:
                   - *helper_update
               - stop: "Closing executed"
@@ -5335,9 +5349,9 @@ actions:
           - or: # When background state tracking is enabled, let choose 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - "{{ not is_auto_recover_enabled }}"
-          - or:
+          - or: # v6 Optimized: Use centralized force check
               - "{{ is_auto_recover_enabled }}"
-              - "{{ not is_cover_movement_blocked.shading }}"
+              - "{{ can_move_shade }}"  # Simplified from is_cover_movement_blocked.shading
           - or: # Check the helper status or the target status
               - "{{ not helper_status.shaded }}"
               - "{{ not (helper_status.vpart or helper_status.vfull) }}"
@@ -5414,7 +5428,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ helper_status.shading_start_pending }}" # Only when it comes back from pending status
                       - or: # Position check: Skip if force active with background tracking (helper update only)
-                          - "{{ is_cover_movement_blocked.any and is_auto_recover_enabled }}"
+                          - "{{ is_forced and is_auto_recover_enabled }}"
                           - and:
                               - "{{ not is_cover_tilt_enabled_and_possible }}"
                               - "{{ position_comparisons.current_above_shading }}"
@@ -5446,7 +5460,7 @@ actions:
                             vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                             manual: { a: 0, t: "{{ helper_json.manual.t }}" } # TODO: Do I really want to overwrite the status here?
                             t: "{{ ts_now }}"
-                      - if: "{{ not is_cover_movement_blocked.shading }}"
+                      - if: "{{ can_move_shade }}"
                         then:
                           - *cover_move_action
                           - *tilt_move_action
@@ -5454,8 +5468,8 @@ actions:
                             default: !input auto_shading_start_action
                       - if:
                           - or:
-                              - "{{ is_auto_recover_enabled and is_cover_movement_blocked.shading }}"
-                              - "{{ not is_cover_movement_blocked.shading }}"
+                              - "{{ is_auto_recover_enabled and not can_move_shade }}"
+                              - "{{ can_move_shade }}"
                         then:
                           - *helper_update
                       - stop: "Shading Start executed"
@@ -5468,7 +5482,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ helper_status.shading_start_pending }}" # Only when it comes back from pending status
                       - "{{ helper_status.closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
-                      - "{{ not is_cover_movement_blocked.any }}" # Skip if force active - let "Start Shading" handle background state
+                      - "{{ not is_forced }}" # Skip if force active - let "Start Shading" handle background state
                     sequence:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
@@ -5476,7 +5490,7 @@ actions:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now }}"
                       - if:
-                          - "{{ not is_cover_movement_blocked.any }}"
+                          - "{{ not is_forced }}"
                         then:
                           - *tilt_move_action
                       - *helper_update
@@ -5536,7 +5550,7 @@ actions:
               - "{{ not helper_status.shading_start_pending }}"
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
-          - "{{ not is_cover_movement_blocked.shading }}"
+          - "{{ can_move_shade }}"  # v6 Optimized
           - "{{ not (helper_status.vpart or helper_status.vfull) }}"
           - "{{ not (helper_status.manual and override_flags.shading) }}" # Override check
         sequence:
@@ -5564,7 +5578,7 @@ actions:
           - condition: !input auto_shading_end_condition
           - or:
               - "{{ is_auto_recover_enabled }}"
-              - "{{ not is_cover_movement_blocked.any }}" # All force functions must now be disabled
+              - "{{ not is_forced }}" # All force functions must now be disabled
           - or:
               - "{{ is_shading_allowed_window }}"
           - "{{ not (helper_status.manual and override_flags.shading) }}" # Override check
@@ -5623,7 +5637,7 @@ actions:
                             shading: { a: 0, t: "{{ ts_now }}", p: 0, q: 0 }
                             t: "{{ ts_now }}"
                       - if:
-                          - "{{ not is_cover_movement_blocked.any }}"
+                          - "{{ not is_forced }}"
                         then:
                           - *tilt_move_action
                       - *helper_update
@@ -5700,7 +5714,7 @@ actions:
                             vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                             manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                             t: "{{ ts_now }}"
-                      - if: "{{ not is_cover_movement_blocked.any }}"
+                      - if: "{{ not is_forced }}"
                         then:
                           - *cover_move_action
                           - *tilt_move_action
@@ -5708,8 +5722,8 @@ actions:
                             default: !input auto_ventilate_action
                       - if:
                           - or:
-                              - "{{ is_auto_recover_enabled and is_cover_movement_blocked.any }}"
-                              - "{{ not is_cover_movement_blocked.any }}"
+                              - "{{ is_auto_recover_enabled and is_forced }}"
+                              - "{{ not is_forced }}"
                         then:
                           - *helper_update
                       - stop: "Shading End: Ventilation activated"
@@ -5758,7 +5772,7 @@ actions:
                                 vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                                 manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                                 t: "{{ ts_now }}"
-                          - if: "{{ not is_cover_movement_blocked.any }}"
+                          - if: "{{ not is_forced }}"
                             then:
                               - *cover_move_action
                               - *tilt_move_action
@@ -5853,9 +5867,9 @@ actions:
                 conditions:
                   - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
-                  - or: # Force functions allow ventilation start
+                  - or: # Force functions allow ventilation start (v6 Optimized)
                       - "{{ is_auto_recover_enabled }}"
-                      - "{{ not is_cover_movement_blocked.ventilate }}"
+                      - "{{ can_move_ventilate }}"
                   # User-defined condition for starting ventilation
                   - condition: !input auto_ventilate_condition
                 sequence:
@@ -5867,14 +5881,14 @@ actions:
                         vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
                         vfull: { a: 1, t: "{{ ts_now }}" }
                         t: "{{ ts_now }}"
-                  - if: "{{ not is_cover_movement_blocked.open }}"
+                  - if: "{{ can_move_open }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
                   - if:
                       - or:
-                          - "{{ is_auto_recover_enabled and is_cover_movement_blocked.open }}"
-                          - "{{ not is_cover_movement_blocked.open }}"
+                          - "{{ is_auto_recover_enabled and not can_move_open }}"
+                          - "{{ can_move_open }}"
                     then:
                       - *helper_update
                   - stop: "Ventilation Start (Full) executed"
@@ -5887,9 +5901,9 @@ actions:
                 conditions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
-                  - or: # Force functions allow ventilation start
+                  - or: # Force functions allow ventilation start (v6 Optimized)
                       - "{{ is_auto_recover_enabled }}"
-                      - "{{ not is_cover_movement_blocked.ventilate }}"
+                      - "{{ can_move_ventilate }}"
                   # User-defined condition for starting ventilation
                   - condition: !input auto_ventilate_condition
                   # Position check: Only move if cover is below ventilation position (or option enabled)
@@ -5920,7 +5934,7 @@ actions:
                         vpart: { a: 1, t: "{{ ts_now }}" }
                         vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                         t: "{{ ts_now }}"
-                  - if: "{{ not is_cover_movement_blocked.ventilate }}"
+                  - if: "{{ can_move_ventilate }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
@@ -5928,8 +5942,8 @@ actions:
                         default: !input auto_ventilate_action
                   - if:
                       - or:
-                          - "{{ is_auto_recover_enabled and is_cover_movement_blocked.ventilate }}"
-                          - "{{ not is_cover_movement_blocked.ventilate }}"
+                          - "{{ is_auto_recover_enabled and not can_move_ventilate }}"
+                          - "{{ can_move_ventilate }}"
                     then:
                       - *helper_update
                   - stop: "Ventilation Start (Partial) executed"
@@ -5947,7 +5961,7 @@ actions:
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
-                      - "{{ not is_cover_movement_blocked.any }}"
+                      - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
@@ -5993,7 +6007,7 @@ actions:
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
-                      - "{{ not is_cover_movement_blocked.any }}"
+                      - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
@@ -6041,7 +6055,7 @@ actions:
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
-                      - "{{ not is_cover_movement_blocked.any }}"
+                      - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
@@ -6081,7 +6095,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_enabled_open' }}"
-          - "{{ not is_cover_movement_blocked.open }}"
+          - "{{ can_move_open }}"
         sequence:
           - choose: []
             default: !input auto_up_action_before
@@ -6113,7 +6127,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_enabled_close' }}"
-          - "{{ not is_cover_movement_blocked.close }}"
+          - "{{ can_move_close }}"
         sequence:
           - choose: []
             default: !input auto_down_action_before
@@ -6146,7 +6160,7 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_enabled_ventilate' }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ not is_cover_movement_blocked.ventilate }}"
+          - "{{ can_move_ventilate }}"  # v6 Optimized
         sequence:
           - choose: []
             default: !input auto_ventilate_action_before
@@ -6179,7 +6193,7 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_enabled_shading' }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ not is_cover_movement_blocked.shading }}"
+          - "{{ can_move_shade }}"  # v6 Optimized
         sequence:
           - choose: []
             default: !input auto_shading_start_action_before
@@ -6375,7 +6389,7 @@ actions:
           - "{{ trigger.id.startswith('t_force_disabled') }}"
           - "{{ is_auto_recover_enabled }}"
           - "{{ is_status_helper_enabled }}"
-          - "{{ not is_cover_movement_blocked.any }}" # All force functions must now be disabled
+          - "{{ not is_forced }}" # All force functions must now be disabled
         sequence:
           # First: Reset force state in helper (v6)
           - if:
