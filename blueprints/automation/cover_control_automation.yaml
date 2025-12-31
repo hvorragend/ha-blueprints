@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.30
+    **Version**: 2025.12.31
 
     ### 🔗 Resources & Support
 
@@ -188,6 +188,17 @@ blueprint:
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md) | **Previous Changelog**: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md)
 
+
+    # 🚀 CCA 2025.12.31 - Force Recovery Environment Check
+
+      ## 🔧 Bug Fixes
+
+      - **Fixed force-disabled recovery respecting environmental conditions** (#310):
+        Covers now check sun elevation and brightness before reopening after force-disabled
+        state ends (e.g., rain protection). Time-based triggers at `time_up_late`/`time_down_late`
+        continue to work as ultimate fallback regardless of conditions.
+
+      
     # 🚀 CCA 2025.12.30 - Sun Elevation Modes (Fixed/Dynamic/Hybrid)
 
       ## ☀️ Three Sun Elevation Modes
@@ -195,36 +206,33 @@ blueprint:
       - **Flexible threshold calculation with three distinct modes**
         Choose how sun elevation thresholds are determined: Fixed (simple), Dynamic (seasonal sensors), or Hybrid (sensor + offset).
 
-      ### 🔒 Fixed Mode (Default)
-      - Uses only configured fixed values. Sensors are ignored. Perfect for simple setups without seasonal needs.
-      - **Backward compatible**: All existing configs automatically use this mode.
+      - ### Fixed Mode (Default)
+        - Uses only configured fixed values. Sensors are ignored. Perfect for simple setups without seasonal needs.
+        - **Backward compatible**: All existing configs automatically use this mode.
 
-      ### 📊 Dynamic Mode
-      - Uses only sensor values. Fixed values ignored. Ideal for automatic seasonal adaptation.
-      - **Sensors required**: Config check validates sensor configuration and numeric states.
+      - ### Dynamic Mode
+        - Uses only sensor values. Fixed values ignored. Ideal for automatic seasonal adaptation.
+        - **Sensors required**: Config check validates sensor configuration and numeric states.
 
-      ### 🔄 Hybrid Mode
-      - Combines both: Final threshold = Sensor value + Fixed value as offset.
-      - **Best of both worlds**: Seasonal base + manual fine-tuning per cover.
+      - ### Hybrid Mode
+        - Combines both: Final threshold = Sensor value + Fixed value as offset.
+        - **Best of both worlds**: Seasonal base + manual fine-tuning per cover.
 
-      ### 🔧 Features
-      - New `sun_elevation_mode` selector with clear descriptions
-      - Updated field descriptions explain behavior in each mode
-      - Comprehensive config validation with helpful error messages
-      - Smart fallback if sensors become unavailable
-
+      - ### Features
+        - New `sun_elevation_mode` selector with clear descriptions
+        - Updated field descriptions explain behavior in each mode
 
       ## 🔧 Bug Fixes
 
-      - **Fixed prevent_multiple_times flags respecting manual intervention**: The
-        `prevent_opening_multiple_times`, `prevent_closing_multiple_times`, and
+      - **Fixed prevent_multiple_times flags respecting manual intervention** (#311): 
+        The `prevent_opening_multiple_times`, `prevent_closing_multiple_times`, and
         `prevent_shading_multiple_times` flags now correctly respect manual user
         intervention. Automation will not retry if the user manually changed the
         cover position after an automation attempt, ensuring user decisions are
         always respected.
 
       
-    # 🚀 CCA 2025.12.27
+    # 🚀 CCA 2025.12.27 - Smart State Memory, Flexible Shading Logic, Calendar Integration, Awning Support & Dynamic Sun Elevation & More
     
       ## 🧠 Background State Memory & Force Return
 
@@ -4673,12 +4681,14 @@ actions:
           (
             is_time_field_enabled and
             now() >= today_at(time_up_late_today) and
-            now() <= today_at(time_down_late_today) - timedelta(seconds = 5)
+            now() < today_at(time_down_early_today)
           ) or
           (
             is_calendar_enabled and
             calendar_open_end is not none and
-            now_ts >= calendar_open_end
+            calendar_close_start is not none and
+            now_ts >= calendar_open_end and
+            now_ts < calendar_close_start
           )
         }}
 
@@ -4848,8 +4858,10 @@ actions:
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
-              - "{{ is_time_up_late }}"
-              - and: # Early opening with environmental conditions
+              - and: # Ultimate opening ONLY for time triggers (no environment checks)
+                  - "{{ is_time_up_late }}"
+                  - "{{ trigger.id in ['t_open_2', 't_calendar_event_end'] }}"
+              - and: # All other triggers: WITH environment checks
                   - "{{ is_opening_phase or is_daytime_phase }}"
                   - "{{ not is_evening_phase }}"
                   - "{{ environment_allows_opening }}"
@@ -4962,15 +4974,17 @@ actions:
               - "{{ is_status_helper_enabled and prevent_flags.closing_multiple_times and ((helper_ts.closed < today_at(time_down_early_today) | as_timestamp) or helper_ts.manual <= helper_ts.closed) }}"
           - or: # Closing scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
-              - "{{ is_time_down_late }}"
-              - and: # Early closing with environmental conditions
-                  - "{{ is_closing_phase or is_evening_phase }}"
-                  - "{{ environment_allows_closing }}"
-              - and: # Resident goes sleeping
+              - and: # Ultimate closing ONLY for time triggers (no environment checks)
+                  - "{{ is_time_down_late }}"
+                  - "{{ trigger.id in ['t_close_2', 't_calendar_event_start'] }}"
+              - and: # Resident goes sleeping (ultimate closing)
                   - "{{ trigger.id == 't_close_6' }}"
                   - "{{ resident_sensor != [] }}"
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
                   - "{{ resident_flags.closing_enabled }}"
+              - and: # All other triggers: WITH environment checks
+                  - "{{ is_closing_phase or is_evening_phase }}"
+                  - "{{ environment_allows_closing }}"
         sequence:
           - choose:
               #################################

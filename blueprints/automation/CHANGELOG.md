@@ -1,3 +1,14 @@
+# 🚀 CCA 2025.12.31 - Force Recovery Environment Check
+
+**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
+
+## 🔧 Bug Fixes
+
+- **Fixed force-disabled recovery respecting environmental conditions** (#310): Covers now check sun elevation and brightness before reopening after force-disabled state ends (e.g., rain protection). Time-based triggers at `time_up_late`/`time_down_late` continue to work as ultimate fallback regardless of conditions.
+
+---
+
+
 # 🚀 CCA 2025.12.30 - Sun Elevation Modes (Fixed/Dynamic/Hybrid)
 
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
@@ -43,12 +54,6 @@
 
 - **Updated field descriptions**
   All sun elevation fields now explain their behavior in each mode, making configuration intuitive.
-
-- **Comprehensive config checks**
-  Validates that sensors are configured when required (Dynamic/Hybrid modes), ensures sensor states are numeric, and provides clear error messages.
-
-- **Smart fallback behavior**
-  If a sensor becomes unavailable in Dynamic/Hybrid mode, the system falls back to the fixed value to prevent automation failures.
 
 ### 💡 Use Cases
 - **Fixed Mode**: Simple setups, manual control preference, no seasonal needs
