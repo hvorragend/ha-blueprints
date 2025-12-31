@@ -4207,52 +4207,13 @@ actions:
                 {% set dict_var = helper_json %}
                 {% set updates = update_values | default({}) %}
                 {% if dict_var.v == 6 %}
-                  {# v6 Structure: Convert v5-style updates to v6 format #}
+                  {# v6 Structure: Direct merge of state, pending, and ts updates #}
                   {% set ts_now = as_timestamp(now()) | round(0) %}
-                  {% set secs_now = ts_now % 86400 %}
                   {% set new_state = dict_var.state %}
                   {% set new_pending = dict_var.pending %}
                   {% set new_ts = dict_var.ts %}
 
-                  {# Handle v5-style updates (backwards compatibility) #}
-                  {% if 'open' in updates %}
-                    {% set new_state = dict(new_state, current='open', target='open') %}
-                    {% set new_ts = dict(new_ts, open=secs_now) %}
-                  {% endif %}
-                  {% if 'close' in updates %}
-                    {% set new_state = dict(new_state, current='close', target='close') %}
-                    {% set new_ts = dict(new_ts, close=secs_now) %}
-                  {% endif %}
-                  {% if 'shading' in updates %}
-                    {% if updates.shading.a | int == 1 %}
-                      {% set new_state = dict(new_state, current='shade', target='shade') %}
-                      {% set new_ts = dict(new_ts, shade=secs_now) %}
-                    {% endif %}
-                    {% if 'p' in updates.shading %}
-                      {% set new_pending = dict(new_pending, start=(updates.shading.p | int)) %}
-                    {% endif %}
-                    {% if 'q' in updates.shading %}
-                      {% set new_pending = dict(new_pending, end=(updates.shading.q | int)) %}
-                    {% endif %}
-                  {% endif %}
-                  {% if 'vpart' in updates %}
-                    {% set new_state = dict(new_state, current='vpart', target='vpart') %}
-                    {% set new_ts = dict(new_ts, vpart=secs_now) %}
-                  {% endif %}
-                  {% if 'vfull' in updates %}
-                    {% set new_state = dict(new_state, current='vfull', target='vfull') %}
-                    {% set new_ts = dict(new_ts, vfull=secs_now) %}
-                  {% endif %}
-                  {% if 'manual' in updates %}
-                    {% if updates.manual.a | int == 1 %}
-                      {% set new_state = dict(new_state, current='manual', man=1) %}
-                      {% set new_ts = dict(new_ts, man=secs_now) %}
-                    {% else %}
-                      {% set new_state = dict(new_state, man=0) %}
-                    {% endif %}
-                  {% endif %}
-
-                  {# Handle direct v6-style updates (state, pending, ts) #}
+                  {# Merge v6-style updates (state, pending, ts) #}
                   {% if 'state' in updates %}
                     {% set new_state = dict(new_state, **updates.state) %}
                   {% endif %}
@@ -4266,7 +4227,7 @@ actions:
                   {% set dict_new = dict(dict_var, state=new_state, pending=new_pending, ts=new_ts, t=ts_now) %}
                   {{ dict_new | to_json }}
                 {% else %}
-                  {# v5 Structure: Original merge logic #}
+                  {# v5 Structure: Fallback for migration from old helpers #}
                   {% set dict_new = dict(dict_var, **updates) %}
                   {{ dict_new | to_json }}
                 {% endif %}
