@@ -192,14 +192,14 @@ blueprint:
 
       ## 🎯 Optimized State Management & Memory Efficiency
 
-      - **Helper JSON v6 with compact structure**
+      - **Helper JSON v6 with readable structure**
         New optimized JSON format reduces helper size from 254 to ~150-180 characters, leaving room for future features. Uses seconds-since-midnight for timestamps instead of Unix timestamps.
 
       - **Centralized state management**
         Introduced unified state tracking with `state_current`, `state_target`, and `state_force` variables as single source of truth, replacing distributed condition checks across 126+ locations.
 
       - **Simplified force logic**
-        Force functions now use centralized `state_force` tracking (no|op|cl|sh|vp|vf) with simplified `can_move_open`, `can_move_close`, `can_move_shade`, `can_move_ventilate` flags instead of complex `is_cover_movement_blocked` dictionary.
+        Force functions now use centralized `state_force` tracking (none|open|close|shade|vpart|vfull) with simplified `can_move_open`, `can_move_close`, `can_move_shade`, `can_move_ventilate` flags instead of complex `is_cover_movement_blocked` dictionary.
 
       - **Automatic v5→v6 migration**
         Existing helpers automatically upgrade to v6 structure on first run. Helper update function provides backward compatibility during transition, automatically converting v5-style updates to v6 format.
@@ -209,9 +209,10 @@ blueprint:
 
       ### 💡 Technical improvements
 
-      - State codes: `op` (open), `cl` (close), `sh` (shading), `vp` (vent partial), `vf` (vent full), `mn` (manual)
-      - Compact JSON keys: `st.cr` (current), `st.tg` (target), `st.fr` (force), `st.rs` (resident), `st.mn` (manual flag)
+      - State codes: `open`, `close`, `shade`, `vpart`, `vfull`, `manual`, `none`
+      - Readable JSON keys: `state.current`, `state.target`, `state.force`, `state.resident`, `state.man`
       - Timestamp optimization: Day-relative seconds reduce storage from 10 to 5 digits per timestamp
+      - Pending states: `pending.start` and `pending.end` for shade timing
       - Background compatibility: Legacy v5 helpers continue to work during gradual migration
 
     # 🚀 CCA 2025.12.30 - Sun Elevation Modes (Fixed/Dynamic/Hybrid)
@@ -3563,25 +3564,25 @@ variables:
   # STATE MANAGER - Centralized State Access (v6 optimized)
   # ═══════════════════════════════════════════════════════════════════════════
   # These getters provide backward compatibility with v5 while supporting v6
-  # v6 uses compact structure: st.cr (current), st.tg (target), st.fr (force)
+  # v6 uses readable structure: state.current, state.target, state.force
 
   # STATE CURRENT - What state is the cover in RIGHT NOW?
-  # Maps from v6 compact codes or v5 status flags to readable state
+  # Maps from v6 state codes or v5 status flags to readable state
   state_current: >-
     {% if is_status_helper_enabled %}
       {% if helper_json.v == 6 %}
-        {{ helper_json.st.cr }}
+        {{ helper_json.state.current }}
       {% else %}
-        {% if helper_status.manual %}mn
-        {% elif helper_status.open %}op
-        {% elif helper_status.closed %}cl
-        {% elif helper_status.shaded %}sh
-        {% elif helper_status.vpart %}vp
-        {% elif helper_status.vfull %}vf
-        {% else %}un{% endif %}
+        {% if helper_status.manual %}manual
+        {% elif helper_status.open %}open
+        {% elif helper_status.closed %}close
+        {% elif helper_status.shaded %}shade
+        {% elif helper_status.vpart %}vpart
+        {% elif helper_status.vfull %}vfull
+        {% else %}none{% endif %}
       {% endif %}
     {% else %}
-      un
+      none
     {% endif %}
 
   # STATE TARGET - What state SHOULD the cover be in?
@@ -3589,35 +3590,35 @@ variables:
   state_target: >-
     {% if is_status_helper_enabled %}
       {% if helper_json.v == 6 %}
-        {{ helper_json.st.tg }}
+        {{ helper_json.state.target }}
       {% else %}
         {{ state_current }}
       {% endif %}
     {% else %}
-      un
+      none
     {% endif %}
 
   # STATE FORCE - Which force function is currently active?
-  # Centralized force status: no|op|cl|sh|vp|vf
+  # Centralized force status: none|open|close|shade|vpart|vfull
   state_force: >-
     {% if is_status_helper_enabled and helper_json.v == 6 %}
-      {{ helper_json.st.fr }}
+      {{ helper_json.state.force }}
     {% elif auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
-      op
+      open
     {% elif auto_down_force != [] and states(auto_down_force) in ['on', 'true'] %}
-      cl
+      close
     {% elif auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'] %}
-      sh
+      shade
     {% elif auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true'] %}
-      vp
+      vpart
     {% else %}
-      no
+      none
     {% endif %}
 
   # RESIDENT STATUS - Is someone present?
   state_resident: >-
     {% if is_status_helper_enabled and helper_json.v == 6 %}
-      {{ helper_json.st.rs }}
+      {{ helper_json.state.resident }}
     {% elif resident_sensor != [] %}
       {{ 1 if is_state(resident_sensor, 'on') else 0 }}
     {% else %}
@@ -3628,7 +3629,7 @@ variables:
   state_manual: >-
     {% if is_status_helper_enabled %}
       {% if helper_json.v == 6 %}
-        {{ helper_json.st.mn }}
+        {{ helper_json.state.man }}
       {% else %}
         {{ 1 if helper_status.manual else 0 }}
       {% endif %}
@@ -3642,13 +3643,13 @@ variables:
   # These replace the complex is_cover_movement_blocked dictionary
 
   # Can the cover move in each direction?
-  can_move_open: "{{ state_force in ['no', 'op'] }}"
-  can_move_close: "{{ state_force in ['no', 'cl'] }}"
-  can_move_shade: "{{ state_force in ['no', 'sh'] }}"
-  can_move_ventilate: "{{ state_force in ['no', 'vp', 'vf'] }}"
+  can_move_open: "{{ state_force in ['none', 'open'] }}"
+  can_move_close: "{{ state_force in ['none', 'close'] }}"
+  can_move_shade: "{{ state_force in ['none', 'shade'] }}"
+  can_move_ventilate: "{{ state_force in ['none', 'vpart', 'vfull'] }}"
 
   # Is any force active?
-  is_forced: "{{ state_force != 'no' }}"
+  is_forced: "{{ state_force != 'none' }}"
 
   # Does the cover need to move to reach target?
   needs_movement: "{{ state_current != state_target and not is_forced }}"
@@ -4270,60 +4271,60 @@ actions:
                   {# v6 Structure: Convert v5-style updates to v6 format #}
                   {% set ts_now = as_timestamp(now()) | round(0) %}
                   {% set secs_now = ts_now % 86400 %}
-                  {% set new_st = dict_var.st %}
-                  {% set new_pd = dict_var.pd %}
+                  {% set new_state = dict_var.state %}
+                  {% set new_pending = dict_var.pending %}
                   {% set new_ts = dict_var.ts %}
 
                   {# Handle v5-style updates (backwards compatibility) #}
                   {% if 'open' in updates %}
-                    {% set new_st = dict(new_st, cr='op', tg='op') %}
-                    {% set new_ts = dict(new_ts, o=secs_now) %}
+                    {% set new_state = dict(new_state, current='open', target='open') %}
+                    {% set new_ts = dict(new_ts, open=secs_now) %}
                   {% endif %}
                   {% if 'close' in updates %}
-                    {% set new_st = dict(new_st, cr='cl', tg='cl') %}
-                    {% set new_ts = dict(new_ts, c=secs_now) %}
+                    {% set new_state = dict(new_state, current='close', target='close') %}
+                    {% set new_ts = dict(new_ts, close=secs_now) %}
                   {% endif %}
                   {% if 'shading' in updates %}
                     {% if updates.shading.a | int == 1 %}
-                      {% set new_st = dict(new_st, cr='sh', tg='sh') %}
-                      {% set new_ts = dict(new_ts, s=secs_now) %}
+                      {% set new_state = dict(new_state, current='shade', target='shade') %}
+                      {% set new_ts = dict(new_ts, shade=secs_now) %}
                     {% endif %}
                     {% if 'p' in updates.shading %}
-                      {% set new_pd = dict(new_pd, ss=(updates.shading.p | int)) %}
+                      {% set new_pending = dict(new_pending, start=(updates.shading.p | int)) %}
                     {% endif %}
                     {% if 'q' in updates.shading %}
-                      {% set new_pd = dict(new_pd, se=(updates.shading.q | int)) %}
+                      {% set new_pending = dict(new_pending, end=(updates.shading.q | int)) %}
                     {% endif %}
                   {% endif %}
                   {% if 'vpart' in updates %}
-                    {% set new_st = dict(new_st, cr='vp', tg='vp') %}
-                    {% set new_ts = dict(new_ts, vp=secs_now) %}
+                    {% set new_state = dict(new_state, current='vpart', target='vpart') %}
+                    {% set new_ts = dict(new_ts, vpart=secs_now) %}
                   {% endif %}
                   {% if 'vfull' in updates %}
-                    {% set new_st = dict(new_st, cr='vf', tg='vf') %}
-                    {% set new_ts = dict(new_ts, vf=secs_now) %}
+                    {% set new_state = dict(new_state, current='vfull', target='vfull') %}
+                    {% set new_ts = dict(new_ts, vfull=secs_now) %}
                   {% endif %}
                   {% if 'manual' in updates %}
                     {% if updates.manual.a | int == 1 %}
-                      {% set new_st = dict(new_st, cr='mn', mn=1) %}
-                      {% set new_ts = dict(new_ts, m=secs_now) %}
+                      {% set new_state = dict(new_state, current='manual', man=1) %}
+                      {% set new_ts = dict(new_ts, man=secs_now) %}
                     {% else %}
-                      {% set new_st = dict(new_st, mn=0) %}
+                      {% set new_state = dict(new_state, man=0) %}
                     {% endif %}
                   {% endif %}
 
-                  {# Handle direct v6-style updates (st, pd, ts) #}
-                  {% if 'st' in updates %}
-                    {% set new_st = dict(new_st, **updates.st) %}
+                  {# Handle direct v6-style updates (state, pending, ts) #}
+                  {% if 'state' in updates %}
+                    {% set new_state = dict(new_state, **updates.state) %}
                   {% endif %}
-                  {% if 'pd' in updates %}
-                    {% set new_pd = dict(new_pd, **updates.pd) %}
+                  {% if 'pending' in updates %}
+                    {% set new_pending = dict(new_pending, **updates.pending) %}
                   {% endif %}
                   {% if 'ts' in updates %}
                     {% set new_ts = dict(new_ts, **updates.ts) %}
                   {% endif %}
 
-                  {% set dict_new = dict(dict_var, st=new_st, pd=new_pd, ts=new_ts, t=ts_now) %}
+                  {% set dict_new = dict(dict_var, state=new_state, pending=new_pending, ts=new_ts, t=ts_now) %}
                   {{ dict_new | to_json }}
                 {% else %}
                   {# v5 Structure: Original merge logic #}
@@ -4979,45 +4980,35 @@ actions:
     then:
       - variables:
           ts_now: "{{ as_timestamp(now()) | round(0) }}"
-          # Helper: Convert Unix timestamp to seconds since midnight
-          ts_to_secs: >-
-            {% macro convert(ts) %}
-              {% if ts | int > 0 %}
-                {{ (ts | int) % 86400 }}
-              {% else %}
-                0
-              {% endif %}
-            {% endmacro %}
-            {{ convert }}
           # Helper: Determine current state from v5 flags
           current_state: >-
-            {% if helper_status.manual %}mn
-            {% elif helper_status.open %}op
-            {% elif helper_status.closed %}cl
-            {% elif helper_status.shaded or helper_status.shading_start_pending or helper_status.shading_end_pending %}sh
-            {% elif helper_status.vpart %}vp
-            {% elif helper_status.vfull %}vf
-            {% else %}op{% endif %}
+            {% if helper_status.manual %}manual
+            {% elif helper_status.open %}open
+            {% elif helper_status.closed %}close
+            {% elif helper_status.shaded or helper_status.shading_start_pending or helper_status.shading_end_pending %}shade
+            {% elif helper_status.vpart %}vpart
+            {% elif helper_status.vfull %}vfull
+            {% else %}open{% endif %}
       - variables:
           update_values:
             v: 6
             t: "{{ ts_now }}"
-            st:
-              cr: "{{ current_state }}"  # current state
-              tg: "{{ current_state }}"  # target = current (initially)
-              fr: "no"  # no force active initially
-              rs: "{{ 1 if (resident_sensor != [] and is_state(resident_sensor, 'on')) else 0 }}"
-              mn: "{{ 1 if helper_status.manual else 0 }}"
-            pd:
-              ss: "{{ (helper_json.shading.p | default(0)) if helper_json.v == 5 else 0 }}"
-              se: "{{ (helper_json.shading.q | default(0)) if helper_json.v == 5 else 0 }}"
+            state:
+              current: "{{ current_state }}"  # current state
+              target: "{{ current_state }}"  # target = current (initially)
+              force: "none"  # no force active initially
+              resident: "{{ 1 if (resident_sensor != [] and is_state(resident_sensor, 'on')) else 0 }}"
+              man: "{{ 1 if helper_status.manual else 0 }}"
+            pending:
+              start: "{{ (helper_json.shading.p | default(0)) if helper_json.v == 5 else 0 }}"
+              end: "{{ (helper_json.shading.q | default(0)) if helper_json.v == 5 else 0 }}"
             ts:
-              o: "{{ ((helper_ts.open | int) % 86400) if helper_ts.open | int > 0 else 0 }}"
-              c: "{{ ((helper_ts.closed | int) % 86400) if helper_ts.closed | int > 0 else 0 }}"
-              s: "{{ ((helper_ts.shaded | int) % 86400) if helper_ts.shaded | int > 0 else 0 }}"
-              vp: "{{ ((helper_ts.vpart | int) % 86400) if helper_ts.vpart | int > 0 else 0 }}"
-              vf: "{{ ((helper_ts.vfull | int) % 86400) if helper_ts.vfull | int > 0 else 0 }}"
-              m: "{{ ((helper_ts.manual | int) % 86400) if helper_ts.manual | int > 0 else 0 }}"
+              open: "{{ ((helper_ts.open | int) % 86400) if helper_ts.open | int > 0 else 0 }}"
+              close: "{{ ((helper_ts.closed | int) % 86400) if helper_ts.closed | int > 0 else 0 }}"
+              shade: "{{ ((helper_ts.shaded | int) % 86400) if helper_ts.shaded | int > 0 else 0 }}"
+              vpart: "{{ ((helper_ts.vpart | int) % 86400) if helper_ts.vpart | int > 0 else 0 }}"
+              vfull: "{{ ((helper_ts.vfull | int) % 86400) if helper_ts.vfull | int > 0 else 0 }}"
+              man: "{{ ((helper_ts.manual | int) % 86400) if helper_ts.manual | int > 0 else 0 }}"
       - *helper_update
 
   - choose:
@@ -6105,7 +6096,7 @@ actions:
                 vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
                 vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_json.manual.t }}" }
-                st: { fr: "op" }  # v6: Set force state to "open"
+                state: { force: "open" }  # v6: Set force state to "open"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -6137,7 +6128,7 @@ actions:
                 vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
                 vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_json.manual.t }}" }
-                st: { fr: "cl" }  # v6: Set force state to "close"
+                state: { force: "close" }  # v6: Set force state to "close"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -6170,7 +6161,7 @@ actions:
                 vpart: { a: 1, t: "{{ ts_now }}" }
                 vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_json.manual.t }}" }
-                st: { fr: "vp" }  # v6: Set force state to "ventilate partial"
+                state: { force: "vpart" }  # v6: Set force state to "ventilate partial"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -6203,7 +6194,7 @@ actions:
                 vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
                 vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                 manual: { a: 0, t: "{{ helper_json.manual.t }}" }
-                st: { fr: "sh" }  # v6: Set force state to "shading"
+                state: { force: "shade" }  # v6: Set force state to "shade"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -6392,7 +6383,7 @@ actions:
             then:
               - variables:
                   update_values:
-                    st: { fr: "no" }  # v6: Clear force state
+                    state: { force: "none" }  # v6: Clear force state
               - *helper_update
           - delay:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
