@@ -3616,6 +3616,34 @@ variables:
   # Does the cover need to move to reach target?
   needs_movement: "{{ state_current != state_target and not is_forced }}"
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RESIDENT PERMISSION FLAGS - Centralized Resident-based Access Control
+  # ═══════════════════════════════════════════════════════════════════════════
+  # These flags check resident status (from state_resident) once, avoiding
+  # redundant sensor reads across multiple branches.
+
+  # Can open with current resident status?
+  # Logic: Allow if opening_enabled OR (allow_opening matches resident state)
+  can_open_with_resident: >-
+    {{ not resident_flags.opening_enabled or
+       (not resident_flags.allow_opening and state_resident == 0) or
+       (resident_flags.allow_opening and state_resident == 1) }}
+
+  # Can close with current resident status?
+  # Logic: Allow if closing_enabled OR resident present
+  can_close_with_resident: >-
+    {{ not resident_flags.closing_enabled or state_resident == 1 }}
+
+  # Can shade with current resident status?
+  # Logic: Allow if allow_shading disabled OR resident not present
+  can_shade_with_resident: >-
+    {{ not resident_flags.allow_shading or state_resident == 0 }}
+
+  # Can ventilate with current resident status?
+  # Logic: Allow if allow_ventilation disabled OR resident not present
+  can_ventilate_with_resident: >-
+    {{ not resident_flags.allow_ventilation or state_resident == 0 }}
+
 
   # Resident sensor configuration
   resident_config: !input resident_config
@@ -4985,12 +5013,7 @@ actions:
                   - "{{ trigger.id == 't_open_6' }}"
                   - "{{ resident_flags.opening_enabled }}"
                   - "{{ should_be_open_now }}"
-          - or: # Resident status must always be checked
-              - "{{ resident_sensor == [] }}"
-              - "{{ states(resident_sensor) in ['false', 'off'] }}"
-              - and:
-                  - "{{ resident_flags.allow_opening }}"
-                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
+          - "{{ can_open_with_resident }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - and: # Ultimate opening ONLY for time triggers (no environment checks)
@@ -5111,8 +5134,7 @@ actions:
                   - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - and: # Resident goes sleeping (ultimate closing)
                   - "{{ trigger.id == 't_close_6' }}"
-                  - "{{ resident_sensor != [] }}"
-                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
+                  - "{{ can_close_with_resident }}"
                   - "{{ resident_flags.closing_enabled }}"
               - and: # All other triggers: WITH environment checks
                   - "{{ is_closing_phase or is_evening_phase }}"
@@ -5373,12 +5395,7 @@ actions:
                               - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
                       - or: # Shading during daytime window
                           - "{{ is_shading_allowed_window }}"
-                      - or:
-                          - "{{ resident_sensor == [] }}"
-                          - "{{ states(resident_sensor) in ['false', 'off'] }}"
-                          - and: # Issue 131
-                              - "{{ resident_flags.allow_shading }}"
-                              - "{{ states(resident_sensor) in ['true', 'on'] }}"
+                      - "{{ can_shade_with_resident }}"
                     sequence:
                       - delay:
                           seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
@@ -5542,9 +5559,7 @@ actions:
           - or: # Optional: Continue if cover is not already closed
               - "{{ not prevent_flags.shading_end_if_closed }}"
               - "{{ prevent_flags.shading_end_if_closed and not in_close_position}}"
-          - or: # Issue #116
-              - "{{ resident_sensor == [] }}"
-              - "{{ states(resident_sensor) in ['false', 'off'] }}"
+          - "{{ can_shade_with_resident }}"
         sequence:
           - if:
               - "{{ shading_end_conditions_met }}" # Use flexible AND/OR logic for END
@@ -5831,12 +5846,7 @@ actions:
           - or: # When background state tracking is enabled, let ANCHOR 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - "{{ not is_auto_recover_enabled }}"
-          - or:
-              - "{{ resident_sensor == [] }}"
-              - "{{ states(resident_sensor) in ['false', 'off'] }}"
-              - and:
-                  - "{{ resident_flags.allow_ventilation }}"
-                  - "{{ states(resident_sensor) in ['true', 'on'] }}"
+          - "{{ can_ventilate_with_resident }}"
         sequence:
           # Wait for all sensor changes to settle
           - delay:
@@ -6492,7 +6502,26 @@ actions:
             default: []
 
       ############################################################
-      # BRANCH (13): RESET SHADING STATUS AT MIDNIGHT
+      # BRANCH (13): UPDATE RESIDENT STATUS IN HELPER
+      ############################################################
+      # This branch updates state_resident in the helper whenever
+      # the resident_sensor changes. This ensures state_resident
+      # stays synchronized with the actual sensor state.
+
+      - alias: "Update resident status in helper"
+        conditions:
+          - "{{ trigger.entity_id == resident_sensor }}"
+          - "{{ resident_sensor != [] }}"
+        sequence:
+          - variables:
+              update_values:
+                state:
+                  resident: "{{ 1 if trigger.to_state.state in ['on', 'true'] else 0 }}"
+          - *helper_update
+          - stop: "Resident status updated"
+
+      ############################################################
+      # BRANCH (14): RESET SHADING STATUS AT MIDNIGHT
       ############################################################
 
       - alias: "Reset shading status that is no longer required - but still saved"
