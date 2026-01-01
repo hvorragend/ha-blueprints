@@ -205,9 +205,9 @@ blueprint:
 
       - **Deprecated `helper_status` flags**
         Use `state_current` instead:
-        - `helper_status.open` → `state_current == 'open'`
-        - `helper_status.closed` → `state_current == 'close'`
-        - `helper_status.shaded` → `state_current == 'shade'`
+        - `state_current == 'open'` → `state_current == 'open'`
+        - `state_current == 'close'` → `state_current == 'close'`
+        - `state_is_shaded` → `state_current == 'shade'`
         - Legacy flags still work but will be removed in future version
 
       - **Deprecated `helper_ts` dictionary**
@@ -3510,34 +3510,6 @@ variables:
   helper_json: "{{ states(cover_status_helper) | from_json }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # DEPRECATED: Legacy helper_status flags (use state_current instead)
-  # ═══════════════════════════════════════════════════════════════════════════
-  # ⚠️ These flags are DEPRECATED. Use state_current == 'xxx' instead.
-  # Kept for backward compatibility with v5 migration logic only.
-  helper_status:
-    open: "{{ state_current == 'open' }}"
-    closed: "{{ state_current == 'close' }}"
-    shaded: "{{ state_current == 'shade' and not (helper_json.pending.start | default(0) | int > 0) if helper_json.v == 6 else ((helper_json | regex_search('shading')) and (helper_json.shading.a | default(false) | bool) and not (helper_json.shading.p | default(false) | bool)) }}"
-    shading_start_pending: "{{ (helper_json.pending.start | default(0) | int > 0) if helper_json.v == 6 else ((helper_json | regex_search('shading')) and (helper_json.shading.p | default(false) | bool)) }}"
-    shading_end_pending: "{{ (helper_json.pending.end | default(0) | int > 0) if helper_json.v == 6 else ((helper_json | regex_search('shading')) and (helper_json.shading.q | default(false) | bool)) }}"
-    vpart: "{{ state_current == 'vpart' }}"
-    vfull: "{{ state_current == 'vfull' }}"
-    manual: "{{ state_current == 'manual' }}"
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # DEPRECATED: Legacy helper_ts timestamps (use helper_json.ts directly)
-  # ═══════════════════════════════════════════════════════════════════════════
-  # ⚠️ These are DEPRECATED. Access helper_json.ts.* directly for v6.
-  # For v5, timestamps need conversion. Kept for v5 migration compatibility.
-  helper_ts:
-    open: "{{ (helper_json.ts.open | default(0)) if helper_json.v == 6 else (helper_json.open.t | default(0)) }}"
-    closed: "{{ (helper_json.ts.close | default(0)) if helper_json.v == 6 else (helper_json.close.t | default(0)) }}"
-    shaded: "{{ (helper_json.ts.shade | default(0)) if helper_json.v == 6 else (helper_json.shading.t | default(0)) }}"
-    vpart: "{{ (helper_json.ts.vpart | default(0)) if helper_json.v == 6 else (helper_json.vpart.t | default(0)) }}"
-    vfull: "{{ (helper_json.ts.vfull | default(0)) if helper_json.v == 6 else (helper_json.vfull.t | default(0)) }}"
-    manual: "{{ (helper_json.ts.man | default(0)) if helper_json.v == 6 else (helper_json.manual.t | default(0)) }}"
-
-  # ═══════════════════════════════════════════════════════════════════════════
   # STATE MANAGER - Centralized State Access (v6 optimized)
   # ═══════════════════════════════════════════════════════════════════════════
   # These getters provide backward compatibility with v5 while supporting v6
@@ -3549,12 +3521,12 @@ variables:
     {% if helper_json.v == 6 %}
       {{ helper_json.state.current }}
     {% else %}
-      {% if helper_status.manual %}manual
-      {% elif helper_status.open %}open
-      {% elif helper_status.closed %}close
-      {% elif helper_status.shaded %}shade
-      {% elif helper_status.vpart %}vpart
-      {% elif helper_status.vfull %}vfull
+      {% if (helper_json | regex_search('manual')) and (helper_json.manual.a | default(0) | int == 1) %}manual
+      {% elif (helper_json | regex_search('open')) and (helper_json.open.a | default(0) | int == 1) %}open
+      {% elif (helper_json | regex_search('close')) and (helper_json.close.a | default(0) | int == 1) %}close
+      {% elif (helper_json | regex_search('shading')) and (helper_json.shading.a | default(0) | int == 1) and not (helper_json.shading.p | default(0) | bool) %}shade
+      {% elif (helper_json | regex_search('vpart')) and (helper_json.vpart.a | default(0) | int == 1) %}vpart
+      {% elif (helper_json | regex_search('vfull')) and (helper_json.vfull.a | default(0) | int == 1) %}vfull
       {% else %}none{% endif %}
     {% endif %}
 
@@ -3599,7 +3571,32 @@ variables:
     {% if helper_json.v == 6 %}
       {{ helper_json.state.man }}
     {% else %}
-      {{ 1 if helper_status.manual else 0 }}
+      {{ 1 if state_current == 'manual' else 0 }}
+    {% endif %}
+
+  # SHADED STATUS - Is cover currently shaded (not pending)?
+  # True when state is 'shade' AND no pending start time active
+  state_is_shaded: >-
+    {% if helper_json.v == 6 %}
+      {{ helper_json.state.current == 'shade' and not (helper_json.pending.start | default(0) | int > 0) }}
+    {% else %}
+      {{ (helper_json | regex_search('shading')) and (helper_json.shading.a | default(false) | bool) and not (helper_json.shading.p | default(false) | bool) }}
+    {% endif %}
+
+  # PENDING START - Is shading start pending?
+  state_pending_start: >-
+    {% if helper_json.v == 6 %}
+      {{ helper_json.pending.start | default(0) | int > 0 }}
+    {% else %}
+      {{ (helper_json | regex_search('shading')) and (helper_json.shading.p | default(false) | bool) }}
+    {% endif %}
+
+  # PENDING END - Is shading end pending?
+  state_pending_end: >-
+    {% if helper_json.v == 6 %}
+      {{ helper_json.pending.end | default(0) | int > 0 }}
+    {% else %}
+      {{ (helper_json | regex_search('shading')) and (helper_json.shading.q | default(false) | bool) }}
     {% endif %}
 
   # ═══════════════════════════════════════════════════════════════════════════
@@ -4933,35 +4930,26 @@ actions:
     then:
       - variables:
           ts_now: "{{ as_timestamp(now()) | round(0) }}"
-          # Helper: Determine current state from v5 flags
-          current_state: >-
-            {% if helper_status.manual %}manual
-            {% elif helper_status.open %}open
-            {% elif helper_status.closed %}close
-            {% elif helper_status.shaded or helper_status.shading_start_pending or helper_status.shading_end_pending %}shade
-            {% elif helper_status.vpart %}vpart
-            {% elif helper_status.vfull %}vfull
-            {% else %}open{% endif %}
       - variables:
           update_values:
             v: 6
             t: "{{ ts_now }}"
             state:
-              current: "{{ current_state }}"  # current state
-              target: "{{ current_state }}"  # target = current (initially)
+              current: "{{ state_current }}"  # current state
+              target: "{{ state_current }}"  # target = current (initially)
               force: "none"  # no force active initially
               resident: "{{ 1 if (resident_sensor != [] and is_state(resident_sensor, 'on')) else 0 }}"
-              man: "{{ 1 if helper_status.manual else 0 }}"
+              man: "{{ state_manual }}"
             pending:
               start: "{{ (helper_json.shading.p | default(0)) if helper_json.v == 5 else 0 }}"
               end: "{{ (helper_json.shading.q | default(0)) if helper_json.v == 5 else 0 }}"
             ts:
-              open: "{{ ((helper_ts.open | int) % 86400) if helper_ts.open | int > 0 else 0 }}"
-              close: "{{ ((helper_ts.closed | int) % 86400) if helper_ts.closed | int > 0 else 0 }}"
-              shade: "{{ ((helper_ts.shaded | int) % 86400) if helper_ts.shaded | int > 0 else 0 }}"
-              vpart: "{{ ((helper_ts.vpart | int) % 86400) if helper_ts.vpart | int > 0 else 0 }}"
-              vfull: "{{ ((helper_ts.vfull | int) % 86400) if helper_ts.vfull | int > 0 else 0 }}"
-              man: "{{ ((helper_ts.manual | int) % 86400) if helper_ts.manual | int > 0 else 0 }}"
+              open: "{{ ((helper_json.open.t | default(0) | int) % 86400) if (helper_json.open.t | default(0) | int) > 0 else 0 }}"
+              close: "{{ ((helper_json.close.t | default(0) | int) % 86400) if (helper_json.close.t | default(0) | int) > 0 else 0 }}"
+              shade: "{{ ((helper_json.shading.t | default(0) | int) % 86400) if (helper_json.shading.t | default(0) | int) > 0 else 0 }}"
+              vpart: "{{ ((helper_json.vpart.t | default(0) | int) % 86400) if (helper_json.vpart.t | default(0) | int) > 0 else 0 }}"
+              vfull: "{{ ((helper_json.vfull.t | default(0) | int) % 86400) if (helper_json.vfull.t | default(0) | int) > 0 else 0 }}"
+              man: "{{ ((helper_json.manual.t | default(0) | int) % 86400) if (helper_json.manual.t | default(0) | int) > 0 else 0 }}"
       - *helper_update
 
   - choose:
@@ -5022,7 +5010,7 @@ actions:
               ###################################
               - alias: "Shading detected. Move to shading position"
                 conditions:
-                  - "{{ helper_status.shaded }}"
+                  - "{{ state_is_shaded }}"
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                 sequence:
                   - choose: []
@@ -5213,7 +5201,7 @@ actions:
                   - or:
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ prevent_flags.lowering_when_closing_if_shaded }}"
-                          - "{{ helper_status.shaded }}"
+                          - "{{ state_is_shaded }}"
                           - "{{ not position_comparisons.shading_above_close }}"
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ prevent_flags.lowering_when_closing_if_shaded }}"
@@ -5292,15 +5280,15 @@ actions:
               - "{{ is_auto_recover_enabled }}"
               - "{{ can_move_shade }}"  # Simplified from is_cover_movement_blocked.shading
           - or: # Check the helper status or the target status
-              - "{{ not helper_status.shaded }}"
-              - "{{ not (helper_status.vpart or helper_status.vfull) }}"
+              - "{{ not state_is_shaded }}"
+              - "{{ not (state_current == 'vpart' or state_current == 'vfull') }}"
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
-          - "{{ not (helper_status.manual and override_flags.shading) }}" # Override check
+          - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.shading_multiple_times }}"
-              - "{{ prevent_flags.shading_multiple_times and ((now().day != helper_ts.shaded|timestamp_custom('%-d') | int) or helper_ts.manual <= helper_ts.shaded) }}"
+              - "{{ prevent_flags.shading_multiple_times and ((now().day != ((helper_json.ts.shade if helper_json.v == 6 else helper_json.shading.t | default(0)) | timestamp_custom('%-d') | int)) or ((helper_json.ts.man if helper_json.v == 6 else helper_json.manual.t | default(0)) <= (helper_json.ts.shade if helper_json.v == 6 else helper_json.shading.t | default(0)))) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
 
         sequence:
@@ -5318,7 +5306,7 @@ actions:
                   - alias: "Shading detected. Save next execution time and pending status"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
-                      - "{{ not helper_status.shading_start_pending }}" # Not if a pending is already active
+                      - "{{ not state_pending_start }}" # Not if a pending is already active
                     sequence:
                       - variables:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
@@ -5342,7 +5330,7 @@ actions:
                   - alias: "Consider lockout protection when shading starts"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_status.shading_start_pending }}" # Only when it comes back from pending status
+                      - "{{ state_pending_start }}" # Only when it comes back from pending status
                       - "{{ is_ventilation_enabled }}"
                       - or:
                           - and:
@@ -5374,7 +5362,7 @@ actions:
                   - alias: "Start Shading"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_status.shading_start_pending }}" # Only when it comes back from pending status
+                      - "{{ state_pending_start }}" # Only when it comes back from pending status
                       - or: # Position check: Skip if force active with background tracking (helper update only)
                           - "{{ is_forced and is_auto_recover_enabled }}"
                           - and:
@@ -5428,8 +5416,8 @@ actions:
                   - alias: "Save shading state for the future"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_status.shading_start_pending }}" # Only when it comes back from pending status
-                      - "{{ helper_status.closed }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                      - "{{ state_pending_start }}" # Only when it comes back from pending status
+                      - "{{ state_current == 'close' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                       - "{{ not is_forced }}" # Skip if force active - let "Start Shading" handle background state
                     sequence:
                       - variables:
@@ -5458,7 +5446,7 @@ actions:
                   - alias: "Shading start conditions not met - check if we should continue"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_status.shading_start_pending }}"
+                      - "{{ state_pending_start }}"
                       - "{{ shading_start_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
                           - "{{ is_shading_allowed_window }}"
@@ -5486,7 +5474,7 @@ actions:
                   - alias: "Shading start / Stop retry"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_status.shading_start_pending }}"
+                      - "{{ state_pending_start }}"
                     sequence:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
@@ -5512,13 +5500,13 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_tilt)') }}"
           - and:
-              - "{{ helper_status.shaded }}"
-              - "{{ not helper_status.shading_start_pending }}"
+              - "{{ state_is_shaded }}"
+              - "{{ not state_pending_start }}"
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
           - "{{ can_move_shade }}"  # v6 Optimized
-          - "{{ not (helper_status.vpart or helper_status.vfull) }}"
-          - "{{ not (helper_status.manual and override_flags.shading) }}" # Override check
+          - "{{ not (state_current == 'vpart' or state_current == 'vfull') }}"
+          - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
@@ -5546,10 +5534,10 @@ actions:
               - "{{ not is_forced }}" # All force functions must now be disabled
           - or:
               - "{{ is_shading_allowed_window }}"
-          - "{{ not (helper_status.manual and override_flags.shading) }}" # Override check
-          - "{{ not helper_status.closed }}"
+          - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
+          - "{{ not state_current == 'close' }}"
           - or:
-              - "{{ helper_status.shaded }}"
+              - "{{ state_is_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
           - or: # Optional: Continue if cover is not already closed
               - "{{ not prevent_flags.shading_end_if_closed }}"
@@ -5568,7 +5556,7 @@ actions:
                   - alias: "Shading end detected. Save next execution time and pending status"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
-                      - "{{ not helper_status.shading_end_pending }}"
+                      - "{{ not state_pending_end }}"
                     sequence:
                       - variables:
                           local_waitingtime_end: >
@@ -5598,7 +5586,7 @@ actions:
                   - alias: "Only tilt open after shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ helper_status.shading_end_pending }}"
+                      - "{{ state_pending_end }}"
                       - "{{ is_cover_tilt_enabled_and_possible }}"
                       - "{{ prevent_flags.opening_after_shading_end}}"
                     sequence:
@@ -5627,7 +5615,7 @@ actions:
                   - alias: "Lockout protection when shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ helper_status.shading_end_pending }}"
+                      - "{{ state_pending_end }}"
                       - "{{ is_ventilation_enabled }}"
                       - "{{ position_comparisons.current_below_ventilate }}"
                       - or:
@@ -5660,7 +5648,7 @@ actions:
                   - alias: "Ventilation after shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ helper_status.shading_end_pending }}"
+                      - "{{ state_pending_end }}"
                       - "{{ is_ventilation_enabled }}"
                       - "{{ ventilation_flags.after_shading_end }}"
                       - "{{ contact_window_tilted != [] }}"
@@ -5714,7 +5702,7 @@ actions:
                   - alias: "Move cover after shading end - conditions still valid"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ helper_status.shading_end_pending }}"
+                      - "{{ state_pending_end }}"
                       - or:
                           - "{{ is_auto_recover_enabled }}"
                           - or:
@@ -5781,7 +5769,7 @@ actions:
                   - alias: "Shading end conditions not met - check if we should continue"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ helper_status.shading_end_pending }}"
+                      - "{{ state_pending_end }}"
                       - "{{ shading_end_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
                           - "{{ is_shading_allowed_window }}"
@@ -5809,7 +5797,7 @@ actions:
                   - alias: "Shading end / Stop retry"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ helper_status.shading_end_pending }}"
+                      - "{{ state_pending_end }}"
                     sequence:
                       - variables:
                           update_values:
@@ -5924,7 +5912,7 @@ actions:
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
                       - and:
-                          - "{{ helper_status.vfull }}"
+                          - "{{ state_current == 'vfull' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
 
                 sequence:
@@ -5962,16 +5950,16 @@ actions:
               - alias: "Window closed - Return to shading"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ helper_status.shaded }}"
+                  - "{{ state_is_shaded }}"
                   - or: # Was ventilating before
-                      - "{{ helper_status.vpart }}"
-                      - "{{ helper_status.vfull }}"
+                      - "{{ state_current == 'vpart' }}"
+                      - "{{ state_current == 'vfull' }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
-                  - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (state_current == 'manual' and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
                   # Optional delay if enabled
@@ -6009,17 +5997,17 @@ actions:
               - alias: "Window closed - Return to open position"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ helper_status.open }}"
-                  - "{{ not helper_status.shaded }}"
+                  - "{{ state_current == 'open' }}"
+                  - "{{ not state_is_shaded }}"
                   - or: # Was ventilating before
-                      - "{{ helper_status.vpart }}"
-                      - "{{ helper_status.vfull }}"
+                      - "{{ state_current == 'vpart' }}"
+                      - "{{ state_current == 'vfull' }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
-                  - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (state_current == 'manual' and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
                   # Optional delay if enabled
@@ -6060,16 +6048,16 @@ actions:
               - alias: "Window closed - Return to close position"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ helper_status.closed }}"
+                  - "{{ state_current == 'close' }}"
                   - or: # Was ventilating before
-                      - "{{ helper_status.vpart }}"
-                      - "{{ helper_status.vfull }}"
+                      - "{{ state_current == 'vpart' }}"
+                      - "{{ state_current == 'vfull' }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
-                  - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (state_current == 'manual' and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
                   # Optional delay if enabled
@@ -6434,11 +6422,11 @@ actions:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
           - variables:
               # Read current target state from helper
-              background_is_open: "{{ helper_status.open }}"
-              background_is_closed: "{{ helper_status.closed }}"
-              background_is_shaded: "{{ helper_status.shaded }}"
-              background_is_vpart: "{{ helper_status.vpart }}"
-              background_is_vfull: "{{ helper_status.vfull }}"
+              background_is_open: "{{ state_current == 'open' }}"
+              background_is_closed: "{{ state_current == 'close' }}"
+              background_is_shaded: "{{ state_is_shaded }}"
+              background_is_vpart: "{{ state_current == 'vpart' }}"
+              background_is_vfull: "{{ state_current == 'vfull' }}"
           - choose:
               # Return to CLOSE position
               - conditions:
@@ -6512,9 +6500,9 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_shading_reset' }}"
           - or:
-              - "{{ helper_status.shaded }}"
-              - "{{ helper_status.shading_start_pending }}"  # Also clear pending status
-              - "{{ helper_status.shading_end_pending }}"    # Also clear end‑pending status
+              - "{{ state_is_shaded }}"
+              - "{{ state_pending_start }}"  # Also clear pending status
+              - "{{ state_pending_end }}"    # Also clear end‑pending status
         sequence:
           - delay:
               seconds: "{{ (range(0, 60) | random | int) }}"
