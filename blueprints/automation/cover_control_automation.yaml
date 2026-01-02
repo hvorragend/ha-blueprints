@@ -3644,16 +3644,30 @@ triggers:
     enabled: "{{ is_brightness_enabled and default_brightness_sensor != [] }}"
     id: "t_open_4"
 
-  # Trigger on fixed or dynamic sensor threshold
+  # Trigger on sun elevation threshold (supports fixed, dynamic, and hybrid modes)
   - trigger: template
     value_template: >-
+      {% set mode = sun_elevation_mode %}
       {% set sensor = sun_elevation_up_sensor %}
+      {% set fixed_value = sun_elevation_up | float %}
       {% set current_elevation = state_attr(default_sun_sensor, 'elevation') | float(0) %}
-      {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
-        {{ current_elevation > (states(sensor) | float) }}
+      {% set sensor_valid = sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+      {% if mode == 'dynamic' %}
+        {% if sensor_valid %}
+          {% set threshold = states(sensor) | float %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
+      {% elif mode == 'hybrid' %}
+        {% if sensor_valid %}
+          {% set threshold = (states(sensor) | float) + fixed_value %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
       {% else %}
-        {{ current_elevation > sun_elevation_up }}
+        {% set threshold = fixed_value %}
       {% endif %}
+      {{ current_elevation > threshold }}
     for:
       seconds: !input sun_time_duration
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
@@ -3721,13 +3735,27 @@ triggers:
 
   - trigger: template
     value_template: >-
+      {% set mode = sun_elevation_mode %}
       {% set sensor = sun_elevation_down_sensor %}
+      {% set fixed_value = sun_elevation_down | float %}
       {% set current_elevation = state_attr(default_sun_sensor, 'elevation') | float(0) %}
-      {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
-        {{ current_elevation < (states(sensor) | float) }}
+      {% set sensor_valid = sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+      {% if mode == 'dynamic' %}
+        {% if sensor_valid %}
+          {% set threshold = states(sensor) | float %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
+      {% elif mode == 'hybrid' %}
+        {% if sensor_valid %}
+          {% set threshold = (states(sensor) | float) + fixed_value %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
       {% else %}
-        {{ current_elevation < sun_elevation_down }}
+        {% set threshold = fixed_value %}
       {% endif %}
+      {{ current_elevation < threshold }}
     for:
       seconds: !input sun_time_duration
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
