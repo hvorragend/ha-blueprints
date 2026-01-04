@@ -1,3 +1,14 @@
+# 🚀 CCA 2026.01.02 - Sun Elevation Trigger Mode Support
+
+**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
+
+## 🔧 Bug Fixes
+
+- **Fixed sun elevation triggers to respect fixed/dynamic/hybrid modes**: Triggers `t_open_5` and `t_close_5` now correctly implement all three sun elevation modes (fixed, dynamic, hybrid) ensuring consistent threshold calculation across the automation.
+
+---
+
+
 # 🚀 CCA 2025.12.31 - Force Recovery Environment Check
 
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).

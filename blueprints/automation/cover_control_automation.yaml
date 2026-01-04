@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2025.12.31
+    **Version**: 2026.01.02
 
     ### 🔗 Resources & Support
 
@@ -187,6 +187,13 @@ blueprint:
     <summary><strong>📢 Latest changes</strong></summary>
 
     **Full Changelog**: [CHANGELOG.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md) | **Previous Changelog**: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md)
+
+
+    # 🚀 CCA 2026.01.02 - Sun Elevation Trigger Mode Support
+
+      ## 🔧 Bug Fixes
+
+      - **Fixed sun elevation triggers to respect fixed/dynamic/hybrid modes**: Triggers now correctly implement all three sun elevation modes (fixed, dynamic, hybrid) ensuring consistent threshold calculation across the automation.
 
 
     # 🚀 CCA 2025.12.31 - Force Recovery Environment Check
@@ -3273,7 +3280,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2025.12.30"
+  version: "2026.01.02"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3644,16 +3651,30 @@ triggers:
     enabled: "{{ is_brightness_enabled and default_brightness_sensor != [] }}"
     id: "t_open_4"
 
-  # Trigger on fixed or dynamic sensor threshold
+  # Trigger on sun elevation threshold (supports fixed, dynamic, and hybrid modes)
   - trigger: template
     value_template: >-
+      {% set mode = sun_elevation_mode %}
       {% set sensor = sun_elevation_up_sensor %}
+      {% set fixed_value = sun_elevation_up | float %}
       {% set current_elevation = state_attr(default_sun_sensor, 'elevation') | float(0) %}
-      {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
-        {{ current_elevation > (states(sensor) | float) }}
+      {% set sensor_valid = sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+      {% if mode == 'dynamic' %}
+        {% if sensor_valid %}
+          {% set threshold = states(sensor) | float %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
+      {% elif mode == 'hybrid' %}
+        {% if sensor_valid %}
+          {% set threshold = (states(sensor) | float) + fixed_value %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
       {% else %}
-        {{ current_elevation > sun_elevation_up }}
+        {% set threshold = fixed_value %}
       {% endif %}
+      {{ current_elevation > threshold }}
     for:
       seconds: !input sun_time_duration
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
@@ -3721,13 +3742,27 @@ triggers:
 
   - trigger: template
     value_template: >-
+      {% set mode = sun_elevation_mode %}
       {% set sensor = sun_elevation_down_sensor %}
+      {% set fixed_value = sun_elevation_down | float %}
       {% set current_elevation = state_attr(default_sun_sensor, 'elevation') | float(0) %}
-      {% if sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
-        {{ current_elevation < (states(sensor) | float) }}
+      {% set sensor_valid = sensor != [] and states(sensor) not in invalid_states and is_number(states(sensor)) %}
+      {% if mode == 'dynamic' %}
+        {% if sensor_valid %}
+          {% set threshold = states(sensor) | float %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
+      {% elif mode == 'hybrid' %}
+        {% if sensor_valid %}
+          {% set threshold = (states(sensor) | float) + fixed_value %}
+        {% else %}
+          {% set threshold = fixed_value %}
+        {% endif %}
       {% else %}
-        {{ current_elevation < sun_elevation_down }}
+        {% set threshold = fixed_value %}
       {% endif %}
+      {{ current_elevation < threshold }}
     for:
       seconds: !input sun_time_duration
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
