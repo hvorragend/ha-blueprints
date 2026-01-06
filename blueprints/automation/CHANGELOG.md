@@ -1,52 +1,17 @@
-# 🚀 CCA 2026.01.06 - Forecast Temperature Trigger Coverage
-
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
+
+# 🚀 CCA 2026.01.06 - Forecast Temperature Trigger Coverage
 
 ## ✨ New Features
 
 - **Added missing state triggers for Forecast Temperature condition**: The `cond_forecast_temp` condition now has dedicated state-change triggers (`t_shading_start_pending_6` and `t_shading_end_pending_6`) for immediate reaction when forecast temperature sensor values change. Previously, forecast temperature was only evaluated via time-based trigger or when other conditions triggered, which caused incomplete AND/OR logic evaluation.
 
-### Example Impact
-
-**Before this update:**
-```yaml
-shading_conditions_start_and: [cond_forecast_temp, cond_brightness]
-```
-- Brightness changes → Trigger fires ✅ → Evaluates forecast temp
-- Forecast temp sensor changes → **No trigger** ❌ → Automation doesn't react
-
-**After this update:**
-```yaml
-shading_conditions_start_and: [cond_forecast_temp, cond_brightness]
-```
-- Brightness changes → Trigger fires ✅ → Evaluates forecast temp
-- **Forecast temp sensor changes → Trigger fires ✅ → Evaluates brightness** (NEW!)
-
-### Trigger Organization
-
-All state-based pending triggers now use IDs 1-6, with time-based triggers using 7+:
-
-**State-based triggers (IDs 1-6):**
-1. Azimuth + Elevation
-2. Brightness
-3. Temp1
-4. Temp2
-5. Weather Conditions
-6. **Forecast Temperature** (NEW)
-
-**Time-based triggers (IDs 7+):**
-7. Forecast pre-load (1h before opening)
-
-### Note for Weather Entity Users
-
-When using a weather entity for forecast temperature (without a dedicated sensor), the existing weather condition trigger (`t_shading_start_pending_5` / `t_shading_end_pending_4`) will fire on weather entity updates. The forecast temperature is then loaded and evaluated in the action sequence, providing indirect coverage for weather entity-based forecast temperature.
+- **Note for Weather Entity Users**: When using a weather entity for forecast temperature (without a dedicated sensor), the existing weather condition trigger (`t_shading_start_pending_5` / `t_shading_end_pending_4`) will fire on weather entity updates. The forecast temperature is then loaded and evaluated in the action sequence, providing indirect coverage for weather entity-based forecast temperature.
 
 ---
 
 
 # 🚀 CCA 2026.01.02 - Sun Elevation Trigger Mode Support
-
-**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
 ## 🔧 Bug Fixes
 
@@ -56,8 +21,6 @@ When using a weather entity for forecast temperature (without a dedicated sensor
 
 
 # 🚀 CCA 2025.12.31 - Force Recovery Environment Check
-
-**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
 ## 🔧 Bug Fixes
 
@@ -69,8 +32,6 @@ When using a weather entity for forecast temperature (without a dedicated sensor
 
 
 # 🚀 CCA 2025.12.30 - Sun Elevation Modes (Fixed/Dynamic/Hybrid)
-
-**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
 ## ☀️ Three Sun Elevation Modes
 
