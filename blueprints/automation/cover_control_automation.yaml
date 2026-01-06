@@ -3280,7 +3280,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.01.02"
+  version: "2026.01.06"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3879,6 +3879,11 @@ triggers:
     enabled: "{{ is_shading_enabled and shading_forecast_temp_sensor != [] and shading_forecast_temp != [] }}"
     id: "t_shading_start_pending_6"
 
+  - trigger: state # Fallback: Trigger on weather entity updates when using forecast temp without dedicated sensor
+    entity_id: !input shading_forecast_sensor
+    enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] and shading_forecast_temp_sensor == [] and shading_forecast_temp != [] }}"
+    id: "t_shading_start_pending_weather_entity"
+
   - trigger: template # Required to recognize the maximum temperature value of the weather forecast before opening.
     value_template: "{{ now() >= today_at([time_up_early, time_up_early_non_workday] | min) - timedelta(hours = 1) }}"
     enabled: "{{ is_shading_enabled }}"
@@ -3997,6 +4002,11 @@ triggers:
     value_template: "{{ states(shading_forecast_temp_sensor) not in invalid_states and states(shading_forecast_temp_sensor) | float(default=shading_forecast_temp) < (shading_forecast_temp - shading_forecast_temp_hysteresis) }}"
     enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_forecast_temp_sensor != [] and shading_forecast_temp != [] }}"
     id: "t_shading_end_pending_6"
+
+  - trigger: state # Fallback: Trigger on weather entity updates when using forecast temp without dedicated sensor
+    entity_id: !input shading_forecast_sensor
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] and shading_forecast_sensor != [] and shading_forecast_temp_sensor == [] and shading_forecast_temp != [] }}"
+    id: "t_shading_end_pending_weather_entity"
 
   - trigger: template
     value_template: >-

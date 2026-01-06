@@ -1,3 +1,82 @@
+# 🚀 CCA 2026.01.06 - Complete Forecast Temperature Trigger Coverage
+
+**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
+
+## ✨ New Features
+
+- **Added missing state triggers for Forecast Temperature condition**: The `cond_forecast_temp` condition now has dedicated state-change triggers (`t_shading_start_pending_6` and `t_shading_end_pending_6`) for immediate reaction when forecast temperature sensor values change. Previously, forecast temperature was only evaluated via time-based trigger or when other conditions triggered, which caused incomplete AND/OR logic evaluation.
+
+- **Weather entity fallback triggers for forecast temperature**: Added state-based fallback triggers (`t_shading_start_pending_weather_entity` and `t_shading_end_pending_weather_entity`) that activate when using a weather entity for forecast temperature without a dedicated sensor. These triggers respond to weather entity state changes, ensuring forecast temperature changes are detected even without a dedicated temperature sensor.
+
+## 🎯 Impact on AND/OR Logic
+
+All shading conditions now have complete trigger coverage:
+
+| Condition | START Trigger | END Trigger | Trigger Type |
+|-----------|--------------|-------------|--------------|
+| Azimuth | pending_1 | pending_5 | State |
+| Elevation | pending_1 | pending_5 | State |
+| Brightness | pending_2 | pending_3 | State |
+| Temp1 | pending_3 | pending_1 | State |
+| Temp2 | pending_4 | pending_2 | State |
+| Forecast Weather | pending_5 | pending_4 | State |
+| **Forecast Temp** | **pending_6** | **pending_6** | **State (NEW)** |
+| **Forecast Temp (Weather Entity)** | **weather_entity** | **weather_entity** | **State (NEW)** |
+
+**Before this update:**
+- Forecast temperature changes were **not** immediately detected when using a sensor
+- AND/OR logic evaluation was **incomplete** when forecast temp was part of the conditions
+- Only time-based trigger (1h before opening) or other condition triggers would evaluate forecast temp
+
+**After this update:**
+- Sensor-based forecast temperature: **Immediate reaction** on value changes
+- Weather entity forecast: **Reacts to entity updates** (fallback behavior)
+- **Complete AND/OR logic evaluation** for all condition combinations
+- **Consistent behavior** with all other shading conditions
+
+### Example Scenarios
+
+**Scenario 1: Sensor-based forecast**
+```yaml
+shading_conditions_start_and: [cond_forecast_temp, cond_brightness]
+```
+- Brightness changes → Trigger fires ✅ → Evaluates forecast temp
+- **Forecast temp changes → Trigger fires ✅ → Evaluates brightness** (NEW!)
+
+**Scenario 2: Weather entity forecast**
+```yaml
+shading_conditions_start_or: [cond_forecast_temp, cond_azimuth]
+```
+- Weather entity updates → Trigger fires ✅ → Loads forecast → Evaluates conditions (NEW!)
+
+## 🔧 Technical Details
+
+### Trigger Organization
+All state-based pending triggers now use IDs 1-6, with time-based triggers using 7+:
+
+**State-based triggers (IDs 1-6):**
+1. Azimuth + Elevation
+2. Brightness
+3. Temp1
+4. Temp2
+5. Weather Conditions
+6. **Forecast Temperature** (NEW)
+
+**Time-based triggers (IDs 7+):**
+7. Forecast pre-load (1h before opening)
+
+**Fallback triggers (named IDs):**
+- `t_shading_start_pending_weather_entity` - Weather entity updates for START
+- `t_shading_end_pending_weather_entity` - Weather entity updates for END
+
+### Simplified Regex Patterns
+The reorganization allows for simpler regex patterns in condition checks:
+- START: `[1-6]` (instead of `([1-5]|7)`)
+- END: `[1-6]` (unchanged)
+
+---
+
+
 # 🚀 CCA 2026.01.02 - Sun Elevation Trigger Mode Support
 
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
