@@ -25,6 +25,7 @@
 ### 📍 **Time Control & Scheduling**
 - **Flexible Time Input**: Traditional time-based opening/closing with workday/non-workday support
 - **Calendar Integration**: Create "Open Cover" / "Close Cover" events in Home Assistant calendars for visual, family-friendly scheduling
+- **Hybrid Scheduling**: Combine time-based triggers with calendar integration for maximum flexibility
 - **Early/Late Triggers**: Separate early and late times for flexible opening/closing windows
 - **Identical Times Support**: Can set early and late times to identical values for guaranteed exact timing
 
@@ -86,6 +87,11 @@
 - **Multiple Position Attributes**: Works with `current_position`, `position`, or custom sensors
 - **Alternative Position Tracking**: Use external sensors when cover doesn't report positions
 - **Automatic Detection**: Handles missing attributes gracefully
+
+### ⚡ **Performance & Reliability**
+- **RF Interference Prevention**: Configurable fixed and random delays to prevent radio interference when controlling multiple covers
+- **Race Condition Protection**: Handles multiple simultaneous sensor changes safely (e.g., ventilation + shading triggers)
+- **Smart State Tracking**: Helper integration maintains state persistently across Home Assistant restarts
 
 ### ✅ **Extensive Configuration Validation**
 - **Online Configuration Validator**: Web-based tool to validate YAML before deployment
