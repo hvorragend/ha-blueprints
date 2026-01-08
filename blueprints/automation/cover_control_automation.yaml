@@ -2915,10 +2915,8 @@ variables:
   helper_json: "{{ states(cover_status_helper) | from_json }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # STATE MANAGER - Centralized State Access (v6 optimized)
+  # STATE MANAGER - Centralized State Access
   # ═══════════════════════════════════════════════════════════════════════════
-  # These getters provide backward compatibility with v5 while supporting v6
-  # v6 uses readable structure: state.current, state.target, state.force
 
   # STATE CURRENT - What state is the cover in RIGHT NOW?
   # Maps from v6 state codes or v5 status flags to readable state
@@ -4349,7 +4347,7 @@ actions:
   # ═══════════════════════════════════════════════════════════════════════════
   # MANDATORY HELPER VALIDATION
   # ═══════════════════════════════════════════════════════════════════════════
-  # Cover Control Automation v6 requires a properly configured Cover Status Helper.
+  # Cover Control Automation requires a properly configured Cover Status Helper.
   # This validation ensures all prerequisites are met before automation execution.
   - if:
       - "{{ cover_status_helper == [] }}"
@@ -4365,7 +4363,7 @@ actions:
           name: "Cover Control Automation"
           message: >-
             ❌ {{ friendly_name }}: Automation stopped - Cover Status Helper not configured.
-            A valid input_text helper is mandatory for v6. Please configure it in the automation settings.
+            A valid input_text helper is mandatory. Please configure it in the automation settings.
           entity_id: "{{ blind_entities[0] if blind_entities else none }}"
       - stop: "Missing Cover Status Helper configuration"
 
@@ -4379,16 +4377,16 @@ actions:
           message: >-
             Cover Control Automation ({{ friendly_name }}): HELPER VALIDATION WARNING - Cover Status Helper contains invalid or empty data.
             Helper: {{ cover_status_helper }}, Current state: {{ states(cover_status_helper) }}
-            The helper will be initialized with default v6 structure.
+            The helper will be initialized with default structure.
           level: warning
       - action: logbook.log
         data:
           name: "Cover Control Automation"
           message: >-
-            ⚠️ {{ friendly_name }}: Cover Status Helper invalid - initializing with default v6 structure.
+            ⚠️ {{ friendly_name }}: Cover Status Helper invalid - initializing with default structure.
           entity_id: "{{ cover_status_helper }}"
 
-  # Initialise empty helper with JSON default v6 values #########################
+  # Initialise empty helper with JSON default values #########################
   - if:
       - or:
           - "{{ states(cover_status_helper) in invalid_states }}"
@@ -4400,7 +4398,7 @@ actions:
           value: "{{ helper_json | to_json }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Upgrade JSON-helper to v6 (Optimized State Manager)
+  # Upgrade JSON-helper
   # ═══════════════════════════════════════════════════════════════════════════
   - if:
       - "{{ helper_json.v != 6 }}"
@@ -4446,14 +4444,14 @@ actions:
           - or: # When background state tracking is enabled, let BRANCH 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - "{{ not is_auto_recover_enabled }}"
-          - or: # v6 Optimized: Use centralized force check
+          - or: # Use centralized force check
               - "{{ is_auto_recover_enabled }}"
               - "{{ can_move_open }}"  # Simplified from is_cover_movement_blocked.open
-          - or: # Check state or position (v6 Optimized)
+          - or: # Check state or position
               - "{{ state_current != 'open' }}"
               - "{{ not in_open_position }}"
-          - "{{ not (state_current == 'manual' and override_flags.opening) }}" # Override check (v6 Optimized)
-          - or: # Only once a day? (v6 Optimized)
+          - "{{ not (state_current == 'manual' and override_flags.opening) }}" # Override check
+          - or: # Only once a day?
               - "{{ not prevent_flags.opening_multiple_times }}"
               - "{{ prevent_flags.opening_multiple_times and ((now().day != helper_json.ts.open|timestamp_custom('%-d')|int) or helper_json.ts.man <= helper_json.ts.open) }}"
           - or: # Check whether the resident trigger is allowed
@@ -4519,7 +4517,7 @@ actions:
               - alias: "Normal opening of the cover"
                 conditions:
                   - "{{ not in_shading_position }}" # In this part, there is no plan for an open roller blind to switch from Shading to Open.
-                  - or: # v6 Optimized: Check state or position
+                  - or:
                       - "{{ state_current != 'open' }}"
                       - "{{ not in_open_position }}"
                 sequence:
@@ -4566,14 +4564,14 @@ actions:
           - or: # When background state tracking is enabled, let choose 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - "{{ not is_auto_recover_enabled }}"
-          - or: # v6 Optimized: Use centralized force check
+          - or: # Use centralized force check
               - "{{ is_auto_recover_enabled }}"
               - "{{ can_move_close }}"  # Simplified from is_cover_movement_blocked.close
-          - or: # Check state or position (v6 Optimized)
+          - or: # Check state or position
               - "{{ state_current != 'close' }}"
               - "{{ not in_close_position }}"
-          - "{{ not (state_current == 'manual' and override_flags.closing) }}" # Override check (v6 Optimized)
-          - or: # Only once a day? (v6 Optimized)
+          - "{{ not (state_current == 'manual' and override_flags.closing) }}" # Override check
+          - or: # Only once a day?
               - "{{ not prevent_flags.closing_multiple_times }}"
               - "{{ prevent_flags.closing_multiple_times and ((helper_json.ts.close < today_at(time_down_early_today) | as_timestamp) or helper_json.ts.man <= helper_json.ts.close) }}"
           - or: # Closing scenarios - works for BOTH time and calendar mode
@@ -4747,7 +4745,7 @@ actions:
           - or: # When background state tracking is enabled, let choose 12 handle force-disabled triggers
               - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - "{{ not is_auto_recover_enabled }}"
-          - or: # v6 Optimized: Use centralized force check
+          - or: # Use centralized force check
               - "{{ is_auto_recover_enabled }}"
               - "{{ can_move_shade }}"  # Simplified from is_cover_movement_blocked.shading
           - or: # Check the helper status or the target status
@@ -4970,7 +4968,7 @@ actions:
               - "{{ not state_pending_start }}"
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
-          - "{{ can_move_shade }}"  # v6 Optimized
+          - "{{ can_move_shade }}" 
           - "{{ not (state_current == 'vpart' or state_current == 'vfull') }}"
           - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
         sequence:
@@ -5315,7 +5313,7 @@ actions:
                 conditions:
                   - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
-                  - or: # Force functions allow ventilation start (v6 Optimized)
+                  - or: # Force functions allow ventilation start
                       - "{{ is_auto_recover_enabled }}"
                       - "{{ can_move_ventilate }}"
                   # User-defined condition for starting ventilation
@@ -5353,7 +5351,7 @@ actions:
                 conditions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
-                  - or: # Force functions allow ventilation start (v6 Optimized)
+                  - or: # Force functions allow ventilation start 
                       - "{{ is_auto_recover_enabled }}"
                       - "{{ can_move_ventilate }}"
                   # User-defined condition for starting ventilation
@@ -5567,14 +5565,13 @@ actions:
               update_values:
                 state:
                   current: "open"
-                  target: "open"
                   man: 0
+                  force: "open"  
                 ts:
                   open: "{{ (ts_now % 86400) | int }}"
                 pending:
                   start: 0
                   end: 0
-                state: { force: "open" }  # v6: Set force state to "open"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5602,14 +5599,13 @@ actions:
               update_values:
                 state:
                   current: "close"
-                  target: "close"
                   man: 0
+                  force: "close"  
                 ts:
                   close: "{{ (ts_now % 86400) | int }}"
                 pending:
                   start: 0
                   end: 0
-                state: { force: "close" }  # v6: Set force state to "close"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5626,7 +5622,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_enabled_ventilate' }}"
-          - "{{ can_move_ventilate }}"  # v6 Optimized
+          - "{{ can_move_ventilate }}" 
         sequence:
           - choose: []
             default: !input auto_ventilate_action_before
@@ -5637,14 +5633,13 @@ actions:
               update_values:
                 state:
                   current: "vpart"
-                  target: "vpart"
                   man: 0
+                  force: "vpart" 
                 ts:
                   vpart: "{{ (ts_now % 86400) | int }}"
                 pending:
                   start: 0
                   end: 0
-                state: { force: "vpart" }  # v6: Set force state to "ventilate partial"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5661,7 +5656,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_force_enabled_shading' }}"
-          - "{{ can_move_shade }}"  # v6 Optimized
+          - "{{ can_move_shade }}" 
         sequence:
           - choose: []
             default: !input auto_shading_start_action_before
@@ -5672,14 +5667,13 @@ actions:
               update_values:
                 state:
                   current: "shade"
-                  target: "shade"
                   man: 0
+                  force: "shade" 
                 ts:
                   shade: "{{ (ts_now % 86400) | int }}"
                 pending:
                   start: 0
                   end: 0
-                state: { force: "shade" }  # v6: Set force state to "shade"
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5869,13 +5863,13 @@ actions:
           - "{{ is_auto_recover_enabled }}"
           - "{{ not is_forced }}" # All force functions must now be disabled
         sequence:
-          # First: Reset force state in helper (v6)
+          # First: Reset force state in helper
           - if:
               - "{{ helper_json.v == 6 }}"
             then:
               - variables:
                   update_values:
-                    state: { force: "none" }  # v6: Clear force state
+                    state: { force: "none" } 
               - *helper_update
           - delay:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -6084,6 +6078,12 @@ actions:
                       not is_number(states(sun_elevation_down_sensor))
                     }}
                   message: "Sun Elevation Down Sensor has non-numeric state. Sensor must provide numeric values in hybrid mode"
+
+                # ========== HELPER CONFIGURATION CHECKS ==========
+                - condition: "{{ 'cover_helper_enabled' in cover_status_options and state_attr(cover_status_helper, 'max') < 254 }}"
+                  message: "Cover status helper must have minimum length of 254 characters"
+                - condition: "{{ (is_shading_enabled or is_ventilation_enabled) and not is_status_helper_enabled }}"
+                  message: "Shading and ventilation features require a cover status helper. Please configure one"
 
                 # ========== TILT FEATURE CHECKS ==========
                 - condition: "{{ is_cover_tilt_enabled and state_attr(blind, 'current_tilt_position') is none }}"
