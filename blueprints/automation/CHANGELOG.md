@@ -1,5 +1,14 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.09 - Shading Trigger Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed shading not triggering automatically after cover opens** (#325): Shading conditions are now correctly re-evaluated when covers open, ensuring shading activates when all conditions are met.
+
+---
+
+
 # 🚀 CCA 2026.01.06 - Forecast Temperature Trigger Coverage
 
 ## ✨ New Features
