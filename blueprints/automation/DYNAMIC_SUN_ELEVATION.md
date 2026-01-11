@@ -41,6 +41,14 @@ The sensors provide **dynamic threshold values** that change throughout the year
 - Result: Covers open earlier and close later in summer (long day), open later and close earlier in winter (short day)
 
 ### Visual Comparison
+
+![Annual Threshold Curve](../../docs/images/threshold_curve_annual.png)
+
+The graph above shows how the dynamic sun elevation threshold changes throughout the year, comparing sinusoidal interpolation (recommended) with linear interpolation.
+
+<details>
+<summary>ASCII version (click to expand)</summary>
+
 ```
 Sun Elevation Threshold Throughout Year (50°N)
 
@@ -63,6 +71,7 @@ Sun Elevation Threshold Throughout Year (50°N)
         Solstice →  Jun/Dec  ← Solstice
                     (slower)
 ```
+</details>
 
 **Why Sine is Better:**
 - 📈 **Physically accurate** - matches Earth's declination cycle
@@ -225,6 +234,10 @@ After setting up your sensors, verify the values in Developer Tools:
 
 ## 📊 How It Works
 
+![Both Sensors Throughout Year](../../docs/images/both_sensors_annual.png)
+
+The graph above visualizes how both opening and closing sensors work together throughout the year, creating different "open window" durations in summer vs winter.
+
 ### Understanding the Comparison Logic
 
 The dynamic sensors provide **threshold values** that are compared with the **current sun elevation**:
@@ -263,6 +276,10 @@ The sensors use these baseline values for **50°N latitude** (Central Europe):
 **Automatic latitude adjustment:** ±0.2° per degree difference from 50°N
 
 ### Values at Different Latitudes
+
+![Latitude Comparison](../../docs/images/latitude_comparison.png)
+
+The graph above shows how the opening sensor thresholds automatically adjust for different latitudes across Europe.
 
 | Location | Latitude | Opening Summer | Opening Winter |
 |----------|----------|----------------|----------------|
@@ -398,6 +415,10 @@ Create asymmetric behavior:
 ---
 
 ## 📐 Mathematical Background
+
+![Sine Wave Explanation](../../docs/images/sine_wave_explanation.png)
+
+The diagram above shows how the sine function transforms the seasonal cycle into smooth threshold values.
 
 ### The Sine Formula
 ```
