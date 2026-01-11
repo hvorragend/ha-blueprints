@@ -5518,32 +5518,49 @@ actions:
           - "{{ cover_status_helper != [] }}"
           - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}"
           - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
+          - "{{ trigger.from_state.state not in invalid_states }}"
+          - "{{ trigger.to_state.state not in invalid_states }}"
           - or:
-              # Position change detection (all sources)
-              - >-
-                {{
-                  trigger.id == 't_manual_position' and
-                  (
-                    (position_source == 'custom_sensor' and
-                     is_number(trigger.from_state.state) and
-                     is_number(trigger.to_state.state) and
-                     trigger.from_state.state != trigger.to_state.state)
-                    or
-                    (position_source in ['current_position_attr', 'position_attr'] and
-                     trigger.attribute in ['current_position', 'position'] and
-                     is_number(trigger.from_state.attributes.get(trigger.attribute)) and
-                     is_number(trigger.to_state.attributes.get(trigger.attribute)) and
-                     trigger.from_state.attributes.get(trigger.attribute) != trigger.to_state.attributes.get(trigger.attribute))
-                  )
-                }}
+              # Position change via custom sensor (state-based)
+              - and:
+                  - "{{ trigger.id == 't_manual_position' }}"
+                  - "{{ position_source == 'custom_sensor' }}"
+                  - "{{ trigger.from_state.state not in invalid_states }}"
+                  - "{{ trigger.to_state.state not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.state) }}"
+                  - "{{ is_number(trigger.to_state.state) }}"
+                  - "{{ trigger.from_state.state != trigger.to_state.state }}"
+
+              # Position change via current_position attribute
+              - and:
+                  - "{{ trigger.id == 't_manual_position' }}"
+                  - "{{ position_source == 'current_position_attr' }}"
+                  - "{{ trigger.attribute == 'current_position' }}"
+                  - "{{ trigger.from_state.attributes.current_position not in invalid_states }}"
+                  - "{{ trigger.to_state.attributes.current_position not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.attributes.current_position) }}"
+                  - "{{ is_number(trigger.to_state.attributes.current_position) }}"
+                  - "{{ trigger.from_state.attributes.current_position != trigger.to_state.attributes.current_position }}"
+
+              # Position change via position attribute
+              - and:
+                  - "{{ trigger.id == 't_manual_position' }}"
+                  - "{{ position_source == 'position_attr' }}"
+                  - "{{ trigger.attribute == 'position' }}"
+                  - "{{ trigger.from_state.attributes.position not in invalid_states }}"
+                  - "{{ trigger.to_state.attributes.position not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.attributes.position) }}"
+                  - "{{ is_number(trigger.to_state.attributes.position) }}"
+                  - "{{ trigger.from_state.attributes.position != trigger.to_state.attributes.position }}"
+
               # Tilt change detection
-              - >-
-                {{
-                  trigger.id == 't_manual_tilt' and
-                  is_number(trigger.from_state.attributes.current_tilt_position | default(none)) and
-                  is_number(trigger.to_state.attributes.current_tilt_position | default(none)) and
-                  trigger.from_state.attributes.current_tilt_position != trigger.to_state.attributes.current_tilt_position
-                }}
+              - and:
+                  - "{{ trigger.id == 't_manual_tilt' }}"
+                  - "{{ trigger.from_state.attributes.current_tilt_position not in invalid_states }}"
+                  - "{{ trigger.to_state.attributes.current_tilt_position not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.attributes.current_tilt_position | default(none)) }}"
+                  - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}"
+                  - "{{ trigger.from_state.attributes.current_tilt_position != trigger.to_state.attributes.current_tilt_position }}"
         sequence:
           - variables:
               ts_now: "{{ as_timestamp(now()) | round(0) }}"
