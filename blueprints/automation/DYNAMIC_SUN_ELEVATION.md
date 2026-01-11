@@ -44,22 +44,22 @@ The sensors provide **dynamic threshold values** that change throughout the year
 ```
 Sun Elevation Threshold Throughout Year (50°N)
 
-  6° ┤                    ╭─Sine curve─╮
-     │                  ╱               ╲
-  4° ┤     Linear    ╱                   ╲
-     │      ╱─╲    ╱                       ╲
-  2° ┤    ╱    ╲ ╱   ← Spring/Autumn:       ╲
-     │  ╱       ╳      Sine changes faster!   ╲
-  0° ┤╱        ╱ ╲                              ╲
-     │       ╱    ╲                               ╲
- -2° ┤     ╱       ╲─────────────────────────────╲
-     │   ╱                                          ╲
- -4° ┼──┴────┬────┬────┬────┬────┬────┬────┬────┬──┴─
+  6° ┤╲                                          ╱
+     │ ╲                                        ╱
+  4° ┤  ╲       ╲─────────────────────────╱   ╱
+     │   ╲       ╲                       ╱   ╱
+  2° ┤    ╲       ╲   ← Spring/Autumn:  ╱   ╱  Linear
+     │     ╲       ╲     Sine changes   ╱  ╱─╲
+  0° ┤      ╲       ╲    faster!       ╱ ╱    ╲
+     │       ╲       ╲                ╱╱       ╲
+ -2° ┤        ╲       ╰─Sine curve─╯╱          ╲
+     │         ╲                   ╱            ╲
+ -4° ┼──┬────┬──┴─────────────────┴────┬────┬───
      Jan    Mar  May  Jul  Sep  Nov  Jan
             ↑                    ↑
         Equinox              Equinox
         (faster)             (faster)
-        
+
         Solstice →  Jun/Dec  ← Solstice
                     (slower)
 ```
@@ -415,21 +415,29 @@ This is the **reference point** where:
 
 ### Key Dates in Solar Cycle
 ```
+        Dec 21 (Day 355)           Jan 1
+      MAXIMUM THRESHOLD        MAXIMUM THRESHOLD
+              ╲╱                      ╲╱
+            ╱  ╲                    ╱  ╲
+          ╱      ╲                ╱      ╲
+        ╱          ╲            ╱          ╲
+     ╱              ╲        ╱              ╲
+Mar 21                ╲    ╱                Sep 23
+(Day 80)               ╲  ╱                 (Day 266)
+EQUINOX                 ╲╱                  EQUINOX
+                        ╱╲
+                      ╱    ╲
+                    ╱        ╲
+                  ╱            ╲
+                ╱                ╲
+              ╱                    ╲
+            ╱                        ╲
+          ╱                            ╲
         Jun 21 (Day 172)
-           MAXIMUM
-              ╱╲
-            ╱    ╲
-          ╱        ╲
-        ╱            ╲
-Mar 21 ╱              ╲ Sep 23
-(Day 80)              (Day 266)
-EQUINOX               EQUINOX
-        ╲            ╱
-          ╲        ╱
-            ╲    ╱
-              ╲╱
-        Dec 21 (Day 355)
-           MINIMUM
+     MINIMUM THRESHOLD
+
+Note: For threshold values with summer < winter,
+      the sine curve is inverted compared to sun's declination
 ```
 
 ### Step-by-Step Calculation
