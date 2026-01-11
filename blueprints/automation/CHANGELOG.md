@@ -1,5 +1,14 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.11 - Manual Position Trigger Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed manual position detection trigger** (#326): Replaced non-functional template trigger with separate state triggers for each position source (current_position, position, custom sensor). Manual position changes are now reliably detected within 60 seconds.
+
+---
+
+
 # 🚀 CCA 2026.01.09 - Shading Trigger Fix
 
 ## 🔧 Bug Fixes

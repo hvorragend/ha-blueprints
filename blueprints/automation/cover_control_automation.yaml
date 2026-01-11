@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.01.09
+    **Version**: 2026.01.11
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md) | ✨ **Highlights**: [Key Features](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/README.md#-key-features)
@@ -2729,7 +2729,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.01.09"
+  version: "2026.01.11"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3470,21 +3470,31 @@ triggers:
   # Trigger for manual cover controls
   ########################################
 
-  # Position detection via unified template trigger
-  - trigger: template
-    value_template: >-
-      {% if position_source == 'current_position_attr' %}
-        {{ state_attr(blind, 'current_position') }}
-      {% elif position_source == 'position_attr' %}
-        {{ state_attr(blind, 'position') }}
-      {% elif position_source == 'custom_sensor' and custom_position_sensor != [] %}
-        {{ states(custom_position_sensor) }}
-      {% else %}
-        none
-      {% endif %}
+  # Position detection via current_position attribute (standard)
+  - platform: state
+    entity_id: !input blind
+    attribute: current_position
+    enabled: "{{ position_source == 'current_position_attr' }}"
     id: "t_manual_position"
     for:
-      minutes: 2
+      seconds: 60  # Kompromiss: nicht zu schnell, nicht zu langsam
+
+  # Position detection via position attribute
+  - platform: state
+    entity_id: !input blind
+    attribute: position
+    enabled: "{{ position_source == 'position_attr' }}"
+    id: "t_manual_position"
+    for:
+      seconds: 60
+
+  # Position detection via custom sensor
+  - platform: state
+    entity_id: !input custom_position_sensor
+    enabled: "{{ position_source == 'custom_sensor' and custom_position_sensor != [] }}"
+    id: "t_manual_position"
+    for:
+      seconds: 60
 
   # Tilt detection
   - trigger: state
