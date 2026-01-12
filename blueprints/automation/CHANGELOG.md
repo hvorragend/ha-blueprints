@@ -1,5 +1,14 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.12 - Window Tilted Closing Time Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed incorrect open status when window is tilted during closing time**: The "Window tilted - Move to ventilation position" branch (inside BRANCH 1: CLOSE) now correctly sets `open=0, close=1` to reflect that this is a closing action redirected to ventilation position. Previously, it incorrectly set `open=1, close=0`, causing shutters to open instead of close when the window was closed in the morning after being tilted during evening hours.
+
+---
+
+
 # 🚀 CCA 2026.01.11 - Manual Position Trigger Fix
 
 ## 🔧 Bug Fixes
