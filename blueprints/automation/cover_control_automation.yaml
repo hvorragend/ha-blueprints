@@ -2918,8 +2918,7 @@ variables:
     {% if helper_json.v == 6 %}
       {{ helper_json.current }}
     {% else %}
-      {% if (helper_json | regex_search('manual')) and (helper_json.manual.a | default(0) | int == 1) %}manual
-      {% elif (helper_json | regex_search('open')) and (helper_json.open.a | default(0) | int == 1) %}open
+      {% if (helper_json | regex_search('open')) and (helper_json.open.a | default(0) | int == 1) %}open
       {% elif (helper_json | regex_search('close')) and (helper_json.close.a | default(0) | int == 1) %}close
       {% elif (helper_json | regex_search('shading')) and (helper_json.shading.a | default(0) | int == 1) and not (helper_json.shading.p | default(0) | bool) %}shade
       {% elif (helper_json | regex_search('vpart')) and (helper_json.vpart.a | default(0) | int == 1) %}vpart
@@ -2968,7 +2967,7 @@ variables:
     {% if helper_json.v == 6 %}
       {{ helper_json.manual }}
     {% else %}
-      {{ 1 if state_current == 'manual' else 0 }}
+      {{ (helper_json | regex_search('manual')) and (helper_json.manual.a | default(0) | int == 1) }}
     {% endif %}
 
   # TIMESTAMPS - Unified timestamp access for v5 and v6
@@ -4503,7 +4502,7 @@ actions:
           - or: # Check state or position
               - "{{ state_current != 'open' }}"
               - "{{ not in_open_position }}"
-          - "{{ not (state_current == 'manual' and override_flags.opening) }}" # Override check
+          - "{{ not (state_manual and override_flags.opening) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.opening_multiple_times }}"
               - "{{ prevent_flags.opening_multiple_times and ((now().day != ts_open|timestamp_custom('%-d')|int) or ts_man <= ts_open) }}"
@@ -4617,7 +4616,7 @@ actions:
           - or: # Check state or position
               - "{{ state_current != 'close' }}"
               - "{{ not in_close_position }}"
-          - "{{ not (state_current == 'manual' and override_flags.closing) }}" # Override check
+          - "{{ not (state_manual and override_flags.closing) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.closing_multiple_times }}"
               - "{{ prevent_flags.closing_multiple_times and ((ts_close < today_at(time_down_early_today) | as_timestamp) or ts_man <= ts_close) }}"
@@ -4789,7 +4788,7 @@ actions:
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
-          - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
+          - "{{ not (state_manual and override_flags.shading) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.shading_multiple_times }}"
               - "{{ prevent_flags.shading_multiple_times and ((now().day != ts_shade|timestamp_custom('%-d')|int) or ts_man <= ts_shade) }}"
@@ -4993,7 +4992,7 @@ actions:
           - condition: !input auto_shading_tilt_condition
           - "{{ can_move_shade }}" 
           - "{{ not (state_current == 'vpart' or state_current == 'vfull') }}"
-          - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
+          - "{{ not (state_manual and override_flags.shading) }}" # Override check
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
@@ -5021,7 +5020,7 @@ actions:
               - "{{ not is_forced }}" # All force functions must now be disabled
           - or:
               - "{{ is_shading_allowed_window }}"
-          - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
+          - "{{ not (state_manual and override_flags.shading) }}" # Override check
           - "{{ not state_current == 'close' }}"
           - or:
               - "{{ state_is_shaded }}"
@@ -5416,7 +5415,7 @@ actions:
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
-                  - "{{ not (state_current == 'manual' and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
                   - if: # Optional delay if enabled
@@ -5461,7 +5460,7 @@ actions:
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
-                  - "{{ not (state_current == 'manual' and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
                   - if: # Optional delay if enabled
@@ -5508,7 +5507,7 @@ actions:
                   - or: # All force functions must be disabled OR background tracking is active
                       - "{{ not is_forced }}"
                       - "{{ is_auto_recover_enabled }}"
-                  - "{{ not (state_current == 'manual' and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
                   - if: # Optional delay if enabled
