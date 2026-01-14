@@ -2971,6 +2971,37 @@ variables:
       {{ 1 if state_current == 'manual' else 0 }}
     {% endif %}
 
+  # TIMESTAMPS - Unified timestamp access for v5 and v6
+  # For v6: converts seconds-since-midnight to Unix timestamp for today
+  # For v5: returns the Unix timestamp directly
+  ts_open: >-
+    {% if helper_json.v == 6 %}
+      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.open | default(0) | int)) | int }}
+    {% else %}
+      {{ helper_json.open.t | default(0) }}
+    {% endif %}
+
+  ts_close: >-
+    {% if helper_json.v == 6 %}
+      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.close | default(0) | int)) | int }}
+    {% else %}
+      {{ helper_json.close.t | default(0) }}
+    {% endif %}
+
+  ts_shade: >-
+    {% if helper_json.v == 6 %}
+      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.shade | default(0) | int)) | int }}
+    {% else %}
+      {{ helper_json.shading.t | default(0) }}
+    {% endif %}
+
+  ts_man: >-
+    {% if helper_json.v == 6 %}
+      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.man | default(0) | int)) | int }}
+    {% else %}
+      {{ helper_json.manual.t | default(0) }}
+    {% endif %}
+
   # SHADED STATUS - Is cover currently shaded (not pending)?
   # True when state is 'shade' AND no pending start time active
   state_is_shaded: >-
@@ -3695,31 +3726,24 @@ actions:
           value: |-
               {% set dict_var = helper_json %}
               {% set updates = update_values | default({}) %}
-              {% if dict_var.v == 6 %}
+              {% set ts_now = as_timestamp(now()) | round(0) %}
                 
-                {% set ts_now = as_timestamp(now()) | round(0) %}
-                {% set new_state = dict_var.state %}
-                {% set new_pending = dict_var.pending %}
-                {% set new_ts = dict_var.ts %}
+              {% set new_state = dict_var.state | default({}) %}
+              {% set new_pending = dict_var.pending | default({}) %}
+              {% set new_ts = dict_var.ts | default({}) %}
 
-                
-                {% if 'state' in updates %}
-                  {% set new_state = dict(new_state, **updates.state) %}
-                {% endif %}
-                {% if 'pending' in updates %}
-                  {% set new_pending = dict(new_pending, **updates.pending) %}
-                {% endif %}
-                {% if 'ts' in updates %}
-                  {% set new_ts = dict(new_ts, **updates.ts) %}
-                {% endif %}
-
-                {% set dict_new = dict(dict_var, state=new_state, pending=new_pending, ts=new_ts, t=ts_now) %}
-                {{ dict_new | to_json }}
-              {% else %}
-                
-                {% set dict_new = dict(dict_var, **updates) %}
-                {{ dict_new | to_json }}
+              {% if 'state' in updates %}
+                {% set new_state = dict(new_state, **updates.state) %}
               {% endif %}
+              {% if 'pending' in updates %}
+                {% set new_pending = dict(new_pending, **updates.pending) %}
+              {% endif %}
+              {% if 'ts' in updates %}
+                {% set new_ts = dict(new_ts, **updates.ts) %}
+              {% endif %}
+
+              {% set dict_new = dict(v=6, state=new_state, pending=new_pending, ts=new_ts, t=ts_now) %}
+              {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
   # Load weather forecast data from service (only when needed)
@@ -4076,7 +4100,6 @@ actions:
           )
         }}
 
-
       # ╔════════════════════════════════════════════════════════════════════╗
       # ║ CALENDAR EVENT PARSING                                             ║
       # ║ Parse today's calendar events to extract time windows              ║
@@ -4416,8 +4439,8 @@ actions:
             state:
               current: "{{ state_current }}"  # current state
               target: "{{ state_current }}"  # target = current (initially)
-              force: "none"  # no force active initially
-              resident: "{{ 1 if (resident_sensor != [] and is_state(resident_sensor, 'on')) else 0 }}"
+              force: "{{ state_force }}"
+              resident: "{{ state_resident }}"
               man: "{{ state_manual }}"
             pending:
               start: "{{ (helper_json.shading.p | default(0)) if helper_json.v == 5 else 0 }}"
@@ -4429,7 +4452,12 @@ actions:
               vpart: "{{ ((helper_json.vpart.t | default(0) | int) % 86400) if (helper_json.vpart.t | default(0) | int) > 0 else 0 }}"
               vfull: "{{ ((helper_json.vfull.t | default(0) | int) % 86400) if (helper_json.vfull.t | default(0) | int) > 0 else 0 }}"
               man: "{{ ((helper_json.manual.t | default(0) | int) % 86400) if (helper_json.manual.t | default(0) | int) > 0 else 0 }}"
-      - *helper_update
+      # Migration v5 -> v6
+      - service: input_text.set_value
+        data:
+          entity_id: !input cover_status_helper
+          value: >-
+            {{ {'v': 6, 't': ts_now, 'state': update_values.state, 'pending': update_values.pending, 'ts': update_values.ts} | to_json }}
 
   - choose:
 
@@ -4454,7 +4482,7 @@ actions:
           - "{{ not (state_current == 'manual' and override_flags.opening) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.opening_multiple_times }}"
-              - "{{ prevent_flags.opening_multiple_times and ((now().day != helper_json.ts.open|timestamp_custom('%-d')|int) or helper_json.ts.man <= helper_json.ts.open) }}"
+              - "{{ prevent_flags.opening_multiple_times and ((now().day != ts_open|timestamp_custom('%-d')|int) or ts_man <= ts_open) }}"
           - or: # Check whether the resident trigger is allowed
               - "{{ trigger.id != 't_open_6' }}"
               - and:  # For t_open_6: check conditions
@@ -4572,7 +4600,7 @@ actions:
           - "{{ not (state_current == 'manual' and override_flags.closing) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.closing_multiple_times }}"
-              - "{{ prevent_flags.closing_multiple_times and ((helper_json.ts.close < today_at(time_down_early_today) | as_timestamp) or helper_json.ts.man <= helper_json.ts.close) }}"
+              - "{{ prevent_flags.closing_multiple_times and ((ts_close < today_at(time_down_early_today) | as_timestamp) or ts_man <= ts_close) }}"
           - or: # Closing scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - and: # Ultimate closing ONLY for specific time triggers (no environment checks)
@@ -4752,7 +4780,7 @@ actions:
           - "{{ not (state_current == 'manual' and override_flags.shading) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.shading_multiple_times }}"
-              - "{{ prevent_flags.shading_multiple_times and ((now().day != ((helper_json.ts.shade if helper_json.v == 6 else helper_json.shading.t | default(0)) | timestamp_custom('%-d') | int)) or ((helper_json.ts.man if helper_json.v == 6 else helper_json.manual.t | default(0)) <= (helper_json.ts.shade if helper_json.v == 6 else helper_json.shading.t | default(0)))) }}"
+              - "{{ prevent_flags.shading_multiple_times and ((now().day != ts_shade|timestamp_custom('%-d')|int) or ts_man <= ts_shade) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
 
         sequence:
@@ -4910,7 +4938,7 @@ actions:
                       - "{{ shading_start_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
                           - "{{ is_shading_allowed_window }}"
-                      - "{{ (as_timestamp(now()) - helper_json.shading.t) <= shading_start_max_duration }}"
+                      - "{{ (as_timestamp(now()) - ts_shade) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
@@ -5231,7 +5259,7 @@ actions:
                       - "{{ shading_end_max_duration > 0 }}"
                       - or: # Continue only within time window AND before timeout
                           - "{{ is_shading_allowed_window }}"
-                      - "{{ (as_timestamp(now()) - helper_json.shading.t) <= shading_end_max_duration }}"
+                      - "{{ (as_timestamp(now()) - ts_shade) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
                           local_waitingtime_end: "{{ shading_waitingtime_end | int }}"
