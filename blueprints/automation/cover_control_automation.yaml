@@ -2958,9 +2958,9 @@ variables:
     {% if helper_json.v == 6 %}
       {{ helper_json.resident }}
     {% elif resident_sensor != [] %}
-      {{ 1 if is_state(resident_sensor, 'on') else 0 }}
+      {{ is_state(resident_sensor, 'on') }}
     {% else %}
-      0
+      false
     {% endif %}
 
   # MANUAL FLAG - Is manual override active?
@@ -3057,23 +3057,23 @@ variables:
   # Logic: Allow if opening_enabled NOT set OR (allow_opening matches resident state)
   can_open_with_resident: >-
     {{ 'resident_opening_enabled' not in resident_config or
-       ('resident_allow_opening' not in resident_config and state_resident == 0) or
-       ('resident_allow_opening' in resident_config and state_resident == 1) }}
+       ('resident_allow_opening' not in resident_config and not state_resident) or
+       ('resident_allow_opening' in resident_config and state_resident) }}
 
   # Can close with current resident status?
   # Logic: Allow if closing_enabled NOT set OR resident present
   can_close_with_resident: >-
-    {{ 'resident_closing_enabled' not in resident_config or state_resident == 1 }}
+    {{ 'resident_closing_enabled' not in resident_config or state_resident }}
 
   # Can shade with current resident status?
   # Logic: Allow if allow_shading NOT set OR resident not present
   can_shade_with_resident: >-
-    {{ 'resident_allow_shading' not in resident_config or state_resident == 0 }}
+    {{ 'resident_allow_shading' not in resident_config or not state_resident }}
 
   # Can ventilate with current resident status?
   # Logic: Allow if allow_ventilation NOT set OR resident not present
   can_ventilate_with_resident: >-
-    {{ 'resident_allow_ventilation' not in resident_config or state_resident == 0 }}
+    {{ 'resident_allow_ventilation' not in resident_config or not state_resident }}
 
   # Resident flags (for logging/debugging - defined AFTER can_* variables)
   resident_flags:
@@ -4463,7 +4463,7 @@ actions:
             current: "{{ state_current }}"
             target: "{{ state_current }}"
             force: "{{ state_force }}"
-            resident: "{{ true if state_resident == 1 else false }}"
+            resident: "{{ state_resident }}"
             manual: "{{ true if state_manual == 1 else false }}"
             ts:
               open: "{{ ((helper_json.open.t | default(0) | int) % 86400) if (helper_json.open.t | default(0) | int) > 0 else 0 }}"
@@ -5963,7 +5963,7 @@ actions:
         sequence:
           - variables:
               update_values:
-                resident: "{{ 1 if trigger.to_state.state in ['on', 'true'] else 0 }}"
+                resident: "{{ trigger.to_state.state in ['on', 'true'] }}"
           - *helper_update
           - stop: "Resident status updated"
 
