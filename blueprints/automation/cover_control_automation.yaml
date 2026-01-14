@@ -3759,7 +3759,6 @@ actions:
           - "{{ trigger.id | regex_match('^t_close') }}"
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id.startswith('t_force_disabled') }}"
     then:
       - action: calendar.get_events
         target:
@@ -4449,11 +4448,8 @@ actions:
         conditions:
           - "{{ is_up_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_open|t_force_disabled|t_calendar_event)') }}"
+          - "{{ trigger.id | regex_match('^(t_open|t_calendar_event)') }}"
           - condition: !input auto_up_condition
-          - or: # When background state tracking is enabled, let the force-disabled triggers handle this.
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - or: # Use centralized force check
               - "{{ is_auto_recover_enabled }}"
               - "{{ can_move_open }}"  # Simplified from is_cover_movement_blocked.open
@@ -4473,9 +4469,8 @@ actions:
           - "{{ can_open_with_resident }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
-              - and: # Ultimate opening ONLY for time triggers (no environment checks)
+              - and: # Ultimate opening ONLY for specific time triggers (no environment checks)
                   - "{{ is_time_up_late }}"
-                  - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - and: # All other triggers: WITH environment checks
                   - "{{ is_opening_phase or is_daytime_phase }}"
                   - "{{ not is_evening_phase }}"
@@ -4571,11 +4566,8 @@ actions:
         conditions:
           - "{{ is_down_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_close|t_force_disabled|t_calendar_event)') }}"
+          - "{{ trigger.id | regex_match('^(t_close|t_calendar_event)') }}"
           - condition: !input auto_down_condition
-          - or: # When background state tracking is enabled, let choose 12 handle force-disabled triggers
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - or: # Use centralized force check
               - "{{ is_auto_recover_enabled }}"
               - "{{ can_move_close }}"  # Simplified from is_cover_movement_blocked.close
@@ -4588,9 +4580,8 @@ actions:
               - "{{ prevent_flags.closing_multiple_times and ((helper_json.ts.close < today_at(time_down_early_today) | as_timestamp) or helper_json.ts.man <= helper_json.ts.close) }}"
           - or: # Closing scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
-              - and: # Ultimate closing ONLY for time triggers (no environment checks)
+              - and: # Ultimate closing ONLY for specific time triggers (no environment checks)
                   - "{{ is_time_down_late }}"
-                  - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - and: # Resident goes sleeping (ultimate closing)
                   - "{{ trigger.id == 't_close_6' }}"
                   - "{{ can_close_with_resident }}"
@@ -4752,11 +4743,8 @@ actions:
         conditions:
           - "{{ is_shading_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3|t_force_disabled)') }}"
+          - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
           - condition: !input auto_shading_start_condition
-          - or: # When background state tracking is enabled, let choose 12 handle force-disabled triggers
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - or: # Use centralized force check
               - "{{ is_auto_recover_enabled }}"
               - "{{ can_move_shade }}"  # Simplified from is_cover_movement_blocked.shading
@@ -5300,12 +5288,9 @@ actions:
         conditions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] or trigger.id.startswith('t_force_disabled') }}"
+          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
-          - or: # When background state tracking is enabled, let ANCHOR 12 handle force-disabled triggers
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - "{{ can_ventilate_with_resident }}"
         sequence:
           # Wait for all sensor changes to settle
