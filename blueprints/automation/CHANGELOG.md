@@ -1,5 +1,14 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.14 - Force State Preservation Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed force operations incorrectly updating helper status** (#318): Force operations (force-open, force-close, force-ventilate, force-shading) now preserve the background helper state instead of updating it. 
+
+---
+
+
 # 🚀 CCA 2026.01.12 - Window Tilted Closing Time Fix
 
 ## 🔧 Bug Fixes

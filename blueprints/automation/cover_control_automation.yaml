@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.01.12-02
+    **Version**: 2026.01.14
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md) | ✨ **Highlights**: [Key Features](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/README.md#-key-features)
@@ -2729,7 +2729,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.01.12-02"
+  version: "2026.01.14"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3698,7 +3698,6 @@ actions:
           - "{{ trigger.id | regex_match('^t_close') }}"
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id.startswith('t_force_disabled') }}"
     then:
       - action: calendar.get_events
         target:
@@ -4337,11 +4336,8 @@ actions:
         conditions:
           - "{{ is_up_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_open|t_force_disabled|t_calendar_event)') }}"
+          - "{{ trigger.id | regex_match('^(t_open|t_calendar_event)') }}"
           - condition: !input auto_up_condition
-          - or: # When background state tracking is enabled, let the force-disabled triggers handle this.
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - or:
               - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.open }}"
@@ -4367,9 +4363,8 @@ actions:
                   - "{{ states(resident_sensor) in ['true', 'on'] }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
-              - and: # Ultimate opening ONLY for time triggers (no environment checks)
+              - and: # Ultimate opening ONLY for specific time triggers (no environment checks)
                   - "{{ is_time_up_late }}"
-                  - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - and: # All other triggers: WITH environment checks
                   - "{{ is_opening_phase or is_daytime_phase }}"
                   - "{{ not is_evening_phase }}"
@@ -4462,11 +4457,8 @@ actions:
         conditions:
           - "{{ is_down_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_close|t_force_disabled|t_calendar_event)') }}"
+          - "{{ trigger.id | regex_match('^(t_close|t_calendar_event)') }}"
           - condition: !input auto_down_condition
-          - or: # When background state tracking is enabled, let choose 12 handle force-disabled triggers
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - or:
               - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.close }}"
@@ -4481,9 +4473,8 @@ actions:
               - "{{ is_status_helper_enabled and prevent_flags.closing_multiple_times and ((helper_ts.closed < today_at(time_down_early_today) | as_timestamp) or helper_ts.manual <= helper_ts.closed) }}"
           - or: # Closing scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
-              - and: # Ultimate closing ONLY for time triggers (no environment checks)
+              - and: # Ultimate closing ONLY for specific time triggers (no environment checks)
                   - "{{ is_time_down_late }}"
-                  - "{{ not trigger.id.startswith('t_force_disabled') }}"
               - and: # Resident goes sleeping (ultimate closing)
                   - "{{ trigger.id == 't_close_6' }}"
                   - "{{ resident_sensor != [] }}"
@@ -4641,12 +4632,9 @@ actions:
         conditions:
           - "{{ is_shading_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3|t_force_disabled)') }}"
+          - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
           - "{{ is_status_helper_enabled }}"
           - condition: !input auto_shading_start_condition
-          - or: # When background state tracking is enabled, let choose 12 handle force-disabled triggers
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - or:
               - "{{ is_auto_recover_enabled }}"
               - "{{ not is_cover_movement_blocked.shading }}"
@@ -5129,13 +5117,10 @@ actions:
         conditions:
           - "{{ is_ventilation_enabled }}"
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] or trigger.id.startswith('t_force_disabled') }}"
+          - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] }}"
           - "{{ is_status_helper_enabled }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
-          - or: # When background state tracking is enabled, let ANCHOR 12 handle force-disabled triggers
-              - "{{ not trigger.id.startswith('t_force_disabled') }}"
-              - "{{ not is_auto_recover_enabled }}"
           - or:
               - "{{ resident_sensor == [] }}"
               - "{{ states(resident_sensor) in ['false', 'off'] }}"
@@ -5393,13 +5378,7 @@ actions:
               target_tilt_position: !input open_tilt_position
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                open: { a: 1, t: "{{ ts_now }}" }
-                close: { a: 0, t: "{{ helper_json.close.t }}" }
-                shading: { a: 0, t: "{{ helper_json.shading.t }}", p: 0, q: 0 }
-                vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
-                vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_json.manual.t }}" }
-                t: "{{ ts_now }}"
+                t: "{{ ts_now }}" # Force operations only update timestamp, preserving all state fields via merge
           - *cover_move_action
           - *tilt_move_action
           - *helper_update
@@ -5424,13 +5403,7 @@ actions:
               target_tilt_position: !input close_tilt_position
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                open: { a: 0, t: "{{ helper_json.open.t }}" }
-                close: { a: 1, t: "{{ ts_now }}" }
-                shading: { a: 0, t: "{{ helper_json.shading.t }}", p: 0, q: 0 }
-                vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
-                vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_json.manual.t }}" }
-                t: "{{ ts_now }}"
+                t: "{{ ts_now }}" # Force operations only update timestamp, preserving all state fields via merge
           - *cover_move_action
           - *tilt_move_action
           - *helper_update
@@ -5456,13 +5429,7 @@ actions:
               target_tilt_position: !input ventilate_tilt_position
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                open: { a: 0, t: "{{ helper_json.open.t }}" }
-                close: { a: 0, t: "{{ helper_json.close.t }}" }
-                shading: { a: 0, t: "{{ helper_json.shading.t }}", p: 0, q: 0 }
-                vpart: { a: 1, t: "{{ ts_now }}" }
-                vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_json.manual.t }}" }
-                t: "{{ ts_now }}"
+                t: "{{ ts_now }}" # Force operations only update timestamp, preserving all state fields via merge
           - *cover_move_action
           - *tilt_move_action
           - *helper_update
@@ -5489,11 +5456,11 @@ actions:
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
                 open: { a: 0, t: "{{ helper_json.open.t }}" } # ‘Open’ is not additionally set to True, because we don't know where it should actually go after forcing.
-                close: { a: 0, t: "{{ helper_json.close.t }}" }
-                shading: { a: 1, t: "{{ ts_now }}", p: 0, q: 0 }
-                vpart: { a: 0, t: "{{ helper_json.vpart.t }}" }
-                vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
-                manual: { a: 0, t: "{{ helper_json.manual.t }}" }
+                close: { a: "{{ helper_json.close.a }}", t: "{{ helper_json.close.t }}" }
+                shading: { a: "{{ helper_json.shading.a }}", t: "{{ helper_json.shading.t }}", p: "{{ helper_json.shading.p }}", q: "{{ helper_json.shading.q }}" }
+                vpart: { a: "{{ helper_json.vpart.a }}", t: "{{ helper_json.vpart.t }}" }
+                vfull: { a: "{{ helper_json.vfull.a }}", t: "{{ helper_json.vfull.t }}" }
+                manual: { a: "{{ helper_json.manual.a }}", t: "{{ helper_json.manual.t }}" }
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
