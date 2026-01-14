@@ -2916,7 +2916,7 @@ variables:
   # Maps from v6 state codes or v5 status flags to readable state
   state_current: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.state.current }}
+      {{ helper_json.current }}
     {% else %}
       {% if (helper_json | regex_search('manual')) and (helper_json.manual.a | default(0) | int == 1) %}manual
       {% elif (helper_json | regex_search('open')) and (helper_json.open.a | default(0) | int == 1) %}open
@@ -2931,7 +2931,7 @@ variables:
   # Represents the background automation intent (important for force recovery)
   state_target: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.state.target }}
+      {{ helper_json.target }}
     {% else %}
       {{ state_current }}
     {% endif %}
@@ -2940,7 +2940,7 @@ variables:
   # Centralized force status: none|open|close|shade|vpart|vfull
   state_force: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.state.force }}
+      {{ helper_json.force }}
     {% elif auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
       open
     {% elif auto_down_force != [] and states(auto_down_force) in ['on', 'true'] %}
@@ -2956,7 +2956,7 @@ variables:
   # RESIDENT STATUS - Is someone present?
   state_resident: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.state.resident }}
+      {{ helper_json.resident }}
     {% elif resident_sensor != [] %}
       {{ 1 if is_state(resident_sensor, 'on') else 0 }}
     {% else %}
@@ -2966,7 +2966,7 @@ variables:
   # MANUAL FLAG - Is manual override active?
   state_manual: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.state.man }}
+      {{ helper_json.manual }}
     {% else %}
       {{ 1 if state_current == 'manual' else 0 }}
     {% endif %}
@@ -3006,7 +3006,7 @@ variables:
   # True when state is 'shade' AND no pending start time active
   state_is_shaded: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.state.current == 'shade' and not (helper_json.pending.start | default(0) | int > 0) }}
+      {{ helper_json.current == 'shade' and not (helper_json.ts.pending_start | default(0) | int > 0) }}
     {% else %}
       {{ (helper_json | regex_search('shading')) and (helper_json.shading.a | default(false) | bool) and not (helper_json.shading.p | default(false) | bool) }}
     {% endif %}
@@ -3014,7 +3014,7 @@ variables:
   # PENDING START - Is shading start pending?
   state_pending_start: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.pending.start | default(0) | int > 0 }}
+      {{ helper_json.ts.pending_start | default(0) | int > 0 }}
     {% else %}
       {{ (helper_json | regex_search('shading')) and (helper_json.shading.p | default(false) | bool) }}
     {% endif %}
@@ -3022,7 +3022,7 @@ variables:
   # PENDING END - Is shading end pending?
   state_pending_end: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.pending.end | default(0) | int > 0 }}
+      {{ helper_json.ts.pending_end | default(0) | int > 0 }}
     {% else %}
       {{ (helper_json | regex_search('shading')) and (helper_json.shading.q | default(false) | bool) }}
     {% endif %}
@@ -3406,14 +3406,19 @@ triggers:
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
-      {{
-        helper_state not in invalid_states and
-        helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-        helper_state | from_json | regex_search('shading') and
-        (helper_state | from_json).shading.p is defined and
-        (helper_state | from_json).shading.p > 0 and
-        now() >= ((helper_state | from_json).shading.p) | as_datetime | as_local
-      }}
+      {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% if helper.v == 6 %}
+        {% set now_sec = (now().timestamp() % 86400) | int %}
+        {% set pending = helper.ts.pending_start | default(0) | int %}
+        {{ pending > 0 and pending <= now_sec }}
+      {% else %}
+        {{
+          helper | regex_search('shading') and
+          helper.shading.p is defined and
+          helper.shading.p > 0 and
+          now() >= (helper.shading.p | as_datetime | as_local)
+        }}
+      {% endif %}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_start_execution"
 
@@ -3520,14 +3525,19 @@ triggers:
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
-      {{
-        helper_state not in invalid_states and
-        helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-        helper_state | from_json | regex_search('shading') and
-        (helper_state | from_json).shading.q is defined and
-        (helper_state | from_json).shading.q > 0 and
-        now() >= ((helper_state | from_json).shading.q) | as_datetime | as_local
-      }}
+      {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% if helper.v == 6 %}
+        {% set now_sec = (now().timestamp() % 86400) | int %}
+        {% set pending = helper.ts.pending_end | default(0) | int %}
+        {{ pending > 0 and pending <= now_sec }}
+      {% else %}
+        {{
+          helper | regex_search('shading') and
+          helper.shading.q is defined and
+          helper.shading.q > 0 and
+          now() >= (helper.shading.q | as_datetime | as_local)
+        }}
+      {% endif %}
     enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_end_execution"
 
@@ -3727,22 +3737,38 @@ actions:
               {% set dict_var = helper_json %}
               {% set updates = update_values | default({}) %}
               {% set ts_now = as_timestamp(now()) | round(0) %}
-                
-              {% set new_state = dict_var.state | default({}) %}
-              {% set new_pending = dict_var.pending | default({}) %}
+
+              {# Get current values with defaults #}
+              {% set new_current = dict_var.current | default('none') %}
+              {% set new_target = dict_var.target | default('none') %}
+              {% set new_force = dict_var.force | default('none') %}
+              {% set new_resident = dict_var.resident | default(false) %}
+              {% set new_manual = dict_var.manual | default(false) %}
               {% set new_ts = dict_var.ts | default({}) %}
 
-              {% if 'state' in updates %}
-                {% set new_state = dict(new_state, **updates.state) %}
+              {# Apply updates to main fields #}
+              {% if 'current' in updates %}
+                {% set new_current = updates.current %}
               {% endif %}
-              {% if 'pending' in updates %}
-                {% set new_pending = dict(new_pending, **updates.pending) %}
+              {% if 'target' in updates %}
+                {% set new_target = updates.target %}
               {% endif %}
+              {% if 'force' in updates %}
+                {% set new_force = updates.force %}
+              {% endif %}
+              {% if 'resident' in updates %}
+                {% set new_resident = updates.resident %}
+              {% endif %}
+              {% if 'manual' in updates %}
+                {% set new_manual = updates.manual %}
+              {% endif %}
+
+              {# Apply updates to timestamps #}
               {% if 'ts' in updates %}
                 {% set new_ts = dict(new_ts, **updates.ts) %}
               {% endif %}
 
-              {% set dict_new = dict(v=6, state=new_state, pending=new_pending, ts=new_ts, t=ts_now) %}
+              {% set dict_new = dict(current=new_current, target=new_target, force=new_force, resident=new_resident, manual=new_manual, ts=new_ts, v=6, t=ts_now) %}
               {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
@@ -4433,18 +4459,12 @@ actions:
       - variables:
           ts_now: "{{ as_timestamp(now()) | round(0) }}"
       - variables:
-          update_values:
-            v: 6
-            t: "{{ ts_now }}"
-            state:
-              current: "{{ state_current }}"  # current state
-              target: "{{ state_current }}"  # target = current (initially)
-              force: "{{ state_force }}"
-              resident: "{{ state_resident }}"
-              man: "{{ state_manual }}"
-            pending:
-              start: "{{ (helper_json.shading.p | default(0)) if helper_json.v == 5 else 0 }}"
-              end: "{{ (helper_json.shading.q | default(0)) if helper_json.v == 5 else 0 }}"
+          migration_data:
+            current: "{{ state_current }}"
+            target: "{{ state_current }}"
+            force: "{{ state_force }}"
+            resident: "{{ true if state_resident == 1 else false }}"
+            manual: "{{ true if state_manual == 1 else false }}"
             ts:
               open: "{{ ((helper_json.open.t | default(0) | int) % 86400) if (helper_json.open.t | default(0) | int) > 0 else 0 }}"
               close: "{{ ((helper_json.close.t | default(0) | int) % 86400) if (helper_json.close.t | default(0) | int) > 0 else 0 }}"
@@ -4452,12 +4472,16 @@ actions:
               vpart: "{{ ((helper_json.vpart.t | default(0) | int) % 86400) if (helper_json.vpart.t | default(0) | int) > 0 else 0 }}"
               vfull: "{{ ((helper_json.vfull.t | default(0) | int) % 86400) if (helper_json.vfull.t | default(0) | int) > 0 else 0 }}"
               man: "{{ ((helper_json.manual.t | default(0) | int) % 86400) if (helper_json.manual.t | default(0) | int) > 0 else 0 }}"
+              pending_start: "{{ ((helper_json.shading.p | default(0) | int) % 86400) if (helper_json.shading.p | default(0) | int) > 0 else 0 }}"
+              pending_end: "{{ ((helper_json.shading.q | default(0) | int) % 86400) if (helper_json.shading.q | default(0) | int) > 0 else 0 }}"
+            v: 6
+            t: "{{ ts_now }}"
       # Migration v5 -> v6
       - service: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: >-
-            {{ {'v': 6, 't': ts_now, 'state': update_values.state, 'pending': update_values.pending, 'ts': update_values.ts} | to_json }}
+            {{ migration_data | to_json }}
 
   - choose:
 
@@ -4520,15 +4544,13 @@ actions:
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
-                        state:
-                          current: "shade"
-                          target: "open"
-                          man: 0
+                        current: "shade"
+                        target: "open"
+                        manual: false
                         ts:
                           shade: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - if: "{{ can_move_shade }}"
                     then:
                       - *cover_move_action
@@ -4558,15 +4580,13 @@ actions:
                       target_tilt_position: "{{ open_tilt_position | int }}"
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
-                        state:
-                          current: "open"
-                          target: "open"
-                          man: 0
+                        current: "open"
+                        target: "open"
+                        manual: false
                         ts:
                           open: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - if: "{{ can_move_open }}"
                     then:
                       - *cover_move_action
@@ -4632,15 +4652,13 @@ actions:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
-                        state:
-                          current: "vfull"
-                          target: "close"
-                          man: 0
+                        current: "vfull"
+                        target: "close"
+                        manual: false
                         ts:
                           vfull: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *helper_update
                   - stop: "Closing skipped: Lockout enabled"
 
@@ -4667,15 +4685,13 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
-                        state:
-                          current: "vpart"
-                          target: "close"
-                          man: 0
+                        current: "vpart"
+                        target: "close"
+                        manual: false
                         ts:
                           vpart: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - if: "{{ can_move_ventilate }}"
                     then:
                       - *cover_move_action
@@ -4709,15 +4725,13 @@ actions:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
-                        state:
-                          current: "close"
-                          target: "close"
-                          man: 0
+                        current: "close"
+                        target: "close"
+                        manual: false
                         ts:
                           close: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *helper_update
                   - stop: "Closing skipped: Cover is already at or near targeted position (or lowering blocked by shading settings)"
 
@@ -4735,15 +4749,13 @@ actions:
                   target_tilt_position: !input close_tilt_position
                   ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                   update_values:
-                    state:
-                      current: "close"
-                      target: "close"
-                      man: 0
+                    current: "close"
+                    target: "close"
+                    manual: false
                     ts:
                       close: "{{ (ts_now % 86400) | int }}"
-                    pending:
-                      start: 0
-                      end: 0
+                      pending_start: 0
+                      pending_end: 0
               - if: "{{ can_move_close }}"
                 then:
                   - *cover_move_action
@@ -4804,15 +4816,13 @@ actions:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "shade"
-                              target: "shade"
-                              man: 0
+                            current: "shade"
+                            target: "shade"
+                            manual: false
                             ts:
                               shade: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
-                              end: 0
+                              pending_start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
 
@@ -4836,15 +4846,13 @@ actions:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "vfull"
-                              target: "open"
-                              man: 0
+                            current: "vfull"
+                            target: "open"
+                            manual: false
                             ts:
                               vfull: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading Start skipped: Lockout enabled"
 
@@ -4876,15 +4884,13 @@ actions:
                           target_tilt_position: "{{ shading_tilt_position | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "shade"
-                              target: "open"
-                              man: 0
+                            current: "shade"
+                            target: "open"
+                            manual: false
                             ts:
                               shade: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - if: "{{ can_move_shade }}"
                         then:
                           - *cover_move_action
@@ -4910,15 +4916,12 @@ actions:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              # current: "none"
-                              # target: "none"
-                              target: "shade"
-                              man: 0
+                            # current: "none"
+                            target: "shade"
+                            manual: false
                             ts:
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - if:
                           - "{{ not is_forced }}"
                         then:
@@ -4944,15 +4947,13 @@ actions:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "shade"
-                              target: "shade"
-                              man: 0
+                            current: "shade"
+                            target: "shade"
+                            manual: false
                             ts:
                               shade: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
-                              end: 0
+                              pending_start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading Start Pending: Continue waiting"
 
@@ -4967,14 +4968,12 @@ actions:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "none"
-                              target: "none"
-                              man: 0
+                            current: "none"
+                            target: "none"
+                            manual: false
                             ts:
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading Start aborted: Timeout or invalid"
 
@@ -5054,15 +5053,13 @@ actions:
                             {{ local_waitingtime_end }}
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "shade"
-                              target: "shade"
-                              man: 0
+                            current: "shade"
+                            target: "shade"
+                            manual: false
                             ts:
                               shade: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading End Pending: Waiting"
 
@@ -5080,14 +5077,12 @@ actions:
                           target_tilt_position: 50 # Moving the cover to open tilt position
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "none"
-                              target: "none"
-                              man: 0
+                            current: "none"
+                            target: "none"
+                            manual: false
                             ts:
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - if:
                           - "{{ not is_forced }}"
                         then:
@@ -5116,15 +5111,13 @@ actions:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "vfull"
-                              target: "open"
-                              man: 0
+                            current: "vfull"
+                            target: "open"
+                            manual: false
                             ts:
                               vfull: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading End skipped: Lockout enabled"
 
@@ -5161,15 +5154,13 @@ actions:
                           target_tilt_position: !input ventilate_tilt_position
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "vpart"
-                              target: "open"
-                              man: 0
+                            current: "vpart"
+                            target: "open"
+                            manual: false
                             ts:
                               vpart: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - if: "{{ not is_forced }}"
                         then:
                           - *cover_move_action
@@ -5219,15 +5210,13 @@ actions:
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                               update_values:
-                                state:
-                                  current: "open"
-                                  target: "open"
-                                  man: 0
+                                current: "open"
+                                target: "open"
+                                manual: false
                                 ts:
                                   open: "{{ (ts_now % 86400) | int }}"
-                                pending:
-                                  start: 0
-                                  end: 0
+                                  pending_start: 0
+                                  pending_end: 0
                           - if: "{{ not is_forced }}"
                             then:
                               - *cover_move_action
@@ -5238,14 +5227,12 @@ actions:
                             else:
                               - variables:
                                   update_values:
-                                    state:
-                                      current: "none"
-                                      target: "none"
-                                      man: 0
+                                    current: "none"
+                                    target: "none"
+                                    manual: false
                                     ts:
-                                    pending:
-                                      start: 0
-                                      end: 0
+                                      pending_start: 0
+                                      pending_end: 0
                               - *helper_update
                       - stop: "Shading End (Opening after shading) executed"
 
@@ -5265,15 +5252,13 @@ actions:
                           local_waitingtime_end: "{{ shading_waitingtime_end | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                           update_values:
-                            state:
-                              current: "shade"
-                              target: "shade"
-                              man: 0
+                            current: "shade"
+                            target: "shade"
+                            manual: false
                             ts:
                               shade: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading End Pending: Continue waiting"
 
@@ -5287,15 +5272,13 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            state:
-                              current: "shade"
-                              target: "shade"
-                              man: 0
+                            current: "shade"
+                            target: "shade"
+                            manual: false
                             ts:
                               shade: "{{ (ts_now % 86400) | int }}"
-                            pending:
-                              start: 0
-                              end: 0
+                              pending_start: 0
+                              pending_end: 0
                       - *helper_update
                       - stop: "Shading End aborted: Timeout or invalid"
 
@@ -5345,15 +5328,13 @@ actions:
                       target_tilt_position: !input open_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        state:
-                          current: "vfull"
-                          target: "vfull"
-                          man: 0
+                        current: "vfull"
+                        target: "vfull"
+                        manual: false
                         ts:
                           vfull: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - if: "{{ can_move_open }}"
                     then:
                       - *cover_move_action
@@ -5401,15 +5382,13 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        state:
-                          current: "vpart"
-                          target: "vpart"
-                          man: 0
+                        current: "vpart"
+                        target: "vpart"
+                        manual: false
                         ts:
                           vpart: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - if: "{{ can_move_ventilate }}"
                     then:
                       - *cover_move_action
@@ -5452,15 +5431,13 @@ actions:
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        state:
-                          current: "shade"
-                          target: "open"
-                          man: 0
+                        current: "shade"
+                        target: "open"
+                        manual: false
                         ts:
                           shade: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -5499,15 +5476,13 @@ actions:
                       target_tilt_position: !input open_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        state:
-                          current: "open"
-                          target: "open"
-                          man: 0
+                        current: "open"
+                        target: "open"
+                        manual: false
                         ts:
                           open: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *helper_update
                   - if:
                       - "{{ not prevent_flags.opening_after_ventilation_end }}"
@@ -5548,15 +5523,13 @@ actions:
                       target_tilt_position: !input close_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        state:
-                          current: "close"
-                          target: "close"
-                          man: 0
+                        current: "close"
+                        target: "close"
+                        manual: false
                         ts:
                           close: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -5581,15 +5554,13 @@ actions:
               target_tilt_position: !input open_tilt_position
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                state:
-                  current: "open"
-                  man: 0
-                  force: "open"  
+                current: "open"
+                force: "open"
+                manual: false
                 ts:
                   open: "{{ (ts_now % 86400) | int }}"
-                pending:
-                  start: 0
-                  end: 0
+                  pending_start: 0
+                  pending_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5615,15 +5586,13 @@ actions:
               target_tilt_position: !input close_tilt_position
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                state:
-                  current: "close"
-                  man: 0
-                  force: "close"  
+                current: "close"
+                force: "close"
+                manual: false
                 ts:
                   close: "{{ (ts_now % 86400) | int }}"
-                pending:
-                  start: 0
-                  end: 0
+                  pending_start: 0
+                  pending_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5649,15 +5618,13 @@ actions:
               target_tilt_position: !input ventilate_tilt_position
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                state:
-                  current: "vpart"
-                  man: 0
-                  force: "vpart" 
+                current: "vpart"
+                force: "vpart"
+                manual: false
                 ts:
                   vpart: "{{ (ts_now % 86400) | int }}"
-                pending:
-                  start: 0
-                  end: 0
+                  pending_start: 0
+                  pending_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5683,15 +5650,13 @@ actions:
               target_tilt_position: "{{ shading_tilt_position |int }}"
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                state:
-                  current: "shade"
-                  man: 0
-                  force: "shade" 
+                current: "shade"
+                force: "shade"
+                manual: false
                 ts:
                   shade: "{{ (ts_now % 86400) | int }}"
-                pending:
-                  start: 0
-                  end: 0
+                  pending_start: 0
+                  pending_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5782,15 +5747,13 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        state:
-                          current: "open"
-                          target: "open"
-                          man: 1
+                        current: "open"
+                        target: "open"
+                        manual: true
                         ts:
                           open: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5803,15 +5766,13 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        state:
-                          current: "vpart"
-                          target: "vpart"
-                          man: 1
+                        current: "vpart"
+                        target: "vpart"
+                        manual: true
                         ts:
                           vpart: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5823,15 +5784,13 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        state:
-                          current: "shade"
-                          target: "shade"
-                          man: 1
+                        current: "shade"
+                        target: "shade"
+                        manual: true
                         ts:
                           shade: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5847,15 +5806,13 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        state:
-                          current: "close"
-                          target: "close"
-                          man: 1
+                        current: "close"
+                        target: "close"
+                        manual: true
                         ts:
                           close: "{{ (ts_now % 86400) | int }}"
-                        pending:
-                          start: 0
-                          end: 0
+                          pending_start: 0
+                          pending_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5890,14 +5847,12 @@ actions:
           - variables:
               ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
               update_values:
-                state:
-                  current: "none"
-                  target: "none"
-                  man: 0
+                current: "none"
+                target: "none"
+                manual: false
                 ts:
-                pending:
-                  start: 0
-                  end: 0
+                  pending_start: 0
+                  pending_end: 0
           - *helper_update
           - choose: []
             default: !input auto_override_reset_action
@@ -6008,8 +5963,7 @@ actions:
         sequence:
           - variables:
               update_values:
-                state:
-                  resident: "{{ 1 if trigger.to_state.state in ['on', 'true'] else 0 }}"
+                resident: "{{ 1 if trigger.to_state.state in ['on', 'true'] else 0 }}"
           - *helper_update
           - stop: "Resident status updated"
 
@@ -6030,14 +5984,12 @@ actions:
               seconds: "{{ (range(0, 60) | random | int) }}"
           - variables:
               update_values:
-                state:
-                  current: "none"
-                  target: "none"
-                  man: 0
+                current: "none"
+                target: "none"
+                manual: false
                 ts:
-                pending:
-                  start: 0
-                  end: 0
+                  pending_start: 0
+                  pending_end: 0
           - *helper_update
           - stop: "Midnight Reset executed"
 
