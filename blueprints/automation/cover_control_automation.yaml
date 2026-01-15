@@ -2971,32 +2971,32 @@ variables:
     {% endif %}
 
   # TIMESTAMPS - Unified timestamp access for v5 and v6
-  # For v6: converts seconds-since-midnight to Unix timestamp for today
-  # For v5: returns the Unix timestamp directly
+  # v6: Full Unix timestamps (no longer seconds-since-midnight)
+  # v5: Returns the Unix timestamp directly
   ts_open: >-
     {% if helper_json.v == 6 %}
-      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.open | default(0) | int)) | int }}
+      {{ helper_json.ts.open | default(0) | int }}
     {% else %}
       {{ helper_json.open.t | default(0) }}
     {% endif %}
 
   ts_close: >-
     {% if helper_json.v == 6 %}
-      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.close | default(0) | int)) | int }}
+      {{ helper_json.ts.close | default(0) | int }}
     {% else %}
       {{ helper_json.close.t | default(0) }}
     {% endif %}
 
   ts_shade: >-
     {% if helper_json.v == 6 %}
-      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.shade | default(0) | int)) | int }}
+      {{ helper_json.ts.shade | default(0) | int }}
     {% else %}
       {{ helper_json.shading.t | default(0) }}
     {% endif %}
 
   ts_man: >-
     {% if helper_json.v == 6 %}
-      {{ (today_at('00:00:00') | as_timestamp + (helper_json.ts.man | default(0) | int)) | int }}
+      {{ helper_json.ts.manual | default(0) | int }}
     {% else %}
       {{ helper_json.manual.t | default(0) }}
     {% endif %}
@@ -3005,7 +3005,7 @@ variables:
   # True when state is 'shade' AND no pending start time active
   state_is_shaded: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.current == 'shade' and not (helper_json.ts.pending_start | default(0) | int > 0) }}
+      {{ helper_json.current == 'shade' and not (helper_json.ts.shade_start | default(0) | int > 0) }}
     {% else %}
       {{ (helper_json | regex_search('shading')) and (helper_json.shading.a | default(false) | bool) and not (helper_json.shading.p | default(false) | bool) }}
     {% endif %}
@@ -3013,7 +3013,7 @@ variables:
   # PENDING START - Is shading start pending?
   state_pending_start: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.ts.pending_start | default(0) | int > 0 }}
+      {{ helper_json.ts.shade_start | default(0) | int > 0 }}
     {% else %}
       {{ (helper_json | regex_search('shading')) and (helper_json.shading.p | default(false) | bool) }}
     {% endif %}
@@ -3021,7 +3021,7 @@ variables:
   # PENDING END - Is shading end pending?
   state_pending_end: >-
     {% if helper_json.v == 6 %}
-      {{ helper_json.ts.pending_end | default(0) | int > 0 }}
+      {{ helper_json.ts.shade_end | default(0) | int > 0 }}
     {% else %}
       {{ (helper_json | regex_search('shading')) and (helper_json.shading.q | default(false) | bool) }}
     {% endif %}
@@ -3408,7 +3408,7 @@ triggers:
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_sec = (now().timestamp() % 86400) | int %}
-        {% set pending = helper.ts.pending_start | default(0) | int %}
+        {% set pending = helper.ts.shade_start | default(0) | int %}
         {{ pending > 0 and pending <= now_sec }}
       {% else %}
         {{
@@ -3527,7 +3527,7 @@ triggers:
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_sec = (now().timestamp() % 86400) | int %}
-        {% set pending = helper.ts.pending_end | default(0) | int %}
+        {% set pending = helper.ts.shade_end | default(0) | int %}
         {{ pending > 0 and pending <= now_sec }}
       {% else %}
         {{
@@ -3740,9 +3740,9 @@ actions:
               {# Get current values with defaults #}
               {% set new_current = dict_var.current | default('none') %}
               {% set new_target = dict_var.target | default('none') %}
-              {% set new_force = dict_var.force | default('none') %}
-              {% set new_resident = dict_var.resident | default(false) %}
-              {% set new_manual = dict_var.manual | default(false) %}
+              {% set new_force = dict_var.force | default('') %}
+              {% set new_resident = dict_var.resident | default(0) %}
+              {% set new_manual = dict_var.manual | default(0) %}
               {% set new_ts = dict_var.ts | default({}) %}
 
               {# Apply updates to main fields #}
@@ -4463,16 +4463,24 @@ actions:
             target: "{{ state_current }}"
             force: "{{ state_force }}"
             resident: "{{ state_resident }}"
-            manual: "{{ true if state_manual == 1 else false }}"
+            manual: "{{ state_manual }}"
             ts:
-              open: "{{ ((helper_json.open.t | default(0) | int) % 86400) if (helper_json.open.t | default(0) | int) > 0 else 0 }}"
-              close: "{{ ((helper_json.close.t | default(0) | int) % 86400) if (helper_json.close.t | default(0) | int) > 0 else 0 }}"
-              shade: "{{ ((helper_json.shading.t | default(0) | int) % 86400) if (helper_json.shading.t | default(0) | int) > 0 else 0 }}"
-              vpart: "{{ ((helper_json.vpart.t | default(0) | int) % 86400) if (helper_json.vpart.t | default(0) | int) > 0 else 0 }}"
-              vfull: "{{ ((helper_json.vfull.t | default(0) | int) % 86400) if (helper_json.vfull.t | default(0) | int) > 0 else 0 }}"
-              man: "{{ ((helper_json.manual.t | default(0) | int) % 86400) if (helper_json.manual.t | default(0) | int) > 0 else 0 }}"
-              pending_start: "{{ ((helper_json.shading.p | default(0) | int) % 86400) if (helper_json.shading.p | default(0) | int) > 0 else 0 }}"
-              pending_end: "{{ ((helper_json.shading.q | default(0) | int) % 86400) if (helper_json.shading.q | default(0) | int) > 0 else 0 }}"
+              open: "{{ helper_json.open.t | default(0) | int }}"
+              close: "{{ helper_json.close.t | default(0) | int }}"
+              shade: "{{ helper_json.shading.t | default(0) | int }}"
+              manual: "{{ helper_json.manual.t | default(0) | int }}"
+              shade_start: >-
+                {% if helper_json | regex_search('shading') and helper_json.shading.p is defined and helper_json.shading.p > 0 %}
+                  {{ ((helper_json.shading.p | int) % 86400) }}
+                {% else %}
+                  0
+                {% endif %}
+              shade_end: >-
+                {% if helper_json | regex_search('shading') and helper_json.shading.q is defined and helper_json.shading.q > 0 %}
+                  {{ ((helper_json.shading.q | int) % 86400) }}
+                {% else %}
+                  0
+                {% endif %}
             v: 6
             t: "{{ ts_now }}"
       # Migration v5 -> v6
@@ -4545,11 +4553,11 @@ actions:
                       update_values:
                         current: "shade"
                         target: "open"
-                        manual: false
+                        manual: 0
                         ts:
-                          shade: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          shade: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - if: "{{ can_move_shade }}"
                     then:
                       - *cover_move_action
@@ -4581,11 +4589,11 @@ actions:
                       update_values:
                         current: "open"
                         target: "open"
-                        manual: false
+                        manual: 0
                         ts:
-                          open: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          open: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - if: "{{ can_move_open }}"
                     then:
                       - *cover_move_action
@@ -4653,11 +4661,11 @@ actions:
                       update_values:
                         current: "vfull"
                         target: "close"
-                        manual: false
+                        manual: 0
                         ts:
-                          vfull: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          vfull: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *helper_update
                   - stop: "Closing skipped: Lockout enabled"
 
@@ -4686,11 +4694,11 @@ actions:
                       update_values:
                         current: "vpart"
                         target: "close"
-                        manual: false
+                        manual: 0
                         ts:
-                          vpart: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          vpart: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - if: "{{ can_move_ventilate }}"
                     then:
                       - *cover_move_action
@@ -4726,11 +4734,11 @@ actions:
                       update_values:
                         current: "close"
                         target: "close"
-                        manual: false
+                        manual: 0
                         ts:
-                          close: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          close: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *helper_update
                   - stop: "Closing skipped: Cover is already at or near targeted position (or lowering blocked by shading settings)"
 
@@ -4750,11 +4758,11 @@ actions:
                   update_values:
                     current: "close"
                     target: "close"
-                    manual: false
+                    manual: 0
                     ts:
-                      close: "{{ (ts_now % 86400) | int }}"
-                      pending_start: 0
-                      pending_end: 0
+                      close: "{{ ts_now | int }}"
+                      shade_start: 0
+                      shade_end: 0
               - if: "{{ can_move_close }}"
                 then:
                   - *cover_move_action
@@ -4817,11 +4825,11 @@ actions:
                           update_values:
                             current: "shade"
                             target: "shade"
-                            manual: false
+                            manual: 0
                             ts:
-                              shade: "{{ (ts_now % 86400) | int }}"
-                              pending_start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
-                              pending_end: 0
+                              shade: "{{ ts_now | int }}"
+                              shade_start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
+                              shade_end: 0
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
 
@@ -4847,11 +4855,11 @@ actions:
                           update_values:
                             current: "vfull"
                             target: "open"
-                            manual: false
+                            manual: 0
                             ts:
-                              vfull: "{{ (ts_now % 86400) | int }}"
-                              pending_start: 0
-                              pending_end: 0
+                              vfull: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
                       - *helper_update
                       - stop: "Shading Start skipped: Lockout enabled"
 
@@ -4885,11 +4893,11 @@ actions:
                           update_values:
                             current: "shade"
                             target: "open"
-                            manual: false
+                            manual: 0
                             ts:
-                              shade: "{{ (ts_now % 86400) | int }}"
-                              pending_start: 0
-                              pending_end: 0
+                              shade: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
                       - if: "{{ can_move_shade }}"
                         then:
                           - *cover_move_action
@@ -4917,10 +4925,10 @@ actions:
                           update_values:
                             # current: "none"
                             target: "shade"
-                            manual: false
+                            manual: 0
                             ts:
-                              pending_start: 0
-                              pending_end: 0
+                              shade_start: 0
+                              shade_end: 0
                       - if:
                           - "{{ not is_forced }}"
                         then:
@@ -4948,11 +4956,11 @@ actions:
                           update_values:
                             current: "shade"
                             target: "shade"
-                            manual: false
+                            manual: 0
                             ts:
-                              shade: "{{ (ts_now % 86400) | int }}"
-                              pending_start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
-                              pending_end: 0
+                              shade: "{{ ts_now | int }}"
+                              shade_start: "{{ (((ts_now + local_waitingtime_start) | round(0)) % 86400) | int }}"
+                              shade_end: 0
                       - *helper_update
                       - stop: "Shading Start Pending: Continue waiting"
 
@@ -4969,10 +4977,10 @@ actions:
                           update_values:
                             current: "none"
                             target: "none"
-                            manual: false
+                            manual: 0
                             ts:
-                              pending_start: 0
-                              pending_end: 0
+                              shade_start: 0
+                              shade_end: 0
                       - *helper_update
                       - stop: "Shading Start aborted: Timeout or invalid"
 
@@ -5054,11 +5062,11 @@ actions:
                           update_values:
                             current: "shade"
                             target: "shade"
-                            manual: false
+                            manual: 0
                             ts:
-                              shade: "{{ (ts_now % 86400) | int }}"
-                              pending_start: 0
-                              pending_end: "{{ (((ts_now + local_waitingtime_end) | round(0)) % 86400) | int }}"
+                              shade: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: "{{ (((ts_now + local_waitingtime_end) | round(0)) % 86400) | int }}"
                       - *helper_update
                       - stop: "Shading End Pending: Waiting"
 
@@ -5078,10 +5086,10 @@ actions:
                           update_values:
                             current: "none"
                             target: "none"
-                            manual: false
+                            manual: 0
                             ts:
-                              pending_start: 0
-                              pending_end: 0
+                              shade_start: 0
+                              shade_end: 0
                       - if:
                           - "{{ not is_forced }}"
                         then:
@@ -5112,11 +5120,11 @@ actions:
                           update_values:
                             current: "vfull"
                             target: "open"
-                            manual: false
+                            manual: 0
                             ts:
-                              vfull: "{{ (ts_now % 86400) | int }}"
-                              pending_start: 0
-                              pending_end: 0
+                              vfull: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
                       - *helper_update
                       - stop: "Shading End skipped: Lockout enabled"
 
@@ -5155,11 +5163,11 @@ actions:
                           update_values:
                             current: "vpart"
                             target: "open"
-                            manual: false
+                            manual: 0
                             ts:
-                              vpart: "{{ (ts_now % 86400) | int }}"
-                              pending_start: 0
-                              pending_end: 0
+                              vpart: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
                       - if: "{{ not is_forced }}"
                         then:
                           - *cover_move_action
@@ -5211,11 +5219,11 @@ actions:
                               update_values:
                                 current: "open"
                                 target: "open"
-                                manual: false
+                                manual: 0
                                 ts:
-                                  open: "{{ (ts_now % 86400) | int }}"
-                                  pending_start: 0
-                                  pending_end: 0
+                                  open: "{{ ts_now | int }}"
+                                  shade_start: 0
+                                  shade_end: 0
                           - if: "{{ not is_forced }}"
                             then:
                               - *cover_move_action
@@ -5228,10 +5236,10 @@ actions:
                                   update_values:
                                     current: "none"
                                     target: "none"
-                                    manual: false
+                                    manual: 0
                                     ts:
-                                      pending_start: 0
-                                      pending_end: 0
+                                      shade_start: 0
+                                      shade_end: 0
                               - *helper_update
                       - stop: "Shading End (Opening after shading) executed"
 
@@ -5253,11 +5261,11 @@ actions:
                           update_values:
                             current: "shade"
                             target: "shade"
-                            manual: false
+                            manual: 0
                             ts:
-                              shade: "{{ (ts_now % 86400) | int }}"
-                              pending_start: 0
-                              pending_end: "{{ (((ts_now + local_waitingtime_end) | round(0)) % 86400) | int }}"
+                              shade: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: "{{ (((ts_now + local_waitingtime_end) | round(0)) % 86400) | int }}"
                       - *helper_update
                       - stop: "Shading End Pending: Continue waiting"
 
@@ -5273,11 +5281,11 @@ actions:
                           update_values:
                             current: "shade"
                             target: "shade"
-                            manual: false
+                            manual: 0
                             ts:
-                              shade: "{{ (ts_now % 86400) | int }}"
-                              pending_start: 0
-                              pending_end: 0
+                              shade: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
                       - *helper_update
                       - stop: "Shading End aborted: Timeout or invalid"
 
@@ -5329,11 +5337,11 @@ actions:
                       update_values:
                         current: "vfull"
                         target: "vfull"
-                        manual: false
+                        manual: 0
                         ts:
-                          vfull: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          vfull: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - if: "{{ can_move_open }}"
                     then:
                       - *cover_move_action
@@ -5383,11 +5391,11 @@ actions:
                       update_values:
                         current: "vpart"
                         target: "vpart"
-                        manual: false
+                        manual: 0
                         ts:
-                          vpart: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          vpart: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - if: "{{ can_move_ventilate }}"
                     then:
                       - *cover_move_action
@@ -5432,11 +5440,11 @@ actions:
                       update_values:
                         current: "shade"
                         target: "open"
-                        manual: false
+                        manual: 0
                         ts:
-                          shade: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          shade: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -5477,11 +5485,11 @@ actions:
                       update_values:
                         current: "open"
                         target: "open"
-                        manual: false
+                        manual: 0
                         ts:
-                          open: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          open: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *helper_update
                   - if:
                       - "{{ not prevent_flags.opening_after_ventilation_end }}"
@@ -5524,11 +5532,11 @@ actions:
                       update_values:
                         current: "close"
                         target: "close"
-                        manual: false
+                        manual: 0
                         ts:
-                          close: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          close: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *cover_move_action
                   - *tilt_move_action
                   - *helper_update
@@ -5555,11 +5563,11 @@ actions:
               update_values:
                 current: "open"
                 force: "open"
-                manual: false
+                manual: 0
                 ts:
-                  open: "{{ (ts_now % 86400) | int }}"
-                  pending_start: 0
-                  pending_end: 0
+                  open: "{{ ts_now | int }}"
+                  shade_start: 0
+                  shade_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5587,11 +5595,11 @@ actions:
               update_values:
                 current: "close"
                 force: "close"
-                manual: false
+                manual: 0
                 ts:
-                  close: "{{ (ts_now % 86400) | int }}"
-                  pending_start: 0
-                  pending_end: 0
+                  close: "{{ ts_now | int }}"
+                  shade_start: 0
+                  shade_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5619,11 +5627,11 @@ actions:
               update_values:
                 current: "vpart"
                 force: "vpart"
-                manual: false
+                manual: 0
                 ts:
-                  vpart: "{{ (ts_now % 86400) | int }}"
-                  pending_start: 0
-                  pending_end: 0
+                  vpart: "{{ ts_now | int }}"
+                  shade_start: 0
+                  shade_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5651,11 +5659,11 @@ actions:
               update_values:
                 current: "shade"
                 force: "shade"
-                manual: false
+                manual: 0
                 ts:
-                  shade: "{{ (ts_now % 86400) | int }}"
-                  pending_start: 0
-                  pending_end: 0
+                  shade: "{{ ts_now | int }}"
+                  shade_start: 0
+                  shade_end: 0
                 t: "{{ ts_now }}"
           - *cover_move_action
           - *tilt_move_action
@@ -5731,7 +5739,7 @@ actions:
                   - variables:
                       update_values:
                         state: { man: 1 }
-                        ts: { man: "{{ (ts_now % 86400) | int }}" }
+                        ts: { man: "{{ ts_now | int }}" }
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5750,9 +5758,9 @@ actions:
                         target: "open"
                         manual: true
                         ts:
-                          open: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          open: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5769,9 +5777,9 @@ actions:
                         target: "vpart"
                         manual: true
                         ts:
-                          vpart: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          vpart: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5787,9 +5795,9 @@ actions:
                         target: "shade"
                         manual: true
                         ts:
-                          shade: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          shade: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5809,9 +5817,9 @@ actions:
                         target: "close"
                         manual: true
                         ts:
-                          close: "{{ (ts_now % 86400) | int }}"
-                          pending_start: 0
-                          pending_end: 0
+                          close: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5827,7 +5835,7 @@ actions:
                   - variables:
                       update_values:
                         state: { man: 1 }
-                        ts: { man: "{{ (ts_now % 86400) | int }}" }
+                        ts: { man: "{{ ts_now | int }}" }
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -5848,10 +5856,10 @@ actions:
               update_values:
                 current: "none"
                 target: "none"
-                manual: false
+                manual: 0
                 ts:
-                  pending_start: 0
-                  pending_end: 0
+                  shade_start: 0
+                  shade_end: 0
           - *helper_update
           - choose: []
             default: !input auto_override_reset_action
@@ -5874,7 +5882,7 @@ actions:
             then:
               - variables:
                   update_values:
-                    state: { force: "none" } 
+                    state: { force: "" }
               - *helper_update
           - delay:
               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5985,10 +5993,10 @@ actions:
               update_values:
                 current: "none"
                 target: "none"
-                manual: false
+                manual: 0
                 ts:
-                  pending_start: 0
-                  pending_end: 0
+                  shade_start: 0
+                  shade_end: 0
           - *helper_update
           - stop: "Midnight Reset executed"
 
