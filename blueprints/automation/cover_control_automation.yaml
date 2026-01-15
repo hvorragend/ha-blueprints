@@ -2907,7 +2907,25 @@ variables:
 
   # Cover Status Helper – JSON parsing
   # Helper is mandatory and validated at action start
-  helper_json: "{{ states(cover_status_helper) | from_json }}"
+  # If state is invalid or not valid JSON, return default v6 structure
+  helper_json: >-
+    {% set helper_state = states(cover_status_helper) %}
+    {% if helper_state in invalid_states or not helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") %}
+      {{
+        {
+          'current': 'none',
+          'target': 'none',
+          'force': 'none',
+          'resident': 0,
+          'manual': 0,
+          'ts': {},
+          'v': 6,
+          't': as_timestamp(now()) | round(0)
+        } | to_json | from_json
+      }}
+    {% else %}
+      {{ helper_state | from_json(default={}) }}
+    {% endif %}
 
   # ═══════════════════════════════════════════════════════════════════════════
   # STATE MANAGER - Centralized State Access
@@ -3781,6 +3799,24 @@ actions:
 
               {% set dict_new = dict(current=new_current, target=new_target, force=new_force, resident=new_resident, manual=new_manual, ts=new_ts, v=6, t=ts_now) %}
               {{ dict_new | to_json }}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Initialise empty helper with JSON default values
+  # ════════════════════════════════════════════════════════════════════════════
+  - if:
+      - "{{ cover_status_helper != [] }}"
+      - or:
+          - "{{ states(cover_status_helper) in invalid_states }}"
+          - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
+    then:
+      - service: input_text.set_value
+        data:
+          entity_id: !input cover_status_helper
+          value: >-
+            {% set ts_now = as_timestamp(now()) | round(0) %}
+            {% set dict_new = dict(current='none', target='none', force='none', resident=0, manual=0, ts={}, v=6, t=ts_now) %}
+            {{ dict_new | to_json }}
+
 
   # ════════════════════════════════════════════════════════════════════════════
   # Load weather forecast data from service (only when needed)
