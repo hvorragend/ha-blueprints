@@ -3763,9 +3763,20 @@ actions:
                 {% set new_manual = updates.manual %}
               {% endif %}
 
-              {# Apply updates to timestamps #}
+              {# Apply updates to timestamps - preserve existing values #}
               {% if 'ts' in updates %}
-                {% set new_ts = dict(new_ts, **updates.ts) %}
+                {% set merged_ts = namespace(data={}) %}
+                {# Start with existing timestamp values #}
+                {% for key in ['open', 'close', 'shade', 'manual', 'vpart', 'vfull', 'shade_start', 'shade_end'] %}
+                  {% if key in new_ts %}
+                    {% set merged_ts.data = dict(merged_ts.data, **{key: new_ts[key]}) %}
+                  {% endif %}
+                {% endfor %}
+                {# Overlay with update values #}
+                {% for key, value in updates.ts.items() %}
+                  {% set merged_ts.data = dict(merged_ts.data, **{key: value}) %}
+                {% endfor %}
+                {% set new_ts = merged_ts.data %}
               {% endif %}
 
               {% set dict_new = dict(current=new_current, target=new_target, force=new_force, resident=new_resident, manual=new_manual, ts=new_ts, v=6, t=ts_now) %}
