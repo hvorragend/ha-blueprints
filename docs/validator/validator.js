@@ -49,7 +49,7 @@ class CCAValidator {
             
             // Sun
             'default_sun_sensor', 'sun_time_duration',
-            'sun_elevation_up', 'sun_elevation_down',
+            'sun_elevation_mode', 'sun_elevation_up', 'sun_elevation_down',
             'sun_elevation_up_sensor', 'sun_elevation_down_sensor',
             
             // Contacts/Ventilation
@@ -528,10 +528,32 @@ class CCAValidator {
 
     validateDynamicSunElevation() {
         const c = this.config;
-        if (c.sun_elevation_up_sensor && c.sun_elevation_down_sensor) {
-            this.addInfo('🌅 Using dynamic sun elevation sensors for both up and down thresholds');
-        } else if (c.sun_elevation_up_sensor || c.sun_elevation_down_sensor) {
-            this.addWarning('Using dynamic sensor for only one threshold. Consider using for both');
+        const mode = c.sun_elevation_mode || 'fixed';
+
+        if (mode === 'dynamic') {
+            if (!c.sun_elevation_up_sensor && !c.sun_elevation_down_sensor) {
+                this.addError('❌ Sun Elevation Mode "dynamic" requires at least one sensor to be configured');
+            } else if (!c.sun_elevation_up_sensor || !c.sun_elevation_down_sensor) {
+                this.addWarning('⚠️ Sun Elevation Mode "dynamic": Only one sensor configured. Consider configuring both up and down sensors');
+            } else {
+                this.addInfo('🌅 Using dynamic sun elevation mode with sensors for both up and down thresholds');
+            }
+        } else if (mode === 'hybrid') {
+            if (!c.sun_elevation_up_sensor && !c.sun_elevation_down_sensor) {
+                this.addError('❌ Sun Elevation Mode "hybrid" requires at least one sensor to be configured');
+            } else if (!c.sun_elevation_up_sensor || !c.sun_elevation_down_sensor) {
+                this.addWarning('⚠️ Sun Elevation Mode "hybrid": Only one sensor configured. Consider configuring both up and down sensors');
+            } else {
+                this.addInfo('🌅 Using hybrid sun elevation mode with sensors and fixed fallback values');
+            }
+        } else if (mode === 'fixed') {
+            if (c.sun_elevation_up_sensor || c.sun_elevation_down_sensor) {
+                this.addInfo('ℹ️ Sun Elevation Mode "fixed": Sensors are configured but will be ignored (only fixed values are used)');
+            } else {
+                this.addInfo('ℹ️ Sun Elevation Mode "fixed": Using fixed elevation values');
+            }
+        } else {
+            this.addWarning(`⚠️ Unknown sun_elevation_mode: "${mode}". Valid modes are: fixed, dynamic, hybrid`);
         }
     }
 
