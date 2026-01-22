@@ -1,5 +1,14 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.22 - Force Recovery Resident Sensor Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed force recovery ignoring resident sensor status** (#332): Force recovery (BRANCH 12) now validates resident sensor conditions before returning to background state. Previously, when a force function was disabled, the cover could execute an invalid action if the resident sensor status had changed while the force function was active.
+
+---
+
+
 # 🚀 CCA 2026.01.14 - Force State Preservation Fix
 
 ## 🔧 Bug Fixes
