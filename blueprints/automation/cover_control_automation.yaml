@@ -5925,29 +5925,12 @@ actions:
           - "{{ trigger.id.startswith('t_force_disabled') }}"
           - "{{ is_auto_recover_enabled }}"
         sequence:
-          # First: Reset force state in helper
-          - if:
-              - "{{ helper_json.v == 6 }}"
-            then:
-              - variables:
-                  update_values:
-                    state: { force: "none" }
-              - *helper_update
-          - delay:
-              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-          - variables:
-              # Read current target state from helper
-              background_is_open: "{{ state_current == 'open' }}"
-              background_is_closed: "{{ state_current == 'close' }}"
-              background_is_shaded: "{{ state_is_shaded }}"
-              background_is_vpart: "{{ state_current == 'vpart' }}"
-              background_is_vfull: "{{ state_current == 'vfull' }}"
           - choose:
               # Return to CLOSE position
               - conditions:
-                  - "{{ background_is_closed }}"
-                  - "{{ not background_is_vpart }}"
-                  - "{{ not background_is_vfull }}"
+                  - "{{ state_target == 'close' }}"
+                  - "{{ not state_target == 'vpart' }}"
+                  - "{{ not state_target == 'vfull' }}"
                 sequence:
                   - choose: []
                     default: !input auto_down_action_before
@@ -5973,7 +5956,7 @@ actions:
 
               # Return to SHADING position
               - conditions:
-                  - "{{ background_is_shaded }}"
+                  - "{{ state_target == 'shade' }}"
                   - "{{ can_shade_with_resident }}"
                 sequence:
                   - choose: []
@@ -6000,7 +5983,7 @@ actions:
 
               # Return to VENTILATION position (partial)
               - conditions:
-                  - "{{ background_is_vpart }}"
+                  - "{{ state_target == 'vpart' }}"
                   - "{{ can_ventilate_with_resident }}"
                 sequence:
                   - choose: []
@@ -6027,7 +6010,7 @@ actions:
 
               # Return to OPEN position
               - conditions:
-                  - "{{ background_is_open }}"
+                  - "{{ state_target == 'open' }}"
                   - "{{ can_open_with_resident }}"
                 sequence:
                   - choose: []
