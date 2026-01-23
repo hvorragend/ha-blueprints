@@ -1,5 +1,15 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.23 - Force Features & Ventilation Recovery Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed covers closing during ventilation despite active force features** (#337): Ventilation recovery now properly respects force features (force-open, force-close, etc.). Previously, covers would close when windows closed even when force-open was still active. Force feature checks are now centralized in YAML anchors for consistent behavior across all branches.
+
+
+---
+
+
 # 🚀 CCA 2026.01.22 - Force Recovery Resident Sensor Fix
 
 ## 🔧 Bug Fixes

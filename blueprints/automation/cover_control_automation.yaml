@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.01.22
+    **Version**: 2026.01.23
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG.md) | ✨ **Highlights**: [Key Features](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/README.md#-key-features)
@@ -2729,7 +2729,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.01.22"
+  version: "2026.01.23"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3574,6 +3574,8 @@ actions:
       cover_move_action: &cover_move_action
         sequence:
           - condition: template
+            value_template: "{{ not is_cover_movement_blocked.any }}"
+          - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - repeat:
               for_each: "{{ blind_entities | list }}"
@@ -3607,6 +3609,8 @@ actions:
 
       tilt_move_action: &tilt_move_action
         sequence:
+          - condition: template
+            value_template: "{{ not is_cover_movement_blocked.any }}"
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible }}"
           - repeat:
@@ -5237,9 +5241,9 @@ actions:
                       - "{{ helper_status.vfull }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
-                  - or: # All force functions must be disabled OR background tracking is active
-                      - "{{ not is_cover_movement_blocked.any }}"
+                  - or: # Force functions allow ventilation end OR background tracking is active
                       - "{{ is_auto_recover_enabled }}"
+                      - "{{ not is_cover_movement_blocked.any }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
@@ -5264,9 +5268,9 @@ actions:
                         t: "{{ ts_now }}"
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_shading_start_action
+                  - *helper_update
                   - stop: "Ventilation End: Return to Shading executed"
 
               ###################################
@@ -5282,9 +5286,9 @@ actions:
                       - "{{ helper_status.vfull }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
-                  - or: # All force functions must be disabled OR background tracking is active
-                      - "{{ not is_cover_movement_blocked.any }}"
+                  - or: # Force functions allow ventilation end OR background tracking is active
                       - "{{ is_auto_recover_enabled }}"
+                      - "{{ not is_cover_movement_blocked.any }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
@@ -5307,14 +5311,14 @@ actions:
                         vfull: { a: 0, t: "{{ helper_json.vfull.t }}" }
                         manual: { a: 0, t: "{{ helper_json.manual.t }}" }
                         t: "{{ ts_now }}"
-                  - *helper_update
                   - if:
                       - "{{ not prevent_flags.opening_after_ventilation_end }}"
                     then:
                       - *cover_move_action
                       - *tilt_move_action
-                  - choose: []
-                    default: !input auto_up_action
+                      - choose: []
+                        default: !input auto_up_action
+                  - *helper_update
                   - stop: "Ventilation End: Return to Open executed"
 
               ###################################
@@ -5329,9 +5333,9 @@ actions:
                       - "{{ helper_status.vfull }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
-                  - or: # All force functions must be disabled OR background tracking is active
-                      - "{{ not is_cover_movement_blocked.any }}"
+                  - or: # Force functions allow ventilation end OR background tracking is active
                       - "{{ is_auto_recover_enabled }}"
+                      - "{{ not is_cover_movement_blocked.any }}"
                   - "{{ not (helper_status.manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition # User-defined condition for ending ventilation
                 sequence:
@@ -5356,9 +5360,9 @@ actions:
                         t: "{{ ts_now }}"
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_down_action
+                  - *helper_update
                   - stop: "Ventilation End: Return to Close executed"
 
       ############################################################
