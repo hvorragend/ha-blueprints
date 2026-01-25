@@ -3211,17 +3211,10 @@ triggers:
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
     id: "t_open_5"
 
+  # Resident sensor state change (for updating state_resident and optional actions)
   - trigger: state
     entity_id: !input resident_sensor
-    from: "on"
-    to: "off"
-    enabled: "{{ resident_sensor != [] }}"
-    id: "t_open_6"
-
-  # Resident sensor state change (for updating state_resident in helper)
-  - trigger: state
-    entity_id: !input resident_sensor
-    enabled: "{{ resident_sensor != [] }}"
+    enabled: "{{ resident_sensor not in [none, ''] }}"
     id: "t_resident_update"
 
   - trigger: state
@@ -4566,12 +4559,6 @@ actions:
           - or: # Only once a day?
               - "{{ not prevent_flags.opening_multiple_times }}"
               - "{{ prevent_flags.opening_multiple_times and ((now().day != ts_open|timestamp_custom('%-d')|int) or ts_man <= ts_open) }}"
-          - or: # Check whether the resident trigger is allowed
-              - "{{ trigger.id != 't_open_6' }}"
-              - and:  # For t_open_6: check conditions
-                  - "{{ trigger.id == 't_open_6' }}"
-                  - "{{ resident_flags.opening_enabled }}"
-                  - "{{ should_be_open_now }}"
           - "{{ can_open_with_resident }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
@@ -6043,15 +6030,84 @@ actions:
       # the resident_sensor changes. This ensures state_resident
       # stays synchronized with the actual sensor state.
 
-      - alias: "Update resident status in helper"
+      - alias: "Resident sensor status change handler"
         conditions:
           - "{{ trigger.id == 't_resident_update' }}"
         sequence:
+          # Step 1: Always update helper with new resident status
           - variables:
+              new_resident_status: "{{ 1 if trigger.to_state.state in ['on', 'true'] else 0 }}"
+              resident_leaving: "{{ trigger.from_state.state in ['on', 'true'] and trigger.to_state.state in ['off', 'false'] }}"
+              resident_arriving: "{{ trigger.from_state.state in ['off', 'false'] and trigger.to_state.state in ['on', 'true'] }}"
               update_values:
-                resident: "{{ 1 if trigger.to_state.state in ['on', 'true'] else 0 }}"
+                resident: "{{ new_resident_status }}"
           - *helper_update
-          - stop: "Resident status updated"
+
+          # Step 2: Optional actions based on resident status change
+          - choose:
+              # Resident is leaving (ON→OFF): Try to open cover
+              - conditions:
+                  - "{{ resident_leaving }}"
+                  - "{{ is_up_enabled }}"
+                  - "{{ resident_flags.opening_enabled }}"
+                  - "{{ should_be_open_now }}"
+                  - "{{ state_current != 'open' or not in_open_position }}"
+                  - "{{ can_move_open }}"
+                  - or: # Opening scenarios
+                      - "{{ is_time_control_disabled }}"
+                      - and:
+                          - "{{ is_opening_phase or is_daytime_phase }}"
+                          - "{{ not is_evening_phase }}"
+                          - "{{ environment_allows_opening }}"
+                sequence:
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - choose: []
+                    default: !input auto_up_action_before
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: "{{ open_tilt_position | int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "open"
+                        target: "open"
+                        manual: 0
+                        ts:
+                          open: "{{ ts_now }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_up_action
+
+              # Resident is arriving (OFF→ON): Try to close cover
+              - conditions:
+                  - "{{ resident_arriving }}"
+                  - "{{ is_down_enabled }}"
+                  - "{{ resident_flags.closing_enabled }}"
+                  - "{{ state_current != 'close' or not in_close_position }}"
+                  - "{{ can_move_close }}"
+                sequence:
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - choose: []
+                    default: !input auto_down_action_before
+                  - variables:
+                      target_position: !input close_position
+                      target_tilt_position: "{{ close_tilt_position | int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "close"
+                        target: "close"
+                        manual: 0
+                        ts:
+                          close: "{{ ts_now }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_down_action
+            default: []
 
       ############################################################
       # BRANCH (14): RESET SHADING STATUS AT MIDNIGHT

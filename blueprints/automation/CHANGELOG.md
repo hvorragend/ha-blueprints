@@ -1,5 +1,21 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.25 - Resident Branch Refactoring
+
+## 🔧 Bug Fixes
+
+- **Fixed resident sensor race condition**: Resolved trigger conflict where `t_open_6` (resident leaving) and `t_resident_update` (resident status change) would fire simultaneously, causing no action to execute. Replaced simple helper update (BRANCH 13) with comprehensive resident handler (BRANCH 15) that:
+  - Always updates helper with new resident status (no blocking `stop:` statement)
+  - Optionally opens cover when resident leaves (ON→OFF transition)
+  - Optionally closes cover when resident arrives (OFF→ON transition)
+  - Respects all environment checks and resident flags
+  - Eliminates race condition through single trigger (`t_resident_update`) with intelligent bidirectional handling
+
+- **Enhanced resident sensor force recovery** (#332): Added resident checks to force recovery logic to prevent covers from returning to positions that violate resident requirements. Uses existing computed flags (`can_open_with_resident`, `can_shade_with_resident`, `can_ventilate_with_resident`) for elegant 3-line solution.
+
+---
+
+
 # 🚀 CCA 2026.01.06 - Forecast Temperature Trigger Coverage
 
 ## ✨ New Features
