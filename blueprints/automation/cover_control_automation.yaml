@@ -6029,41 +6029,157 @@ actions:
               resident_arriving: "{{ trigger.from_state.state in ['off', 'false'] and trigger.to_state.state in ['on', 'true'] }}"
 
           - choose:
-              # Resident is leaving (ON→OFF): Try to open cover
+              # Resident is leaving (ON→OFF): Move to background state
               - conditions:
                   - "{{ resident_leaving }}"
-                  - "{{ is_up_enabled }}"
-                  - "{{ resident_flags.opening_enabled }}"
-                  - "{{ should_be_open_now }}"
-                  - "{{ state_current != 'open' or not in_open_position }}"
-                  - "{{ can_move_open }}"
-                  - or: # Opening scenarios
-                      - "{{ is_time_control_disabled }}"
-                      - and:
-                          - "{{ is_opening_phase or is_daytime_phase }}"
-                          - "{{ not is_evening_phase }}"
-                          - "{{ environment_allows_opening }}"
                 sequence:
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - choose: []
-                    default: !input auto_up_action_before
-                  - variables:
-                      target_position: !input open_position
-                      target_tilt_position: "{{ open_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                      update_values:
-                        current: "open"
-                        target: "open"
-                        manual: 0
-                        resident: "{{ new_resident_status }}"
-                        ts:
-                          open: "{{ ts_now }}"
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_up_action
+                  - choose:
+                      # Background is OPEN
+                      - conditions:
+                          - "{{ background_is_open }}"
+                          - "{{ can_open_with_resident }}"
+                          - "{{ is_up_enabled }}"
+                          - "{{ state_current != 'open' or not in_open_position }}"
+                          - "{{ can_move_open }}"
+                        sequence:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_up_action_before
+                          - variables:
+                              target_position: !input open_position
+                              target_tilt_position: "{{ open_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                              update_values:
+                                current: "open"
+                                target: "open"
+                                manual: 0
+                                resident: "{{ new_resident_status }}"
+                                ts:
+                                  open: "{{ ts_now }}"
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - *helper_update
+                          - choose: []
+                            default: !input auto_up_action
+
+                      # Background is SHADED
+                      - conditions:
+                          - "{{ background_is_shaded }}"
+                          - "{{ can_shade_with_resident }}"
+                          - "{{ is_shading_enabled }}"
+                          - "{{ state_current != 'shade' or not in_shade_position }}"
+                          - "{{ can_move }}"
+                        sequence:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_shade_action_before
+                          - variables:
+                              target_position: !input shade_position
+                              target_tilt_position: "{{ shade_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                              update_values:
+                                current: "shade"
+                                target: "shade"
+                                manual: 0
+                                resident: "{{ new_resident_status }}"
+                                ts:
+                                  shade_start: "{{ (ts_now - today_midnight) | int }}"
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - *helper_update
+                          - choose: []
+                            default: !input auto_shade_action
+
+                      # Background is VENTILATION PART
+                      - conditions:
+                          - "{{ background_is_vpart }}"
+                          - "{{ can_ventilate_with_resident }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ state_current != 'vpart' or not in_ventilation_part_position }}"
+                          - "{{ can_move }}"
+                        sequence:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_vpart_action_before
+                          - variables:
+                              target_position: !input ventilation_part_position
+                              target_tilt_position: "{{ ventilation_part_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                              update_values:
+                                current: "vpart"
+                                target: "vpart"
+                                manual: 0
+                                resident: "{{ new_resident_status }}"
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - *helper_update
+                          - choose: []
+                            default: !input auto_vpart_action
+
+                      # Background is VENTILATION FULL
+                      - conditions:
+                          - "{{ background_is_vfull }}"
+                          - "{{ can_ventilate_with_resident }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ state_current != 'vfull' or not in_ventilation_full_position }}"
+                          - "{{ can_move }}"
+                        sequence:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_vfull_action_before
+                          - variables:
+                              target_position: !input ventilation_full_position
+                              target_tilt_position: "{{ ventilation_full_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                              update_values:
+                                current: "vfull"
+                                target: "vfull"
+                                manual: 0
+                                resident: "{{ new_resident_status }}"
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - *helper_update
+                          - choose: []
+                            default: !input auto_vfull_action
+
+                      # Background is CLOSE
+                      - conditions:
+                          - "{{ background_is_close }}"
+                          - "{{ can_close_with_resident }}"
+                          - "{{ is_down_enabled }}"
+                          - "{{ state_current != 'close' or not in_close_position }}"
+                          - "{{ can_move_close }}"
+                        sequence:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_down_action_before
+                          - variables:
+                              target_position: !input close_position
+                              target_tilt_position: "{{ close_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                              update_values:
+                                current: "close"
+                                target: "close"
+                                manual: 0
+                                resident: "{{ new_resident_status }}"
+                                ts:
+                                  close: "{{ ts_now }}"
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - *helper_update
+                          - choose: []
+                            default: !input auto_down_action
+                    default:
+                      # No matching background state or conditions not met, just update resident status
+                      - variables:
+                          update_values:
+                            resident: "{{ new_resident_status }}"
+                      - *helper_update
 
               # Resident is arriving (OFF→ON): Try to close cover
               - conditions:
