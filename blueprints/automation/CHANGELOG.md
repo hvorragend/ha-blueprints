@@ -4,7 +4,7 @@
 
 ## 🔧 Bug Fixes
 
-- **Fixed resident sensor race condition**: Resolved trigger conflict where `t_open_6` (resident leaving) and `t_resident_update` (resident status change) would fire simultaneously, causing no action to execute. Replaced simple helper update (BRANCH 13) with comprehensive resident handler (BRANCH 15) that:
+- **Fixed resident sensor race condition**: Resolved trigger conflict where `t_open_6` (resident leaving), `t_close_6` (resident arriving), and `t_resident_update` (resident status change) would fire simultaneously, causing no action to execute. Removed both dedicated triggers and replaced simple helper update (BRANCH 13) with comprehensive resident handler (BRANCH 15) that:
   - Always updates helper with new resident status (no blocking `stop:` statement)
   - Optionally opens cover when resident leaves (ON→OFF transition)
   - Optionally closes cover when resident arrives (OFF→ON transition)
