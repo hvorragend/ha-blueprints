@@ -6023,16 +6023,11 @@ actions:
         conditions:
           - "{{ trigger.id == 't_resident_update' }}"
         sequence:
-          # Step 1: Always update helper with new resident status
           - variables:
               new_resident_status: "{{ 1 if trigger.to_state.state in ['on', 'true'] else 0 }}"
               resident_leaving: "{{ trigger.from_state.state in ['on', 'true'] and trigger.to_state.state in ['off', 'false'] }}"
               resident_arriving: "{{ trigger.from_state.state in ['off', 'false'] and trigger.to_state.state in ['on', 'true'] }}"
-              update_values:
-                resident: "{{ new_resident_status }}"
-          - *helper_update
 
-          # Step 2: Optional actions based on resident status change
           - choose:
               # Resident is leaving (ON→OFF): Try to open cover
               - conditions:
@@ -6061,6 +6056,7 @@ actions:
                         current: "open"
                         target: "open"
                         manual: 0
+                        resident: "{{ new_resident_status }}"
                         ts:
                           open: "{{ ts_now }}"
                   - *cover_move_action
@@ -6089,6 +6085,7 @@ actions:
                         current: "close"
                         target: "close"
                         manual: 0
+                        resident: "{{ new_resident_status }}"
                         ts:
                           close: "{{ ts_now }}"
                   - *cover_move_action
@@ -6096,7 +6093,12 @@ actions:
                   - *helper_update
                   - choose: []
                     default: !input auto_down_action
-            default: []
+            default:
+              # No action required, but still update resident status
+              - variables:
+                  update_values:
+                    resident: "{{ new_resident_status }}"
+              - *helper_update
 
       ############################################################
       # BRANCH (14): RESET SHADING STATUS AT MIDNIGHT
