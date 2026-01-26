@@ -1,5 +1,15 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
+# 🚀 CCA 2026.01.26 - Force Features Self-Blocking Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed Force features blocking themselves** (#339): Force Open/Close/Ventilation/Shading features can now execute properly. Previously, these features failed to move the cover because `cover_move_action` and `tilt_move_action` checked `is_cover_movement_blocked.any`, which was already `true` when the force feature was active. The movement blocking condition now allows Force triggers to bypass the check using regex pattern `trigger.id is match('^t_force_')`, enabling force features to work as intended while maintaining protection for background automations.
+
+
+---
+
+
 # 🚀 CCA 2026.01.23 - Force Features & Ventilation Recovery Fix
 
 ## 🔧 Bug Fixes
