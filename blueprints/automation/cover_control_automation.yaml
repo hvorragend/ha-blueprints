@@ -3056,8 +3056,13 @@ variables:
   can_move_shade: "{{ state_force in ['none', 'shade'] }}"
   can_move_ventilate: "{{ state_force in ['none', 'vpart', 'vfull'] }}"
 
-  # Is any force active?
-  is_forced: "{{ state_force != 'none' }}"
+  # Is any force active? (Runtime check via entity states - not helper!)
+  # This avoids race conditions when force entities are just toggled
+  is_forced: >-
+    {{ (auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or
+       (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or
+       (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) or
+       (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true']) }}
 
   # Does the cover need to move to reach target?
   needs_movement: "{{ state_current != state_target and not is_forced }}"
@@ -3653,8 +3658,8 @@ actions:
   - variables:
       cover_move_action: &cover_move_action
         sequence:
-          # - condition: template # TODO
-          #   value_template: "{{ not is_forced }}"
+          - condition: template
+            value_template: "{{ not is_forced or trigger.id is match('^t_force_') }}"
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - repeat:
@@ -3689,8 +3694,8 @@ actions:
 
       tilt_move_action: &tilt_move_action
         sequence:
-          # - condition: template # TODO
-          #   value_template: "{{ not is_forced }}" 
+          - condition: template
+            value_template: "{{ not is_forced or trigger.id is match('^t_force_') }}"
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible }}"
           - repeat:
