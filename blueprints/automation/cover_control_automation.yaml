@@ -3071,7 +3071,7 @@ variables:
   # RESIDENT PERMISSION FLAGS - Centralized Resident-based Access Control
   # ═══════════════════════════════════════════════════════════════════════════
   # These flags check resident status (from state_resident) once, avoiding
-  # redundant sensor reads across multiple branches.
+  # redundant sensor reads across the entire code.
 
   # Resident sensor configuration
   resident_config: !input resident_config
@@ -4537,8 +4537,10 @@ actions:
 
       ############################################################
       # BRANCH (0): OPEN
-      #   Source: All (Open, Close, Ventilation, Shading)
-      #   Target: Open, Shading
+      #   Trigger: Opening time/calendar events
+      #   Source: Any state (Close, Ventilation, Shading)
+      #   Target: Open (primary) or Shading (if shading conditions met)
+      #   Note: Also handles recovery to Shading position if conditions active
       ############################################################
 
       - alias: "Check for opening"
@@ -4645,8 +4647,10 @@ actions:
 
       ############################################################
       # BRANCH (1): CLOSE
-      #   Source: All (Open, Close, Ventilation, Shading)
-      #   Target: Close, Ventilation
+      #   Trigger: Closing time/calendar events
+      #   Source: Any state (Open, Shading, Ventilation)
+      #   Target: Close (primary) or Ventilation (if window tilted/open)
+      #   Note: Handles lockout protection and ventilation exceptions
       ############################################################
 
       - alias: "Check for closing cover"
@@ -4810,8 +4814,10 @@ actions:
 
       ############################################################
       # BRANCH (2): SHADING START
-      #   Source: Open
-      #   Target: Shading, Lockout
+      #   Trigger: Shading conditions met (sun/temp/brightness)
+      #   Source: Open (or Close if storing future shading state)
+      #   Target: Shading (primary) or Lockout (if window open/tilted)
+      #   Note: Uses pending mechanism with configurable delay
       ############################################################
 
       - alias: "Check for shading start"
@@ -5046,8 +5052,10 @@ actions:
 
       ############################################################
       # BRANCH (4): SHADING END
+      #   Trigger: Shading end conditions met (sun position/temp/brightness)
       #   Source: Shading
-      #   Target: Open, Lockout, Ventilation
+      #   Target: Open (primary), Ventilation (if window states), or Tilt-only
+      #   Note: Uses pending mechanism with optional immediate sun-based end
       ############################################################
 
       - alias: "Check for shading end"
