@@ -3076,46 +3076,13 @@ variables:
   # Resident sensor configuration
   resident_config: !input resident_config
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # RESIDENT TRIGGER FLAGS - For Branch 13 Automatic Actions
-  # ═══════════════════════════════════════════════════════════════════════════
-  # These check if automatic actions should be triggered on resident state changes
-
-  # Should cover automatically open when resident leaves (ON→OFF)?
-  is_resident_opening_trigger_enabled: >-
-    {{ 'resident_opening_enabled' in resident_config }}
-
-  # Should cover automatically close when resident arrives (OFF→ON)?
-  is_resident_closing_trigger_enabled: >-
-    {{ 'resident_closing_enabled' in resident_config }}
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # RESIDENT PERMISSION FLAGS - For Normal Branch Permission Checks
-  # ═══════════════════════════════════════════════════════════════════════════
-  # These check if actions are allowed when resident is present
-
-  # Can open when resident is present?
-  # Logic: Allow if allow_opening set OR resident not present
-  allow_open_when_resident_present: >-
-    {{ 'resident_allow_opening' in resident_config or not state_resident }}
-
-  # Can shade when resident is present?
-  # Logic: Allow if allow_shading set OR resident not present
-  allow_shade_when_resident_present: >-
-    {{ 'resident_allow_shading' in resident_config or not state_resident }}
-
-  # Can ventilate when resident is present?
-  # Logic: Allow if allow_ventilation set OR resident not present
-  allow_ventilate_when_resident_present: >-
-    {{ 'resident_allow_ventilation' in resident_config or not state_resident }}
-
-  # Resident flags (for logging/debugging - defined AFTER can_* variables)
+  # Resident flags - All resident permission checks in one place
   resident_flags:
-    opening_enabled: "{{ 'resident_opening_enabled' in resident_config }}"
-    closing_enabled: "{{ 'resident_closing_enabled' in resident_config }}"
-    allow_shading: "{{ 'resident_allow_shading' in resident_config }}"
-    allow_opening: "{{ 'resident_allow_opening' in resident_config }}"
-    allow_ventilation: "{{ 'resident_allow_ventilation' in resident_config }}"
+    opening_trigger: "{{ 'resident_opening_enabled' in resident_config }}"
+    closing_trigger: "{{ 'resident_closing_enabled' in resident_config }}"
+    allow_open: "{{ 'resident_allow_opening' in resident_config or not state_resident }}"
+    allow_shade: "{{ 'resident_allow_shading' in resident_config or not state_resident }}"
+    allow_ventilate: "{{ 'resident_allow_ventilation' in resident_config or not state_resident }}"
 
   # Override flags
   ignore_after_manual_config: !input ignore_after_manual_config
@@ -4570,7 +4537,7 @@ actions:
           - or: # Only once a day?
               - "{{ not prevent_flags.opening_multiple_times }}"
               - "{{ prevent_flags.opening_multiple_times and ((now().day != ts_open|timestamp_custom('%-d')|int) or ts_man <= ts_open) }}"
-          - "{{ allow_open_when_resident_present }}"
+          - "{{ resident_flags.allow_open }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - and: # Ultimate opening ONLY for specific time triggers (no environment checks)
@@ -5337,7 +5304,7 @@ actions:
           - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
-          - "{{ allow_ventilate_when_resident_present }}"
+          - "{{ resident_flags.allow_ventilate }}"
         sequence:
           # Wait for all sensor changes to settle
           - delay:
@@ -6035,7 +6002,7 @@ actions:
                       # Target is OPEN
                       - conditions:
                           - "{{ state_target == 'open' }}"
-                          - "{{ is_resident_opening_trigger_enabled }}"
+                          - "{{ resident_flags.opening_trigger }}"
                           - "{{ is_up_enabled }}"
                           - "{{ state_current != 'open' or not in_open_position }}"
                           - "{{ can_move_open }}"
@@ -6178,7 +6145,7 @@ actions:
               - conditions:
                   - "{{ resident_arriving }}"
                   - "{{ is_down_enabled }}"
-                  - "{{ is_resident_closing_trigger_enabled }}"
+                  - "{{ resident_flags.closing_trigger }}"
                   - "{{ state_current != 'close' or not in_close_position }}"
                   - "{{ can_move_close }}"
                 sequence:
