@@ -3076,27 +3076,38 @@ variables:
   # Resident sensor configuration
   resident_config: !input resident_config
 
-  # Can open with current resident status?
-  # Logic: Allow if opening_enabled NOT set OR (allow_opening matches resident state)
-  can_open_with_resident: >-
-    {{ 'resident_opening_enabled' not in resident_config or
-       ('resident_allow_opening' not in resident_config and not state_resident) or
-       ('resident_allow_opening' in resident_config and state_resident) }}
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RESIDENT TRIGGER FLAGS - For Branch 13 Automatic Actions
+  # ═══════════════════════════════════════════════════════════════════════════
+  # These check if automatic actions should be triggered on resident state changes
 
-  # Can close with current resident status?
-  # Logic: Allow if closing_enabled NOT set OR resident present
-  can_close_with_resident: >-
-    {{ 'resident_closing_enabled' not in resident_config or state_resident }}
+  # Should cover automatically open when resident leaves (ON→OFF)?
+  is_resident_opening_trigger_enabled: >-
+    {{ 'resident_opening_enabled' in resident_config }}
 
-  # Can shade with current resident status?
-  # Logic: Allow if allow_shading NOT set OR resident not present
-  can_shade_with_resident: >-
-    {{ 'resident_allow_shading' not in resident_config or not state_resident }}
+  # Should cover automatically close when resident arrives (OFF→ON)?
+  is_resident_closing_trigger_enabled: >-
+    {{ 'resident_closing_enabled' in resident_config }}
 
-  # Can ventilate with current resident status?
-  # Logic: Allow if allow_ventilation NOT set OR resident not present
-  can_ventilate_with_resident: >-
-    {{ 'resident_allow_ventilation' not in resident_config or not state_resident }}
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RESIDENT PERMISSION FLAGS - For Normal Branch Permission Checks
+  # ═══════════════════════════════════════════════════════════════════════════
+  # These check if actions are allowed when resident is present
+
+  # Can open when resident is present?
+  # Logic: Allow if allow_opening set OR resident not present
+  allow_open_when_resident_present: >-
+    {{ 'resident_allow_opening' in resident_config or not state_resident }}
+
+  # Can shade when resident is present?
+  # Logic: Allow if allow_shading set OR resident not present
+  allow_shade_when_resident_present: >-
+    {{ 'resident_allow_shading' in resident_config or not state_resident }}
+
+  # Can ventilate when resident is present?
+  # Logic: Allow if allow_ventilation set OR resident not present
+  allow_ventilate_when_resident_present: >-
+    {{ 'resident_allow_ventilation' in resident_config or not state_resident }}
 
   # Resident flags (for logging/debugging - defined AFTER can_* variables)
   resident_flags:
@@ -4559,7 +4570,7 @@ actions:
           - or: # Only once a day?
               - "{{ not prevent_flags.opening_multiple_times }}"
               - "{{ prevent_flags.opening_multiple_times and ((now().day != ts_open|timestamp_custom('%-d')|int) or ts_man <= ts_open) }}"
-          - "{{ can_open_with_resident }}"
+          - "{{ allow_open_when_resident_present }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - and: # Ultimate opening ONLY for specific time triggers (no environment checks)
@@ -4829,6 +4840,7 @@ actions:
               - "{{ not prevent_flags.shading_multiple_times }}"
               - "{{ prevent_flags.shading_multiple_times and ((now().day != ts_shade|timestamp_custom('%-d')|int) or ts_man <= ts_shade) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
+          - "{{ allow_shade_when_resident_present }}"
 
         sequence:
           - if:
@@ -5062,7 +5074,7 @@ actions:
           - or: # Optional: Continue if cover is not already closed
               - "{{ not prevent_flags.shading_end_if_closed }}"
               - "{{ prevent_flags.shading_end_if_closed and not in_close_position}}"
-          - "{{ can_shade_with_resident }}"
+          - "{{ allow_shade_when_resident_present }}"
         sequence:
           - if:
               - "{{ shading_end_conditions_met }}" # Use flexible AND/OR logic for END
@@ -5325,7 +5337,7 @@ actions:
           - "{{ trigger.id in ['t_contact_tilted_changed', 't_contact_opened_changed'] }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
-          - "{{ can_ventilate_with_resident }}"
+          - "{{ allow_ventilate_when_resident_present }}"
         sequence:
           # Wait for all sensor changes to settle
           - delay:
@@ -6023,7 +6035,7 @@ actions:
                       # Target is OPEN
                       - conditions:
                           - "{{ state_target == 'open' }}"
-                          - "{{ can_open_with_resident }}"
+                          - "{{ is_resident_opening_trigger_enabled }}"
                           - "{{ is_up_enabled }}"
                           - "{{ state_current != 'open' or not in_open_position }}"
                           - "{{ can_move_open }}"
@@ -6166,7 +6178,7 @@ actions:
               - conditions:
                   - "{{ resident_arriving }}"
                   - "{{ is_down_enabled }}"
-                  - "{{ resident_flags.closing_enabled }}"
+                  - "{{ is_resident_closing_trigger_enabled }}"
                   - "{{ state_current != 'close' or not in_close_position }}"
                   - "{{ can_move_close }}"
                 sequence:
