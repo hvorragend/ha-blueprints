@@ -5538,453 +5538,11 @@ actions:
                   - stop: "Ventilation End: Return to Close executed"
 
       ############################################################
-      # BRANCH (6): FORCE OPEN
+      # BRANCH (6): UPDATE RESIDENT STATUS IN HELPER
+      #   This block updates state_resident in the helper whenever
+      #   the resident_sensor changes. This ensures state_resident
+      #   stays synchronized with the actual sensor state.
       ############################################################
-
-      - alias: "Forced opening of the cover"
-        conditions:
-          - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_enabled_open' }}"
-          - "{{ can_move_open }}"
-        sequence:
-          - choose: []
-            default: !input auto_up_action_before
-          - variables:
-              target_position: !input open_position
-              target_tilt_position: !input open_tilt_position
-              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
-              update_values:
-                current: "open"
-                force: "open"
-                manual: 0
-                ts:
-                  open: "{{ ts_now | int }}"
-                  shade_start: 0
-                  shade_end: 0
-                t: "{{ ts_now }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_up_action
-          - stop: "Force Open executed"
-
-      ############################################################
-      # BRANCH (7): FORCE CLOSE
-      ############################################################
-
-      - alias: "Forced closing of the cover"
-        conditions:
-          - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_enabled_close' }}"
-          - "{{ can_move_close }}"
-        sequence:
-          - choose: []
-            default: !input auto_down_action_before
-          - variables:
-              target_position: !input close_position
-              target_tilt_position: !input close_tilt_position
-              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
-              update_values:
-                current: "close"
-                force: "close"
-                manual: 0
-                ts:
-                  close: "{{ ts_now | int }}"
-                  shade_start: 0
-                  shade_end: 0
-                t: "{{ ts_now }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_down_action
-          - stop: "Force Close executed"
-
-      ############################################################
-      # BRANCH (8): FORCE VENTILATION
-      ############################################################
-
-      - alias: "Forced ventilation of the cover"
-        conditions:
-          - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_enabled_ventilate' }}"
-          - "{{ can_move_ventilate }}"
-        sequence:
-          - choose: []
-            default: !input auto_ventilate_action_before
-          - variables:
-              target_position: !input ventilate_position
-              target_tilt_position: !input ventilate_tilt_position
-              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
-              update_values:
-                current: "vpart"
-                force: "vpart"
-                manual: 0
-                ts:
-                  vpart: "{{ ts_now | int }}"
-                  shade_start: 0
-                  shade_end: 0
-                t: "{{ ts_now }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_ventilate_action
-          - stop: "Force Ventilation executed"
-
-      ############################################################
-      # BRANCH (9): FORCE SHADING START
-      ############################################################
-
-      - alias: "Forced activating of the sun shading"
-        conditions:
-          - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_force_enabled_shading' }}"
-          - "{{ can_move_shade }}"
-        sequence:
-          - choose: []
-            default: !input auto_shading_start_action_before
-          - variables:
-              target_position: !input shading_position
-              target_tilt_position: "{{ shading_tilt_position |int }}"
-              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
-              update_values:
-                current: "shade"
-                force: "shade"
-                manual: 0
-                ts:
-                  shade: "{{ ts_now | int }}"
-                  shade_start: 0
-                  shade_end: 0
-                t: "{{ ts_now }}"
-          - *cover_move_action
-          - *tilt_move_action
-          - *helper_update
-          - choose: []
-            default: !input auto_shading_start_action
-          - stop: "Force Shading executed"
-
-      ############################################################
-      # BRANCH (10): MANUAL
-      ############################################################
-
-      - alias: "Checking for manual position changes"
-        conditions:
-          - "{{ trigger.id is defined }}"
-          - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
-          - "{{ this.attributes.current | int(99) == 0 }}"
-          - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}"
-          - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
-          - "{{ trigger.from_state.state not in invalid_states }}"
-          - "{{ trigger.to_state.state not in invalid_states }}"
-          - or:
-              # Position change via custom sensor (state-based)
-              - and:
-                  - "{{ trigger.id == 't_manual_position' }}"
-                  - "{{ position_source == 'custom_sensor' }}"
-                  - "{{ trigger.from_state.state not in invalid_states }}"
-                  - "{{ trigger.to_state.state not in invalid_states }}"
-                  - "{{ is_number(trigger.from_state.state) }}"
-                  - "{{ is_number(trigger.to_state.state) }}"
-                  - "{{ trigger.from_state.state != trigger.to_state.state }}"
-
-              # Position change via current_position attribute
-              - and:
-                  - "{{ trigger.id == 't_manual_position' }}"
-                  - "{{ position_source == 'current_position_attr' }}"
-                  - "{{ trigger.attribute == 'current_position' }}"
-                  - "{{ trigger.from_state.attributes.current_position not in invalid_states }}"
-                  - "{{ trigger.to_state.attributes.current_position not in invalid_states }}"
-                  - "{{ is_number(trigger.from_state.attributes.current_position) }}"
-                  - "{{ is_number(trigger.to_state.attributes.current_position) }}"
-                  - "{{ trigger.from_state.attributes.current_position != trigger.to_state.attributes.current_position }}"
-
-              # Position change via position attribute
-              - and:
-                  - "{{ trigger.id == 't_manual_position' }}"
-                  - "{{ position_source == 'position_attr' }}"
-                  - "{{ trigger.attribute == 'position' }}"
-                  - "{{ trigger.from_state.attributes.position not in invalid_states }}"
-                  - "{{ trigger.to_state.attributes.position not in invalid_states }}"
-                  - "{{ is_number(trigger.from_state.attributes.position) }}"
-                  - "{{ is_number(trigger.to_state.attributes.position) }}"
-                  - "{{ trigger.from_state.attributes.position != trigger.to_state.attributes.position }}"
-
-              # Tilt change detection
-              - and:
-                  - "{{ trigger.id == 't_manual_tilt' }}"
-                  - "{{ trigger.from_state.attributes.current_tilt_position not in invalid_states }}"
-                  - "{{ trigger.to_state.attributes.current_tilt_position not in invalid_states }}"
-                  - "{{ is_number(trigger.from_state.attributes.current_tilt_position | default(none)) }}"
-                  - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}"
-                  - "{{ trigger.from_state.attributes.current_tilt_position != trigger.to_state.attributes.current_tilt_position }}"
-
-        sequence:
-          - variables:
-              ts_now: "{{ as_timestamp(now()) | round(0) }}"
-          - choose:
-              - conditions: # Manually tilted
-                  - "{{ trigger.id == 't_manual_tilt' }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        state: { man: 1 }
-                        ts: { man: "{{ ts_now | int }}" }
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Tilt detected"
-
-              - conditions: # Manually opened
-                  - "{{ is_up_enabled }}"
-                  - or:
-                      - "{{ in_open_position }}"
-                      - "{{ position_comparisons.current_above_open or current_position == open_position }}"
-                      - "{{ (is_awning and current_position == 0) or (not is_awning and current_position == 100) }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        current: "open"
-                        target: "open"
-                        manual: 1
-                        ts:
-                          open: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Open detected"
-
-              - conditions: # Manually ventilated
-                  - "{{ is_ventilation_enabled }}"
-                  - "{{ in_ventilate_position }}"
-                  - "{{ not in_open_position }}" # If ventilate_position and open_position are too close together, the ventilation-status should not be assigned.
-                sequence:
-                  - variables:
-                      update_values:
-                        current: "vpart"
-                        target: "vpart"
-                        manual: 1
-                        ts:
-                          vpart: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Ventilation detected"
-
-              - conditions: # Manually shaded
-                  - "{{ is_shading_enabled }}"
-                  - "{{ in_shading_position }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        current: "shade"
-                        target: "shade"
-                        manual: 1
-                        ts:
-                          shade: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Shading detected"
-
-              - conditions: # Manually closed
-                  - "{{ is_down_enabled }}"
-                  - "{{ not in_shading_position }}"
-                  - or:
-                      - "{{ in_close_position }}"
-                      - "{{ position_comparisons.current_below_close or current_position == close_position }}"
-                      - "{{ (is_awning and current_position == 100) or (not is_awning and current_position == 0) }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        current: "close"
-                        target: "close"
-                        manual: 1
-                        ts:
-                          close: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Close detected"
-
-              - conditions: # Defined positions cannot be assigned
-                  - not:
-                      - "{{ is_up_enabled and in_open_position }}"
-                      - "{{ is_down_enabled and in_close_position }}"
-                      - "{{ is_ventilation_enabled and in_ventilate_position }}"
-                      - "{{ is_shading_enabled and in_shading_position }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        state: { man: 1 }
-                        ts: { man: "{{ ts_now | int }}" }
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual position (unknown) detected"
-
-      ############################################################
-      # BRANCH (11): RESET MANUAL DETECTION
-      ############################################################
-
-      - alias: "Reset manual detection"
-        conditions:
-          - "{{ trigger.id is defined }}"
-          - "{{ not is_reset_disabled }}"
-          - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout'] }}"
-        sequence:
-          - variables:
-              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
-              update_values:
-                current: "none"
-                target: "none"
-                manual: 0
-                ts:
-                  shade_start: 0
-                  shade_end: 0
-          - *helper_update
-          - choose: []
-            default: !input auto_override_reset_action
-          - stop: "Reset Manual Override executed"
-
-      ############################################################
-      # BRANCH (12): RETURN TO BACKGROUND STATE AFTER FORCE DISABLE
-      ############################################################
-
-      - alias: "Return to background position after force disable"
-        conditions:
-          - "{{ trigger.id is defined }}"
-          - "{{ trigger.id.startswith('t_force_disabled') }}"
-          - "{{ is_force_recovery_enabled }}"
-        sequence:
-          - choose:
-              # Return to CLOSE position
-              - conditions:
-                  - "{{ state_target == 'close' }}"
-                  - "{{ not state_target == 'vpart' }}"
-                  - "{{ not state_target == 'vfull' }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_down_action_before
-                  - variables:
-                      target_position: !input close_position
-                      target_tilt_position: "{{ close_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                      update_values:
-                        current: "close"
-                        target: "close"
-                        force: "none"
-                        manual: 0
-                        ts:
-                          close: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_down_action
-                  - stop: "Return to Close executed"
-
-              # Return to SHADING position
-              - conditions:
-                  - or:
-                      - "{{ state_current == 'shade' }}" # For active shading # TODO
-                      - "{{ state_target == 'shade' }}" # For marker case
-                  - "{{ can_shade_with_resident }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_shading_start_action_before
-                  - variables:
-                      target_position: !input shading_position
-                      target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                      update_values:
-                        current: "shade"
-                        target: "open"
-                        force: "none"
-                        manual: 0
-                        ts:
-                          shade: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_shading_start_action
-                  - stop: "Return to Shading executed"
-
-              # Return to VENTILATION position (partial)
-              - conditions:
-                  - "{{ state_target == 'vpart' }}"
-                  - "{{ can_ventilate_with_resident }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                      update_values:
-                        current: "vpart"
-                        target: "vpart"
-                        force: "none"
-                        manual: 0
-                        ts:
-                          vpart: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_ventilate_action
-                  - stop: "Return to Ventilation executed"
-
-              # Return to OPEN position
-              - conditions:
-                  - "{{ state_target == 'open' }}"
-                  - "{{ can_open_with_resident }}"
-                sequence:
-                  - choose: []
-                    default: !input auto_up_action_before
-                  - variables:
-                      target_position: !input open_position
-                      target_tilt_position: "{{ open_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                      update_values:
-                        current: "open"
-                        target: "open"
-                        force: "none"
-                        manual: 0
-                        ts:
-                          open: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_up_action
-                  - stop: "Return to Open executed"
-            default: []
-
-      ############################################################
-      # BRANCH (13): UPDATE RESIDENT STATUS IN HELPER
-      ############################################################
-      # This branch updates state_resident in the helper whenever
-      # the resident_sensor changes. This ensures state_resident
-      # stays synchronized with the actual sensor state.
 
       - alias: "Resident sensor status change handler"
         conditions:
@@ -6178,7 +5736,439 @@ actions:
               - *helper_update
 
       ############################################################
-      # BRANCH (14): RESET SHADING STATUS AT MIDNIGHT
+      # BRANCH (7): FORCE FUNCTIONS
+      ############################################################
+
+      - alias: "Force function triggered"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id is match('t_force_enabled_.*') }}"
+        sequence:
+          - choose:
+              # FORCE OPEN
+              - conditions:
+                  - "{{ trigger.id == 't_force_enabled_open' }}"
+                  - "{{ can_move_open }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_up_action_before
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: !input open_tilt_position
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "open"
+                        force: "open"
+                        manual: 0
+                        ts:
+                          open: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                        t: "{{ ts_now }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_up_action
+                  - stop: "Force Open executed"
+
+              # FORCE CLOSE
+              - conditions:
+                  - "{{ trigger.id == 't_force_enabled_close' }}"
+                  - "{{ can_move_close }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_down_action_before
+                  - variables:
+                      target_position: !input close_position
+                      target_tilt_position: !input close_tilt_position
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "close"
+                        force: "close"
+                        manual: 0
+                        ts:
+                          close: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                        t: "{{ ts_now }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_down_action
+                  - stop: "Force Close executed"
+
+              # FORCE VENTILATION
+              - conditions:
+                  - "{{ trigger.id == 't_force_enabled_ventilate' }}"
+                  - "{{ can_move_ventilate }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+                  - variables:
+                      target_position: !input ventilate_position
+                      target_tilt_position: !input ventilate_tilt_position
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "vpart"
+                        force: "vpart"
+                        manual: 0
+                        ts:
+                          vpart: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                        t: "{{ ts_now }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_ventilate_action
+                  - stop: "Force Ventilation executed"
+
+              # FORCE SHADING
+              - conditions:
+                  - "{{ trigger.id == 't_force_enabled_shading' }}"
+                  - "{{ can_move_shade }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+                  - variables:
+                      target_position: !input shading_position
+                      target_tilt_position: "{{ shading_tilt_position |int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "shade"
+                        force: "shade"
+                        manual: 0
+                        ts:
+                          shade: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                        t: "{{ ts_now }}"
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_shading_start_action
+                  - stop: "Force Shading executed"
+
+      ############################################################
+      # BRANCH (8): RETURN TO BACKGROUND STATE AFTER FORCE DISABLE
+      ############################################################
+
+      - alias: "Return to background position after force disable"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id.startswith('t_force_disabled') }}"
+          - "{{ is_force_recovery_enabled }}"
+        sequence:
+          - choose:
+              # Return to CLOSE position
+              - conditions:
+                  - "{{ state_target == 'close' }}"
+                  - "{{ not state_target == 'vpart' }}"
+                  - "{{ not state_target == 'vfull' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_down_action_before
+                  - variables:
+                      target_position: !input close_position
+                      target_tilt_position: "{{ close_tilt_position | int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "close"
+                        target: "close"
+                        force: "none"
+                        manual: 0
+                        ts:
+                          close: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_down_action
+                  - stop: "Return to Close executed"
+
+              # Return to SHADING position
+              - conditions:
+                  - or:
+                      - "{{ state_current == 'shade' }}" # For active shading # TODO
+                      - "{{ state_target == 'shade' }}" # For marker case
+                  - "{{ can_shade_with_resident }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+                  - variables:
+                      target_position: !input shading_position
+                      target_tilt_position: "{{ shading_tilt_position | int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "shade"
+                        target: "open"
+                        force: "none"
+                        manual: 0
+                        ts:
+                          shade: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_shading_start_action
+                  - stop: "Return to Shading executed"
+
+              # Return to VENTILATION position (partial)
+              - conditions:
+                  - "{{ state_target == 'vpart' }}"
+                  - "{{ can_ventilate_with_resident }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+                  - variables:
+                      target_position: !input ventilate_position
+                      target_tilt_position: !input ventilate_tilt_position
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "vpart"
+                        target: "vpart"
+                        force: "none"
+                        manual: 0
+                        ts:
+                          vpart: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_ventilate_action
+                  - stop: "Return to Ventilation executed"
+
+              # Return to OPEN position
+              - conditions:
+                  - "{{ state_target == 'open' }}"
+                  - "{{ can_open_with_resident }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_up_action_before
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: "{{ open_tilt_position | int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                      update_values:
+                        current: "open"
+                        target: "open"
+                        force: "none"
+                        manual: 0
+                        ts:
+                          open: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_up_action
+                  - stop: "Return to Open executed"
+            default: []
+
+      ############################################################
+      # BRANCH (9): MANUAL
+      ############################################################
+
+      - alias: "Checking for manual position changes"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
+          - "{{ this.attributes.current | int(99) == 0 }}"
+          - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}"
+          - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
+          - "{{ trigger.from_state.state not in invalid_states }}"
+          - "{{ trigger.to_state.state not in invalid_states }}"
+          - or:
+              # Position change via custom sensor (state-based)
+              - and:
+                  - "{{ trigger.id == 't_manual_position' }}"
+                  - "{{ position_source == 'custom_sensor' }}"
+                  - "{{ trigger.from_state.state not in invalid_states }}"
+                  - "{{ trigger.to_state.state not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.state) }}"
+                  - "{{ is_number(trigger.to_state.state) }}"
+                  - "{{ trigger.from_state.state != trigger.to_state.state }}"
+
+              # Position change via current_position attribute
+              - and:
+                  - "{{ trigger.id == 't_manual_position' }}"
+                  - "{{ position_source == 'current_position_attr' }}"
+                  - "{{ trigger.attribute == 'current_position' }}"
+                  - "{{ trigger.from_state.attributes.current_position not in invalid_states }}"
+                  - "{{ trigger.to_state.attributes.current_position not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.attributes.current_position) }}"
+                  - "{{ is_number(trigger.to_state.attributes.current_position) }}"
+                  - "{{ trigger.from_state.attributes.current_position != trigger.to_state.attributes.current_position }}"
+
+              # Position change via position attribute
+              - and:
+                  - "{{ trigger.id == 't_manual_position' }}"
+                  - "{{ position_source == 'position_attr' }}"
+                  - "{{ trigger.attribute == 'position' }}"
+                  - "{{ trigger.from_state.attributes.position not in invalid_states }}"
+                  - "{{ trigger.to_state.attributes.position not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.attributes.position) }}"
+                  - "{{ is_number(trigger.to_state.attributes.position) }}"
+                  - "{{ trigger.from_state.attributes.position != trigger.to_state.attributes.position }}"
+
+              # Tilt change detection
+              - and:
+                  - "{{ trigger.id == 't_manual_tilt' }}"
+                  - "{{ trigger.from_state.attributes.current_tilt_position not in invalid_states }}"
+                  - "{{ trigger.to_state.attributes.current_tilt_position not in invalid_states }}"
+                  - "{{ is_number(trigger.from_state.attributes.current_tilt_position | default(none)) }}"
+                  - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}"
+                  - "{{ trigger.from_state.attributes.current_tilt_position != trigger.to_state.attributes.current_tilt_position }}"
+
+        sequence:
+          - variables:
+              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+          - choose:
+              - conditions: # Manually tilted
+                  - "{{ trigger.id == 't_manual_tilt' }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        state: { man: 1 }
+                        ts: { man: "{{ ts_now | int }}" }
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_manual_action
+                  - stop: "Manual Tilt detected"
+
+              - conditions: # Manually opened
+                  - "{{ is_up_enabled }}"
+                  - or:
+                      - "{{ in_open_position }}"
+                      - "{{ position_comparisons.current_above_open or current_position == open_position }}"
+                      - "{{ (is_awning and current_position == 0) or (not is_awning and current_position == 100) }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        current: "open"
+                        target: "open"
+                        manual: 1
+                        ts:
+                          open: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_manual_action
+                  - stop: "Manual Open detected"
+
+              - conditions: # Manually ventilated
+                  - "{{ is_ventilation_enabled }}"
+                  - "{{ in_ventilate_position }}"
+                  - "{{ not in_open_position }}" # If ventilate_position and open_position are too close together, the ventilation-status should not be assigned.
+                sequence:
+                  - variables:
+                      update_values:
+                        current: "vpart"
+                        target: "vpart"
+                        manual: 1
+                        ts:
+                          vpart: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_manual_action
+                  - stop: "Manual Ventilation detected"
+
+              - conditions: # Manually shaded
+                  - "{{ is_shading_enabled }}"
+                  - "{{ in_shading_position }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        current: "shade"
+                        target: "shade"
+                        manual: 1
+                        ts:
+                          shade: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_manual_action
+                  - stop: "Manual Shading detected"
+
+              - conditions: # Manually closed
+                  - "{{ is_down_enabled }}"
+                  - "{{ not in_shading_position }}"
+                  - or:
+                      - "{{ in_close_position }}"
+                      - "{{ position_comparisons.current_below_close or current_position == close_position }}"
+                      - "{{ (is_awning and current_position == 100) or (not is_awning and current_position == 0) }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        current: "close"
+                        target: "close"
+                        manual: 1
+                        ts:
+                          close: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_manual_action
+                  - stop: "Manual Close detected"
+
+              - conditions: # Defined positions cannot be assigned
+                  - not:
+                      - "{{ is_up_enabled and in_open_position }}"
+                      - "{{ is_down_enabled and in_close_position }}"
+                      - "{{ is_ventilation_enabled and in_ventilate_position }}"
+                      - "{{ is_shading_enabled and in_shading_position }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        state: { man: 1 }
+                        ts: { man: "{{ ts_now | int }}" }
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_manual_action
+                  - stop: "Manual position (unknown) detected"
+
+      ############################################################
+      # BRANCH (10): RESET MANUAL DETECTION
+      ############################################################
+
+      - alias: "Reset manual detection"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ not is_reset_disabled }}"
+          - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout'] }}"
+        sequence:
+          - variables:
+              ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+              update_values:
+                current: "none"
+                target: "none"
+                manual: 0
+                ts:
+                  shade_start: 0
+                  shade_end: 0
+          - *helper_update
+          - choose: []
+            default: !input auto_override_reset_action
+          - stop: "Reset Manual Override executed"
+
+      ############################################################
+      # BRANCH (11): RESET SHADING STATUS AT MIDNIGHT
       ############################################################
 
       - alias: "Reset shading status that is no longer required - but still saved"
