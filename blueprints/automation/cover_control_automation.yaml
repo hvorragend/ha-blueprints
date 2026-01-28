@@ -2329,6 +2329,31 @@ blueprint:
               custom_value: false
               mode: list
 
+        force_priority_mode:
+          name: "⚡ Force Function Priority Mode"
+          description: >
+            Controls which force function takes precedence when multiple force functions are active simultaneously.
+
+
+            **Last Wins (Recommended)**: Most recently activated force function overrides any previously active force.
+            When you activate Force Close while Force Open is active, the cover will close.
+
+
+            **First Wins**: First activated force function blocks all others until it is deactivated.
+            When you activate Force Close while Force Open is active, nothing happens until Force Open is deactivated.
+          default: "last_wins"
+          selector:
+            select:
+              options:
+                - label: "🔄 Last Wins - Most recent force overrides previous"
+                  value: "last_wins"
+                - label: "🔒 First Wins - First force blocks others until disabled"
+                  value: "first_wins"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: dropdown
+
         auto_up_force:
           name: "🔼 Force Immediate Opening via Entity"
           description: >-
@@ -2657,10 +2682,16 @@ trigger_variables:
   is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
 
   # Force entities
+  force_priority_mode: !input force_priority_mode
+  force_entity_open: !input auto_up_force
+  force_entity_close: !input auto_down_force
+  force_entity_ventilate: !input auto_ventilate_force
+  force_entity_shading: !input auto_shading_start_force
   auto_up_force: !input auto_up_force
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
+
 
   # Cover status helper configuration
   cover_status_helper: !input cover_status_helper
@@ -5749,6 +5780,11 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_open' }}"
                   - "{{ can_move_open }}"
+                  - or:  # Priority check
+                      - "{{ force_priority_mode == 'last_wins' }}"
+                      - and:  # First Wins: only if no other force is active
+                          - "{{ force_priority_mode == 'first_wins' }}"
+                          - "{{ state_force == 'none' }}"
                 sequence:
                   - choose: []
                     default: !input auto_up_action_before
@@ -5776,6 +5812,11 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_close' }}"
                   - "{{ can_move_close }}"
+                  - or:  # Priority check
+                      - "{{ force_priority_mode == 'last_wins' }}"
+                      - and:  # First Wins: only if no other force is active
+                          - "{{ force_priority_mode == 'first_wins' }}"
+                          - "{{ state_force == 'none' }}"
                 sequence:
                   - choose: []
                     default: !input auto_down_action_before
@@ -5803,6 +5844,11 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_ventilate' }}"
                   - "{{ can_move_ventilate }}"
+                  - or:  # Priority check
+                      - "{{ force_priority_mode == 'last_wins' }}"
+                      - and:  # First Wins: only if no other force is active
+                          - "{{ force_priority_mode == 'first_wins' }}"
+                          - "{{ state_force == 'none' }}"
                 sequence:
                   - choose: []
                     default: !input auto_ventilate_action_before
@@ -5830,6 +5876,11 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_shading' }}"
                   - "{{ can_move_shade }}"
+                  - or:  # Priority check
+                      - "{{ force_priority_mode == 'last_wins' }}"
+                      - and:  # First Wins: only if no other force is active
+                          - "{{ force_priority_mode == 'first_wins' }}"
+                          - "{{ state_force == 'none' }}"
                 sequence:
                   - choose: []
                     default: !input auto_shading_start_action_before
@@ -5861,11 +5912,141 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id.startswith('t_force_disabled') }}"
-          - "{{ is_force_recovery_enabled }}"
         sequence:
-          - choose:
-              # Return to CLOSE position
+          - variables:
+              # Determine next active force (for First Wins mode)
+              next_active_force: >
+                {% if force_priority_mode == 'first_wins' %}
+                  {% if force_entity_open != [] and is_state(force_entity_open, 'on') %}open
+                  {% elif force_entity_close != [] and is_state(force_entity_close, 'on') %}close
+                  {% elif force_entity_ventilate != [] and is_state(force_entity_ventilate, 'on') %}vpart
+                  {% elif force_entity_shading != [] and is_state(force_entity_shading, 'on') %}shade
+                  {% else %}none{% endif %}
+                {% else %}none{% endif %}
+          - if:
+              - or:
+                  - "{{ is_force_recovery_enabled }}"
+                  - and:  # First Wins: Activate next force if available
+                      - "{{ force_priority_mode == 'first_wins' }}"
+                      - "{{ next_active_force != 'none' }}"
+            then:
+              - choose:
+                  # NEW: Activate next force OPEN (First Wins mode only)
+                  - conditions:
+                      - "{{ force_priority_mode == 'first_wins' }}"
+                      - "{{ next_active_force == 'open' }}"
+                      - "{{ can_move_open }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_up_action_before
+                      - variables:
+                          target_position: !input open_position
+                          target_tilt_position: !input open_tilt_position
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          update_values:
+                            current: "open"
+                            force: "open"
+                            manual: 0
+                            ts:
+                              open: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
+                            t: "{{ ts_now }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_up_action
+                      - stop: "Switched to next force: Open"
+
+                  # NEW: Activate next force CLOSE (First Wins mode only)
+                  - conditions:
+                      - "{{ force_priority_mode == 'first_wins' }}"
+                      - "{{ next_active_force == 'close' }}"
+                      - "{{ can_move_close }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_down_action_before
+                      - variables:
+                          target_position: !input close_position
+                          target_tilt_position: !input close_tilt_position
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          update_values:
+                            current: "close"
+                            force: "close"
+                            manual: 0
+                            ts:
+                              close: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
+                            t: "{{ ts_now }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_down_action
+                      - stop: "Switched to next force: Close"
+
+                  # NEW: Activate next force VENTILATION (First Wins mode only)
+                  - conditions:
+                      - "{{ force_priority_mode == 'first_wins' }}"
+                      - "{{ next_active_force == 'vpart' }}"
+                      - "{{ can_move_ventilate }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_ventilate_action_before
+                      - variables:
+                          target_position: !input ventilate_position
+                          target_tilt_position: !input ventilate_tilt_position
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          update_values:
+                            current: "vpart"
+                            force: "vpart"
+                            manual: 0
+                            ts:
+                              vpart: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
+                            t: "{{ ts_now }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_ventilate_action
+                      - stop: "Switched to next force: Ventilation"
+
+                  # NEW: Activate next force SHADING (First Wins mode only)
+                  - conditions:
+                      - "{{ force_priority_mode == 'first_wins' }}"
+                      - "{{ next_active_force == 'shade' }}"
+                      - "{{ can_move_shade }}"
+                    sequence:
+                      - choose: []
+                        default: !input auto_shading_start_action_before
+                      - variables:
+                          target_position: !input shading_position
+                          target_tilt_position: "{{ shading_tilt_position | int }}"
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          update_values:
+                            current: "shade"
+                            force: "shade"
+                            manual: 0
+                            ts:
+                              shade: "{{ ts_now | int }}"
+                              shade_start: 0
+                              shade_end: 0
+                            t: "{{ ts_now }}"
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - *helper_update
+                      - choose: []
+                        default: !input auto_shading_start_action
+                      - stop: "Switched to next force: Shading"
+
+                  # EXISTING: Return to CLOSE position
               - conditions:
+                  - "{{ is_force_recovery_enabled }}"
+                  - "{{ next_active_force == 'none' }}"  # No next force available
                   - "{{ state_target == 'close' }}"
                   - "{{ not state_target == 'vpart' }}"
                   - "{{ not state_target == 'vfull' }}"
@@ -5894,6 +6075,8 @@ actions:
 
               # Return to SHADING position
               - conditions:
+                  - "{{ is_force_recovery_enabled }}"
+                  - "{{ next_active_force == 'none' }}"  # No next force available
                   - or:
                       - "{{ state_current == 'shade' }}" # For active shading # TODO
                       - "{{ state_target == 'shade' }}" # For marker case
@@ -5923,6 +6106,8 @@ actions:
 
               # Return to VENTILATION position (partial)
               - conditions:
+                  - "{{ is_force_recovery_enabled }}"
+                  - "{{ next_active_force == 'none' }}"  # No next force available
                   - "{{ state_target == 'vpart' }}"
                   - "{{ can_ventilate_with_resident }}"
                 sequence:
@@ -5950,6 +6135,8 @@ actions:
 
               # Return to OPEN position
               - conditions:
+                  - "{{ is_force_recovery_enabled }}"
+                  - "{{ next_active_force == 'none' }}"  # No next force available
                   - "{{ state_target == 'open' }}"
                   - "{{ can_open_with_resident }}"
                 sequence:
