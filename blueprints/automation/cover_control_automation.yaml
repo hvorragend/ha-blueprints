@@ -4902,7 +4902,7 @@ actions:
                               - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
                       - or: # Shading during daytime window
                           - "{{ is_shading_allowed_window }}"
-                      - "{{ can_shade_with_resident }}"
+                      - "{{ resident_flags.allow_shade }}"
                     sequence:
                       - variables:
                           target_position: !input shading_position
@@ -5605,7 +5605,7 @@ actions:
                       # Target is SHADED
                       - conditions:
                           - "{{ state_target == 'shade' }}"
-                          - "{{ can_shade_with_resident }}"
+                          - "{{ resident_flags.allow_shade }}"
                           - "{{ is_shading_enabled }}"
                           - "{{ state_current != 'shade' or not in_shade_position }}"
                           - "{{ can_move }}"
@@ -5633,7 +5633,7 @@ actions:
                       # Target is VENTILATION PART
                       - conditions:
                           - "{{ state_target == 'vpart' }}"
-                          - "{{ can_ventilate_with_resident }}"
+                          - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ state_current != 'vpart' or not in_ventilation_part_position }}"
                           - "{{ can_move }}"
@@ -5659,7 +5659,7 @@ actions:
                       # Target is VENTILATION FULL
                       - conditions:
                           - "{{ state_target == 'vfull' }}"
-                          - "{{ can_ventilate_with_resident }}"
+                          - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ state_current != 'vfull' or not in_ventilation_full_position }}"
                           - "{{ can_move }}"
@@ -5685,7 +5685,7 @@ actions:
                       # Target is CLOSE
                       - conditions:
                           - "{{ state_target == 'close' }}"
-                          - "{{ can_close_with_resident }}"
+                          - "{{ true }}"
                           - "{{ is_down_enabled }}"
                           - "{{ state_current != 'close' or not in_close_position }}"
                           - "{{ can_move_close }}"
@@ -6020,7 +6020,7 @@ actions:
                               - or:
                                   - "{{ state_current == 'shade' }}" # For active shading
                                   - "{{ state_target == 'shade' }}" # For marker case
-                              - "{{ can_shade_with_resident }}"
+                              - "{{ resident_flags.allow_shade }}"
                             sequence:
                               - choose: []
                                 default: !input auto_shading_start_action_before
@@ -6047,7 +6047,7 @@ actions:
                           # Return to VENTILATION position (partial)
                           - conditions:
                               - "{{ state_target == 'vpart' }}"
-                              - "{{ can_ventilate_with_resident }}"
+                              - "{{ resident_flags.allow_ventilate }}"
                             sequence:
                               - choose: []
                                 default: !input auto_ventilate_action_before
@@ -6074,7 +6074,7 @@ actions:
                           # Return to OPEN position
                           - conditions:
                               - "{{ state_target == 'open' }}"
-                              - "{{ can_open_with_resident }}"
+                              - "{{ resident_flags.allow_open }}"
                             sequence:
                               - choose: []
                                 default: !input auto_up_action_before
@@ -6097,7 +6097,16 @@ actions:
                               - choose: []
                                 default: !input auto_up_action
                               - stop: "Return to Open executed"
-                        default: []
+                        default:
+                          # No matching recovery condition (e.g., resident restrictions)
+                          # Still clear the force flag to avoid it getting stuck
+                          - variables:
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                              update_values:
+                                force: "none"
+                                t: "{{ ts_now }}"
+                          - *helper_update
+                          - stop: "Force cleared, no recovery position matched"
                 default:
                   # Recovery not enabled, just clear the force flag
                   - variables:
