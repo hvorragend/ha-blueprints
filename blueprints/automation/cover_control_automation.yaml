@@ -3785,6 +3785,7 @@ actions:
       # ═══════════════════════════════════════════════════════════════════════════
       # Usage: Set effective_state variable before calling, or it will be computed
       # Effective states: 'open', 'close', 'shade', 'vent', 'lock' (lock = open position)
+      # Automatically calls the correct before/after actions based on effective_state
       # ═══════════════════════════════════════════════════════════════════════════
       move_to_effective_state: &move_to_effective_state
         sequence:
@@ -3813,10 +3814,46 @@ actions:
                 {% else %}
                   {{ open_tilt_position | int }}
                 {% endif %}
+          # Before actions based on effective_state
+          - choose:
+              - conditions: "{{ effective_state in ['lock', 'open'] }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_up_action_before
+              - conditions: "{{ effective_state == 'close' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_down_action_before
+              - conditions: "{{ effective_state == 'shade' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+              - conditions: "{{ effective_state == 'vent' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - *cover_move_action
           - *tilt_move_action
+          # After actions based on effective_state
+          - choose:
+              - conditions: "{{ effective_state in ['lock', 'open'] }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_up_action
+              - conditions: "{{ effective_state == 'close' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_down_action
+              - conditions: "{{ effective_state == 'shade' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action
+              - conditions: "{{ effective_state == 'vent' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action
 
       # ═══════════════════════════════════════════════════════════════════════════
       # Helper Update Function (v6 Schema)
@@ -6103,120 +6140,44 @@ actions:
                   - conditions:
                       - "{{ is_force_recovery_enabled }}"
                     sequence:
-                      - choose:
-                          # Return to CLOSE position (base state is close)
-                          - conditions:
-                              - "{{ state_base == 'close' }}"
-                              - "{{ state_window == 'closed' }}"
-                            sequence:
-                              - choose: []
-                                default: !input auto_down_action_before
-                              - variables:
-                                  target_position: !input close_position
-                                  target_tilt_position: "{{ close_tilt_position | int }}"
-                                  ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                                  update_values:
-                                    # v6: Force ended, return to close base state
-                                    force: "none"
-                                    manual: 0
-                                    ts:
-                                      shade_start: 0
-                                      shade_end: 0
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - *helper_update
-                              - choose: []
-                                default: !input auto_down_action
-                              - stop: "Return to Close executed"
-
-                          # Return to SHADING position
-                          - conditions:
-                              - "{{ state_shade }}"
-                              - "{{ state_window == 'closed' }}"
-                              - "{{ resident_flags.allow_shade }}"
-                            sequence:
-                              - choose: []
-                                default: !input auto_shading_start_action_before
-                              - variables:
-                                  target_position: !input shading_position
-                                  target_tilt_position: "{{ shading_tilt_position | int }}"
-                                  ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                                  update_values:
-                                    # v6: Force ended, return to shading
-                                    force: "none"
-                                    manual: 0
-                                    ts:
-                                      shade: "{{ ts_now | int }}"
-                                      shade_start: 0
-                                      shade_end: 0
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - *helper_update
-                              - choose: []
-                                default: !input auto_shading_start_action
-                              - stop: "Return to Shading executed"
-
-                          # Return to VENTILATION position (window tilted)
-                          - conditions:
-                              - "{{ state_window == 'tilted' }}"
-                              - "{{ resident_flags.allow_ventilate }}"
-                            sequence:
-                              - choose: []
-                                default: !input auto_ventilate_action_before
-                              - variables:
-                                  target_position: !input ventilate_position
-                                  target_tilt_position: !input ventilate_tilt_position
-                                  ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                                  update_values:
-                                    # v6: Force ended, return to ventilation (tilted)
-                                    force: "none"
-                                    manual: 0
-                                    ts:
-                                      shade_start: 0
-                                      shade_end: 0
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - *helper_update
-                              - choose: []
-                                default: !input auto_ventilate_action
-                              - stop: "Return to Ventilation executed"
-
-                          # Return to OPEN position
-                          - conditions:
-                              - "{{ state_base == 'open' }}"
-                              - "{{ state_window == 'closed' }}"
-                              - "{{ not state_shade }}"
-                              - "{{ resident_flags.allow_open }}"
-                            sequence:
-                              - choose: []
-                                default: !input auto_up_action_before
-                              - variables:
-                                  target_position: !input open_position
-                                  target_tilt_position: "{{ open_tilt_position | int }}"
-                                  ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                                  update_values:
-                                    # v6: Force ended, return to open base state
-                                    force: "none"
-                                    manual: 0
-                                    ts:
-                                      open: "{{ ts_now | int }}"
-                                      shade_start: 0
-                                      shade_end: 0
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - *helper_update
-                              - choose: []
-                                default: !input auto_up_action
-                              - stop: "Return to Open executed"
-                        default:
-                          # No matching recovery condition (e.g., resident restrictions)
-                          # Still clear the force flag to avoid it getting stuck
+                      # v6: Use move_to_effective_state for force recovery
+                      # Recalculate effective_state without force, considering resident permissions
+                      - variables:
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
+                          # Calculate recovery state based on current helper state (without force)
+                          recovery_state: >-
+                            {% set h = helper_json %}
+                            {% if h.window == 'open' %}
+                              lock
+                            {% elif h.window == 'tilted' and resident_flags.allow_ventilate %}
+                              vent
+                            {% elif h.shade | int == 1 and h.window == 'closed' and resident_flags.allow_shade %}
+                              shade
+                            {% elif h.base == 'close' and h.window == 'closed' %}
+                              close
+                            {% elif h.base == 'open' and h.window == 'closed' and h.shade | int != 1 and resident_flags.allow_open %}
+                              open
+                            {% else %}
+                              none
+                            {% endif %}
+                          update_values:
+                            # v6: Force ended, clear force flag
+                            force: "none"
+                            manual: 0
+                            ts:
+                              shade_start: 0
+                              shade_end: 0
+                      - *helper_update
+                      # Only move if a valid recovery state was determined
+                      - if: "{{ recovery_state != 'none' }}"
+                        then:
                           - variables:
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
-                              update_values:
-                                force: "none"
-                          - *helper_update
-                          - stop: "Force cleared, no recovery position matched"
+                              # Override effective_state for move_to_effective_state
+                              effective_state: "{{ recovery_state }}"
+                          - *move_to_effective_state
+                          - stop: "Force recovery to {{ recovery_state }} executed"
+                        else:
+                          - stop: "Force cleared, no valid recovery position (resident restrictions)"
                 default:
                   # Recovery not enabled, just clear the force flag
                   - variables:
