@@ -3166,6 +3166,9 @@ variables:
     allow_shade: "{{ 'resident_allow_shading' in resident_config or not state_resident }}"
     allow_ventilate: "{{ 'resident_allow_ventilation' in resident_config or not state_resident }}"
 
+  # Convenience alias for shading permission with resident
+  allow_shade_when_resident_present: "{{ resident_flags.allow_shade }}"
+
   # Override flags
   ignore_after_manual_config: !input ignore_after_manual_config
   override_flags:
@@ -3477,9 +3480,9 @@ triggers:
       {% set helper_state = states(cover_status_helper) %}
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
-        {% set now_sec = (now().timestamp() % 86400) | int %}
-        {% set pending = helper.ts.shade_start | default(0) | int %}
-        {{ pending > 0 and pending <= now_sec }}
+        {% set now_ts = as_timestamp(now()) | int %}
+        {% set pending = helper.ts.shs | default(0) | int %}
+        {{ pending > 0 and now_ts >= pending }}
       {% else %}
         {{
           helper | regex_search('shading') and
@@ -3513,7 +3516,7 @@ triggers:
     value_template: >-
       {{
         states(cover_status_helper) not in invalid_states and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shd"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1
       }}
     enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
@@ -3523,7 +3526,7 @@ triggers:
     value_template: >-
       {{
         states(cover_status_helper) not in invalid_states and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shd"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_2 and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_1
       }}
@@ -3534,7 +3537,7 @@ triggers:
     value_template: >-
       {{
         states(cover_status_helper) not in invalid_states and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shd"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_3 and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_2
       }}
@@ -3545,7 +3548,7 @@ triggers:
     value_template: >-
       {{
         states(cover_status_helper) not in invalid_states and
-        states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') and
+        states(cover_status_helper) | regex_search('"shd"\s*:\s*1') and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_3
       }}
     enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
@@ -3596,9 +3599,9 @@ triggers:
       {% set helper_state = states(cover_status_helper) %}
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
-        {% set now_sec = (now().timestamp() % 86400) | int %}
-        {% set pending = helper.ts.shade_end | default(0) | int %}
-        {{ pending > 0 and pending <= now_sec }}
+        {% set now_ts = as_timestamp(now()) | int %}
+        {% set pending = helper.ts.she | default(0) | int %}
+        {{ pending > 0 and now_ts >= pending }}
       {% else %}
         {{
           helper | regex_search('shading') and
@@ -3703,7 +3706,7 @@ conditions:
       {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
         {{ states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*0') }}
       {% elif trigger.id is match('^t_shading_end_pending_[1-6]$') %}
-        {{ states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*1') }}
+        {{ states(cover_status_helper) | regex_search('"shd"\s*:\s*1') }}
       {% else %}
         true
       {% endif %}
@@ -5727,8 +5730,8 @@ actions:
                           - "{{ state_target == 'shade' }}"
                           - "{{ resident_flags.allow_shade }}"
                           - "{{ is_shading_enabled }}"
-                          - "{{ state_current != 'shade' or not in_shade_position }}"
-                          - "{{ can_move }}"
+                          - "{{ state_current != 'shade' or not in_shading_position }}"
+                          - "{{ not is_forced }}"
                         sequence:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5736,7 +5739,7 @@ actions:
                             default: !input auto_shading_start_action_before
                           - variables:
                               target_position: !input shading_position
-                              target_tilt_position: "{{ shade_tilt_position | int }}"
+                              target_tilt_position: "{{ shading_tilt_position | int }}"
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # v6: Resident leaving, activate shading
@@ -5757,8 +5760,8 @@ actions:
                           - "{{ state_window == 'tilted' }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
-                          - "{{ state_current != 'vpart' or not in_ventilation_part_position }}"
-                          - "{{ can_move }}"
+                          - "{{ state_current != 'vpart' or not in_ventilate_position }}"
+                          - "{{ not is_forced }}"
                         sequence:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5766,7 +5769,7 @@ actions:
                             default: !input auto_ventilate_action_before
                           - variables:
                               target_position: !input ventilate_position
-                              target_tilt_position: "{{ ventilation_part_tilt_position | int }}"
+                              target_tilt_position: "{{ ventilate_tilt_position | int }}"
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # v6: Resident leaving, window tilted
@@ -5785,8 +5788,8 @@ actions:
                           - "{{ state_window == 'open' }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
-                          - "{{ state_current != 'vfull' or not in_ventilation_full_position }}"
-                          - "{{ can_move }}"
+                          - "{{ state_current != 'vfull' or not in_open_position }}"
+                          - "{{ not is_forced }}"
                         sequence:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5794,7 +5797,7 @@ actions:
                             default: !input auto_ventilate_action_before
                           - variables:
                               target_position: !input ventilate_position
-                              target_tilt_position: "{{ ventilation_full_tilt_position | int }}"
+                              target_tilt_position: "{{ open_tilt_position | int }}"
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # v6: Resident leaving, window open
