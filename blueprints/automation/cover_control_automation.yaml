@@ -2908,33 +2908,34 @@ variables:
   # ═══════════════════════════════════════════════════════════════════════════
   # Cover Status Helper – JSON parsing with v5 → v6 migration
   # ═══════════════════════════════════════════════════════════════════════════
-  # v6 Schema:
-  # {
-  #   "base": "open"|"close",           - Time-based base state
-  #   "shade": 1|0,                     - Shading active (not pending!)
-  #   "window": "closed"|"tilted"|"open", - Window state
-  #   "force": "none"|"open"|"close"|"shade"|"vent", - Active force function
-  #   "resident": 1|0,                  - Resident present
-  #   "manual": 1|0,                    - Manual override active
-  #   "ts": {
-  #     "open": 0,                      - Last open timestamp
-  #     "close": 0,                     - Last close timestamp
-  #     "shade": 0,                     - Shading activation (0 = not active)
-  #     "shade_start": 0,               - Shading pending start time (0 = no pending)
-  #     "shade_end": 0,                 - Shading end pending time (0 = no pending)
-  #     "window": 0,                    - Last window state change
-  #     "manual": 0                     - Last manual action
-  #   },
-  #   "v": 6,                           - Schema version
-  #   "t": 0                            - Last helper update timestamp
-  # }
+  # v6 Compact Schema (stored in input_text, max 208 chars):
+  # {"bas":"opn","shd":0,"win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"win":0,"man":0},"v":6,"t":0}
+  #
+  # Field mapping (compact → internal):
+  #   bas → base (opn/cls → open/close)
+  #   shd → shade (1/0)
+  #   win → window (cls/tlt/opn → closed/tilted/open)
+  #   frc → force (non/opn/cls/shd/vnt → none/open/close/shade/vent)
+  #   res → resident (1/0)
+  #   man → manual (1/0)
+  #   ts.opn → ts.open, ts.cls → ts.close, ts.shd → ts.shade
+  #   ts.shs → ts.shade_start, ts.she → ts.shade_end
+  #   ts.win → ts.window, ts.man → ts.manual
+  # ═══════════════════════════════════════════════════════════════════════════
   helper_json: >-
     {% set helper_state = states(cover_status_helper) %}
     {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
     {% set ts_now = as_timestamp(now()) | round(0) %}
 
+    {# Value mappings for compact → internal conversion #}
+    {% set base_map = {'cls': 'close', 'opn': 'open'} %}
+    {% set win_map = {'cls': 'closed', 'tlt': 'tilted', 'opn': 'open'} %}
+    {% set frc_map = {'non': 'none', 'opn': 'open', 'cls': 'close', 'shd': 'shade', 'vnt': 'vent'} %}
+
     {# Detect v5 format: has 'open.a' structure, no 'v' field #}
     {% set is_v5 = helper_raw.open is defined and helper_raw.open.a is defined and helper_raw.v is not defined %}
+    {# Detect v6 compact format: has 'bas' field #}
+    {% set is_v6_compact = helper_raw.bas is defined and helper_raw.v is defined and helper_raw.v == 6 %}
 
     {% if is_v5 %}
       {# ═══════════════ MIGRATION v5 → v6 ═══════════════ #}
@@ -2969,9 +2970,30 @@ variables:
           't': ts_now
         }
       }}
-    {% elif helper_raw.v is defined and helper_raw.v == 6 %}
-      {# Already v6 - return as-is #}
-      {{ helper_raw }}
+    {% elif is_v6_compact %}
+      {# ═══════════════ v6 COMPACT → INTERNAL ═══════════════ #}
+      {% set raw_ts = helper_raw.ts | default({}) %}
+      {{
+        {
+          'base': base_map[helper_raw.bas] | default('open'),
+          'shade': helper_raw.shd | default(0) | int,
+          'window': win_map[helper_raw.win] | default('closed'),
+          'force': frc_map[helper_raw.frc] | default('none'),
+          'resident': helper_raw.res | default(0) | int,
+          'manual': helper_raw.man | default(0) | int,
+          'ts': {
+            'open': raw_ts.opn | default(0) | int,
+            'close': raw_ts.cls | default(0) | int,
+            'shade': raw_ts.shd | default(0) | int,
+            'shade_start': raw_ts.shs | default(0) | int,
+            'shade_end': raw_ts.she | default(0) | int,
+            'window': raw_ts.win | default(0) | int,
+            'manual': raw_ts.man | default(0) | int
+          },
+          'v': 6,
+          't': helper_raw.t | default(ts_now) | int
+        }
+      }}
     {% else %}
       {# New/empty/invalid helper - create default v6 structure #}
       {{
@@ -3781,10 +3803,11 @@ actions:
                         seconds: "{{ range(1, 3) | random }}"
 
       # ═══════════════════════════════════════════════════════════════════════════
-      # Helper Update Function (v6 Schema)
+      # Helper Update Function (v6 Compact Schema)
       # ═══════════════════════════════════════════════════════════════════════════
       # Usage: Set 'update_values' variable before calling with fields to update
       # Example: update_values: { base: 'close', ts: { open: ts_now } }
+      # Internally uses long names, converts to compact schema when writing
       #
       # Fields: base, shade (1/0), window, force, resident (1/0), manual (1/0)
       # Timestamps: ts.open, ts.close, ts.shade, ts.shade_start, ts.shade_end, ts.window, ts.manual
@@ -3797,6 +3820,11 @@ actions:
               {% set current = helper_json %}
               {% set updates = update_values | default({}) %}
               {% set ts_now = as_timestamp(now()) | round(0) %}
+
+              {# Value mappings for internal → compact conversion #}
+              {% set base_map = {'close': 'cls', 'open': 'opn'} %}
+              {% set win_map = {'closed': 'cls', 'tilted': 'tlt', 'open': 'opn'} %}
+              {% set frc_map = {'none': 'non', 'open': 'opn', 'close': 'cls', 'shade': 'shd', 'vent': 'vnt'} %}
 
               {# Get current values with v6 defaults #}
               {% set new_base = current.base | default('open') %}
@@ -3840,22 +3868,30 @@ actions:
                 {% endfor %}
               {% endif %}
 
-              {# Build final v6 JSON structure #}
+              {# Build final v6 COMPACT JSON structure #}
               {% set dict_new = {
-                'base': new_base,
-                'shade': new_shade | int,
-                'window': new_window,
-                'force': new_force,
-                'resident': new_resident | int,
-                'manual': new_manual | int,
-                'ts': merged_ts.data,
+                'bas': base_map[new_base] | default('opn'),
+                'shd': new_shade | int,
+                'win': win_map[new_window] | default('cls'),
+                'frc': frc_map[new_force] | default('non'),
+                'res': new_resident | int,
+                'man': new_manual | int,
+                'ts': {
+                  'opn': merged_ts.data.open | default(0) | int,
+                  'cls': merged_ts.data.close | default(0) | int,
+                  'shd': merged_ts.data.shade | default(0) | int,
+                  'shs': merged_ts.data.shade_start | default(0) | int,
+                  'she': merged_ts.data.shade_end | default(0) | int,
+                  'win': merged_ts.data.window | default(0) | int,
+                  'man': merged_ts.data.manual | default(0) | int
+                },
                 'v': 6,
                 't': ts_now | int
               } %}
               {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Initialise empty helper with v6 JSON default values
+  # Initialise empty helper with v6 compact JSON default values
   # ════════════════════════════════════════════════════════════════════════════
   - if:
       - "{{ cover_status_helper != [] }}"
@@ -3869,20 +3905,20 @@ actions:
           value: >-
             {% set ts_now = as_timestamp(now()) | round(0) %}
             {% set dict_new = {
-              'base': 'open',
-              'shade': 0,
-              'window': 'closed',
-              'force': 'none',
-              'resident': 0,
-              'manual': 0,
+              'bas': 'opn',
+              'shd': 0,
+              'win': 'cls',
+              'frc': 'non',
+              'res': 0,
+              'man': 0,
               'ts': {
-                'open': 0,
-                'close': 0,
-                'shade': 0,
-                'shade_start': 0,
-                'shade_end': 0,
-                'window': 0,
-                'manual': 0
+                'opn': 0,
+                'cls': 0,
+                'shd': 0,
+                'shs': 0,
+                'she': 0,
+                'win': 0,
+                'man': 0
               },
               'v': 6,
               't': ts_now | int
