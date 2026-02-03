@@ -2932,8 +2932,8 @@ variables:
     {% set win_map = {'cls': 'closed', 'tlt': 'tilted', 'opn': 'open'} %}
     {% set frc_map = {'non': 'none', 'opn': 'open', 'cls': 'close', 'shd': 'shade', 'vnt': 'vent'} %}
 
-    {# Detect v5 format: has 'open.a' structure, no 'v' field #}
-    {% set is_v5 = helper_raw.open is defined and helper_raw.open.a is defined and helper_raw.v is not defined %}
+    {# Detect v5 format by version number #}
+    {% set is_v5 = helper_raw.v | default(0) == 5 %}
     {# Detect v6 compact format: has 'bas' field #}
     {% set is_v6_compact = helper_raw.bas is defined and helper_raw.v is defined and helper_raw.v == 6 %}
 
@@ -3928,6 +3928,22 @@ actions:
             } %}
             {{ dict_new | to_json }}
 
+  # ════════════════════════════════════════════════════════════════════════════
+  # Persist v6 migration (v5 → v6)
+  # ════════════════════════════════════════════════════════════════════════════
+  # Migration is computed in helper_json variable. If the STORED version differs
+  # from 6, we need to persist the migrated data back to the helper in compact format.
+  # Note: We check the raw helper state, not helper_json (which always has v:6 after migration)
+  - if:
+      - condition: template
+        value_template: >-
+          {% set helper_state = states(cover_status_helper) %}
+          {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states else {} %}
+          {{ helper_raw.v | default(0) != 6 }}
+    then:
+      - variables:
+          update_values: {}
+      - *helper_update
 
   # ════════════════════════════════════════════════════════════════════════════
   # Load weather forecast data from service (only when needed)
@@ -4596,30 +4612,6 @@ actions:
           message: >-
             ⚠️ {{ friendly_name }}: Cover Status Helper invalid - initializing with default structure.
           entity_id: "{{ cover_status_helper }}"
-
-  # Initialise empty helper with JSON default values #########################
-  - if:
-      - or:
-          - "{{ states(cover_status_helper) in invalid_states }}"
-          - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
-    then:
-      - action: input_text.set_value
-        data:
-          entity_id: !input cover_status_helper
-          value: "{{ helper_json | to_json }}"
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Persist v6 migration (v5 → v6)
-  # ═══════════════════════════════════════════════════════════════════════════
-  # Migration is computed in helper_json variable. If the stored version differs
-  # from 6, we need to persist the migrated data back to the helper.
-  - if:
-      - "{{ states(cover_status_helper) | from_json(default={}).v | default(0) != 6 }}"
-    then:
-      - action: input_text.set_value
-        data:
-          entity_id: !input cover_status_helper
-          value: "{{ helper_json | to_json }}"
 
   - choose:
 
