@@ -1507,6 +1507,102 @@ Result: Cover won't open automatically
 
 ## Advanced Features
 
+### Q: How does the state hierarchy work?
+
+**A:** CCA uses a **5-layer state hierarchy** where higher layers override lower layers. This ensures that critical functions (like window protection) always take priority over convenience features (like schedules).
+
+**State Hierarchy (Priority Order):**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Layer 1: FORCE                                                 │
+│  ├─ force != "none" → return force state                        │
+│  ├─ Examples: Rain protection, wind protection, frost           │
+│  └─ Variable: state_force                                       │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 2: LOCKOUT                                               │
+│  ├─ window == "open" → return "lock" (100% open)                │
+│  ├─ Purpose: Prevent closing on open windows                    │
+│  └─ Variable: state_window == "open"                            │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 3: VENTILATION                                           │
+│  ├─ window == "tilted" → return "vent" (30% open default)       │
+│  ├─ Purpose: Allow air flow through tilted windows              │
+│  └─ Variable: state_window == "tilted"                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 4: SHADING                                               │
+│  ├─ shade == true → return "shade" (25% closed default)         │
+│  ├─ Purpose: Sun protection during hot periods                  │
+│  └─ Variable: state_shade                                       │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 5: BASE                                                  │
+│  ├─ return base ("open" or "close")                             │
+│  ├─ Purpose: Time-based schedule (morning/evening)              │
+│  └─ Variable: state_base                                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Decision Flow:**
+
+```
+                              ┌─────────────────┐
+                              │   1. FORCE      │
+                              │  (emergency)    │
+                              └────────┬────────┘
+                                       │ force = "none"
+                    ┌──────────────────┴──────────────────┐
+                    ▼                                      │
+          ┌─────────────────┐                              │
+          │  window="open"  │──────────────────────────────┤
+          │   2. LOCKOUT    │  → 100% open (protect)       │
+          └────────┬────────┘                              │
+                   │ window != "open"                      │
+                   ▼                                       │
+          ┌─────────────────┐                              │
+          │ window="tilted" │──────────────────────────────┤
+          │ 3. VENTILATION  │  → 30% open (ventilate)      │
+          └────────┬────────┘                              │
+                   │ window = "closed"                     │
+                   ▼                                       │
+          ┌─────────────────┐                              │
+          │  shade = true   │──────────────────────────────┤
+          │   4. SHADING    │  → 25% closed (shade)        │
+          └────────┬────────┘                              │
+                   │ shade = false                         │
+                   ▼                                       │
+          ┌─────────────────┐                              │
+          │    5. BASE      │◄─────────────────────────────┘
+          │  (open/close)   │  → Scheduled position
+          └─────────────────┘
+```
+
+**Examples:**
+
+| Scenario | Layer Active | Result | Reason |
+|----------|-------------|---------|---------|
+| Heavy rain | Layer 1 (Force) | Close completely | Emergency protection |
+| Window fully open | Layer 2 (Lockout) | Stay 100% open | Prevent damage |
+| Window tilted | Layer 3 (Ventilation) | Move to 30% | Allow ventilation |
+| Hot summer, window closed | Layer 4 (Shading) | Move to 25% | Sun protection |
+| Normal evening | Layer 5 (Base) | Close | Time schedule |
+| Window open + rain | Layer 1 (Force) | Close completely | Force overrides lockout! |
+
+**Key Points:**
+- ✅ Higher layers **always override** lower layers
+- ✅ Each layer is **independent** and can be checked separately
+- ✅ Resident mode modifies Layer 5 behavior
+- ✅ Manual overrides are tracked separately and respected
+- ✅ Force functions (Layer 1) can override even window protection
+
+**Technical Details:**
+- `state_force`: Current force state ("none", "open", "close", "lock", "vent")
+- `state_window`: Window sensor state ("open", "tilted", "closed")
+- `state_shade`: Boolean flag for active shading
+- `state_base`: Time-based schedule state ("open" or "close")
+- `state_resident`: Boolean flag for resident presence override
+
+---
+
 ### Q: What is Dynamic Sun Elevation?
 
 **A:** Automatically adapts sun elevation thresholds to seasons:
