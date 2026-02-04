@@ -3089,18 +3089,12 @@ variables:
   state_pending_end: "{{ helper_json.ts.shade_end | default(0) | int > 0 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # STATE TARGET - Background Automation Intent
+  # STATE BASE - Layer 5: Base State (Open/Close Schedule)
   # ═══════════════════════════════════════════════════════════════════════════
-  # What the time-based automation wants to achieve (independent of force/window/resident)
-  # Returns: 'shade' (if shading active) or base state ('open'/'close')
-  # This is NOT the current state, but what the automation schedule dictates
-  state_target: >-
-    {% set h = helper_json %}
-    {% if h.shade | int == 1 %}
-      shade
-    {% else %}
-      {{ h.base }}
-    {% endif %}
+  # The time-based automation base state (independent of force/window/resident/shade)
+  # Returns: 'open' or 'close' based on time schedule
+  # This is Layer 5 in the state hierarchy (bottom layer)
+  state_base: "{{ helper_json.base }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # COMPUTED FLAGS - Simplified Movement Permissions
@@ -4636,7 +4630,7 @@ actions:
                   - "{{ effective_state == 'open' and in_open_position }}"
                   - "{{ not state_is_shaded }}"
                   - "{{ not state_pending_start }}"
-                  - "{{ state_target != 'shade' }}"
+                  - "{{ not state_shade }}"
                 sequence:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -4655,7 +4649,7 @@ actions:
                   - or:
                       - "{{ state_is_shaded }}" # TODO
                       - "{{ state_pending_start }}" # Pending-Timestamp
-                      - "{{ state_target == 'shade' }}" # Check for target(!) marker
+                      - "{{ state_shade }}" # Check for target(!) marker
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                 sequence:
                   - variables:
@@ -5578,7 +5572,7 @@ actions:
               - alias: "Window closed - Return to open position"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ state_target == 'open' and not state_resident }}"
+                  - "{{ state_base == 'open' and not state_resident }}"
                   - "{{ not state_is_shaded and not state_shade }}"
                   - or: # Was ventilating before
                       - "{{ state_window in ['tilted', 'open'] }}"
@@ -5627,7 +5621,7 @@ actions:
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - or:
-                      - "{{ state_target == 'close' }}"
+                      - "{{ state_base == 'close' }}"
                       - "{{ state_resident }}"  # Wenn Resident anwesend, zurück zu close
                   - or: # Was ventilating before
                       - "{{ state_window in ['tilted', 'open'] }}"
@@ -5690,7 +5684,7 @@ actions:
                   - choose:
                       # Target is OPEN
                       - conditions:
-                          - "{{ state_target == 'open' }}"
+                          - "{{ state_base == 'open' }}"
                           - "{{ resident_flags.opening_trigger }}"
                           - "{{ is_up_enabled }}"
                           - "{{ effective_state != 'open' or not in_open_position }}"
@@ -5719,7 +5713,7 @@ actions:
 
                       # Target is SHADED
                       - conditions:
-                          - "{{ state_target == 'shade' }}"
+                          - "{{ state_shade }}"
                           - "{{ resident_flags.allow_shade }}"
                           - "{{ is_shading_enabled }}"
                           - "{{ effective_state != 'shade' or not in_shading_position }}"
@@ -5802,7 +5796,7 @@ actions:
 
                       # Target is CLOSE
                       - conditions:
-                          - "{{ state_target == 'close' }}"
+                          - "{{ state_base == 'close' }}"
                           - "{{ is_down_enabled }}"
                           - "{{ effective_state != 'close' or not in_close_position }}"
                           - "{{ force_allows_close }}"
