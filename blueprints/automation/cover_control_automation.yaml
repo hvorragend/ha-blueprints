@@ -3068,7 +3068,7 @@ variables:
   state_shade: "{{ helper_json.shade | default(0) | int == 1 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # TIMESTAMPS - v6 unified timestamp access
+  # TIMESTAMPS - Unified timestamp access
   # ═══════════════════════════════════════════════════════════════════════════
 
   ts_open: "{{ helper_json.ts.open | default(0) | int }}"
@@ -3088,7 +3088,7 @@ variables:
   state_pending_end: "{{ helper_json.ts.shade_end | default(0) | int > 0 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # BACKWARDS COMPATIBILITY - Legacy variables mapped to v6
+  # BACKWARDS COMPATIBILITY - Legacy variables mapping
   # ═══════════════════════════════════════════════════════════════════════════
   # state_current is now derived from effective_state for compatibility
   state_current: >-
@@ -3102,7 +3102,6 @@ variables:
     {% endif %}
 
   # state_target represents the background automation intent
-  # In v6, this is derived from base + shade state
   state_target: >-
     {% set h = helper_json %}
     {% if h.shade | int == 1 %}
@@ -3165,9 +3164,6 @@ variables:
     allow_open: "{{ 'resident_allow_opening' in resident_config or not state_resident }}"
     allow_shade: "{{ 'resident_allow_shading' in resident_config or not state_resident }}"
     allow_ventilate: "{{ 'resident_allow_ventilation' in resident_config or not state_resident }}"
-
-  # Convenience alias for shading permission with resident
-  allow_shade_when_resident_present: "{{ resident_flags.allow_shade }}"
 
   # Override flags
   ignore_after_manual_config: !input ignore_after_manual_config
@@ -3806,7 +3802,7 @@ actions:
                         seconds: "{{ range(1, 3) | random }}"
 
       # ═══════════════════════════════════════════════════════════════════════════
-      # Helper Update Function (v6 Compact Schema)
+      # Helper Update Function
       # ═══════════════════════════════════════════════════════════════════════════
       # Usage: Set 'update_values' variable before calling with fields to update
       # Example: update_values: { base: 'close', ts: { open: ts_now } }
@@ -3894,7 +3890,7 @@ actions:
               {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Initialise empty helper with v6 compact JSON default values
+  # Initialise empty helper with JSON default values
   # ════════════════════════════════════════════════════════════════════════════
   - if:
       - "{{ cover_status_helper != [] }}"
@@ -3929,7 +3925,7 @@ actions:
             {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Persist v6 migration (v5 → v6)
+  # Persist migration (v5 → v6)
   # ════════════════════════════════════════════════════════════════════════════
   # Migration is computed in helper_json variable. If the STORED version differs
   # from 6, we need to persist the migrated data back to the helper in compact format.
@@ -4678,7 +4674,7 @@ actions:
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
-                        # v6: Activate shading, base state is open (time-based)
+                        # Activate shading, base state is open (time-based)
                         base: "open"
                         shade: 1
                         manual: 0
@@ -4711,7 +4707,7 @@ actions:
                       target_tilt_position: "{{ open_tilt_position | int }}"
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
-                        # v6: Set base state to open, clear shading
+                        # Set base state to open, clear shading
                         base: "open"
                         shade: 0
                         manual: 0
@@ -4790,7 +4786,7 @@ actions:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        # v6: Window is open (lockout), base state changes to close
+                        # Window is open (lockout), base state changes to close
                         base: "close"
                         shade: 0
                         window: "open"
@@ -4821,7 +4817,7 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        # v6: Window is tilted, base state changes to close
+                        # Window is tilted, base state changes to close
                         base: "close"
                         shade: 0
                         window: "tilted"
@@ -4880,7 +4876,7 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        # v6: Set base state to close, clear shading
+                        # Set base state to close, clear shading
                         base: "close"
                         shade: 0
                         manual: 0
@@ -4899,7 +4895,7 @@ actions:
                   target_position: !input close_position
                   target_tilt_position: !input close_tilt_position
                   update_values:
-                    # v6: Set base state to close, clear shading
+                    # Set base state to close, clear shading
                     base: "close"
                     shade: 0
                     manual: 0
@@ -4948,7 +4944,7 @@ actions:
               - "{{ not prevent_flags.shading_multiple_times }}"
               - "{{ prevent_flags.shading_multiple_times and ((now().day != ts_shade|timestamp_custom('%-d')|int) or ts_man <= ts_shade) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
-          - "{{ allow_shade_when_resident_present }}"
+          - "{{ resident_flags.allow_shade }}"
 
         sequence:
           - if:
@@ -4971,7 +4967,7 @@ actions:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
-                            # v6: Set shade pending timestamp
+                            # Set shade pending timestamp
                             shade: 0
                             manual: 0
                             ts:
@@ -5001,7 +4997,7 @@ actions:
                       - variables:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
-                            # v6: Shading blocked by lockout, record window state, store shading intent
+                            # Shading blocked by lockout, record window state, store shading intent
                             shade: 1
                             window: "open"
                             manual: 0
@@ -5036,7 +5032,7 @@ actions:
                           target_position: !input shading_position
                           target_tilt_position: "{{ shading_tilt_position | int }}"
                           update_values:
-                            # v6: Activate shading
+                            # Activate shading
                             shade: 1
                             manual: 0
                             ts:
@@ -5068,7 +5064,7 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            # v6: Store shading intent for future (cover is closed)
+                            # Store shading intent for future (cover is closed)
                             shade: 1
                             manual: 0
                             ts:
@@ -5100,7 +5096,7 @@ actions:
                           local_waitingtime_start: "{{ shading_waitingtime_start | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
-                            # v6: Continue waiting with new pending time
+                            # Continue waiting with new pending time
                             shade: 0
                             manual: 0
                             ts:
@@ -5120,7 +5116,7 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            # v6: Abort shading start, clear pending
+                            # Abort shading start, clear pending
                             shade: 0
                             manual: 0
                             ts:
@@ -5183,7 +5179,7 @@ actions:
           - or: # Optional: Continue if cover is not already closed
               - "{{ not prevent_flags.shading_end_if_closed }}"
               - "{{ prevent_flags.shading_end_if_closed and not in_close_position}}"
-          - "{{ allow_shade_when_resident_present }}"
+          - "{{ resident_flags.allow_shade }}"
         sequence:
           - if:
               - "{{ shading_end_conditions_met }}" # Use flexible AND/OR logic for END
@@ -5207,7 +5203,7 @@ actions:
                             {{ local_waitingtime_end }}
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
-                            # v6: Set shading end pending timestamp
+                            # Set shading end pending timestamp
                             shade: 1
                             manual: 0
                             ts:
@@ -5230,7 +5226,7 @@ actions:
                       - variables:
                           target_tilt_position: 50 # Moving the cover to open tilt position
                           update_values:
-                            # v6: Clear shading, tilt only
+                            # Clear shading, tilt only
                             shade: 0
                             manual: 0
                             ts:
@@ -5263,7 +5259,7 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            # v6: Shading end blocked by lockout, window is open
+                            # Shading end blocked by lockout, window is open
                             shade: 0
                             window: "open"
                             manual: 0
@@ -5297,7 +5293,7 @@ actions:
                           target_position: !input ventilate_position
                           target_tilt_position: !input ventilate_tilt_position
                           update_values:
-                            # v6: Shading ends, window is tilted
+                            # Shading ends, window is tilted
                             shade: 0
                             window: "tilted"
                             manual: 0
@@ -5348,7 +5344,7 @@ actions:
                               target_position: "{{ open_position }}"
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
-                                # v6: Shading ends, return to open base state
+                                # Shading ends, return to open base state
                                 base: "open"
                                 shade: 0
                                 manual: 0
@@ -5375,7 +5371,7 @@ actions:
                             else:
                               - variables:
                                   update_values:
-                                    # v6: Just clear shading state when forced
+                                    # Just clear shading state when forced
                                     shade: 0
                                     manual: 0
                                     ts:
@@ -5400,7 +5396,7 @@ actions:
                           local_waitingtime_end: "{{ shading_waitingtime_end | int }}"
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
-                            # v6: Continue waiting with new end pending time
+                            # Continue waiting with new end pending time
                             shade: 1
                             manual: 0
                             ts:
@@ -5420,7 +5416,7 @@ actions:
                     sequence:
                       - variables:
                           update_values:
-                            # v6: Abort shading end retry, keep shading active
+                            # Abort shading end retry, keep shading active
                             shade: 1
                             manual: 0
                             ts:
@@ -5474,7 +5470,7 @@ actions:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
                       update_values:
-                        # v6: Window is fully open (lockout)
+                        # Window is fully open (lockout)
                         window: "open"
                         manual: 0
                         ts:
@@ -5523,7 +5519,7 @@ actions:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
-                        # v6: Window is tilted
+                        # Window is tilted
                         window: "tilted"
                         manual: 0
                         ts:
@@ -5566,7 +5562,7 @@ actions:
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        # v6: Window closed, return to shading (shade is already true)
+                        # Window closed, return to shading (shade is already true)
                         window: "closed"
                         manual: 0
                         ts:
@@ -5612,7 +5608,7 @@ actions:
                       target_tilt_position: !input open_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        # v6: Window closed, return to open base state
+                        # Window closed, return to open base state
                         window: "closed"
                         manual: 0
                         ts:
@@ -5662,7 +5658,7 @@ actions:
                       target_tilt_position: !input close_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        # v6: Window closed, return to close base state
+                        # Window closed, return to close base state
                         window: "closed"
                         manual: 0
                         ts:
@@ -5722,7 +5718,7 @@ actions:
                               target_position: !input open_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
-                                # v6: Resident leaving, move to open
+                                # Resident leaving, move to open
                                 base: "open"
                                 shade: 0
                                 manual: 0
@@ -5751,7 +5747,7 @@ actions:
                               target_position: !input shading_position
                               target_tilt_position: "{{ shading_tilt_position | int }}"
                               update_values:
-                                # v6: Resident leaving, activate shading
+                                # Resident leaving, activate shading
                                 shade: 1
                                 manual: 0
                                 resident: "{{ new_resident_status | bool }}"
@@ -5780,7 +5776,7 @@ actions:
                               target_position: !input ventilate_position
                               target_tilt_position: "{{ ventilate_tilt_position | int }}"
                               update_values:
-                                # v6: Resident leaving, window tilted
+                                # Resident leaving, window tilted
                                 manual: 0
                                 resident: "{{ new_resident_status | bool }}"
                                 ts:
@@ -5807,7 +5803,7 @@ actions:
                               target_position: !input ventilate_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
-                                # v6: Resident leaving, window open
+                                # Resident leaving, window open
                                 manual: 0
                                 resident: "{{ new_resident_status | bool }}"
                                 ts:
@@ -5833,7 +5829,7 @@ actions:
                               target_position: !input close_position
                               target_tilt_position: "{{ close_tilt_position | int }}"
                               update_values:
-                                # v6: Resident leaving, move to close
+                                # Resident leaving, move to close
                                 base: "close"
                                 shade: 0
                                 manual: 0
@@ -5868,7 +5864,7 @@ actions:
                       target_position: !input close_position
                       target_tilt_position: "{{ close_tilt_position | int }}"
                       update_values:
-                        # v6: Resident arriving, close cover (base unchanged - only time triggers update base)
+                        # Resident arriving, close cover (base unchanged - only time triggers update base)
                         shade: 0
                         manual: 0
                         resident: "{{ new_resident_status | bool }}"
@@ -5906,7 +5902,7 @@ actions:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
                       update_values:
-                        # v6: Force open activated
+                        # Force open activated
                         force: "open"
                         manual: 0
                         ts:
@@ -5929,7 +5925,7 @@ actions:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
                       update_values:
-                        # v6: Force close activated
+                        # Force close activated
                         force: "close"
                         manual: 0
                         ts:
@@ -5952,7 +5948,7 @@ actions:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
-                        # v6: Force ventilate activated
+                        # Force ventilate activated
                         force: "vent"
                         manual: 0
                         ts:
@@ -5975,7 +5971,7 @@ actions:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position |int }}"
                       update_values:
-                        # v6: Force shading activated
+                        # Force shading activated
                         force: "shade"
                         manual: 0
                         ts:
@@ -6011,7 +6007,7 @@ actions:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
                       update_values:
-                        # v6: Switch to force open
+                        # Switch to force open
                         force: "open"
                         manual: 0
                         ts:
@@ -6034,7 +6030,7 @@ actions:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
                       update_values:
-                        # v6: Switch to force close
+                        # Switch to force close
                         force: "close"
                         manual: 0
                         ts:
@@ -6057,7 +6053,7 @@ actions:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       update_values:
-                        # v6: Switch to force shading
+                        # Switch to force shading
                         force: "shade"
                         manual: 0
                         ts:
@@ -6081,7 +6077,7 @@ actions:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
-                        # v6: Switch to force ventilate
+                        # Switch to force ventilate
                         force: "vent"
                         manual: 0
                         ts:
@@ -6112,7 +6108,7 @@ actions:
                                   target_position: !input close_position
                                   target_tilt_position: "{{ close_tilt_position | int }}"
                                   update_values:
-                                    # v6: Force ended, return to close base state
+                                    # Force ended, return to close base state
                                     force: "none"
                                     manual: 0
                                     ts:
@@ -6137,7 +6133,7 @@ actions:
                                   target_position: !input shading_position
                                   target_tilt_position: "{{ shading_tilt_position | int }}"
                                   update_values:
-                                    # v6: Force ended, return to shading
+                                    # Force ended, return to shading
                                     force: "none"
                                     manual: 0
                                     ts:
@@ -6162,7 +6158,7 @@ actions:
                                   target_position: !input ventilate_position
                                   target_tilt_position: !input ventilate_tilt_position
                                   update_values:
-                                    # v6: Force ended, return to ventilation (tilted)
+                                    # Force ended, return to ventilation (tilted)
                                     force: "none"
                                     manual: 0
                                     ts:
@@ -6188,7 +6184,7 @@ actions:
                                   target_position: !input open_position
                                   target_tilt_position: "{{ open_tilt_position | int }}"
                                   update_values:
-                                    # v6: Force ended, return to open base state
+                                    # Force ended, return to open base state
                                     force: "none"
                                     manual: 0
                                     ts:
@@ -6281,7 +6277,7 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        # v6: Manual tilt detected
+                        # Manual tilt detected
                         manual: 1
                         ts:
                           manual: "{{ ts_now | int }}"
@@ -6299,7 +6295,7 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        # v6: Manual open detected
+                        # Manual open detected
                         base: "open"
                         shade: 0
                         manual: 1
@@ -6320,7 +6316,7 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        # v6: Manual ventilation detected (position only, window state unchanged)
+                        # Manual ventilation detected (position only, window state unchanged)
                         manual: 1
                         ts:
                           manual: "{{ ts_now | int }}"
@@ -6337,7 +6333,7 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        # v6: Manual shading detected
+                        # Manual shading detected
                         shade: 1
                         manual: 1
                         ts:
@@ -6360,7 +6356,7 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        # v6: Manual close detected
+                        # Manual close detected
                         base: "close"
                         shade: 0
                         manual: 1
@@ -6383,7 +6379,7 @@ actions:
                 sequence:
                   - variables:
                       update_values:
-                        # v6: Unknown manual position
+                        # Unknown manual position
                         manual: 1
                         ts:
                           manual: "{{ ts_now | int }}"
@@ -6404,7 +6400,7 @@ actions:
         sequence:
           - variables:
               update_values:
-                # v6: Reset manual override
+                # Reset manual override
                 manual: 0
                 ts:
                   shade_start: 0
@@ -6431,7 +6427,7 @@ actions:
               seconds: "{{ (range(0, 60) | random | int) }}"
           - variables:
               update_values:
-                # v6: Midnight reset - clear shading status
+                # Midnight reset - clear shading status
                 shade: 0
                 manual: 0
                 ts:
