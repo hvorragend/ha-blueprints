@@ -4702,32 +4702,48 @@ actions:
             ###################################
             # Normal opening of the cover
             ###################################
+              - alias: "Normal opening of the cover"
+                conditions:
+                  - "{{ not in_shading_position }}" # Don't switch from Shading to Open here - that's handled by Shading End branch
+                sequence:
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: "{{ open_tilt_position | int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+                      update_values:
+                        # v6: Set base state to open, clear shading
+                        base: "open"
+                        shade: 0
+                        manual: 0
+                        ts:
+                          open: "{{ ts_now | int }}"
+                          shade_start: 0
+                          shade_end: 0
+                  - *helper_update
+                  - if: "{{ force_allows_open and resident_flags.allow_open }}"
+                    then:
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                      - choose: []
+                        default: !input auto_up_action_before
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - choose: []
+                        default: !input auto_up_action
+                  - stop: "Opening executed"
+
+            ###################################
+            # In shading position - only update base state
+            ###################################
             default:
               - variables:
-                  target_position: !input open_position
-                  target_tilt_position: "{{ open_tilt_position | int }}"
-                  ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
+                  ts_now: "{{ as_timestamp(now()) | round(0) }}"
                   update_values:
-                    # v6: Set base state to open, clear shading
                     base: "open"
-                    shade: 0
-                    manual: 0
                     ts:
                       open: "{{ ts_now | int }}"
-                      shade_start: 0
-                      shade_end: 0
               - *helper_update
-              - if: "{{ force_allows_open and resident_flags.allow_open }}"
-                then:
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - choose: []
-                    default: !input auto_up_action_before
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - choose: []
-                    default: !input auto_up_action
-              - stop: "Opening executed"
+              - stop: "Open time: In shading position, base state updated (movement via Shading End)"
 
       ############################################################
       # BRANCH (1): CLOSE
