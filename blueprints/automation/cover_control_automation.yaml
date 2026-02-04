@@ -3033,7 +3033,8 @@ variables:
   # ═══════════════════════════════════════════════════════════════════════════
 
   # EFFECTIVE STATE - The actual state the cover should be in based on priority cascade
-  # This replaces the old state_current/state_target approach
+  # Replaces v5's state_current (which was just an alias with old names vpart/vfull)
+  # Use this directly instead of the old state_current variable
   effective_state: >-
     {% set h = helper_json %}
     {% if h.force != 'none' %}
@@ -3088,20 +3089,11 @@ variables:
   state_pending_end: "{{ helper_json.ts.shade_end | default(0) | int > 0 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # BACKWARDS COMPATIBILITY - Legacy variables mapping
+  # STATE TARGET - Background Automation Intent
   # ═══════════════════════════════════════════════════════════════════════════
-  # state_current is now derived from effective_state for compatibility
-  state_current: >-
-    {% set eff = effective_state %}
-    {% if eff == 'lock' %}
-      vfull
-    {% elif eff == 'vent' %}
-      vpart
-    {% else %}
-      {{ eff }}
-    {% endif %}
-
-  # state_target represents the background automation intent
+  # What the time-based automation wants to achieve (independent of force/window/resident)
+  # Returns: 'shade' (if shading active) or base state ('open'/'close')
+  # This is NOT the current state, but what the automation schedule dictates
   state_target: >-
     {% set h = helper_json %}
     {% if h.shade | int == 1 %}
@@ -3119,7 +3111,7 @@ variables:
   force_allows_open: "{{ state_force in ['none', 'open'] }}"
   force_allows_close: "{{ state_force in ['none', 'close'] }}"
   force_allows_shade: "{{ state_force in ['none', 'shade'] }}"
-  force_allows_ventilate: "{{ state_force in ['none', 'vent', 'vpart', 'vfull'] }}"
+  force_allows_ventilate: "{{ state_force in ['none', 'vent'] }}"
 
   # Is any force active? (Runtime check via entity states - not helper!)
   # This avoids race conditions when force entities are just toggled
@@ -3144,9 +3136,6 @@ variables:
     {% else %}
       none
     {% endif %}
-
-  # Does the cover need to move to reach target?
-  needs_movement: "{{ state_current != state_target and not is_forced }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # RESIDENT PERMISSION FLAGS - Centralized Resident-based Access Control
@@ -4644,7 +4633,7 @@ actions:
               ###################################
               - alias: "Already in open position - only update base state"
                 conditions:
-                  - "{{ state_current == 'open' and in_open_position }}"
+                  - "{{ effective_state == 'open' and in_open_position }}"
                   - "{{ not state_is_shaded }}"
                   - "{{ not state_pending_start }}"
                   - "{{ state_target != 'shade' }}"
@@ -4845,7 +4834,7 @@ actions:
               ###################################
               - alias: "Already in close position - only update base state"
                 conditions:
-                  - "{{ state_current == 'close' and in_close_position }}"
+                  - "{{ effective_state == 'close' and in_close_position }}"
                 sequence:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -4935,7 +4924,7 @@ actions:
               - "{{ force_allows_shade }}"  
           - or: # Check the helper status or the target status
               - "{{ not state_is_shaded }}"
-              - "{{ not (state_current == 'vpart' or state_current == 'vfull') }}"
+              - "{{ state_window not in ['tilted', 'open'] }}"
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
@@ -5059,7 +5048,7 @@ actions:
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ state_pending_start }}" # Only when it comes back from pending status
-                      - "{{ state_current == 'close' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                      - "{{ effective_state == 'close' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                       - "{{ not is_forced }}" # Skip if force active - let "Start Shading" handle background state
                     sequence:
                       - variables:
@@ -5140,7 +5129,7 @@ actions:
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
           - "{{ force_allows_shade }}"
-          - "{{ not (state_current == 'vpart' or state_current == 'vfull') }}"
+          - "{{ state_window not in ['tilted', 'open'] }}"
           - "{{ not (state_manual and override_flags.shading) }}" # Override check
         sequence:
           - variables:
@@ -5172,7 +5161,7 @@ actions:
           - or:
               - "{{ is_shading_allowed_window }}"
           - "{{ not (state_manual and override_flags.shading) }}" # Override check
-          - "{{ not state_current == 'close' }}"
+          - "{{ effective_state != 'close' }}"
           - or:
               - "{{ state_is_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
@@ -5511,7 +5500,7 @@ actions:
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
                       - and:
-                          - "{{ state_current == 'vfull' }}"
+                          - "{{ state_window == 'open' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
 
                 sequence:
@@ -5547,8 +5536,7 @@ actions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - "{{ state_is_shaded or state_shade }}"
                   - or: # Was ventilating before
-                      - "{{ state_current == 'vpart' }}"
-                      - "{{ state_current == 'vfull' }}"
+                      - "{{ state_window in ['tilted', 'open'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # Force functions allow ventilation end OR background tracking is active
@@ -5593,8 +5581,7 @@ actions:
                   - "{{ state_target == 'open' and not state_resident }}"
                   - "{{ not state_is_shaded and not state_shade }}"
                   - or: # Was ventilating before
-                      - "{{ state_current == 'vpart' }}"
-                      - "{{ state_current == 'vfull' }}"
+                      - "{{ state_window in ['tilted', 'open'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # Force functions allow ventilation end OR background tracking is active
@@ -5643,8 +5630,7 @@ actions:
                       - "{{ state_target == 'close' }}"
                       - "{{ state_resident }}"  # Wenn Resident anwesend, zurück zu close
                   - or: # Was ventilating before
-                      - "{{ state_current == 'vpart' }}"
-                      - "{{ state_current == 'vfull' }}"
+                      - "{{ state_window in ['tilted', 'open'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - or: # Force functions allow ventilation end OR background tracking is active
@@ -5707,7 +5693,7 @@ actions:
                           - "{{ state_target == 'open' }}"
                           - "{{ resident_flags.opening_trigger }}"
                           - "{{ is_up_enabled }}"
-                          - "{{ state_current != 'open' or not in_open_position }}"
+                          - "{{ effective_state != 'open' or not in_open_position }}"
                           - "{{ force_allows_open }}"
                         sequence:
                           - delay:
@@ -5736,7 +5722,7 @@ actions:
                           - "{{ state_target == 'shade' }}"
                           - "{{ resident_flags.allow_shade }}"
                           - "{{ is_shading_enabled }}"
-                          - "{{ state_current != 'shade' or not in_shading_position }}"
+                          - "{{ effective_state != 'shade' or not in_shading_position }}"
                           - "{{ not is_forced }}"
                         sequence:
                           - delay:
@@ -5765,7 +5751,7 @@ actions:
                           - "{{ state_window == 'tilted' }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
-                          - "{{ state_current != 'vpart' or not in_ventilate_position }}"
+                          - "{{ effective_state != 'vent' or not in_ventilate_position }}"
                           - "{{ not is_forced }}"
                         sequence:
                           - delay:
@@ -5792,7 +5778,7 @@ actions:
                           - "{{ state_window == 'open' }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
-                          - "{{ state_current != 'vfull' or not in_open_position }}"
+                          - "{{ effective_state != 'lock' or not in_open_position }}"
                           - "{{ not is_forced }}"
                         sequence:
                           - delay:
@@ -5818,7 +5804,7 @@ actions:
                       - conditions:
                           - "{{ state_target == 'close' }}"
                           - "{{ is_down_enabled }}"
-                          - "{{ state_current != 'close' or not in_close_position }}"
+                          - "{{ effective_state != 'close' or not in_close_position }}"
                           - "{{ force_allows_close }}"
                         sequence:
                           - delay:
@@ -5853,7 +5839,7 @@ actions:
                   - "{{ resident_arriving }}"
                   - "{{ is_down_enabled }}"
                   - "{{ resident_flags.closing_trigger }}"
-                  - "{{ state_current != 'close' or not in_close_position }}"
+                  - "{{ effective_state != 'close' or not in_close_position }}"
                   - "{{ force_allows_close }}"
                 sequence:
                   - delay:
