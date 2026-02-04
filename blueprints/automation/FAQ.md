@@ -1287,6 +1287,262 @@ Sharing breaks functionality completely
 
 ---
 
+### Q: How can I visualize helper status in a dashboard?
+
+**A:** Use the `custom:flex-table-card` to create a comprehensive multi-column status table:
+
+**Requirements:**
+- Install [flex-table-card](https://github.com/custom-cards/flex-table-card) via HACS
+
+**Dashboard Card Configuration:**
+
+```yaml
+type: custom:flex-table-card
+entities:
+  - input_text.cover_room1
+  - input_text.cover_room2
+columns:
+  - name: Cover
+    data: friendly_name
+    modify: x.replace('Cover Status ', '')
+  - name: Status
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const baseMap = {'cls': 'close', 'opn': 'open'};
+          const winMap = {'cls': 'closed', 'tlt': 'tilted', 'opn': 'open'};
+          const frcMap = {'non': 'none', 'opn': 'open', 'cls': 'close', 'shd': 'shade', 'vnt': 'vent'};
+          
+          const base = baseMap[j.bas] || 'open';
+          const shade = j.shd || 0;
+          const win = winMap[j.win] || 'closed';
+          const force = frcMap[j.frc] || 'none';
+          
+          // Priority cascade
+          let status;
+          if (force !== 'none') {
+            status = force;
+          } else if (win === 'open') {
+            status = 'vfull';
+          } else if (win === 'tilted') {
+            status = 'vpart';
+          } else if (shade === 1) {
+            status = 'shade';
+          } else {
+            status = base;
+          }
+          
+          const icons = {
+            'open':'🔼',
+            'close':'🔽',
+            'shade':'🥵',
+            'vpart':'💨',
+            'vfull':'🚪',
+            'vent':'💨',
+            'none':'⚫'
+          };
+          
+          return (icons[status] || '❓') + ' ' + status;
+        } catch(e) { 
+          return '❌ Error'; 
+        } 
+      })()
+  - name: Target
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const baseMap = {'cls': 'close', 'opn': 'open'};
+          const shade = j.shd || 0;
+          const base = baseMap[j.bas] || 'open';
+          
+          return shade === 1 ? 'shade' : base;
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+  - name: Force
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const frcMap = {'non': 'none', 'opn': 'open', 'cls': 'close', 'shd': 'shade', 'vnt': 'vent'};
+          const force = frcMap[j.frc] || 'none';
+          
+          return force !== 'none' ? '⚡ ' + force : '—';
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+  - name: R
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          return j.res ? '👤' : '';
+        } catch(e) { 
+          return ''; 
+        } 
+      })()
+    align: center
+  - name: M
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          return j.man ? '✋' : '';
+        } catch(e) { 
+          return ''; 
+        } 
+      })()
+    align: center
+  - name: 🔼 Last Open
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const ts = j.ts?.opn;
+          
+          if (!ts || ts === 0) return '—';
+          
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
+                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+  - name: 🔽 Last Close
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const ts = j.ts?.cls;
+          
+          if (!ts || ts === 0) return '—';
+          
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
+                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+  - name: 🥵 Last Shade
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const ts = j.ts?.shd;
+          
+          if (!ts || ts === 0) return '—';
+          
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
+                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+  - name: 💨 Last Window
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const ts = j.ts?.win;
+          
+          if (!ts || ts === 0) return '—';
+          
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
+                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+  - name: Pending
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          
+          if (j.ts) {
+            const start = j.ts.shs || 0;
+            const end = j.ts.she || 0;
+            if (start > 0) return '⏳ Start';
+            if (end > 0) return '⏳ End';
+          }
+          
+          return '—';
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+    align: center
+  - name: Updated
+    data: state
+    modify: |-
+      (() => { 
+        try { 
+          const j = JSON.parse(x);
+          const ts = j.t;
+          
+          if (!ts || ts === 0) return 'Never';
+          
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
+                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { 
+          return '—'; 
+        } 
+      })()
+sort_by: friendly_name
+css:
+  table+: "border-collapse: collapse; width: 100%;"
+  tbody tr:hover: "background-color: rgba(var(--rgb-primary-color), 0.08);"
+  thead tr th: >-
+    background-color: rgba(var(--rgb-primary-color), 0.15); padding: 10px 8px;
+    font-weight: bold; font-size: 0.9em;
+  tbody tr td: >-
+    padding: 8px; border-bottom: 1px solid rgba(var(--rgb-divider-color), 0.3);
+    font-size: 0.85em;
+```
+
+**What you see:**
+- **Cover**: Cover name (without "Rollo Status" prefix)
+- **Status**: Current effective status with icon (🔼🔽🥵💨🚪)
+- **Target**: Next intended position
+- **Force**: Active force override (⚡)
+- **R**: Resident present icon (👤)
+- **M**: Manual mode active icon (✋)
+- **Last timestamps**: For Open, Close, Shade, Window changes
+- **Pending**: Scheduled shading actions (⏳)
+- **Updated**: Last helper update time
+
+**Customization:**
+- Replace entity IDs with your actual helper entities
+- **Adjust cover name display:**
+  - Default removes "Cover Status " prefix: `modify: x.replace('Cover Status ', '')`
+  - Use your own prefix: `modify: x.replace('Your Prefix ', '')`
+  - First 8 characters only: `modify: x.substring(0, 8)`
+  - Last 8 characters only: `modify: x.slice(-8)`
+  - Full name without modification: Remove the `modify` line completely
+- Adjust date/time format in `toLocaleDateString` and `toLocaleTimeString`
+- Modify CSS for different styling
+
+---
+
 ## Troubleshooting
 
 ### Q: How do I use traces effectively?
