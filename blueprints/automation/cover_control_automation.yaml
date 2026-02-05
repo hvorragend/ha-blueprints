@@ -5228,14 +5228,15 @@ actions:
                               - "{{ lockout_tilted_when_shading_ends }}"
                     sequence:
                       - variables:
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
                             # Shading end blocked by lockout, window is open
                             shade: 0
                             window: "open"
                             manual: 0
                             ts:
-                              window: "{{ as_timestamp(now()) | round(0) | int }}"
-                              shade: "{{ as_timestamp(now()) | round(0) | int }}"
+                              window: "{{ ts_now | int }}"
+                              shade: "{{ ts_now | int }}"
                               shade_start: 0
                               shade_end: 0
                       - *helper_update
@@ -5263,14 +5264,15 @@ actions:
                       - variables:
                           target_position: !input ventilate_position
                           target_tilt_position: !input ventilate_tilt_position
+                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
                             # Shading ends, window is tilted
                             shade: 0
                             window: "tilted"
                             manual: 0
                             ts:
-                              window: "{{ as_timestamp(now()) | round(0) | int }}"
-                              shade: "{{ as_timestamp(now()) | round(0) | int }}"
+                              window: "{{ ts_now | int }}"
+                              shade: "{{ ts_now | int }}"
                               shade_start: 0
                               shade_end: 0
                       - *helper_update
@@ -5308,14 +5310,15 @@ actions:
                           - variables:
                               target_position: "{{ open_position }}"
                               target_tilt_position: "{{ open_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Shading ends, return to open base state
                                 base: "open"
                                 shade: 0
                                 manual: 0
                                 ts:
-                                  open: "{{ as_timestamp(now()) | round(0) | int }}"
-                                  shade: "{{ as_timestamp(now()) | round(0) | int }}"
+                                  open: "{{ ts_now | int }}"
+                                  shade: "{{ ts_now | int }}"
                                   shade_start: 0
                                   shade_end: 0
                           - *helper_update
@@ -5449,8 +5452,11 @@ actions:
                     then:
                       - delay:
                           seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                      - default: !input auto_up_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - choose: []
+                        default: !input auto_up_action
                   - stop: "Ventilation Start (Full) executed"
 
               ###################################
@@ -5673,13 +5679,10 @@ actions:
                           - "{{ effective_state != 'open' or not in_open_position }}"
                           - "{{ force_allows_open }}"
                         sequence:
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - choose: []
-                            default: !input auto_up_action_before
                           - variables:
                               target_position: !input open_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to open
                                 base: "open"
@@ -5687,11 +5690,15 @@ actions:
                                 manual: 0
                                 resident: "{{ new_resident_status | bool }}"
                                 ts:
-                                  open: "{{ as_timestamp(now()) | round(0) | int }}"
-                                  shade: "{{ as_timestamp(now()) | round(0) | int }}"
+                                  open: "{{ ts_now | int }}"
+                                  shade: "{{ ts_now | int }}"
+                          - *helper_update
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_up_action_before
                           - *cover_move_action
                           - *tilt_move_action
-                          - *helper_update
                           - choose: []
                             default: !input auto_up_action
 
@@ -5703,10 +5710,6 @@ actions:
                           - "{{ effective_state != 'shade' or not in_shading_position }}"
                           - "{{ not is_forced }}"
                         sequence:
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - choose: []
-                            default: !input auto_shading_start_action_before
                           - variables:
                               target_position: !input shading_position
                               target_tilt_position: "{{ shading_tilt_position | int }}"
@@ -5718,9 +5721,13 @@ actions:
                                 ts:
                                   shade: "{{ as_timestamp(now()) | round(0) | int }}"
                                   shade_start: 0
+                          - *helper_update
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_shading_start_action_before
                           - *cover_move_action
                           - *tilt_move_action
-                          - *helper_update
                           - choose: []
                             default: !input auto_shading_start_action
 
@@ -5732,10 +5739,6 @@ actions:
                           - "{{ effective_state != 'vent' or not in_ventilate_position }}"
                           - "{{ not is_forced }}"
                         sequence:
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - choose: []
-                            default: !input auto_ventilate_action_before
                           - variables:
                               target_position: !input ventilate_position
                               target_tilt_position: "{{ ventilate_tilt_position | int }}"
@@ -5745,9 +5748,13 @@ actions:
                                 resident: "{{ new_resident_status | bool }}"
                                 ts:
                                   window: "{{ as_timestamp(now()) | round(0) | int }}"
+                          - *helper_update
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_ventilate_action_before
                           - *cover_move_action
                           - *tilt_move_action
-                          - *helper_update
                           - choose: []
                             default: !input auto_ventilate_action
 
@@ -5759,10 +5766,6 @@ actions:
                           - "{{ effective_state != 'lock' or not in_open_position }}"
                           - "{{ not is_forced }}"
                         sequence:
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - choose: []
-                            default: !input auto_ventilate_action_before
                           - variables:
                               target_position: !input ventilate_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
@@ -5772,9 +5775,13 @@ actions:
                                 resident: "{{ new_resident_status | bool }}"
                                 ts:
                                   window: "{{ as_timestamp(now()) | round(0) | int }}"
+                          - *helper_update
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_ventilate_action_before
                           - *cover_move_action
                           - *tilt_move_action
-                          - *helper_update
                           - choose: []
                             default: !input auto_ventilate_action
 
@@ -5785,13 +5792,10 @@ actions:
                           - "{{ effective_state != 'close' or not in_close_position }}"
                           - "{{ force_allows_close }}"
                         sequence:
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - choose: []
-                            default: !input auto_down_action_before
                           - variables:
                               target_position: !input close_position
                               target_tilt_position: "{{ close_tilt_position | int }}"
+                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to close
                                 base: "close"
@@ -5799,11 +5803,15 @@ actions:
                                 manual: 0
                                 resident: "{{ new_resident_status | bool }}"
                                 ts:
-                                  close: "{{ as_timestamp(now()) | round(0) | int }}"
-                                  shade: "{{ as_timestamp(now()) | round(0) | int }}"
+                                  close: "{{ ts_now | int }}"
+                                  shade: "{{ ts_now | int }}"
+                          - *helper_update
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - choose: []
+                            default: !input auto_down_action_before
                           - *cover_move_action
                           - *tilt_move_action
-                          - *helper_update
                           - choose: []
                             default: !input auto_down_action
                     default:
@@ -5821,24 +5829,25 @@ actions:
                   - "{{ effective_state != 'close' or not in_close_position }}"
                   - "{{ force_allows_close }}"
                 sequence:
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - choose: []
-                    default: !input auto_down_action_before
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: "{{ close_tilt_position | int }}"
+                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Resident arriving, close cover (base unchanged - only time triggers update base)
                         shade: 0
                         manual: 0
                         resident: "{{ new_resident_status | bool }}"
                         ts:
-                          close: "{{ as_timestamp(now()) | round(0) | int }}"
-                          shade: "{{ as_timestamp(now()) | round(0) | int }}"
+                          close: "{{ ts_now | int }}"
+                          shade: "{{ ts_now | int }}"
+                  - *helper_update
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - choose: []
+                    default: !input auto_down_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_down_action
             default:
@@ -5862,8 +5871,6 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_open' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_up_action_before
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
@@ -5874,9 +5881,11 @@ actions:
                         ts:
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_up_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_up_action
                   - stop: "Force Open executed"
@@ -5885,8 +5894,6 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_close' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_down_action_before
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
@@ -5897,9 +5904,11 @@ actions:
                         ts:
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_down_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_down_action
                   - stop: "Force Close executed"
@@ -5908,8 +5917,6 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_ventilate' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_ventilate_action_before
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
@@ -5920,9 +5927,11 @@ actions:
                         ts:
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_ventilate_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_ventilate_action
                   - stop: "Force Ventilation executed"
@@ -5931,8 +5940,6 @@ actions:
               - conditions:
                   - "{{ trigger.id == 't_force_enabled_shading' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_shading_start_action_before
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position |int }}"
@@ -5944,9 +5951,11 @@ actions:
                           shade: "{{ as_timestamp(now()) | round(0) | int }}"
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_shading_start_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_shading_start_action
                   - stop: "Force Shading executed"
@@ -5967,8 +5976,6 @@ actions:
               - conditions:
                   - "{{ active_force_from_sensors == 'open' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_up_action_before
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
@@ -5979,9 +5986,11 @@ actions:
                         ts:
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_up_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_up_action
                   - stop: "Switched to active Force Open"
@@ -5990,8 +5999,6 @@ actions:
               - conditions:
                   - "{{ active_force_from_sensors == 'close' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_down_action_before
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
@@ -6002,9 +6009,11 @@ actions:
                         ts:
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_down_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_down_action
                   - stop: "Switched to active Force Close"
@@ -6013,8 +6022,6 @@ actions:
               - conditions:
                   - "{{ active_force_from_sensors == 'shade' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_shading_start_action_before
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
@@ -6026,9 +6033,11 @@ actions:
                           shade: "{{ as_timestamp(now()) | round(0) | int }}"
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_shading_start_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_shading_start_action
                   - stop: "Switched to active Force Shading"
@@ -6037,8 +6046,6 @@ actions:
               - conditions:
                   - "{{ active_force_from_sensors == 'vent' }}"
                 sequence:
-                  - choose: []
-                    default: !input auto_ventilate_action_before
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
@@ -6049,9 +6056,11 @@ actions:
                         ts:
                           shade_start: 0
                           shade_end: 0
+                  - *helper_update
+                  - choose: []
+                    default: !input auto_ventilate_action_before
                   - *cover_move_action
                   - *tilt_move_action
-                  - *helper_update
                   - choose: []
                     default: !input auto_ventilate_action
                   - stop: "Switched to active Force Ventilation"
@@ -6068,8 +6077,6 @@ actions:
                               - "{{ state_base == 'close' }}"
                               - "{{ state_window == 'closed' }}"
                             sequence:
-                              - choose: []
-                                default: !input auto_down_action_before
                               - variables:
                                   target_position: !input close_position
                                   target_tilt_position: "{{ close_tilt_position | int }}"
@@ -6080,9 +6087,11 @@ actions:
                                     ts:
                                       shade_start: 0
                                       shade_end: 0
+                              - *helper_update
+                              - choose: []
+                                default: !input auto_down_action_before
                               - *cover_move_action
                               - *tilt_move_action
-                              - *helper_update
                               - choose: []
                                 default: !input auto_down_action
                               - stop: "Return to Close executed"
@@ -6093,8 +6102,6 @@ actions:
                               - "{{ state_window == 'closed' }}"
                               - "{{ resident_flags.allow_shade }}"
                             sequence:
-                              - choose: []
-                                default: !input auto_shading_start_action_before
                               - variables:
                                   target_position: !input shading_position
                                   target_tilt_position: "{{ shading_tilt_position | int }}"
@@ -6106,9 +6113,11 @@ actions:
                                       shade: "{{ as_timestamp(now()) | round(0) | int }}"
                                       shade_start: 0
                                       shade_end: 0
+                              - *helper_update
+                              - choose: []
+                                default: !input auto_shading_start_action_before
                               - *cover_move_action
                               - *tilt_move_action
-                              - *helper_update
                               - choose: []
                                 default: !input auto_shading_start_action
                               - stop: "Return to Shading executed"
@@ -6118,8 +6127,6 @@ actions:
                               - "{{ state_window == 'tilted' }}"
                               - "{{ resident_flags.allow_ventilate }}"
                             sequence:
-                              - choose: []
-                                default: !input auto_ventilate_action_before
                               - variables:
                                   target_position: !input ventilate_position
                                   target_tilt_position: !input ventilate_tilt_position
@@ -6130,9 +6137,11 @@ actions:
                                     ts:
                                       shade_start: 0
                                       shade_end: 0
+                              - *helper_update
+                              - choose: []
+                                default: !input auto_ventilate_action_before
                               - *cover_move_action
                               - *tilt_move_action
-                              - *helper_update
                               - choose: []
                                 default: !input auto_ventilate_action
                               - stop: "Return to Ventilation executed"
@@ -6144,8 +6153,6 @@ actions:
                               - "{{ not state_shade }}"
                               - "{{ resident_flags.allow_open }}"
                             sequence:
-                              - choose: []
-                                default: !input auto_up_action_before
                               - variables:
                                   target_position: !input open_position
                                   target_tilt_position: "{{ open_tilt_position | int }}"
@@ -6157,9 +6164,11 @@ actions:
                                       open: "{{ as_timestamp(now()) | round(0) | int }}"
                                       shade_start: 0
                                       shade_end: 0
+                              - *helper_update
+                              - choose: []
+                                default: !input auto_up_action_before
                               - *cover_move_action
                               - *tilt_move_action
-                              - *helper_update
                               - choose: []
                                 default: !input auto_up_action
                               - stop: "Return to Open executed"
