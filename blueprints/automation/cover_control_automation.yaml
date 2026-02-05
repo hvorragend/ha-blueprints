@@ -3093,11 +3093,28 @@ variables:
   # ═══════════════════════════════════════════════════════════════════════════
 
   # Does force allow movement in each direction?
+  # Combines helper status (state_force) with realtime entity checks to avoid race conditions
   # v6 helper uses 'vent' for ventilation instead of vpart/vfull
-  force_allows_open: "{{ state_force in ['none', 'open'] }}"
-  force_allows_close: "{{ state_force in ['none', 'close'] }}"
-  force_allows_shade: "{{ state_force in ['none', 'shade'] }}"
-  force_allows_ventilate: "{{ state_force in ['none', 'vent'] }}"
+  force_allows_open: >-
+    {{ state_force in ['none', 'open'] and
+       not ((auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or
+            (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) or
+            (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'])) }}
+  force_allows_close: >-
+    {{ state_force in ['none', 'close'] and
+       not ((auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or
+            (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) or
+            (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'])) }}
+  force_allows_shade: >-
+    {{ state_force in ['none', 'shade'] and
+       not ((auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or
+            (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or
+            (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true'])) }}
+  force_allows_ventilate: >-
+    {{ state_force in ['none', 'vent'] and
+       not ((auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or
+            (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or
+            (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'])) }}
 
   # Is any force active? (Runtime check via entity states - not helper!)
   # This avoids race conditions when force entities are just toggled
