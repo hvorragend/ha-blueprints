@@ -3092,20 +3092,21 @@ variables:
   # COMPUTED FLAGS - Simplified Movement Permissions
   # ═══════════════════════════════════════════════════════════════════════════
 
-  # Does force allow movement in each direction?
-  # v6 helper uses 'vent' for ventilation instead of vpart/vfull
-  force_allows_open: "{{ state_force in ['none', 'open'] }}"
-  force_allows_close: "{{ state_force in ['none', 'close'] }}"
-  force_allows_shade: "{{ state_force in ['none', 'shade'] }}"
-  force_allows_ventilate: "{{ state_force in ['none', 'vent'] }}"
+  # Individual force states (realtime entity checks)
+  is_forced_open: "{{ auto_up_force != [] and states(auto_up_force) in ['on', 'true'] }}"
+  is_forced_close: "{{ auto_down_force != [] and states(auto_down_force) in ['on', 'true'] }}"
+  is_forced_shade: "{{ auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'] }}"
+  is_forced_vent: "{{ auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true'] }}"
 
-  # Is any force active? (Runtime check via entity states - not helper!)
-  # This avoids race conditions when force entities are just toggled
-  is_forced: >-
-    {{ (auto_up_force != [] and states(auto_up_force) in ['on', 'true']) or
-       (auto_down_force != [] and states(auto_down_force) in ['on', 'true']) or
-       (auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true']) or
-       (auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true']) }}
+  # Is any force active? (realtime)
+  is_forced: "{{ is_forced_open or is_forced_close or is_forced_shade or is_forced_vent }}"
+
+  # Does force allow movement in each direction? (realtime)
+  # Each action is allowed if no conflicting force is active
+  force_allows_open: "{{ not (is_forced_close or is_forced_shade or is_forced_vent) }}"
+  force_allows_close: "{{ not (is_forced_open or is_forced_shade or is_forced_vent) }}"
+  force_allows_shade: "{{ not (is_forced_open or is_forced_close or is_forced_vent) }}"
+  force_allows_ventilate: "{{ not (is_forced_open or is_forced_close or is_forced_shade) }}"
 
   # Which force is currently active based on sensor states (not helper)?
   # Used for "Last Wins" logic - when a force is disabled, switch to another active force
