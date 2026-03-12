@@ -1160,38 +1160,33 @@ action:
 
 ### Q: What does the Cover Status Helper store?
 
-**A:** The helper stores comprehensive state information in JSON format:
+**A:** The helper stores comprehensive state information in a highly compact JSON format to save space:
 
-**Main States:**
+**Main Keys:**
 
-| State | Description | Values |
-|-------|-------------|--------|
-| `open` | Cover is open or was last opened | `a`: 0/1, `t`: timestamp |
-| `close` | Cover is closed or was last closed | `a`: 0/1, `t`: timestamp |
-| `shading` | Cover is in shading mode | `a`: 0/1, `t`: timestamp, `p`: pending start, `q`: pending end |
-| `vpart` | Partly open for ventilation (tilted) | `a`: 0/1, `t`: timestamp |
-| `vfull` | Fully open for ventilation (lockout) | `a`: 0/1, `t`: timestamp |
-| `manual` | Manual operation detected | `a`: 0/1, `t`: timestamp |
-| `v` | Helper version number | Number |
-| `t` | Last global status change | Unix timestamp |
-
-**Key Values:**
-- `a` (active): 0 = inactive, 1 = active
-- `t` (timestamp): When state was last changed
-- `p` (pending): Shading start pending execution time
-- `q` (pending): Shading end pending execution time
+| Key | State | Example Values | Description |
+|-----|-------|----------------|-------------|
+| `bas` | Base | `opn`, `cls`, `non` | The main position (open, close, none) |
+| `shd` | Shading | `0`, `1` | Shading level (0=off, 1=active) |
+| `win` | Window | `cls`, `ptl`, `ful` | Ventilation state (closed, partially, fully open) |
+| `frc` | Force | `non`, `opn`, `cls`, `shd`, `ven` | Overriding force state |
+| `res` | Resident | `0`, `1` | Resident mode override |
+| `man` | Manual | `0`, `1` | Manual operation detected |
+| `ts` | Timestamps | Object | Dictionary of when each state was last changed |
+| `v` | Version | Number | Helper version number (e.g., 6) |
+| `t` | Global Time | Timestamp | Last overall state change timestamp |
 
 **Common State Scenarios:**
 
-| Scenario | open | close | shading | vpart | vfull | Description |
-|----------|------|-------|---------|-------|-------|-------------|
-| Cover is open | 1 | 0 | 0 | 0 | 0 | Normal daytime state |
-| Cover is closed | 0 | 1 | 0 | 0 | 0 | Normal nighttime state |
-| Shading active | 1 | 0 | 1 | 0 | 0 | Sun protection engaged |
-| Shading + pending open | 1 | 0 | 1 | 0 | 0 | Waiting for shading to end |
-| Window tilted (ventilation) | 1 | 0 | 0 | 1 | 0 | Partial opening for air flow |
-| Window open (lockout) | 1 | 0 | 0 | 0 | 1 | Full opening + lockout protection |
-| Manual adjustment | * | * | * | * | * | Depends on what was adjusted |
+| Scenario | bas | shd | win | frc | man | Description |
+|----------|-----|-----|-----|-----|-----|-------------|
+| Cover is open | opn | 0 | cls | non | 0 | Normal daytime state |
+| Cover is closed | cls | 0 | cls | non | 0 | Normal nighttime state |
+| Shading active | opn | 1 | cls | non | 0 | Sun protection engaged |
+| Shading ending (pending)| opn | 2 | cls | non | 0 | Waiting for shading delay to end |
+| Window tilted (ventilation)| opn | 0 | ptl | non | 0 | Partial opening for air flow |
+| Force close active | cls | 0 | cls | cls | 0 | Forced closed via external entity |
+| Manual override | * | * | * | * | 1 | Physical push button used |
 
 ---
 
@@ -1212,13 +1207,23 @@ action:
 **Example content:**
 ```json
 {
-  "open": {"a": 1, "t": 1703250600},
-  "close": {"a": 0, "t": 1703164200},
-  "shading": {"a": 0, "t": 1703237000, "p": 0, "q": 0},
-  "vpart": {"a": 0, "t": 1703150600},
-  "vfull": {"a": 0, "t": 1703150600},
-  "manual": {"a": 0, "t": 1703150600},
-  "v": 5,
+  "bas": "opn",
+  "shd": 0,
+  "win": "cls",
+  "frc": "non",
+  "res": 0,
+  "man": 0,
+  "ts": {
+    "opn": 1703250600,
+    "cls": 1703164200,
+    "shd": 1703237000,
+    "shs": 0,
+    "she": 0,
+    "win": 1703150600,
+    "frc": 1703150600,
+    "man": 1703150600
+  },
+  "v": 6,
   "t": 1703250600
 }
 ```
