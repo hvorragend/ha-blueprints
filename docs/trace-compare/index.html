@@ -913,7 +913,7 @@
             </div>
             <p class="subtitle">Compare multiple CCA traces to analyze progression</p>
             <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem;">
-                <span class="version-badge">v1.1 - For CCA Blueprint v2025.12.22+</span>
+                <span class="version-badge">v2.0 - For CCA Blueprint v2026.01.25+</span>
                 <a href="../trace-analyzer/" class="version-badge"
                     style="text-decoration: none; border-color: var(--accent-cyan); color: var(--accent-cyan);">🔍 CCA
                     Trace
@@ -1057,39 +1057,54 @@
 
     <script>
         // =====================================================================
-        // CCA TRACE COMPARE v1.1
-        // Compare multiple traces and visualize state progression
+        // CCA TRACE COMPARE v2.0
+        // Updated for CCA Blueprint v2026.01.25+ (State Machine v6, JSON Helper v6)
         // =====================================================================
 
-        // Branch definitions from CCA Blueprint
+        // Branch definitions from CCA Blueprint (v2026.01.25+)
+        // Branches 0-11 + Default (Config Check)
         const BRANCH_DEFINITIONS = {
-            0: { name: 'Opening', description: 'Automatic cover opening', icon: '🔼' },
-            1: { name: 'Closing', description: 'Automatic cover closing', icon: '🔻' },
-            2: { name: 'Shading Start', description: 'Activates sun protection', icon: '☀️' },
-            3: { name: 'Shading Tilt', description: 'Adjusts tilt during shading', icon: '📐' },
-            4: { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
-            5: { name: 'Contact Sensor', description: 'Window/door state change', icon: '🪟' },
-            6: { name: 'Force Open', description: 'Forced opening', icon: '⬆️' },
-            7: { name: 'Force Close', description: 'Forced closing', icon: '⬇️' },
-            8: { name: 'Force Ventilate', description: 'Forced ventilation', icon: '💨' },
-            9: { name: 'Force Shading', description: 'Forced shading', icon: '🌞' },
-            10: { name: 'Manual Detection', description: 'Manual position change', icon: '🖐️' },
-            11: { name: 'Reset Override', description: 'Resets manual override', icon: '🔄' },
-            12: { name: 'Return After Force', description: 'Returns to background state', icon: '↩️' },
-            13: { name: 'Midnight Reset', description: 'End of day reset', icon: '🌙' }
+            0:  { name: 'Opening',            description: 'Automatic cover opening',                        icon: '🔼' },
+            1:  { name: 'Closing',            description: 'Automatic cover closing',                        icon: '🔻' },
+            2:  { name: 'Shading Start',      description: 'Activates sun protection',                       icon: '☀️' },
+            3:  { name: 'Shading Tilt',       description: 'Adjusts tilt during shading',                    icon: '📐' },
+            4:  { name: 'Shading End',        description: 'Deactivates sun protection',                     icon: '🌥️' },
+            5:  { name: 'Contact Sensor',     description: 'Window/door state change (ventilation/lockout)', icon: '🪟' },
+            6:  { name: 'Resident Update',    description: 'Resident sensor changed – moves cover',          icon: '👤' },
+            7:  { name: 'Force Functions',    description: 'Forced position (open/close/vent/shade)',         icon: '⚡' },
+            8:  { name: 'Return After Force', description: 'Returns to background state after force',         icon: '↩️' },
+            9:  { name: 'Manual Detection',   description: 'Manual position change detected',                icon: '🖐️' },
+            10: { name: 'Reset Override',     description: 'Resets manual override',                         icon: '🔄' },
+            11: { name: 'Midnight Reset',     description: 'End of day reset',                               icon: '🌙' }
         };
 
-        // Trigger explanations
+        // Trigger explanations (v2026.01.25+)
         const TRIGGER_EXPLANATIONS = {
             't_open_1': 'Time-based opening (early)', 't_open_2': 'Time-based opening (late)',
-            't_open_4': 'Brightness exceeded threshold', 't_open_5': 'Sun elevation exceeded threshold', 't_open_6': 'Resident woke up',
+            't_open_4': 'Brightness exceeded threshold', 't_open_5': 'Sun elevation exceeded threshold',
             't_close_1': 'Time-based closing (early)', 't_close_2': 'Time-based closing (late)',
-            't_close_4': 'Brightness dropped below threshold', 't_close_5': 'Sun elevation dropped below threshold', 't_close_6': 'Resident went to sleep',
+            't_close_4': 'Brightness dropped below threshold', 't_close_5': 'Sun elevation dropped below threshold',
+            't_resident_update': 'Resident sensor changed (arriving or leaving)',
+            't_calendar_event_start': 'Calendar event started', 't_calendar_event_end': 'Calendar event ended',
+            't_contact_tilted_changed': 'Window tilt sensor changed', 't_contact_opened_changed': 'Window open sensor changed',
             't_shading_start_pending_1': 'Sun entered shading range', 't_shading_start_pending_2': 'Brightness exceeded threshold',
-            't_shading_start_execution': 'Shading wait completed',
-            't_shading_end_pending_1': 'Temp 1 dropped below threshold', 't_shading_end_pending_5': 'Sun left shading range',
+            't_shading_start_pending_3': 'Temperature 1 exceeded threshold', 't_shading_start_pending_4': 'Temperature 2 exceeded threshold',
+            't_shading_start_pending_5': 'Weather condition matched', 't_shading_start_pending_6': 'Forecast temp sensor changed',
+            't_shading_start_pending_7': 'Pre-opening forecast check (1h before)',
+            't_shading_start_execution': 'Shading start wait completed',
+            't_shading_end_pending_1': 'Temp 1 dropped below threshold', 't_shading_end_pending_2': 'Temp 2 dropped below threshold',
+            't_shading_end_pending_3': 'Brightness dropped below threshold', 't_shading_end_pending_4': 'Weather condition no longer met',
+            't_shading_end_pending_5': 'Sun left shading range', 't_shading_end_pending_6': 'Forecast temp sensor changed (end)',
             't_shading_end_execution': 'Shading end wait completed',
-            't_manual_position': 'Manual position change', 't_manual_tilt': 'Manual tilt change'
+            't_shading_tilt_1': 'Sun elevation (below level 1)', 't_shading_tilt_2': 'Sun elevation (level 1-2)',
+            't_shading_tilt_3': 'Sun elevation (level 2-3)', 't_shading_tilt_4': 'Sun elevation (above level 3)',
+            't_shading_reset': 'Midnight shading reset',
+            't_manual_position': 'Manual position change', 't_manual_tilt': 'Manual tilt change',
+            't_reset_fixedtime': 'Fixed time override reset', 't_reset_timeout': 'Timeout override reset',
+            't_force_enabled_open': 'Force open activated', 't_force_enabled_close': 'Force close activated',
+            't_force_enabled_ventilate': 'Force ventilate activated', 't_force_enabled_shading': 'Force shading activated',
+            't_force_disabled_open': 'Force open deactivated', 't_force_disabled_close': 'Force close deactivated',
+            't_force_disabled_ventilate': 'Force ventilate deactivated', 't_force_disabled_shading': 'Force shading deactivated'
         };
 
         // State
@@ -1394,24 +1409,61 @@
             return !inString; // Complete if not inside a string
         }
 
+        /**
+         * Format helper_json into a human-readable state label.
+         * Supports:
+         *   - v6 internal format: { base, shade, window, force, resident, manual, ... }
+         *   - v6 compact format:  { bas, shd, win, frc, res, man, ... }
+         *   - v5 legacy format:   { open: {a:1}, close: {a:0}, shading: {a:1}, ... }
+         */
         function formatHelperValue(hJson) {
             if (!hJson || typeof hJson !== 'object') return String(hJson || 'unknown');
 
-            // CCA Status Object structure
-            const keys = [
-                'opening', 'closing', 'open', 'close', 'closed', 'shading', 'shaded',
-                'shading_start_pending', 'shading_end_pending',
-                'vpart', 'vfull', 'manual'
-            ];
-            for (const key of keys) {
+            // === v6 internal format (after blueprint template conversion) ===
+            if (hJson.base !== undefined || hJson.shade !== undefined) {
+                const force  = hJson.force  || 'none';
+                const window = hJson.window || 'closed';
+                const shade  = hJson.shade  || 0;
+                const base   = hJson.base   || 'open';
+
+                if (force !== 'none') return `Force-${force.charAt(0).toUpperCase() + force.slice(1)}`;
+                if (window === 'open')   return 'Lockout (window open)';
+                if (window === 'tilted') return 'Ventilating (tilted)';
+                if (shade === 1 || shade === true) return 'Shading';
+                return base.charAt(0).toUpperCase() + base.slice(1);
+            }
+
+            // === v6 compact format (raw string from input_text helper) ===
+            if (hJson.bas !== undefined || hJson.shd !== undefined) {
+                const frcMap = { non: 'none', opn: 'open', cls: 'close', shd: 'shade', vnt: 'vent' };
+                const winMap = { cls: 'closed', tlt: 'tilted', opn: 'open' };
+                const force  = frcMap[hJson.frc] || 'none';
+                const window = winMap[hJson.win]  || 'closed';
+                const shade  = hJson.shd || 0;
+                const base   = hJson.bas === 'cls' ? 'close' : 'open';
+
+                if (force !== 'none') return `Force-${force.charAt(0).toUpperCase() + force.slice(1)}`;
+                if (window === 'open')   return 'Lockout (window open)';
+                if (window === 'tilted') return 'Ventilating (tilted)';
+                if (shade === 1 || shade === true) return 'Shading';
+                return base.charAt(0).toUpperCase() + base.slice(1);
+            }
+
+            // === v5 legacy format: { open: {a:1,t:0}, close: {a:0,t:0}, shading: {a:1,...} } ===
+            const v5Keys = ['vfull', 'vpart', 'shading', 'close', 'open', 'shading_start_pending', 'shading_end_pending', 'manual'];
+            for (const key of v5Keys) {
                 const status = hJson[key];
                 if (status && (status.a === 1 || status.a === true)) {
-                    let label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
-                    if (label === 'Close') label = 'Closed';
-                    if (label === 'Shading') label = 'Shaded';
-                    return label;
+                    const labelMap = {
+                        vfull: 'Lockout (window open)', vpart: 'Ventilating (tilted)',
+                        shading: 'Shading', close: 'Closed', open: 'Open',
+                        shading_start_pending: 'Shading Start Pending',
+                        shading_end_pending: 'Shading End Pending', manual: 'Manual'
+                    };
+                    return labelMap[key] || key;
                 }
             }
+
             if (hJson.cover_status) return String(hJson.cover_status);
             return 'unknown';
         }
@@ -1620,7 +1672,7 @@
             if (loadedTraces.length < 2) return;
 
             const branchCounts = {};
-            for (let i = 0; i < 14; i++) branchCounts[i] = 0;
+            for (let i = 0; i < 12; i++) branchCounts[i] = 0;
 
             let finished = 0, stopped = 0, failed = 0;
 
