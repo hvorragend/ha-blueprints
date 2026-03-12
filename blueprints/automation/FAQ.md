@@ -2404,6 +2404,67 @@ Likely causes: Manual override active OR time values incorrect
 
 ---
 
+## Advanced Features
+
+### Q: What are the possible state transitions?
+
+**A:** CCA uses a **priority-based state machine** where the cover can be in one of 6 states. Each transition is handled by a specific action branch:
+
+| From ↓ \ To → | OPEN | CLOSE | SHADE | VENT | LOCK | FORCE |
+|----------------|------|-------|-------|------|------|-------|
+| **OPEN** | – | Branch 1 | Branch 2 | Branch 5 | Branch 5 | Branch 7 |
+| **CLOSE** | Branch 0 | – | Branch 2* | Branch 5 | Branch 5 | Branch 7 |
+| **SHADE** | Branch 4 | Branch 1 | – | Branch 5 | Branch 5 | Branch 7 |
+| **VENT** | Branch 5 | Branch 5 | Branch 5 | – | Branch 5 | Branch 7 |
+| **LOCK** | Branch 5 | – ⚠️ | Branch 5 | Branch 5 | – | Branch 7 |
+| **FORCE** | Branch 8 | Branch 8 | Branch 8 | Branch 8 | – | Branch 7 |
+
+**Legend:**
+- `*` = Branch 2 saves shading intent when the cover is closed (base state preserved, no movement)
+- `⚠️` = LOCK → CLOSE has no direct transition. The window must first be closed (LOCK → VENT/OPEN → CLOSE)
+
+**Priority Cascade (highest first):**
+1. **FORCE** → `force != "none"` → Force position
+2. **LOCK** → `window == "open"` → Open position (lockout protection)
+3. **VENT** → `window == "tilted"` → Ventilate position
+4. **SHADE** → `shade == 1` → Shading position
+5. **BASE** → `base` → Open or Close position
+
+---
+
+### Q: How does the Shading Pending Mechanism work?
+
+**A:** CCA uses a **two-phase approach** to ensure stable conditions before activating or ending sun shading:
+
+```
+Trigger → Pending (timestamp set) → Execution Trigger → Re-evaluation → Start/Retry/Abort
+```
+
+**Phase 1 - Pending (Condition Detection):**
+1. A shading start/end condition trigger fires (brightness, temperature, sun position, etc.)
+2. CCA writes a **pending timestamp** into the JSON helper (`ts.shs` for start, `ts.she` for end)
+3. The timestamp = `now() + waiting_time` (configurable delay)
+4. No cover movement happens yet
+
+**Phase 2 - Execution (Verification & Action):**
+1. When `now()` reaches the pending timestamp, the **execution trigger** fires
+2. CCA **re-evaluates all shading conditions** at this point
+3. Three possible outcomes:
+
+| Outcome | Conditions still met? | Timeout reached? | Action |
+|---------|----------------------|-------------------|--------|
+| ✅ **Execute** | Yes | – | Start/end shading, clear pending timestamp |
+| 🔄 **Retry** | No | No | Set new pending timestamp, wait again |
+| ❌ **Abort** | No | Yes | Clear pending timestamp, no action |
+
+**Why this approach?**
+- Prevents flickering from brief condition changes (passing cloud, temporary shade)
+- Protects motors from excessive wear
+- Ensures stable weather before reacting
+- Configurable via "Waiting Time" and "Maximum duration for retry"
+
+---
+
 ## 📚 Additional Resources
 
 **Official Documentation:**

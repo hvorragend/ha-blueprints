@@ -2836,6 +2836,11 @@ variables:
       )
     }}
 
+  # TODO: in_shading_position is volatile when tilt is enabled because shading_tilt_position
+  #       is dynamically computed from current sun elevation. When the sun moves and a new tilt
+  #       stage is calculated, the cover is no longer considered "in shading position" even though
+  #       it was correctly set before. Consider storing the last applied tilt in the JSON helper
+  #       (e.g. field 'tp') and comparing against that instead of the dynamic value.
   in_shading_position: >-
     {% set min = shading_position - position_tolerance %}
     {% set max = shading_position + position_tolerance %}
@@ -2921,6 +2926,12 @@ variables:
   #   ts.opn → ts.open, ts.cls → ts.close, ts.shd → ts.shade
   #   ts.shs → ts.shade_start, ts.she → ts.shade_end
   #   ts.win → ts.window, ts.man → ts.manual
+  #
+  # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
+  #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
+  #   lt  → last_trigger  (+6 chars) – Which trigger caused last action (debug)
+  #   tp  → tilt_position  (+5 chars) – Last applied tilt value (fixes in_shading_position volatility)
+  #   ec  → error_count    (+4 chars) – Consecutive error counter
   # ═══════════════════════════════════════════════════════════════════════════
   helper_json: >-
     {% set helper_state = states(cover_status_helper) %}
@@ -3090,6 +3101,25 @@ variables:
 
   # ═══════════════════════════════════════════════════════════════════════════
   # COMPUTED FLAGS - Simplified Movement Permissions
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # FORCE STATE ARCHITECTURE (Dual-Source Design):
+  # CCA intentionally maintains TWO sources of force state:
+  #
+  #   1. state_force (from JSON helper) – The PERSISTED force that was last
+  #      written to the helper. Used to track which force was active across
+  #      automation runs and for state recovery after force ends.
+  #
+  #   2. is_forced_* / active_force_from_sensors (from HA entities) – The
+  #      REALTIME sensor state. Reads the actual entity value at execution
+  #      time. Used for permission checks (force_allows_*) and "Last Wins"
+  #      logic when one force is disabled but another is still active.
+  #
+  # This dual approach is essential: the helper records WHAT happened, while
+  # the realtime sensors determine WHAT SHOULD happen now. Reading force
+  # state from the helper at runtime would cause stale comparisons because
+  # the helper is only updated when CCA runs, not when the external entity
+  # changes between runs.
   # ═══════════════════════════════════════════════════════════════════════════
 
   # Individual force states (realtime entity checks)
@@ -3639,15 +3669,14 @@ triggers:
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
-      {{
-        helper_state not in invalid_states and
-        helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") and
-        helper_state | from_json | regex_search('manual') and
-        (helper_state | from_json).manual.t is defined and
-        (helper_state | from_json).manual.a is defined and
-        (helper_state | from_json).manual.a | bool is true and
-         now() >= ((helper_state | from_json).manual.t + 60 * reset_override_timeout) | as_datetime | as_local
-      }}
+      {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% if helper.v | default(0) == 6 %}
+        {{ helper.man | default(0) | int == 1 and
+           helper.ts.man | default(0) | int > 0 and
+           now() >= (helper.ts.man + 60 * reset_override_timeout) | as_datetime | as_local }}
+      {% else %}
+        {{ false }}
+      {% endif %}
     enabled: "{{ is_reset_timeout }}"
     id: "t_reset_timeout"
     for:
@@ -3676,7 +3705,7 @@ conditions:
   - condition: template
     value_template: >-
       {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
-        {{ states(cover_status_helper) | regex_search('"shading"\s*:\s*\{[^}]*"a"\s*:\s*0') }}
+        {{ states(cover_status_helper) | regex_search('"shd"\s*:\s*0') }}
       {% elif trigger.id is match('^t_shading_end_pending_[1-6]$') %}
         {{ states(cover_status_helper) | regex_search('"shd"\s*:\s*1') }}
       {% else %}
@@ -3704,21 +3733,21 @@ actions:
                     # Full Close
                     - conditions: "{{ target_position | default(101) | int == 0 }}"
                       sequence:
-                        - service: cover.close_cover
+                        - action: cover.close_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
                     # Full Open
                     - conditions: "{{ target_position | default(101) | int == 100 }}"
                       sequence:
-                        - service: cover.open_cover
+                        - action: cover.open_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
                     # Partial Position (1-99)
                     - conditions: "{{ 0 < target_position | default(101) | int < 100 }}"
                       sequence:
-                        - service: cover.set_cover_position
+                        - action: cover.set_cover_position
                           data:
                             position: "{{ target_position | default(101) | int }}"
                           target:
@@ -3739,7 +3768,7 @@ actions:
                     # Optional: Reset tilt to 0 (Reposition Mode)
                     - if: "{{ tilt_first | default(false) }}"
                       then:
-                        - service: cover.set_cover_tilt_position
+                        - action: cover.set_cover_tilt_position
                           data:
                             tilt_position: 0
                           target:
@@ -3765,7 +3794,7 @@ actions:
                             seconds: !input tilt_delay
 
                     # Set target tilt position
-                    - service: cover.set_cover_tilt_position
+                    - action: cover.set_cover_tilt_position
                       data:
                         tilt_position: "{{ target_tilt_position | default(101) }}"
                       target:
@@ -3786,7 +3815,7 @@ actions:
       # Timestamps: ts.open, ts.close, ts.shade, ts.shade_start, ts.shade_end, ts.window, ts.manual
       # ═══════════════════════════════════════════════════════════════════════════
       helper_update: &helper_update
-        service: input_text.set_value
+        action: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: |-
@@ -3872,7 +3901,7 @@ actions:
           - "{{ states(cover_status_helper) in invalid_states }}"
           - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
     then:
-      - service: input_text.set_value
+      - action: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: >-
@@ -4244,19 +4273,30 @@ actions:
         }}
 
       # END OR: At least one specified condition must become invalid
-      # TODO: Unlike shading_start_or_result, this checks ALL conditions regardless of whether they are in shading_conditions_end_or list.
-      #       This is inconsistent behavior that may cause unexpected shading end triggers. Consider aligning with START logic.
       shading_end_or_result: >-
         {{
           shading_conditions_end_or | count > 0 and
           (
-            shading_end_condition_states.azimuth_invalid or
-            shading_end_condition_states.elevation_invalid or
-            shading_end_condition_states.brightness_invalid or
-            shading_end_condition_states.temp1_invalid or
-            shading_end_condition_states.temp2_invalid or
-            shading_end_condition_states.forecast_temp_invalid or
-            shading_end_condition_states.forecast_weather_invalid
+            ('cond_azimuth' in shading_conditions_end_or and
+            shading_end_condition_states.azimuth_invalid)
+            or
+            ('cond_elevation' in shading_conditions_end_or and
+            shading_end_condition_states.elevation_invalid)
+            or
+            ('cond_brightness' in shading_conditions_end_or and
+            shading_end_condition_states.brightness_invalid)
+            or
+            ('cond_temp1' in shading_conditions_end_or and
+            shading_end_condition_states.temp1_invalid)
+            or
+            ('cond_temp2' in shading_conditions_end_or and
+            shading_end_condition_states.temp2_invalid)
+            or
+            ('cond_forecast_temp' in shading_conditions_end_or and
+            shading_end_condition_states.forecast_temp_invalid)
+            or
+            ('cond_forecast_weather' in shading_conditions_end_or and
+            shading_end_condition_states.forecast_weather_invalid)
           )
         }}
 
@@ -4988,8 +5028,7 @@ actions:
                           - and:
                               - "{{ is_cover_tilt_enabled_and_possible }}"
                               - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
-                      - or: # Shading during daytime window
-                          - "{{ is_shading_allowed_window }}"
+                      - "{{ is_shading_allowed_window }}" # Shading during daytime window
                       - "{{ resident_flags.allow_shade }}"
                     sequence:
                       - variables:
@@ -5047,8 +5086,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ state_pending_start }}"
                       - "{{ shading_start_max_duration > 0 }}"
-                      - or: # Continue only within time window AND before timeout
-                          - "{{ is_shading_allowed_window }}"
+                      - "{{ is_shading_allowed_window }}" # Continue only within time window
                       - "{{ (as_timestamp(now()) - ts_shade) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
@@ -5106,8 +5144,12 @@ actions:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
               tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
+              # TODO: Consider storing the applied tilt value in the JSON helper (e.g. 'tp' field)
+              #       so that in_shading_position can compare against the actually applied tilt
+              #       instead of the dynamically computed shading_tilt_position.
               update_values:
-                t: "{{ as_timestamp(now()) | round(0) }}"
+                ts:
+                  shade: "{{ as_timestamp(now()) | round(0) | int }}"
           - *tilt_move_action
           - *helper_update
           - stop: "Shading Tilt executed"
@@ -5126,8 +5168,7 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_end)') }}"
           - condition: !input auto_shading_end_condition
-          - or:
-              - "{{ is_shading_allowed_window }}"
+          - "{{ is_shading_allowed_window }}"
           - "{{ not (state_manual and override_flags.shading) }}" # Override check
           - "{{ effective_state != 'close' }}"
           - or:
@@ -5343,8 +5384,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ state_pending_end }}"
                       - "{{ shading_end_max_duration > 0 }}"
-                      - or: # Continue only within time window AND before timeout
-                          - "{{ is_shading_allowed_window }}"
+                      - "{{ is_shading_allowed_window }}" # Continue only within time window
                       - "{{ (as_timestamp(now()) - ts_shade) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
