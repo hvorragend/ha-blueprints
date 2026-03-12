@@ -3808,59 +3808,35 @@ actions:
       # Helper Update Function
       # ═══════════════════════════════════════════════════════════════════════════
       # Usage: Set 'update_values' variable before calling with fields to update
-      # Example: update_values: { base: 'close', ts: { open: ts_now } }
-      # Internally uses long names, converts to compact schema when writing
+      # Example: update_values: { bas: 'cls', ts: { opn: ts_now } }
+      # Uses v6 compact schema names directly (no internal name conversion)
       #
-      # Fields: base, shade (1/0), window, force, resident (1/0), manual (1/0)
-      # Timestamps: ts.open, ts.close, ts.shade, ts.shade_start, ts.shade_end, ts.window, ts.manual
+      # Fields: bas, shd (1/0), win, frc, res (1/0), man (1/0)
+      # Timestamps: ts.opn, ts.cls, ts.shd, ts.shs, ts.she, ts.win, ts.man
       # ═══════════════════════════════════════════════════════════════════════════
       helper_update: &helper_update
         action: input_text.set_value
         data:
           entity_id: !input cover_status_helper
           value: |-
-              {% set current = helper_json %}
+              {% set helper_state = states(cover_status_helper) %}
+              {% set current = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
               {% set updates = update_values | default({}) %}
               {% set ts_now = as_timestamp(now()) | round(0) %}
 
-              {# Value mappings for internal → compact conversion #}
-              {% set base_map = {'close': 'cls', 'open': 'opn'} %}
-              {% set win_map = {'closed': 'cls', 'tilted': 'tlt', 'open': 'opn'} %}
-              {% set frc_map = {'none': 'non', 'open': 'opn', 'close': 'cls', 'shade': 'shd', 'vent': 'vnt'} %}
-
-              {# Get current values with v6 defaults #}
-              {% set new_base = current.base | default('open') %}
-              {% set new_shade = current.shade | default(0) | int %}
-              {% set new_window = current.window | default('closed') %}
-              {% set new_force = current.force | default('none') %}
-              {% set new_resident = current.resident | default(0) | int %}
-              {% set new_manual = current.manual | default(0) | int %}
+              {# Apply updates using compact names directly #}
+              {% set new_bas = updates.bas | default(current.bas | default('opn')) %}
+              {% set new_shd = updates.shd | default(current.shd | default(0)) | int %}
+              {% set new_win = updates.win | default(current.win | default('cls')) %}
+              {% set new_frc = updates.frc | default(current.frc | default('non')) %}
+              {% set new_res = updates.res | default(current.res | default(0)) | int %}
+              {% set new_man = updates.man | default(current.man | default(0)) | int %}
               {% set current_ts = current.ts | default({}) %}
-
-              {# Apply updates to main fields #}
-              {% if 'base' in updates %}
-                {% set new_base = updates.base %}
-              {% endif %}
-              {% if 'shade' in updates %}
-                {% set new_shade = updates.shade | int %}
-              {% endif %}
-              {% if 'window' in updates %}
-                {% set new_window = updates.window %}
-              {% endif %}
-              {% if 'force' in updates %}
-                {% set new_force = updates.force %}
-              {% endif %}
-              {% if 'resident' in updates %}
-                {% set new_resident = updates.resident | int %}
-              {% endif %}
-              {% if 'manual' in updates %}
-                {% set new_manual = updates.manual | int %}
-              {% endif %}
 
               {# Build timestamp object - preserve existing values and merge updates #}
               {% set merged_ts = namespace(data={}) %}
               {# Start with existing timestamp values #}
-              {% for key in ['open', 'close', 'shade', 'shade_start', 'shade_end', 'window', 'manual'] %}
+              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'win', 'man'] %}
                 {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
               {% endfor %}
               {# Overlay with update values #}
@@ -3872,20 +3848,20 @@ actions:
 
               {# Build final v6 COMPACT JSON structure #}
               {% set dict_new = {
-                'bas': base_map[new_base] | default('opn'),
-                'shd': new_shade | int,
-                'win': win_map[new_window] | default('cls'),
-                'frc': frc_map[new_force] | default('non'),
-                'res': new_resident | int,
-                'man': new_manual | int,
+                'bas': new_bas,
+                'shd': new_shd | int,
+                'win': new_win,
+                'frc': new_frc,
+                'res': new_res | int,
+                'man': new_man | int,
                 'ts': {
-                  'opn': merged_ts.data.open | default(0) | int,
-                  'cls': merged_ts.data.close | default(0) | int,
-                  'shd': merged_ts.data.shade | default(0) | int,
-                  'shs': merged_ts.data.shade_start | default(0) | int,
-                  'she': merged_ts.data.shade_end | default(0) | int,
-                  'win': merged_ts.data.window | default(0) | int,
-                  'man': merged_ts.data.manual | default(0) | int
+                  'opn': merged_ts.data.opn | default(0) | int,
+                  'cls': merged_ts.data.cls | default(0) | int,
+                  'shd': merged_ts.data.shd | default(0) | int,
+                  'shs': merged_ts.data.shs | default(0) | int,
+                  'she': merged_ts.data.she | default(0) | int,
+                  'win': merged_ts.data.win | default(0) | int,
+                  'man': merged_ts.data.man | default(0) | int
                 },
                 'v': 6,
                 't': ts_now | int
@@ -4666,9 +4642,9 @@ actions:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        base: "open"
+                        bas: "opn"
                         ts:
-                          open: "{{ ts_now | int }}"
+                          opn: "{{ ts_now | int }}"
                   - *helper_update
                   - stop: "Open time: Already in position, base state updated"
 
@@ -4689,13 +4665,13 @@ actions:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         # Activate shading, base state is open (time-based)
-                        base: "open"
-                        shade: 1
-                        manual: 0
+                        bas: "opn"
+                        shd: 1
+                        man: 0
                         ts:
-                          shade: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          shd: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
@@ -4722,13 +4698,13 @@ actions:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         # Set base state to open, clear shading
-                        base: "open"
-                        shade: 0
-                        manual: 0
+                        bas: "opn"
+                        shd: 0
+                        man: 0
                         ts:
-                          open: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          opn: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -4749,9 +4725,9 @@ actions:
               - variables:
                   ts_now: "{{ as_timestamp(now()) | round(0) }}"
                   update_values:
-                    base: "open"
+                    bas: "opn"
                     ts:
-                      open: "{{ ts_now | int }}"
+                      opn: "{{ ts_now | int }}"
               - *helper_update
               - stop: "Open time: In shading position, base state updated (movement via Shading End)"
 
@@ -4800,13 +4776,13 @@ actions:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        shade: 0
-                        window: "open"
-                        manual: 0
+                        shd: 0
+                        win: "opn"
+                        man: 0
                         ts:
-                          window: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          win: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - stop: "Closing skipped: Lockout enabled"
 
@@ -4828,13 +4804,13 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        shade: 0
-                        window: "tilted"
-                        manual: 0
+                        shd: 0
+                        win: "tlt"
+                        man: 0
                         ts:
-                          window: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          win: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
@@ -4858,9 +4834,9 @@ actions:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
-                        base: "close"
+                        bas: "cls"
                         ts:
-                          close: "{{ ts_now | int }}"
+                          cls: "{{ ts_now | int }}"
                   - *helper_update
                   - stop: "Close time: Already in position, base state updated"
 
@@ -4885,13 +4861,13 @@ actions:
                   - variables:
                       update_values:
                         # Set base state to close, clear shading
-                        base: "close"
-                        shade: 0
-                        manual: 0
+                        bas: "cls"
+                        shd: 0
+                        man: 0
                         ts:
-                          close: "{{ as_timestamp(now()) | round(0) | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          cls: "{{ as_timestamp(now()) | round(0) | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - stop: "Closing skipped: Cover is shaded and lowering blocked by settings"
 
@@ -4904,13 +4880,13 @@ actions:
                   target_tilt_position: !input close_tilt_position
                   update_values:
                     # Set base state to close, clear shading
-                    base: "close"
-                    shade: 0
-                    manual: 0
+                    bas: "cls"
+                    shd: 0
+                    man: 0
                     ts:
-                      close: "{{ as_timestamp(now()) | round(0) | int }}"
-                      shade_start: 0
-                      shade_end: 0
+                      cls: "{{ as_timestamp(now()) | round(0) | int }}"
+                      shs: 0
+                      she: 0
               - *helper_update
               - if: "{{ force_allows_close }}"
                 then:
@@ -4973,12 +4949,12 @@ actions:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
                             # Set shade pending timestamp
-                            shade: 0
-                            manual: 0
+                            shd: 0
+                            man: 0
                             ts:
-                              shade: "{{ ts_now | int }}"
-                              shade_start: "{{ (ts_now + local_waitingtime_start) | round(0) | int }}"
-                              shade_end: 0
+                              shd: "{{ ts_now | int }}"
+                              shs: "{{ (ts_now + local_waitingtime_start) | round(0) | int }}"
+                              she: 0
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
 
@@ -5003,14 +4979,14 @@ actions:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
                             # Shading blocked by lockout, record window state, store shading intent
-                            shade: 1
-                            window: "open"
-                            manual: 0
+                            shd: 1
+                            win: "opn"
+                            man: 0
                             ts:
-                              shade: "{{ ts_now | int }}"
-                              window: "{{ ts_now | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              shd: "{{ ts_now | int }}"
+                              win: "{{ ts_now | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - stop: "Shading Start skipped: Lockout enabled"
 
@@ -5036,12 +5012,12 @@ actions:
                           target_tilt_position: "{{ shading_tilt_position | int }}"
                           update_values:
                             # Activate shading
-                            shade: 1
-                            manual: 0
+                            shd: 1
+                            man: 0
                             ts:
-                              shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - if: "{{ force_allows_shade }}"
                         then:
@@ -5067,12 +5043,12 @@ actions:
                       - variables:
                           update_values:
                             # Store shading intent for future (cover is closed)
-                            shade: 1
-                            manual: 0
+                            shd: 1
+                            man: 0
                             ts:
-                              shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - stop: "Shading Start skipped: State saved"
 
@@ -5094,12 +5070,12 @@ actions:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
                             # Continue waiting with new pending time
-                            shade: 0
-                            manual: 0
+                            shd: 0
+                            man: 0
                             ts:
-                              shade: "{{ ts_now | int }}"
-                              shade_start: "{{ (ts_now + local_waitingtime_start) | round(0) | int }}"
-                              shade_end: 0
+                              shd: "{{ ts_now | int }}"
+                              shs: "{{ (ts_now + local_waitingtime_start) | round(0) | int }}"
+                              she: 0
                       - *helper_update
                       - stop: "Shading Start Pending: Continue waiting"
 
@@ -5114,12 +5090,12 @@ actions:
                       - variables:
                           update_values:
                             # Abort shading start, clear pending
-                            shade: 0
-                            manual: 0
+                            shd: 0
+                            man: 0
                             ts:
-                              shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - stop: "Shading Start aborted: Timeout or invalid"
 
@@ -5149,7 +5125,7 @@ actions:
               #       instead of the dynamically computed shading_tilt_position.
               update_values:
                 ts:
-                  shade: "{{ as_timestamp(now()) | round(0) | int }}"
+                  shd: "{{ as_timestamp(now()) | round(0) | int }}"
           - *tilt_move_action
           - *helper_update
           - stop: "Shading Tilt executed"
@@ -5201,12 +5177,12 @@ actions:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
                             # Set shading end pending timestamp
-                            shade: 1
-                            manual: 0
+                            shd: 1
+                            man: 0
                             ts:
-                              shade: "{{ ts_now | int }}"
-                              shade_start: 0
-                              shade_end: "{{ (ts_now + local_waitingtime_end) | round(0) | int }}"
+                              shd: "{{ ts_now | int }}"
+                              shs: 0
+                              she: "{{ (ts_now + local_waitingtime_end) | round(0) | int }}"
                       - *helper_update
                       - stop: "Shading End Pending: Waiting"
 
@@ -5224,12 +5200,12 @@ actions:
                           target_tilt_position: 50 # Moving the cover to open tilt position
                           update_values:
                             # Clear shading, tilt only
-                            shade: 0
-                            manual: 0
+                            shd: 0
+                            man: 0
                             ts:
-                              shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - if:
                           - "{{ not is_forced }}"
@@ -5259,14 +5235,14 @@ actions:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
                             # Shading end blocked by lockout, window is open
-                            shade: 0
-                            window: "open"
-                            manual: 0
+                            shd: 0
+                            win: "opn"
+                            man: 0
                             ts:
-                              window: "{{ ts_now | int }}"
-                              shade: "{{ ts_now | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              win: "{{ ts_now | int }}"
+                              shd: "{{ ts_now | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - stop: "Shading End skipped: Lockout enabled"
 
@@ -5295,14 +5271,14 @@ actions:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
                             # Shading ends, window is tilted
-                            shade: 0
-                            window: "tilted"
-                            manual: 0
+                            shd: 0
+                            win: "tlt"
+                            man: 0
                             ts:
-                              window: "{{ ts_now | int }}"
-                              shade: "{{ ts_now | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              win: "{{ ts_now | int }}"
+                              shd: "{{ ts_now | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - if: "{{ force_allows_ventilate }}"
                         then:
@@ -5339,14 +5315,14 @@ actions:
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Shading ends, return to open base state
-                                base: "open"
-                                shade: 0
-                                manual: 0
+                                bas: "opn"
+                                shd: 0
+                                man: 0
                                 ts:
-                                  open: "{{ ts_now | int }}"
-                                  shade: "{{ ts_now | int }}"
-                                  shade_start: 0
-                                  shade_end: 0
+                                  opn: "{{ ts_now | int }}"
+                                  shd: "{{ ts_now | int }}"
+                                  shs: 0
+                                  she: 0
                           - *helper_update
                           - if: "{{ force_allows_open }}"
                             then:
@@ -5367,12 +5343,12 @@ actions:
                               - variables:
                                   update_values:
                                     # Just clear shading state when forced
-                                    shade: 0
-                                    manual: 0
+                                    shd: 0
+                                    man: 0
                                     ts:
-                                      shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                                      shade_start: 0
-                                      shade_end: 0
+                                      shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                                      shs: 0
+                                      she: 0
                               - *helper_update
                       - stop: "Shading End (Opening after shading) executed"
 
@@ -5392,12 +5368,12 @@ actions:
                           ts_now: "{{ as_timestamp(now()) | round(0) }}" 
                           update_values:
                             # Continue waiting with new end pending time
-                            shade: 1
-                            manual: 0
+                            shd: 1
+                            man: 0
                             ts:
-                              shade: "{{ ts_now | int }}"
-                              shade_start: 0
-                              shade_end: "{{ (ts_now + local_waitingtime_end) | round(0) | int }}"
+                              shd: "{{ ts_now | int }}"
+                              shs: 0
+                              she: "{{ (ts_now + local_waitingtime_end) | round(0) | int }}"
                       - *helper_update
                       - stop: "Shading End Pending: Continue waiting"
 
@@ -5412,12 +5388,12 @@ actions:
                       - variables:
                           update_values:
                             # Abort shading end retry, keep shading active
-                            shade: 1
-                            manual: 0
+                            shd: 1
+                            man: 0
                             ts:
-                              shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                              shade_start: 0
-                              shade_end: 0
+                              shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                              shs: 0
+                              she: 0
                       - *helper_update
                       - stop: "Shading End aborted: Timeout or invalid"
 
@@ -5464,12 +5440,12 @@ actions:
                       target_tilt_position: !input open_tilt_position
                       update_values:
                         # Window is fully open (lockout)
-                        window: "open"
-                        manual: 0
+                        win: "opn"
+                        man: 0
                         ts:
-                          window: "{{ as_timestamp(now()) | round(0) | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          win: "{{ as_timestamp(now()) | round(0) | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_open }}"
                     then:
@@ -5515,12 +5491,12 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
                         # Window is tilted
-                        window: "tilted"
-                        manual: 0
+                        win: "tlt"
+                        man: 0
                         ts:
-                          window: "{{ as_timestamp(now()) | round(0) | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          win: "{{ as_timestamp(now()) | round(0) | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
@@ -5554,14 +5530,14 @@ actions:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to shading (shade is already true)
-                        shade: 1
-                        window: "closed"
-                        manual: 0
+                        shd: 1
+                        win: "cls"
+                        man: 0
                         ts:
-                          window: "{{ ts_now | int }}"
-                          shade: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          win: "{{ ts_now | int }}"
+                          shd: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
@@ -5599,12 +5575,12 @@ actions:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to open base state
-                        window: "closed"
-                        manual: 0
+                        win: "cls"
+                        man: 0
                         ts:
-                          window: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          win: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ not prevent_flags.opening_after_ventilation_end and force_allows_open }}"
                     then:
@@ -5643,12 +5619,12 @@ actions:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to close base state
-                        window: "closed"
-                        manual: 0
+                        win: "cls"
+                        man: 0
                         ts:
-                          window: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          win: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_close }}"
                     then:
@@ -5701,13 +5677,13 @@ actions:
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to open
-                                base: "open"
-                                shade: 0
-                                manual: 0
-                                resident: "{{ new_resident_status | bool }}"
+                                bas: "opn"
+                                shd: 0
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
                                 ts:
-                                  open: "{{ ts_now | int }}"
-                                  shade: "{{ ts_now | int }}"
+                                  opn: "{{ ts_now | int }}"
+                                  shd: "{{ ts_now | int }}"
                           - *helper_update
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5732,12 +5708,12 @@ actions:
                               target_tilt_position: "{{ shading_tilt_position | int }}"
                               update_values:
                                 # Resident leaving, activate shading
-                                shade: 1
-                                manual: 0
-                                resident: "{{ new_resident_status | bool }}"
+                                shd: 1
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
                                 ts:
-                                  shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                                  shade_start: 0
+                                  shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                                  shs: 0
                           - *helper_update
                           - if: "{{ force_allows_shade }}"
                             then:
@@ -5762,10 +5738,10 @@ actions:
                               target_tilt_position: "{{ ventilate_tilt_position | int }}"
                               update_values:
                                 # Resident leaving, window tilted
-                                manual: 0
-                                resident: "{{ new_resident_status | bool }}"
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
                                 ts:
-                                  window: "{{ as_timestamp(now()) | round(0) | int }}"
+                                  win: "{{ as_timestamp(now()) | round(0) | int }}"
                           - *helper_update
                           - if: "{{ force_allows_ventilate  }}"
                             then:
@@ -5790,10 +5766,10 @@ actions:
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
                                 # Resident leaving, window open
-                                manual: 0
-                                resident: "{{ new_resident_status | bool }}"
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
                                 ts:
-                                  window: "{{ as_timestamp(now()) | round(0) | int }}"
+                                  win: "{{ as_timestamp(now()) | round(0) | int }}"
                           - *helper_update
                           - if: "{{ force_allows_ventilate }}"
                             then:
@@ -5819,13 +5795,13 @@ actions:
                               ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to close
-                                base: "close"
-                                shade: 0
-                                manual: 0
-                                resident: "{{ new_resident_status | bool }}"
+                                bas: "cls"
+                                shd: 0
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
                                 ts:
-                                  close: "{{ ts_now | int }}"
-                                  shade: "{{ ts_now | int }}"
+                                  cls: "{{ ts_now | int }}"
+                                  shd: "{{ ts_now | int }}"
                           - *helper_update
                           - if: "{{ force_allows_close }}"
                             then:
@@ -5841,7 +5817,7 @@ actions:
                       # No matching target state or conditions not met, just update resident status
                       - variables:
                           update_values:
-                            resident: "{{ new_resident_status | bool }}"
+                            res: "{{ new_resident_status | int }}"
                       - *helper_update
 
               # Resident is arriving (OFF→ON): Try to close cover
@@ -5858,12 +5834,12 @@ actions:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Resident arriving, close cover (base unchanged - only time triggers update base)
-                        shade: 0
-                        manual: 0
-                        resident: "{{ new_resident_status | bool }}"
+                        shd: 0
+                        man: 0
+                        res: "{{ new_resident_status | int }}"
                         ts:
-                          close: "{{ ts_now | int }}"
-                          shade: "{{ ts_now | int }}"
+                          cls: "{{ ts_now | int }}"
+                          shd: "{{ ts_now | int }}"
                   - *helper_update
                   - if: "{{ force_allows_close }}"
                     then:
@@ -5879,7 +5855,7 @@ actions:
               # No action required, but still update resident status
               - variables:
                   update_values:
-                    resident: "{{ new_resident_status | bool }}"
+                    res: "{{ new_resident_status | int }}"
               - *helper_update
 
       ############################################################
@@ -5901,11 +5877,11 @@ actions:
                       target_tilt_position: !input open_tilt_position
                       update_values:
                         # Force open activated
-                        force: "open"
-                        manual: 0
+                        frc: "opn"
+                        man: 0
                         ts:
-                          shade_start: 0
-                          shade_end: 0
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_open }}"
                     then:
@@ -5926,11 +5902,11 @@ actions:
                       target_tilt_position: !input close_tilt_position
                       update_values:
                         # Force close activated
-                        force: "close"
-                        manual: 0
+                        frc: "cls"
+                        man: 0
                         ts:
-                          shade_start: 0
-                          shade_end: 0
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_close }}"
                     then:
@@ -5951,11 +5927,11 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
                         # Force ventilate activated
-                        force: "vent"
-                        manual: 0
+                        frc: "vnt"
+                        man: 0
                         ts:
-                          shade_start: 0
-                          shade_end: 0
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
@@ -5976,12 +5952,12 @@ actions:
                       target_tilt_position: "{{ shading_tilt_position |int }}"
                       update_values:
                         # Force shading activated
-                        force: "shade"
-                        manual: 0
+                        frc: "shd"
+                        man: 0
                         ts:
-                          shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
@@ -6014,11 +5990,11 @@ actions:
                       target_tilt_position: !input open_tilt_position
                       update_values:
                         # Switch to force open
-                        force: "open"
-                        manual: 0
+                        frc: "opn"
+                        man: 0
                         ts:
-                          shade_start: 0
-                          shade_end: 0
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_open }}"
                     then:
@@ -6039,11 +6015,11 @@ actions:
                       target_tilt_position: !input close_tilt_position
                       update_values:
                         # Switch to force close
-                        force: "close"
-                        manual: 0
+                        frc: "cls"
+                        man: 0
                         ts:
-                          shade_start: 0
-                          shade_end: 0
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_close }}"
                     then:
@@ -6064,12 +6040,12 @@ actions:
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       update_values:
                         # Switch to force shading
-                        force: "shade"
-                        manual: 0
+                        frc: "shd"
+                        man: 0
                         ts:
-                          shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
@@ -6090,11 +6066,11 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
                         # Switch to force ventilate
-                        force: "vent"
-                        manual: 0
+                        frc: "vnt"
+                        man: 0
                         ts:
-                          shade_start: 0
-                          shade_end: 0
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
@@ -6123,11 +6099,11 @@ actions:
                                   target_tilt_position: "{{ close_tilt_position | int }}"
                                   update_values:
                                     # Force ended, return to close base state
-                                    force: "none"
-                                    manual: 0
+                                    frc: "non"
+                                    man: 0
                                     ts:
-                                      shade_start: 0
-                                      shade_end: 0
+                                      shs: 0
+                                      she: 0
                               - *helper_update
                               - if: "{{ force_allows_close }}"
                                 then:
@@ -6150,12 +6126,12 @@ actions:
                                   target_tilt_position: "{{ shading_tilt_position | int }}"
                                   update_values:
                                     # Force ended, return to shading
-                                    force: "none"
-                                    manual: 0
+                                    frc: "non"
+                                    man: 0
                                     ts:
-                                      shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                                      shade_start: 0
-                                      shade_end: 0
+                                      shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                                      shs: 0
+                                      she: 0
                               - *helper_update
                               - if: "{{ force_allows_shade }}"
                                 then:
@@ -6177,11 +6153,11 @@ actions:
                                   target_tilt_position: !input ventilate_tilt_position
                                   update_values:
                                     # Force ended, return to ventilation (tilted)
-                                    force: "none"
-                                    manual: 0
+                                    frc: "non"
+                                    man: 0
                                     ts:
-                                      shade_start: 0
-                                      shade_end: 0
+                                      shs: 0
+                                      she: 0
                               - *helper_update
                               - if: "{{ force_allows_ventilate }}"
                                 then:
@@ -6205,12 +6181,12 @@ actions:
                                   target_tilt_position: "{{ open_tilt_position | int }}"
                                   update_values:
                                     # Force ended, return to open base state
-                                    force: "none"
-                                    manual: 0
+                                    frc: "non"
+                                    man: 0
                                     ts:
-                                      open: "{{ as_timestamp(now()) | round(0) | int }}"
-                                      shade_start: 0
-                                      shade_end: 0
+                                      opn: "{{ as_timestamp(now()) | round(0) | int }}"
+                                      shs: 0
+                                      she: 0
                               - *helper_update
                               - if: "{{ force_allows_open }}"
                                 then:
@@ -6226,14 +6202,14 @@ actions:
                           # Still clear the force flag to avoid it getting stuck
                           - variables:
                               update_values:
-                                force: "none"
+                                frc: "non"
                           - *helper_update
                           - stop: "Force cleared, no recovery position matched"
                 default:
                   # Recovery not enabled, just clear the force flag
                   - variables:
                       update_values:
-                        force: "none"
+                        frc: "non"
                   - *helper_update
                   - stop: "Force disabled, no recovery"
 
@@ -6302,9 +6278,9 @@ actions:
                   - variables:
                       update_values:
                         # Manual tilt detected
-                        manual: 1
+                        man: 1
                         ts:
-                          manual: "{{ ts_now | int }}"
+                          man: "{{ ts_now | int }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6320,15 +6296,15 @@ actions:
                   - variables:
                       update_values:
                         # Manual open detected
-                        base: "open"
-                        shade: 0
-                        manual: 1
+                        bas: "opn"
+                        shd: 0
+                        man: 1
                         ts:
-                          open: "{{ ts_now | int }}"
-                          manual: "{{ ts_now | int }}"
-                          shade: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          opn: "{{ ts_now | int }}"
+                          man: "{{ ts_now | int }}"
+                          shd: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6342,11 +6318,11 @@ actions:
                   - variables:
                       update_values:
                         # Manual ventilation detected (position only, window state unchanged)
-                        manual: 1
+                        man: 1
                         ts:
-                          manual: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          man: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6359,13 +6335,13 @@ actions:
                   - variables:
                       update_values:
                         # Manual shading detected
-                        shade: 1
-                        manual: 1
+                        shd: 1
+                        man: 1
                         ts:
-                          shade: "{{ ts_now | int }}"
-                          manual: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          shd: "{{ ts_now | int }}"
+                          man: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6382,15 +6358,15 @@ actions:
                   - variables:
                       update_values:
                         # Manual close detected
-                        base: "close"
-                        shade: 0
-                        manual: 1
+                        bas: "cls"
+                        shd: 0
+                        man: 1
                         ts:
-                          close: "{{ ts_now | int }}"
-                          manual: "{{ ts_now | int }}"
-                          shade: "{{ ts_now | int }}"
-                          shade_start: 0
-                          shade_end: 0
+                          cls: "{{ ts_now | int }}"
+                          man: "{{ ts_now | int }}"
+                          shd: "{{ ts_now | int }}"
+                          shs: 0
+                          she: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6406,9 +6382,9 @@ actions:
                   - variables:
                       update_values:
                         # Unknown manual position
-                        manual: 1
+                        man: 1
                         ts:
-                          manual: "{{ ts_now | int }}"
+                          man: "{{ ts_now | int }}"
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6427,10 +6403,10 @@ actions:
           - variables:
               update_values:
                 # Reset manual override
-                manual: 0
+                man: 0
                 ts:
-                  shade_start: 0
-                  shade_end: 0
+                  shs: 0
+                  she: 0
           - *helper_update
           - choose: []
             default: !input auto_override_reset_action
@@ -6454,12 +6430,12 @@ actions:
           - variables:
               update_values:
                 # Midnight reset - clear shading status
-                shade: 0
-                manual: 0
+                shd: 0
+                man: 0
                 ts:
-                  shade: "{{ as_timestamp(now()) | round(0) | int }}"
-                  shade_start: 0
-                  shade_end: 0
+                  shd: "{{ as_timestamp(now()) | round(0) | int }}"
+                  shs: 0
+                  she: 0
           - *helper_update
           - stop: "Midnight Reset executed"
 
