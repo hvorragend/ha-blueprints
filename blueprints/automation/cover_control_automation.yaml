@@ -3694,8 +3694,6 @@ actions:
       cover_move_action: &cover_move_action
         sequence:
           - condition: template
-            value_template: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-          - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - repeat:
               for_each: "{{ blind_entities | list }}"
@@ -3729,8 +3727,6 @@ actions:
 
       tilt_move_action: &tilt_move_action
         sequence:
-          - condition: template
-            value_template: "{{ not is_forced or trigger.id is match('^t_force_') }}"
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible }}"
           - repeat:
@@ -4663,14 +4659,12 @@ actions:
                     then:
                       - delay:
                           seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                        then:
-                          - choose: []
-                            default: !input auto_shading_start_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_shading_start_action
+                      - choose: []
+                        default: !input auto_shading_start_action_before
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - choose: []
+                        default: !input auto_shading_start_action
                   - stop: "Opening skipped: Shading detected"
 
             ###################################
@@ -4694,18 +4688,16 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ force_allows_open and resident_flags.allow_open }}"
+                  - delay:
+                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                  - if: "{{ resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) }}"
                     then:
-                      - delay:
-                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                        then:
-                          - choose: []
-                            default: !input auto_up_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_up_action
+                      - choose: []
+                        default: !input auto_up_action_before
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - choose: []
+                        default: !input auto_up_action
                   - stop: "Opening executed"
 
             ###################################
@@ -4806,14 +4798,12 @@ actions:
                     then:
                       - delay:
                           seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                        then:
-                          - choose: []
-                            default: !input auto_ventilate_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_ventilate_action
+                      - choose: []
+                        default: !input auto_ventilate_action_before
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - choose: []
+                        default: !input auto_ventilate_action
                   - stop: "Closing skipped: Window tilted (Ventilation activated)"
 
               ###################################
@@ -4884,14 +4874,12 @@ actions:
                 then:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                    then:
-                      - choose: []
-                        default: !input auto_down_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_down_action
+                  - choose: []
+                    default: !input auto_down_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_down_action
               - stop: "Closing executed"
 
       ############################################################
@@ -4908,7 +4896,6 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
           - condition: !input auto_shading_start_condition
-          - "{{ force_allows_shade }}"
           - or: # Check the helper status or the target status
               - "{{ not state_is_shaded }}"
               - "{{ state_window not in ['tilted', 'open'] }}"
@@ -5019,14 +5006,12 @@ actions:
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
-                          - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                            then:
-                              - choose: []
-                                default: !input auto_shading_start_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_shading_start_action
+                          - choose: []
+                            default: !input auto_shading_start_action_before
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - choose: []
+                            default: !input auto_shading_start_action
                       - stop: "Shading Start executed"
 
                   ####################################
@@ -5276,7 +5261,7 @@ actions:
                               shade_start: 0
                               shade_end: 0
                       - *helper_update
-                      - if: "{{ not is_forced }}"
+                      - if: "{{ force_allows_ventilate }}"
                         then:
                           - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                               seconds: >
@@ -5285,14 +5270,12 @@ actions:
                                 {% else %}
                                   {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
                                 {% endif %}
-                          - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                            then:
-                              - choose: []
-                                default: !input auto_ventilate_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_ventilate_action
+                          - choose: []
+                            default: !input auto_ventilate_action_before
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - choose: []
+                            default: !input auto_ventilate_action
                       - stop: "Shading End: Ventilation activated"
 
                   ########################################################
@@ -5322,7 +5305,7 @@ actions:
                                   shade_start: 0
                                   shade_end: 0
                           - *helper_update
-                          - if: "{{ not is_forced }}"
+                          - if: "{{ force_allows_open }}"
                             then:
                               - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                                   seconds: >
@@ -5331,14 +5314,12 @@ actions:
                                     {% else %}
                                       {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
                                     {% endif %}
-                              - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                                then:
-                                  - choose: []
-                                    default: !input auto_shading_end_action_before
-                                  - *cover_move_action
-                                  - *tilt_move_action
-                                  - choose: []
-                                    default: !input auto_shading_end_action
+                              - choose: []
+                                default: !input auto_shading_end_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_shading_end_action
                             else:
                               - variables:
                                   update_values:
@@ -5433,7 +5414,7 @@ actions:
                 conditions:
                   - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
-                  - "{{ force_allows_ventilate }}"
+                  - "{{ force_allows_ventilate }}" # TODO
                   - condition: !input auto_ventilate_condition
                 sequence:
                   - variables:
@@ -5452,14 +5433,12 @@ actions:
                     then:
                       - delay:
                           seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                        then:
-                          - choose: []
-                            default: !input auto_up_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_up_action
+                      - choose: []
+                        default: !input auto_up_action_before
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - choose: []
+                        default: !input auto_up_action
                   - stop: "Ventilation Start (Full) executed"
 
               ###################################
@@ -5470,7 +5449,7 @@ actions:
                 conditions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
-                  - "{{ force_allows_ventilate }}"
+                  - "{{ force_allows_ventilate }}" # TODO
                   - condition: !input auto_ventilate_condition
                   # Position check: Only move if cover is below ventilation position (or option enabled)
                   - or:
@@ -5505,14 +5484,12 @@ actions:
                     then:
                       - delay:
                           seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                        then:
-                          - choose: []
-                            default: !input auto_ventilate_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_ventilate_action
+                      - choose: []
+                        default: !input auto_ventilate_action_before
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - choose: []
+                        default: !input auto_ventilate_action
                   - stop: "Ventilation Start (Partial) executed"
 
               ###################################
@@ -5544,13 +5521,13 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: # Optional delay if enabled
-                      - "{{ ventilation_flags.delay_enabled }}"
+                  - if: "{{ force_allows_shade }}"
                     then:
-                      - delay:
-                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                    then:
+                      - if: # Optional delay if enabled
+                          - "{{ ventilation_flags.delay_enabled }}"
+                        then:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                       - choose: []
                         default: !input auto_shading_start_action_before
                       - *cover_move_action
@@ -5587,22 +5564,19 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if:
-                      - "{{ not prevent_flags.opening_after_ventilation_end }}"
+                  - if: "{{ not prevent_flags.opening_after_ventilation_end and force_allows_open }}"
                     then:
                       - if: # Optional delay if enabled
                           - "{{ ventilation_flags.delay_enabled }}"
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                        then:
-                          - choose: []
-                            default: !input auto_up_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_up_action
+                      - choose: []
+                        default: !input auto_up_action_before
+                      - *cover_move_action
+                      - *tilt_move_action
+                      - choose: []
+                        default: !input auto_up_action
                   - stop: "Ventilation End: Return to Open executed"
 
               ###################################
@@ -5634,13 +5608,13 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: # Optional delay if enabled
-                      - "{{ ventilation_flags.delay_enabled }}"
+                  - if: "{{ force_allows_close }}"
                     then:
-                      - delay:
-                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
-                    then:
+                      - if: # Optional delay if enabled
+                          - "{{ ventilation_flags.delay_enabled }}"
+                        then:
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                       - choose: []
                         default: !input auto_down_action_before
                       - *cover_move_action
@@ -5695,7 +5669,7 @@ actions:
                           - *helper_update
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                          - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
                             then:
                               - choose: []
                                 default: !input auto_up_action_before
@@ -5723,10 +5697,10 @@ actions:
                                   shade: "{{ as_timestamp(now()) | round(0) | int }}"
                                   shade_start: 0
                           - *helper_update
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                          - if: "{{ force_allows_shade }}"
                             then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
                                 default: !input auto_shading_start_action_before
                               - *cover_move_action
@@ -5751,10 +5725,10 @@ actions:
                                 ts:
                                   window: "{{ as_timestamp(now()) | round(0) | int }}"
                           - *helper_update
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                          - if: "{{ force_allows_ventilate  }}"
                             then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
                                 default: !input auto_ventilate_action_before
                               - *cover_move_action
@@ -5779,10 +5753,10 @@ actions:
                                 ts:
                                   window: "{{ as_timestamp(now()) | round(0) | int }}"
                           - *helper_update
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                          - if: "{{ force_allows_ventilate }}"
                             then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
                                 default: !input auto_ventilate_action_before
                               - *cover_move_action
@@ -5795,7 +5769,7 @@ actions:
                           - "{{ state_base == 'close' }}"
                           - "{{ is_down_enabled }}"
                           - "{{ effective_state != 'close' or not in_close_position }}"
-                          - "{{ force_allows_close }}"
+                          - "{{ force_allows_close }}" # TODO
                         sequence:
                           - variables:
                               target_position: !input close_position
@@ -5811,10 +5785,10 @@ actions:
                                   close: "{{ ts_now | int }}"
                                   shade: "{{ ts_now | int }}"
                           - *helper_update
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                          - if: "{{ force_allows_close }}"
                             then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
                                 default: !input auto_down_action_before
                               - *cover_move_action
@@ -5834,7 +5808,7 @@ actions:
                   - "{{ is_down_enabled }}"
                   - "{{ resident_flags.closing_trigger }}"
                   - "{{ effective_state != 'close' or not in_close_position }}"
-                  - "{{ force_allows_close }}"
+                  - "{{ force_allows_close }}" # TODO
                 sequence:
                   - variables:
                       target_position: !input close_position
@@ -5849,10 +5823,10 @@ actions:
                           close: "{{ ts_now | int }}"
                           shade: "{{ ts_now | int }}"
                   - *helper_update
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_close }}"
                     then:
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                       - choose: []
                         default: !input auto_down_action_before
                       - *cover_move_action
@@ -5891,7 +5865,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_open }}"
                     then:
                       - choose: []
                         default: !input auto_up_action_before
@@ -5916,7 +5890,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_close }}"
                     then:
                       - choose: []
                         default: !input auto_down_action_before
@@ -5941,7 +5915,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_ventilate }}"
                     then:
                       - choose: []
                         default: !input auto_ventilate_action_before
@@ -5967,7 +5941,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_shade }}"
                     then:
                       - choose: []
                         default: !input auto_shading_start_action_before
@@ -6004,7 +5978,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_open }}"
                     then:
                       - choose: []
                         default: !input auto_up_action_before
@@ -6029,7 +6003,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_close }}"
                     then:
                       - choose: []
                         default: !input auto_down_action_before
@@ -6055,7 +6029,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_shade }}"
                     then:
                       - choose: []
                         default: !input auto_shading_start_action_before
@@ -6080,7 +6054,7 @@ actions:
                           shade_start: 0
                           shade_end: 0
                   - *helper_update
-                  - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                  - if: "{{ force_allows_ventilate }}"
                     then:
                       - choose: []
                         default: !input auto_ventilate_action_before
@@ -6113,7 +6087,7 @@ actions:
                                       shade_start: 0
                                       shade_end: 0
                               - *helper_update
-                              - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                              - if: "{{ force_allows_close }}"
                                 then:
                                   - choose: []
                                     default: !input auto_down_action_before
@@ -6141,7 +6115,7 @@ actions:
                                       shade_start: 0
                                       shade_end: 0
                               - *helper_update
-                              - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                              - if: "{{ force_allows_shade }}"
                                 then:
                                   - choose: []
                                     default: !input auto_shading_start_action_before
@@ -6167,7 +6141,7 @@ actions:
                                       shade_start: 0
                                       shade_end: 0
                               - *helper_update
-                              - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                              - if: "{{ force_allows_ventilate }}"
                                 then:
                                   - choose: []
                                     default: !input auto_ventilate_action_before
@@ -6196,7 +6170,7 @@ actions:
                                       shade_start: 0
                                       shade_end: 0
                               - *helper_update
-                              - if: "{{ not is_forced or trigger.id is match('^t_force_') }}"
+                              - if: "{{ force_allows_open }}"
                                 then:
                                   - choose: []
                                     default: !input auto_up_action_before
