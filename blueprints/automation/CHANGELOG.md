@@ -1,199 +1,118 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
-# 🚀 CCA 2026.03.alpha - Final Fixes, Documentation & Tools Update
+# 🚀 CCA 2026.03.alpha – New State Machine & Mandatory JSON Helper
+
+## 🏗️ New Architecture: State Machine v6 & Mandatory JSON Helper
+
+This release brings a **major internal overhaul** of the Cover Control Automation engine. While there are no new configuration options for you to set up, the improvements make the automation significantly more reliable, predictable, and easier to diagnose.
+
+### 🔄 New State Machine with Priority Cascade
+
+The automation now resolves the cover's target state through a clearly defined **5-level priority cascade**, evaluated on every run. Higher-priority states always win over lower ones:
+
+| Priority | State | When active |
+|----------|-------|-------------|
+| 1 – highest | **Force** | Any force function is active (Force Open/Close/Shade/Ventilate) |
+| 2 | **Lockout** | Window is fully open — cover must not close |
+| 3 | **Ventilation** | Window is tilted — cover moves to ventilation position |
+| 4 | **Shading** | Sun shading is active |
+| 5 – lowest | **Base** | Time-based schedule (open/close time) |
+
+This replaces the previous implicit state resolution that mixed multiple variables without a guaranteed evaluation order. The new cascade makes the cover's behavior predictable in every situation, including when multiple states are active at the same time.
+
+### 📦 New JSON Helper v6 Schema — Now Mandatory
+
+The **Cover Status Helper (`input_text`)** has been redesigned with a compact, versioned JSON schema (v6). This helper is now **required** for the automation to function correctly — it can no longer be omitted.
+
+The helper stores all relevant state information: the current base state, shading status, window sensor state, active force function, resident presence, manual override flag, and timestamps for every state transition.
+
+**What this means for you:**
+- If you were already using the helper, it will be **automatically migrated** from the old format (v5) to v6 on the first run — no manual action needed.
+- If you were not using a helper yet, you now need to create one. See the blueprint documentation for setup instructions.
+
+---
 
 ## 🔧 Bug Fixes
 
-- **Fixed redundant cover movements** (closes #344): Cover no longer moves when it is already at the target position or within the configured position tolerance window. The `&cover_move_action` anchor now checks the current position before sending a command.
+### Redundant cover movements prevented ([#344](https://github.com/hvorragend/ha-blueprints/issues/344))
+The cover no longer moves when it is already at the target position or within the configured position tolerance range.
 
-- **Fixed `environment_allows_opening` using incorrect AND logic** (fixes #354): The environment check now correctly uses OR logic — a single permissive condition is sufficient to allow opening. The previous AND logic caused covers to be blocked unnecessarily when only one of several environment conditions was met.
+### Opening incorrectly blocked in some conditions ([#354](https://github.com/hvorragend/ha-blueprints/issues/354))
+The check that determines whether the environment allows opening was using the wrong logic in certain configurations, unnecessarily blocking the cover. This has been fixed — a single permissive condition is now sufficient to allow opening.
 
-- **Fixed v5 schema remnants causing silent failures after v6 migration**: Several code paths still referenced old v5 JSON helper field names after the migration to the v6 compact schema:
-  - `t_reset_timeout` trigger was checking obsolete `manual.t` / `manual.a` fields (v5) instead of `man` / `ts.man` (v6 compact) — the timeout reset was silently broken.
-  - The global condition for shading start pending triggers was searching for `"shading"` (v5 key) instead of `"shd"` (v6 key) — all `t_shading_start_pending_*` triggers were permanently blocked by this condition.
-  - `shading_end_or_result` was evaluating **all** shading end conditions instead of only the user-configured OR conditions, causing unexpected early shading end.
+### Silent failures after internal format upgrade (v5 → v6)
+Several automation paths were silently broken after the helper format was upgraded:
+- The manual override timeout reset was not working.
+- Shading start pending triggers were permanently blocked.
+- Shading end conditions were being evaluated too broadly, causing early shading end.
 
-- **Fixed Branch 3 (Shading Tilt) not writing shade timestamp**: The `update_values` block was writing to key `t` (no-op) instead of `ts.shade`, so the last-shaded timestamp was never persisted from the tilt branch.
+All three issues are now fixed.
 
-## ♻️ Internal Cleanup
+### Shading timestamp always saved correctly
+The timestamp of the last shading event was not being stored in the tilt-based shading path. This is now resolved across all code paths.
 
-- **Migrated remaining `service:` calls to `action:`**: 7 occurrences in YAML anchors updated to the current Home Assistant syntax.
+### Spurious shading end prevented
+An issue where an invalid weather forecast could unintentionally trigger the end of sun shading has been fixed. Only valid conditions will now end shading.
 
-- **Removed redundant `or:` wrappers**: Cleaned up 4 unnecessary single-element `or:` blocks in shading branches.
+### Shading state preserved during ventilation ([#338](https://github.com/hvorragend/ha-blueprints/issues/338))
+When a window was tilted while shading was active, the shading state was lost and the cover would not return to shading after the window closed. The shading state is now correctly preserved throughout the ventilation phase.
 
-## 📚 Documentation Updates
+### Force recovery respects resident status ([#332](https://github.com/hvorragend/ha-blueprints/issues/332))
+When a force function was deactivated and the cover returned to its background state, the resident sensor status was sometimes ignored. This is now always checked before executing the recovery movement.
 
-- **Added Force State Architecture section to FAQ**: Explains the dual-source design — persisted helper state (background) vs. realtime entity reads (force gates) — and when each source is used.
+### Resident sensor race condition eliminated
+When multiple simultaneous sensor signals (resident arriving and leaving) fired at the same time, actions were sometimes skipped entirely. A single intelligent trigger now handles both arrival and departure reliably in one unified flow.
 
-- **Added State Transition Matrix to FAQ**: Maps each trigger to its corresponding branch and state changes in the helper, with full branch overview table (Branches 0–11).
+### Cover no longer closes during active Force function
+When a window closed (ending a ventilation phase), the cover could close even if Force Open was still active. This is now correctly prevented.
 
-- **Added Shading Pending Mechanism section to FAQ**: Documents the two-phase trigger flow for `t_shading_start_pending_*` triggers and the role of `ts.shs` as the pending indicator.
+### Ventilation end respects resident presence
+When auto-ventilation ends (window closes), the automation now checks for resident presence before deciding whether to close.
 
-- **Added flex-table-card visualization example to FAQ**: Comprehensive card configuration showing how to display all 12 helper fields (status, target position, force overrides, resident/manual flags, timestamps) in a Home Assistant dashboard using `custom:flex-table-card`.
+### Background state always kept up to date
+Even when force functions are active, the automation continues to track what it *would* be doing in the background — e.g. "close at 18:00" while Force Open is running. This ensures a correct return to the scheduled state after force ends.
 
-- **Added State Hierarchy documentation to FAQ**: Detailed explanation of the five state layers and how `effective_state` is computed through the priority cascade.
-
-- **Fixed JSON helper schema table in FAQ**: Corrected field values that were documented incorrectly (`win` values `ptl`/`ful` → `tlt`/`opn`; `frc` value `ven` → `vnt`; removed incorrect `shd=2` pending state row).
-
-## 🛠️ Tools Updates
-
-- **CCA Validator updated to v2026.01.25**: Added `sun_elevation_mode` and `enable_background_state_tracking` to the set of known parameters (previously flagged as unknown). Rewrote `validateDynamicSunElevation()` with full mode-aware validation (fixed/dynamic/hybrid), including missing-sensor errors for dynamic mode and informational messages for fixed mode.
-
-- **Trace Analyzer updated to v2.0** (For CCA Blueprint v2026.01.25+):
-  - Branch definitions completely rewritten to match new Branch 0–11 structure (was 0–13)
-  - Added new trigger IDs: `t_resident_update`, `t_shading_start_pending_6`, `t_shading_start_pending_7`, `t_shading_end_pending_6`
-  - `formatHelperValue()` rewritten to support v6 internal, v6 compact, and v5 legacy formats
-  - `renderHelperStatus()` rewritten with structured v6 field display (effective state panel, timestamps panel, v5 legacy fallback)
-
-- **Trace Compare updated to v2.0** (For CCA Blueprint v2026.01.25+):
-  - Branch definitions rewritten to match Branch 0–11 structure
-  - `branchCounts` initialization loop corrected (was iterating 0–13, now 0–11)
-  - Expanded trigger explanations for all current trigger IDs
-  - `formatHelperValue()` updated with same v6/v5 multi-format support as Trace Analyzer
+### Force priority: "Last Wins" for multiple simultaneous forces ([PR #342](https://github.com/hvorragend/ha-blueprints/pull/342))
+When multiple force functions were active at the same time, the system behaved inconsistently. The rule is now clearly defined: **the last activated force function takes precedence**.
 
 ---
 
+## ✨ New Features & Improvements
 
-# Force Function Refactoring & State Guard Standardization
+### Resident handling: arrival and departure in one trigger
+Resident control was completely redesigned. A single smart trigger now handles both arrival and departure, including all environment checks and resident flags. This makes resident-based behavior far more reliable.
 
-## ♻️ Internal Refactoring
-
-- **Standardized `is_forced` checks across all branches** (PR #349): All action branches now include a unified `is_forced` guard to prevent cover movement while any force function is active. Previously only some branches included this check, leading to inconsistent behavior when force functions were enabled.
-
-- **Simplified `force_allows_*` variables to realtime-only checks** (PR #350): Force permission variables (`force_allows_open`, `force_allows_close`, `force_allows_shade`, `force_allows_ventilate`) now evaluate only realtime entity state rather than a mix of persisted helper data and realtime reads. This removes a class of edge cases where stale helper data could incorrectly permit or block movements.
-
-- **Removed obsolete force trigger pattern checks**: Leftover trigger-pattern matching from before the `force_allows_*` system was removed. All force gating is now consistently handled through the permission variables.
-
-- **Renamed force permission variables for clarity** (PR #345): All internal force permission variables renamed:
-  - `can_move_open` → `force_allows_open`
-  - `can_move_close` → `force_allows_close`
-  - `can_move_shade` → `force_allows_shade`
-  - `can_move_ventilate` → `force_allows_ventilate`
-
-- **Consolidated force trigger handling**: Multiple overlapping force trigger conditions were merged into a single coherent check per branch.
+### Automatic return to background state after force ends
+When a force function is deactivated, the cover automatically returns to the state the automation would have applied at that moment — open, closed, shading, or ventilation — without any manual intervention.
 
 ---
 
+## 📚 Documentation
 
-# State Machine v6 Architecture & Compact JSON Helper
-
-This release is a major internal overhaul of the Cover Control Automation engine. The state machine was completely redesigned around a structured JSON helper schema with an explicit priority cascade for state resolution. There are no new user-facing configuration options; all changes are internal architecture improvements that improve reliability, debuggability, and correctness.
-
-## 🏗️ New JSON Helper v6 Compact Schema
-
-- **Redesigned compact schema for `input_text` helper**: The Cover Status Helper now stores all state in a compact, versioned JSON format (typically ~138 chars, well within the 208-char `input_text` limit). The schema replaces the loosely structured v5 format with explicit typed fields.
-
-  **Top-level fields:**
-
-  | Field | Values | Description |
-  |-------|--------|-------------|
-  | `bas` | `opn` / `cls` | Base state (time-triggered) |
-  | `shd` | `0` / `1` | Shading active flag |
-  | `win` | `cls` / `tlt` / `opn` | Window contact sensor state |
-  | `frc` | `non` / `opn` / `cls` / `shd` / `vnt` | Active force function |
-  | `res` | `0` / `1` | Resident present |
-  | `man` | `0` / `1` | Manual override active |
-  | `ts`  | sub-object | Timestamps for all state transitions |
-  | `v`   | `6` | Schema version marker |
-  | `t`   | Unix timestamp | Global last-updated timestamp |
-
-  **Timestamp sub-keys (`ts.*`):**
-
-  | Key | Description |
-  |-----|-------------|
-  | `ts.opn` | Last open transition |
-  | `ts.cls` | Last close transition |
-  | `ts.shd` | Last shade-active transition |
-  | `ts.shs` | Shading start pending (non-zero = pending active) |
-  | `ts.she` | Shading end pending (non-zero = end pending active) |
-  | `ts.win` | Last window state change |
-  | `ts.man` | Last manual override change |
-
-  **Example compact JSON (138 chars):**
-  ```json
-  {"bas":"opn","shd":0,"win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"win":0,"man":0},"v":6,"t":1738368000}
-  ```
-
-- **Automatic v5 → v6 migration**: Existing automations with the old v5 helper format are automatically detected (`helper_json` reads and converts) and the migrated v6 schema is persisted on the first helper update. No manual intervention required.
-
-- **Internal long-form field names**: All internal blueprint variables continue to use readable long names (`base`, `shade`, `window`, `force`, `resident`, `manual`). Compact-to-long conversion happens in `helper_json` (read path); long-to-compact conversion happens in `helper_update` (write path). All `update_values` blocks are unchanged.
-
-## ⚙️ New State Machine with Priority Cascade
-
-- **`effective_state` replaces `state_current`**: The computed final cover state is now explicitly resolved by a 5-level priority cascade evaluated on every automation run:
-
-  | Priority | State | Condition |
-  |----------|-------|-----------|
-  | 1 (highest) | **FORCE** | Any force function active (`frc != non`) |
-  | 2 | **LOCKOUT** | Window fully open (`win = opn`) — prevents closing |
-  | 3 | **VENTILATION** | Window tilted (`win = tlt`) — ventilation position |
-  | 4 | **SHADING** | Shading active (`shd = 1`) |
-  | 5 (lowest) | **BASE** | Time-based ground state (`bas = opn/cls`) |
-
-- **Shading state preserved during ventilation**: When a window is tilted while shading is active, the `shd` flag is preserved. When the window closes again, the cover correctly returns to the shading position. Previously the shade state was lost on window events.
-
-- **Base state always updated on time triggers**: Time-based branches (Opening/Closing) now unconditionally update the `bas` field in the helper. This ensures the background target state is always current, even when other overrides (force functions, manual) are active.
-
-## ♻️ State Variable Refactoring
-
-- **Removed legacy `state_current`** (PR #347): The old `state_current` variable has been completely removed from the blueprint. The `effective_state` variable (computed via the priority cascade) replaces it in all 80+ references.
-
-- **Separated state resolution layers** (PR #346, #348): The monolithic `state_target` variable was split into distinct intermediate state variables to cleanly separate each layer of the cascade (force → lockout → ventilation → shading → base → resident modifier → manual override). The state resolution chain is now explicit and follows the documented priority order.
-
-- **`ts_now` cleanup**: Consolidated all `as_timestamp(now()) | round(0)` calls into the shared `ts_now` variable (already introduced in 2025.12.27 refactoring) — removed remaining inline duplications.
-
-## 🔄 Branch Restructuring
-
-- **Cover Control branches renumbered for logical consistency**: Branches were reorganized to group related functionality and reflect the state machine priority order:
-
-  | Branch | Name | Change |
-  |--------|------|--------|
-  | 0 | Opening | unchanged |
-  | 1 | Closing | unchanged |
-  | 2 | Shading Start | unchanged |
-  | 3 | Shading Tilt | unchanged |
-  | 4 | Shading End | unchanged |
-  | 5 | Contact Sensor / Lockout | unchanged |
-  | **6** | **Resident Update** | **NEW** — moved from Branch 13 (was simple helper update); now full bidirectional handler (see v2026.01.25) |
-  | **7** | **Force Functions** | **MERGED** — was 4 separate branches (6: Force Open, 7: Force Close, 8: Force Shade, 9: Force Vent) |
-  | 8 | Return After Force | was Branch 12 |
-  | 9 | Manual Detection | was Branch 10 |
-  | 10 | Reset Override | was Branch 11 |
-  | 11 | Midnight Reset | was Branch 13 |
-
-- **Force Functions consolidated into a single Branch 7**: Previously, Force Open, Force Close, Force Shade, and Force Ventilate each had their own trigger and action sequence (Branches 6–9). All four are now handled by a single unified branch with internal state routing via the `frc` helper field.
-
-## 🔧 Bug Fixes
-
-- **Fixed: preserve base state during ventilation** (closes #338): When auto-close was blocked by lockout protection or an open ventilation window, the `bas` field was incorrectly overwritten with `cls`. This caused covers to close prematurely after the window was closed and the ventilation state ended.
-
-- **Fixed: unconditional helper updates for background state tracking**: Helper updates in `&helper_update` were previously guarded by conditions (gated on force function state), causing the background state to become stale whenever a force function was active. The helper is now always updated unconditionally, enabling reliable `Return After Force` recovery (Branch 8).
-
-- **Fixed: force state logic — "Last Wins" for multiple simultaneous force functions** (PR #342): When multiple force functions were activated simultaneously or in rapid succession, the priority logic did not consistently apply. The last-activated force function now correctly takes precedence, with proper recovery defaults when a force function is deactivated.
-
-- **Fixed: shade timestamp updates for all shade deactivation paths**: All code paths that deactivate shading (manual intervention, timeout, sensor condition change, forced override) now correctly write the `ts.shd` timestamp. Previously several paths skipped the timestamp update, causing inaccurate last-shaded values.
-
-- **Fixed: resident arrival/departure logic errors**: Resident arrival handling had inverted boolean logic in some code paths. Permission variables (`can_open_with_resident`, `can_shade_with_resident`, `can_ventilate_with_resident`) are now consolidated into a single evaluation point for clarity and correctness.
-
-- **Fixed: ventilation end respects resident presence**: When auto-ventilation ends (window closes), the cover now correctly checks resident presence before deciding whether to close. Previously ventilation end could close a cover that resident mode should have kept open.
+New sections added to the FAQ:
+- **Force State Architecture** — explains when the persisted helper state vs. real-time entity state is used for force decisions.
+- **State Transition Matrix** — maps every trigger to its branch and the resulting helper state changes.
+- **Shading Pending Mechanism** — documents the two-phase trigger flow for delayed shading start.
+- **Flex-Table-Card Visualization** — complete dashboard card configuration to display all internal helper fields.
+- **State Hierarchy** — detailed explanation of the five state layers and how `effective_state` is resolved through the priority cascade.
 
 ---
 
+## 🛠️ Tool Updates
 
-# Resident Branch Refactoring
+### CCA Validator
+- Now recognizes `sun_elevation_mode` and `enable_background_state_tracking` (previously flagged as unknown parameters).
+- Sun elevation validation rewritten with full mode-aware support (Fixed / Dynamic / Hybrid).
+- **New check:** The validator now explicitly checks if the required elevation sensors exist when using Dynamic or Hybrid sun elevation mode, warning you before deployment if they are missing.
 
-## 🔧 Bug Fixes
+### Trace Analyzer v2.0
+Fully updated to match the new Branch 0–11 structure and the v6 helper format. Supports v6 internal, v6 compact, and v5 legacy display.
 
-- **Fixed resident sensor race condition**: Resolved trigger conflict where `t_open_6` (resident leaving), `t_close_6` (resident arriving), and `t_resident_update` (resident status change) would fire simultaneously, causing no action to execute. Removed both dedicated triggers and replaced simple helper update (BRANCH 13) with comprehensive resident handler (BRANCH 15) that:
-  - Always updates helper with new resident status (no blocking `stop:` statement)
-  - Optionally opens cover when resident leaves (ON→OFF transition)
-  - Optionally closes cover when resident arrives (OFF→ON transition)
-  - Respects all environment checks and resident flags
-  - Eliminates race condition through single trigger (`t_resident_update`) with intelligent bidirectional handling
-
-- **Enhanced resident sensor force recovery** (#332): Added resident checks to force recovery logic to prevent covers from returning to positions that violate resident requirements. Uses existing computed flags (`can_open_with_resident`, `can_shade_with_resident`, `can_ventilate_with_resident`) for elegant 3-line solution.
+### Trace Compare v2.0
+Updated to Branch 0–11 structure, extended trigger explanations, and same v6/v5 multi-format support as the Trace Analyzer.
 
 ---
+
 
 # 🚀 CCA 2026.01.26 - Force Features Self-Blocking Fix
 
