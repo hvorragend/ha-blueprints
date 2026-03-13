@@ -1230,7 +1230,7 @@
             </div>
             <p class="subtitle">Analyze CCA automation traces to understand what happened</p>
             <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem;">
-                <span class="version-badge">v1.0 - For CCA Blueprint v2025.12.22+</span>
+                <span class="version-badge">v2.0 - For CCA Blueprint v2026.01.25+</span>
                 <a href="../trace-compare/" class="version-badge"
                     style="text-decoration: none; border-color: var(--accent-purple); color: var(--accent-purple);">📈
                     CCA Trace Compare</a>
@@ -1444,66 +1444,76 @@
 
     <script>
         // =====================================================================
-        // CCA TRACE ANALYZER v3
-        // Properly handles Home Assistant trace structure
+        // CCA TRACE ANALYZER v4
+        // Updated for CCA Blueprint v2026.01.25+ (State Machine v6, JSON Helper v6)
         // =====================================================================
 
-        // Branch definitions from CCA Blueprint
+        // Branch definitions from CCA Blueprint (v2026.01.25+)
+        // Branches 0-11 + Default (Config Check)
         const BRANCH_DEFINITIONS = {
-            0: { name: 'Opening', description: 'Automatic cover opening control', icon: '🔼' },
-            1: { name: 'Closing', description: 'Automatic cover closing control', icon: '🔻' },
-            2: { name: 'Shading Start', description: 'Activates sun protection/shading', icon: '☀️' },
-            3: { name: 'Shading Tilt', description: 'Adjusts tilt during active shading', icon: '📐' },
-            4: { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
-            5: { name: 'Contact Sensor', description: 'Window/door state changes (ventilation)', icon: '🪟' },
-            6: { name: 'Force Open', description: 'Forced opening via entity', icon: '⬆️' },
-            7: { name: 'Force Close', description: 'Forced closing via entity', icon: '⬇️' },
-            8: { name: 'Force Ventilate', description: 'Forced ventilation via entity', icon: '💨' },
-            9: { name: 'Force Shading', description: 'Forced shading via entity', icon: '🌞' },
-            10: { name: 'Manual Detection', description: 'Detects manual position changes', icon: '🖐️' },
-            11: { name: 'Reset Override', description: 'Resets manual override status', icon: '🔄' },
-            12: { name: 'Return After Force', description: 'Returns to background state after force disable', icon: '↩️' },
-            13: { name: 'Midnight Reset', description: 'Resets shading status at end of day', icon: '🌙' }
+            0:  { name: 'Opening',              description: 'Automatic cover opening control',                           icon: '🔼' },
+            1:  { name: 'Closing',              description: 'Automatic cover closing control',                           icon: '🔻' },
+            2:  { name: 'Shading Start',        description: 'Activates sun protection/shading',                          icon: '☀️' },
+            3:  { name: 'Shading Tilt',         description: 'Adjusts tilt during active shading',                        icon: '📐' },
+            4:  { name: 'Shading End',          description: 'Deactivates sun protection',                                icon: '🌥️' },
+            5:  { name: 'Contact Sensor',       description: 'Window/door state changes (ventilation/lockout)',           icon: '🪟' },
+            6:  { name: 'Resident Update',      description: 'Resident sensor changed – updates helper & moves cover',   icon: '👤' },
+            7:  { name: 'Force Functions',      description: 'Forced position via entity (open/close/vent/shade)',        icon: '⚡' },
+            8:  { name: 'Return After Force',   description: 'Returns to background state after force disable',           icon: '↩️' },
+            9:  { name: 'Manual Detection',     description: 'Detects manual position changes',                           icon: '🖐️' },
+            10: { name: 'Reset Override',       description: 'Resets manual override status',                             icon: '🔄' },
+            11: { name: 'Midnight Reset',       description: 'Resets shading status at end of day',                      icon: '🌙' }
         };
 
-        // Trigger ID explanations
+        // Trigger ID explanations (v2026.01.25+)
         const TRIGGER_EXPLANATIONS = {
+            // Opening triggers
             't_open_1': 'Time-based opening (early time reached)',
             't_open_2': 'Time-based opening (late time reached)',
             't_open_4': 'Brightness exceeded opening threshold',
             't_open_5': 'Sun elevation exceeded opening threshold',
-            't_open_6': 'Resident woke up (sensor turned off)',
+            // Closing triggers
             't_close_1': 'Time-based closing (early time reached)',
             't_close_2': 'Time-based closing (late time reached)',
             't_close_4': 'Brightness dropped below closing threshold',
             't_close_5': 'Sun elevation dropped below closing threshold',
-            't_close_6': 'Resident went to sleep (sensor turned on)',
+            // Resident trigger (unified – replaces old t_open_6 / t_close_6)
+            't_resident_update': 'Resident sensor changed state (arriving or leaving)',
+            // Calendar triggers
             't_calendar_event_start': 'Calendar event started',
             't_calendar_event_end': 'Calendar event ended',
+            // Contact sensor triggers
             't_contact_tilted_changed': 'Window tilt sensor changed',
             't_contact_opened_changed': 'Window open sensor changed',
-            't_shading_start_pending_1': 'Sun position entered shading range',
+            // Shading start triggers
+            't_shading_start_pending_1': 'Sun position entered shading range (azimuth/elevation)',
             't_shading_start_pending_2': 'Brightness exceeded shading threshold',
             't_shading_start_pending_3': 'Temperature 1 exceeded threshold',
             't_shading_start_pending_4': 'Temperature 2 exceeded threshold',
             't_shading_start_pending_5': 'Weather condition matched',
-            't_shading_start_pending_6': 'Pre-opening forecast check (1h before)',
+            't_shading_start_pending_6': 'Forecast temperature sensor changed',
+            't_shading_start_pending_7': 'Pre-opening forecast check (1h before open)',
             't_shading_start_execution': 'Shading start waiting period completed',
+            // Shading end triggers
             't_shading_end_pending_1': 'Temperature 1 dropped below threshold',
             't_shading_end_pending_2': 'Temperature 2 dropped below threshold',
-            't_shading_end_pending_3': 'Brightness dropped below threshold',
+            't_shading_end_pending_3': 'Brightness dropped below shading threshold',
             't_shading_end_pending_4': 'Weather condition no longer met',
             't_shading_end_pending_5': 'Sun position left shading range',
+            't_shading_end_pending_6': 'Forecast temperature sensor changed (end)',
             't_shading_end_execution': 'Shading end waiting period completed',
+            // Shading tilt triggers
             't_shading_tilt_1': 'Sun elevation change (below level 1)',
-            't_shading_tilt_2': 'Sun elevation change (level 1-2)',
-            't_shading_tilt_3': 'Sun elevation change (level 2-3)',
+            't_shading_tilt_2': 'Sun elevation change (level 1–2)',
+            't_shading_tilt_3': 'Sun elevation change (level 2–3)',
             't_shading_tilt_4': 'Sun elevation change (above level 3)',
+            // Misc triggers
             't_shading_reset': 'Midnight shading reset',
             't_manual_position': 'Cover position changed manually',
             't_manual_tilt': 'Cover tilt changed manually',
             't_reset_fixedtime': 'Fixed time override reset',
             't_reset_timeout': 'Timeout override reset',
+            // Force triggers
             't_force_enabled_open': 'Force open entity activated',
             't_force_enabled_close': 'Force close entity activated',
             't_force_enabled_ventilate': 'Force ventilate entity activated',
@@ -2826,29 +2836,64 @@
             `;
         }
 
+        /**
+         * Format helper_json into a human-readable state label.
+         * Supports:
+         *   - v6 internal format: { base, shade, window, force, resident, manual, ... }
+         *   - v6 compact format:  { bas, shd, win, frc, res, man, ... }
+         *   - v5 legacy format:   { open: {a:1}, close: {a:0}, shading: {a:1}, ... }
+         */
         function formatHelperValue(hJson) {
             if (!hJson || typeof hJson !== 'object') return String(hJson || 'unknown');
 
-            // CCA Status Object structure: { "key": { "a": 1, "t": ... }, ... }
-            const keys = [
-                'open', 'close', 'closed', 'shading', 'shaded',
-                'shading_start_pending', 'shading_end_pending',
-                'vpart', 'vfull', 'manual'
+            // === v6 internal format (after blueprint template conversion) ===
+            if (hJson.base !== undefined || hJson.shade !== undefined) {
+                const force  = hJson.force  || 'none';
+                const window = hJson.window || 'closed';
+                const shade  = hJson.shade  || 0;
+                const base   = hJson.base   || 'open';
+
+                if (force !== 'none') return `Force-${force.charAt(0).toUpperCase() + force.slice(1)}`;
+                if (window === 'open')   return 'Lockout (window open)';
+                if (window === 'tilted') return 'Ventilating (tilted)';
+                if (shade === 1 || shade === true) return 'Shading';
+                return base.charAt(0).toUpperCase() + base.slice(1);
+            }
+
+            // === v6 compact format (raw string from input_text helper) ===
+            if (hJson.bas !== undefined || hJson.shd !== undefined) {
+                const frcMap = { non: 'none', opn: 'open', cls: 'close', shd: 'shade', vnt: 'vent' };
+                const winMap = { cls: 'closed', tlt: 'tilted', opn: 'open' };
+                const force  = frcMap[hJson.frc] || 'none';
+                const window = winMap[hJson.win]  || 'closed';
+                const shade  = hJson.shd || 0;
+                const base   = hJson.bas === 'cls' ? 'close' : 'open';
+
+                if (force !== 'none') return `Force-${force.charAt(0).toUpperCase() + force.slice(1)}`;
+                if (window === 'open')   return 'Lockout (window open)';
+                if (window === 'tilted') return 'Ventilating (tilted)';
+                if (shade === 1 || shade === true) return 'Shading';
+                return base.charAt(0).toUpperCase() + base.slice(1);
+            }
+
+            // === v5 legacy format: { open: {a:1,t:0}, close: {a:0,t:0}, shading: {a:1,...} } ===
+            const v5Keys = [
+                'vfull', 'vpart', 'shading', 'close', 'open', 'shading_start_pending', 'shading_end_pending', 'manual'
             ];
-            for (const key of keys) {
+            for (const key of v5Keys) {
                 const status = hJson[key];
                 if (status && (status.a === 1 || status.a === true)) {
-                    // Prettify the key
-                    let label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
-                    if (label === 'Close') label = 'Closed';
-                    if (label === 'Shading') label = 'Shaded';
-                    return label;
+                    const labelMap = {
+                        vfull: 'Lockout (window open)', vpart: 'Ventilating (tilted)',
+                        shading: 'Shading', close: 'Closed', open: 'Open',
+                        shading_start_pending: 'Shading Start Pending',
+                        shading_end_pending: 'Shading End Pending', manual: 'Manual'
+                    };
+                    return labelMap[key] || key;
                 }
             }
 
-            // Fallback for string keys if present
             if (hJson.cover_status) return String(hJson.cover_status);
-
             return 'unknown';
         }
 
@@ -2901,45 +2946,91 @@
                 }
             }
 
-            const items = [
-                { key: 'open', label: 'Open' },
-                { key: 'closed', label: 'Closed' },
-                { key: 'shaded', label: 'Shaded' },
-                { key: 'shading_start_pending', label: 'Start Pending' },
-                { key: 'shading_end_pending', label: 'End Pending' },
-                { key: 'vpart', label: 'V-Part' },
-                { key: 'vfull', label: 'V-Full' },
-                { key: 'manual', label: 'Manual' }
+            // v6 State Machine fields (internal format after blueprint conversion)
+            const v6Items = [
+                { key: 'base',     label: 'Base State',     format: v => v || 'open' },
+                { key: 'shade',    label: 'Shading',        format: v => (v === 1 || v === true) ? '✓ Active' : '– Inactive' },
+                { key: 'window',   label: 'Window',         format: v => v || 'closed' },
+                { key: 'force',    label: 'Force',          format: v => v || 'none' },
+                { key: 'resident', label: 'Resident',       format: v => (v === 1 || v === true) ? '✓ Present' : '– Away' },
+                { key: 'manual',   label: 'Manual Override',format: v => (v === 1 || v === true) ? '✓ Active' : '– Inactive' }
             ];
+
+            const isV6 = helperJson.base !== undefined || helperJson.bas !== undefined;
 
             let html = `
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 12px; border: 1px solid var(--border-color);">
                     <div style="flex: 1;">
-                        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.25rem;">Previous Helper Value</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.25rem;">Previous Helper State</div>
                         <div style="font-size: 1.1rem; font-weight: 700; color: var(--text-secondary);">${prevValue}</div>
                     </div>
                     <div style="display: flex; align-items: center; color: var(--text-muted); font-size: 1.2rem;">➜</div>
                     <div style="flex: 1; text-align: right;">
-                        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.25rem;">New Helper Value</div>
+                        <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.25rem;">New Helper State</div>
                         <div style="font-size: 1.1rem; font-weight: 700; color: ${newValue !== 'no change' ? 'var(--accent-green)' : 'var(--text-muted)'};">${newValue}</div>
                     </div>
                 </div>
-
-                <div class="helper-grid">
-                    ${items.map(item => {
-                const value = helperStatus[item.key];
-                const isActive = value === true;
-                return `
-                            <div class="helper-item">
-                                <div class="helper-label">${item.label}</div>
-                                <div class="helper-value ${isActive ? 'active' : 'inactive'}">
-                                    ${isActive ? '✓ ON' : '– OFF'}
-                                </div>
-                            </div>
-                        `;
-            }).join('')}
-                </div>
             `;
+
+            if (isV6) {
+                // v6 schema: show structured fields
+                html += `<div class="helper-grid">`;
+                html += v6Items.map(item => {
+                    const rawVal = helperJson[item.key];
+                    const displayVal = item.format(rawVal);
+                    const isActive = (item.key === 'shade' || item.key === 'manual' || item.key === 'resident')
+                        ? (rawVal === 1 || rawVal === true)
+                        : (rawVal && rawVal !== 'none' && rawVal !== 'closed' && rawVal !== 'close');
+                    return `
+                        <div class="helper-item">
+                            <div class="helper-label">${item.label}</div>
+                            <div class="helper-value ${isActive ? 'active' : 'inactive'}">${displayVal}</div>
+                        </div>`;
+                }).join('');
+                // Effective state display
+                const effective = formatHelperValue(helperJson);
+                html += `
+                    <div class="helper-item" style="grid-column: 1 / -1; background: rgba(59,130,246,0.08); border-color: var(--accent-blue);">
+                        <div class="helper-label">Effective State (Priority Cascade)</div>
+                        <div class="helper-value active" style="color: var(--accent-cyan); font-weight: 700;">${effective}</div>
+                    </div>`;
+                html += `</div>`;
+
+                // Timestamps panel
+                if (helperJson.ts && typeof helperJson.ts === 'object') {
+                    const ts = helperJson.ts;
+                    const tsLabels = { open: 'Last Open', close: 'Last Close', shade: 'Last Shade Active', shade_start: 'Shade Start Pending', shade_end: 'Shade End Pending', window: 'Last Window Change', manual: 'Last Manual Override',
+                                      opn: 'Last Open', cls: 'Last Close', shd: 'Last Shade', shs: 'Shade Start Pending', she: 'Shade End Pending', win: 'Last Window', man: 'Last Manual' };
+                    const tsEntries = Object.entries(ts).filter(([, v]) => v && v > 0);
+                    if (tsEntries.length > 0) {
+                        html += `<div style="margin-top: 1rem;">
+                            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Timestamps</div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">`;
+                        tsEntries.forEach(([key, val]) => {
+                            html += `<div style="background: var(--bg-tertiary); padding: 0.5rem 0.75rem; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.75rem; color: var(--text-muted);">${tsLabels[key] || key}</span>
+                                <span style="font-family: var(--font-mono); font-size: 0.75rem;">${new Date(val * 1000).toLocaleTimeString('de-DE')}</span>
+                            </div>`;
+                        });
+                        html += `</div></div>`;
+                    }
+                }
+            } else {
+                // Legacy v5 fallback: show old-style flags
+                const v5Keys = ['open', 'closed', 'shaded', 'shading_start_pending', 'shading_end_pending', 'vpart', 'vfull', 'manual'];
+                html += `<div class="helper-grid">`;
+                html += v5Keys.map(key => {
+                    const value = helperStatus[key];
+                    const isActive = value === true;
+                    const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' ');
+                    return `<div class="helper-item">
+                        <div class="helper-label">${label} <span style="font-size:0.65rem;opacity:0.5">(v5)</span></div>
+                        <div class="helper-value ${isActive ? 'active' : 'inactive'}">${isActive ? '✓ ON' : '– OFF'}</div>
+                    </div>`;
+                }).join('');
+                html += `</div>`;
+            }
+
 
             if (helperJson.t) {
                 html += `

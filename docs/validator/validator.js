@@ -1,6 +1,6 @@
 /**
- * CCA Configuration Validator   
- * Version: 2025.12.17
+ * CCA Configuration Validator
+ * Version: 2026.01.25
  * Validates Home Assistant Cover Control Automation Blueprint configurations
  */
 
@@ -10,47 +10,51 @@ class CCAValidator {
         this.issues = [];
         this.warnings = [];
         this.info = [];
-        
-        // Valid parameters (current version 2025.12.17)
+
+        // Valid parameters (current version 2026.01.25)
         this.validParams = new Set([
             // Blueprint/Automation meta fields (ignored in validation)
             'alias', 'description', 'trace', 'use_blueprint', 'id', 'mode', 'max', 'max_exceeded',
-            
+
             // Core
             'blind', 'cover_type', 'auto_options', 'individual_config',
-            
+
             // Helper
             'cover_status_options', 'cover_status_helper', 'drive_time',
-            
+
+            // Background State Tracking (since 2025.12.27)
+            'enable_background_state_tracking',
+
             // Positions
             'position_source', 'custom_position_sensor',
             'open_position', 'close_position', 'ventilate_position', 'shading_position',
             'position_tolerance',
-            
+
             // Tilt
             'cover_tilt_wait_mode', 'cover_tilt_wait_timeout', 'tilt_delay',
             'cover_tilt_config', 'cover_tilt_reposition_config',
             'open_tilt_position', 'close_tilt_position', 'ventilate_tilt_position',
             'shading_tilt_position_0', 'shading_tilt_position_1', 'shading_tilt_position_2', 'shading_tilt_position_3',
             'shading_tilt_elevation_1', 'shading_tilt_elevation_2', 'shading_tilt_elevation_3',
-            
+
             // Time
             'time_control',
             'time_up_early', 'time_up_early_non_workday', 'time_up_late', 'time_up_late_non_workday',
             'time_down_early', 'time_down_early_non_workday', 'time_down_late', 'time_down_late_non_workday',
             'workday_sensor', 'workday_sensor_tomorrow',
-            
+
             // Calendar
             'calendar_entity', 'calendar_open_title', 'calendar_close_title',
-            
+
             // Brightness
             'default_brightness_sensor', 'brightness_time_duration',
             'brightness_up', 'brightness_down', 'brightness_hysteresis',
-            
+
             // Sun
             'default_sun_sensor', 'sun_time_duration',
             'sun_elevation_up', 'sun_elevation_down',
             'sun_elevation_up_sensor', 'sun_elevation_down_sensor',
+            'sun_elevation_mode',
             
             // Contacts/Ventilation
             'contact_window_opened', 'contact_window_tilted',
@@ -274,8 +278,19 @@ class CCAValidator {
         }
         
         if (autoOptions.includes('auto_sun_enabled')) {
-            if (!this.config.sun_elevation_up_sensor && !this.config.sun_elevation_down_sensor) {
-                this.addInfo('ℹ️ Sun Control: Using fixed elevation values (not dynamic sensors).');
+            const mode = this.config.sun_elevation_mode || 'fixed';
+            if (mode === 'fixed' && !this.config.sun_elevation_up_sensor && !this.config.sun_elevation_down_sensor) {
+                this.addInfo('ℹ️ Sun Control: Fixed mode — using static elevation values (no seasonal adaptation).');
+            }
+        }
+
+        if (this.config.enable_background_state_tracking === false || this.config.enable_background_state_tracking === undefined) {
+            this.addInfo('ℹ️ Background state tracking is disabled (default). Enable enable_background_state_tracking for automatic return to target state after force functions.');
+        } else if (this.config.enable_background_state_tracking === true) {
+            if (!this.config.cover_status_helper || this.config.cover_status_helper.length === 0) {
+                this.addWarning('🦮 Background state tracking is enabled but no cover_status_helper configured. This feature requires a helper.');
+            } else {
+                this.addInfo('✅ Background state tracking enabled — cover returns to target state after force functions are disabled.');
             }
         }
     }
@@ -528,10 +543,34 @@ class CCAValidator {
 
     validateDynamicSunElevation() {
         const c = this.config;
-        if (c.sun_elevation_up_sensor && c.sun_elevation_down_sensor) {
-            this.addInfo('🌅 Using dynamic sun elevation sensors for both up and down thresholds');
-        } else if (c.sun_elevation_up_sensor || c.sun_elevation_down_sensor) {
-            this.addWarning('Using dynamic sensor for only one threshold. Consider using for both');
+        const mode = c.sun_elevation_mode || 'fixed';
+
+        if (mode === 'fixed') {
+            if (c.sun_elevation_up_sensor || c.sun_elevation_down_sensor) {
+                this.addInfo('ℹ️ Sun Elevation: Fixed mode — configured sensors will be ignored. Use "dynamic" or "hybrid" mode to activate sensors.');
+            } else {
+                this.addInfo('ℹ️ Sun Elevation: Fixed mode — using static threshold values.');
+            }
+        } else if (mode === 'dynamic') {
+            if (!c.sun_elevation_up_sensor && !c.sun_elevation_down_sensor) {
+                this.addError('❌ Sun Elevation: Dynamic mode requires both sun_elevation_up_sensor and sun_elevation_down_sensor to be configured.');
+            } else if (!c.sun_elevation_up_sensor) {
+                this.addError('❌ Sun Elevation: Dynamic mode requires sun_elevation_up_sensor to be configured.');
+            } else if (!c.sun_elevation_down_sensor) {
+                this.addError('❌ Sun Elevation: Dynamic mode requires sun_elevation_down_sensor to be configured.');
+            } else {
+                this.addInfo('📊 Sun Elevation: Dynamic mode — sensor values used exclusively for seasonal adaptation.');
+            }
+        } else if (mode === 'hybrid') {
+            if (!c.sun_elevation_up_sensor && !c.sun_elevation_down_sensor) {
+                this.addWarning('⚠️ Sun Elevation: Hybrid mode configured but no sensors set. Falling back to fixed values only.');
+            } else if (c.sun_elevation_up_sensor && c.sun_elevation_down_sensor) {
+                this.addInfo('🔄 Sun Elevation: Hybrid mode — sensor value + fixed offset = final threshold.');
+            } else {
+                this.addWarning('⚠️ Sun Elevation: Hybrid mode with only one sensor configured. Consider configuring both for consistent behavior.');
+            }
+        } else {
+            this.addWarning(`⚠️ Sun Elevation: Unknown mode "${mode}". Valid values: fixed, dynamic, hybrid.`);
         }
     }
 

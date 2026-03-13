@@ -1166,15 +1166,27 @@ action:
 
 | Key | State | Example Values | Description |
 |-----|-------|----------------|-------------|
-| `bas` | Base | `opn`, `cls`, `non` | The main position (open, close, none) |
-| `shd` | Shading | `0`, `1` | Shading level (0=off, 1=active) |
-| `win` | Window | `cls`, `ptl`, `ful` | Ventilation state (closed, partially, fully open) |
-| `frc` | Force | `non`, `opn`, `cls`, `shd`, `ven` | Overriding force state |
-| `res` | Resident | `0`, `1` | Resident mode override |
-| `man` | Manual | `0`, `1` | Manual operation detected |
+| `bas` | Base | `opn`, `cls` | The main time-based position (open or close) |
+| `shd` | Shading | `0`, `1` | Shading flag (0=off, 1=active) |
+| `win` | Window | `cls`, `tlt`, `opn` | Window sensor state (closed, tilted, fully open) |
+| `frc` | Force | `non`, `opn`, `cls`, `shd`, `vnt` | Overriding force state (none/open/close/shade/vent) |
+| `res` | Resident | `0`, `1` | Resident presence (1=present, 0=away) |
+| `man` | Manual | `0`, `1` | Manual operation detected (1=active) |
 | `ts` | Timestamps | Object | Dictionary of when each state was last changed |
-| `v` | Version | Number | Helper version number (e.g., 6) |
-| `t` | Global Time | Timestamp | Last overall state change timestamp |
+| `v` | Version | Number | Helper schema version (current: 6) |
+| `t` | Global Time | Timestamp | Last overall helper update timestamp |
+
+**Timestamp sub-keys (`ts`):**
+
+| Key | Meaning |
+|-----|---------|
+| `opn` | Timestamp of last automatic opening |
+| `cls` | Timestamp of last automatic closing |
+| `shd` | Timestamp when shading became active |
+| `shs` | Shading **start** pending timestamp (0 = not pending) |
+| `she` | Shading **end** pending timestamp (0 = not pending) |
+| `win` | Timestamp of last window sensor change |
+| `man` | Timestamp of last manual intervention |
 
 **Common State Scenarios:**
 
@@ -1183,8 +1195,9 @@ action:
 | Cover is open | opn | 0 | cls | non | 0 | Normal daytime state |
 | Cover is closed | cls | 0 | cls | non | 0 | Normal nighttime state |
 | Shading active | opn | 1 | cls | non | 0 | Sun protection engaged |
-| Shading ending (pending)| opn | 2 | cls | non | 0 | Waiting for shading delay to end |
-| Window tilted (ventilation)| opn | 0 | ptl | non | 0 | Partial opening for air flow |
+| Shading start pending | opn | 0 | cls | non | 0 | ts.shs > 0, waiting for conditions to stabilize |
+| Window tilted (ventilation) | opn | 0 | tlt | non | 0 | Partial opening for air flow |
+| Window fully open (lockout) | opn | 0 | opn | non | 0 | Lockout: prevents closing |
 | Force close active | cls | 0 | cls | cls | 0 | Forced closed via external entity |
 | Manual override | * | * | * | * | 1 | Physical push button used |
 
@@ -1754,7 +1767,7 @@ Result: Cover won't open automatically
 **Actual:** Cover stays open
 
 **Configuration:**
-- CCA Version: 2025.12.22
+- CCA Version: 2026.01.25
 - HA Version: 2024.10.0
 - Cover: cover.living_room_blind (Shelly integration)
 
@@ -1855,12 +1868,14 @@ Result: Cover won't open automatically
 - ✅ Manual overrides are tracked separately and respected
 - ✅ Force functions (Layer 1) can override even window protection
 
-**Technical Details:**
-- `state_force`: Current force state ("none", "open", "close", "lock", "vent")
-- `state_window`: Window sensor state ("open", "tilted", "closed")
-- `state_shade`: Boolean flag for active shading
-- `state_base`: Time-based schedule state ("open" or "close")
-- `state_resident`: Boolean flag for resident presence override
+**Technical Details (State Machine v6 variables):**
+- `effective_state`: Computed final state via priority cascade (open/close/shade/vent/lock/force-*)
+- `state_force`: Current force state from helper ("none", "open", "close", "shade", "vent")
+- `state_window`: Window sensor state from helper ("closed", "tilted", "open")
+- `state_shade`: Boolean flag for active shading (from helper `shd` field)
+- `state_base`: Time-based ground state ("open" or "close", from helper `bas` field)
+- `state_resident`: Boolean flag for resident presence (from helper `res` field)
+- `state_manual`: Boolean flag for active manual override (from helper `man` field)
 
 ---
 
@@ -2109,24 +2124,27 @@ Disables default cover commands for custom integrations
 
 | Trigger ID | Function | Description |
 |------------|----------|-------------|
-| `t_open_1` - `t_open_6` | Cover Opening | Time, brightness, sun elevation, resident, force, calendar |
-| `t_close_1` - `t_close_6` | Cover Closing | Time, brightness, sun elevation, resident, force, calendar |
+| `t_open_1` - `t_open_2` | Cover Opening | Time-based (early/late time reached) |
+| `t_open_4` - `t_open_5` | Cover Opening | Condition-based (brightness / sun elevation) |
+| `t_close_1` - `t_close_2` | Cover Closing | Time-based (early/late time reached) |
+| `t_close_4` - `t_close_5` | Cover Closing | Condition-based (brightness / sun elevation) |
+| `t_resident_update` | Resident | Resident sensor changed (arriving or leaving) → Branch 6 |
 | `t_calendar_event_start` | Calendar Event Start | Calendar event becomes active |
 | `t_calendar_event_end` | Calendar Event End | Calendar event ends |
 | `t_contact_tilted_changed` | Ventilation - Tilted | Window tilted sensor change |
 | `t_contact_opened_changed` | Ventilation - Opened | Window opened sensor change |
-| `t_shading_start_pending_1` - `_5` | Shading Pending | Checks azimuth, elevation, brightness, temp, forecast |
+| `t_shading_start_pending_1` - `_7` | Shading Pending | Checks azimuth/elevation, brightness, temp1/2, weather, forecast |
 | `t_shading_start_execution` | Shading Executed | Pending time elapsed, conditions met |
 | `t_shading_tilt_1` - `_4` | Shading Tilt | Elevation-based tilt adjustment |
-| `t_shading_end_pending_1` - `_5` | Shading End Pending | End conditions detected |
+| `t_shading_end_pending_1` - `_6` | Shading End Pending | End conditions detected |
 | `t_shading_end_execution` | Shading End Executed | End pending time elapsed |
 | `t_shading_reset` | Shading Reset | Midnight reset of shading status |
 | `t_manual_position` | Manual Position Detection | Position changed manually |
 | `t_manual_tilt` | Manual Tilt Detection | Tilt changed manually |
 | `t_reset_fixedtime` | Reset Override - Fixed Time | Manual override reset at configured time |
 | `t_reset_timeout` | Reset Override - Timeout | Manual override timeout expired |
-| `t_force_enabled_*` | Force Enabled | Force function activated |
-| `t_force_disabled_*` | Force Disabled | Force function deactivated |
+| `t_force_enabled_*` | Force Enabled | Force function activated → Branch 7 |
+| `t_force_disabled_*` | Force Disabled | Force function deactivated → Branch 8 |
 
 **Debugging tips:**
 - Look for triggers that SHOULD have fired but didn't
@@ -2308,10 +2326,11 @@ All triggers available in CCA and their purposes:
 
 ### Resident-Based Triggers
 
+> **Note (since v2026.01.25):** The old separate `t_open_6` (resident leaving) and `t_close_6` (resident arriving) triggers have been **replaced** by a single unified trigger `t_resident_update`. This eliminates the race condition when both sensor changes occurred simultaneously.
+
 | Trigger ID | Category | Description |
 |------------|----------|-------------|
-| `t_open_6` | Opening | Resident wakes up (resident sensor changes from on to off) |
-| `t_close_6` | Closing | Resident goes to sleep (resident sensor changes from off to on) |
+| `t_resident_update` | Resident | Resident sensor changed state — handles both arriving and leaving in Branch 6 |
 
 ### Calendar Triggers
 
@@ -2331,11 +2350,13 @@ All triggers available in CCA and their purposes:
 
 | Trigger ID | Category | Description |
 |------------|----------|-------------|
-| `t_shading_start_pending_1` | Shading | Sun Azimuth condition evaluated |
-| `t_shading_start_pending_2` | Shading | Sun Elevation condition evaluated |
-| `t_shading_start_pending_3` | Shading | Brightness condition evaluated |
-| `t_shading_start_pending_4` | Shading | Temperature Sensor 1 condition evaluated |
-| `t_shading_start_pending_5` | Shading | Temperature Sensor 2/Forecast condition evaluated |
+| `t_shading_start_pending_1` | Shading | Sun azimuth/elevation entered shading range |
+| `t_shading_start_pending_2` | Shading | Brightness exceeded shading threshold |
+| `t_shading_start_pending_3` | Shading | Temperature Sensor 1 exceeded threshold |
+| `t_shading_start_pending_4` | Shading | Temperature Sensor 2 exceeded threshold |
+| `t_shading_start_pending_5` | Shading | Weather condition matched |
+| `t_shading_start_pending_6` | Shading | Forecast temperature sensor value changed |
+| `t_shading_start_pending_7` | Shading | Pre-opening forecast check (triggered ~1h before opening time) |
 | `t_shading_start_execution` | Shading | Start pending time elapsed + conditions confirmed → execute shading |
 
 ### Shading Tilt Triggers
@@ -2351,11 +2372,12 @@ All triggers available in CCA and their purposes:
 
 | Trigger ID | Category | Description |
 |------------|----------|-------------|
-| `t_shading_end_pending_1` | Shading | Sun Azimuth out of range |
-| `t_shading_end_pending_2` | Shading | Sun Elevation out of range |
-| `t_shading_end_pending_3` | Shading | Brightness below threshold |
-| `t_shading_end_pending_4` | Shading | Temperature Sensor 1 below threshold |
-| `t_shading_end_pending_5` | Shading | Temperature Sensor 2/Forecast below threshold |
+| `t_shading_end_pending_1` | Shading | Temperature Sensor 1 dropped below threshold |
+| `t_shading_end_pending_2` | Shading | Temperature Sensor 2 dropped below threshold |
+| `t_shading_end_pending_3` | Shading | Brightness dropped below shading threshold |
+| `t_shading_end_pending_4` | Shading | Weather condition no longer met |
+| `t_shading_end_pending_5` | Shading | Sun position left shading range (azimuth/elevation) |
+| `t_shading_end_pending_6` | Shading | Forecast temperature sensor value changed (end condition) |
 | `t_shading_end_execution` | Shading | End pending time elapsed + conditions confirmed → end shading |
 | `t_shading_reset` | Shading | Midnight reset of daily shading counter |
 
@@ -2415,6 +2437,8 @@ Likely causes: Manual override active OR time values incorrect
 
 **A:** CCA uses a **priority-based state machine** where the cover can be in one of 6 states. Each transition is handled by a specific action branch:
 
+> **Branch numbering applies to CCA v2026.01.25+**. The branches were renumbered when Force Functions were consolidated and Resident Update was added as a dedicated branch.
+
 | From ↓ \ To → | OPEN | CLOSE | SHADE | VENT | LOCK | FORCE |
 |----------------|------|-------|-------|------|------|-------|
 | **OPEN** | – | Branch 1 | Branch 2 | Branch 5 | Branch 5 | Branch 7 |
@@ -2427,6 +2451,23 @@ Likely causes: Manual override active OR time values incorrect
 **Legend:**
 - `*` = Branch 2 saves shading intent when the cover is closed (base state preserved, no movement)
 - `⚠️` = LOCK → CLOSE has no direct transition. The window must first be closed (LOCK → VENT/OPEN → CLOSE)
+
+**Branch Overview (v2026.01.25+):**
+
+| Branch | Name | Primary Trigger |
+|--------|------|----------------|
+| 0 | Opening | `t_open_*` |
+| 1 | Closing | `t_close_*` |
+| 2 | Shading Start | `t_shading_start_pending_*`, `t_shading_start_execution` |
+| 3 | Shading Tilt | `t_shading_tilt_*` |
+| 4 | Shading End | `t_shading_end_pending_*`, `t_shading_end_execution` |
+| 5 | Contact Sensor | `t_contact_*` |
+| 6 | Resident Update | `t_resident_update` |
+| 7 | Force Functions | `t_force_enabled_*` |
+| 8 | Return After Force | `t_force_disabled_*` |
+| 9 | Manual Detection | `t_manual_*` |
+| 10 | Reset Override | `t_reset_*` |
+| 11 | Midnight Reset | `t_shading_reset` |
 
 **Priority Cascade (highest first):**
 1. **FORCE** → `force != "none"` → Force position
