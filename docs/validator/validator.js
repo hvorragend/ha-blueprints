@@ -1,6 +1,6 @@
 /**
  * CCA Configuration Validator
- * Version: 2026.01.25
+ * Version: 2.0
  * Validates Home Assistant Cover Control Automation Blueprint configurations
  */
 
@@ -11,7 +11,7 @@ class CCAValidator {
         this.warnings = [];
         this.info = [];
 
-        // Valid parameters (current version 2026.01.25)
+        // Valid parameters
         this.validParams = new Set([
             // Blueprint/Automation meta fields (ignored in validation)
             'alias', 'description', 'trace', 'use_blueprint', 'id', 'mode', 'max', 'max_exceeded',
@@ -55,56 +55,56 @@ class CCAValidator {
             'sun_elevation_up', 'sun_elevation_down',
             'sun_elevation_up_sensor', 'sun_elevation_down_sensor',
             'sun_elevation_mode',
-            
+
             // Contacts/Ventilation
             'contact_window_opened', 'contact_window_tilted',
             'lockout_tilted_options', 'auto_ventilate_options',
             'contact_delay_trigger', 'contact_delay_status',
-            
+
             // Shading - Basic
             'shading_azimuth_start', 'shading_azimuth_end',
             'shading_elevation_min', 'shading_elevation_max',
             'shading_brightness_sensor',
             'shading_sun_brightness_start', 'shading_sun_brightness_end', 'shading_sun_brightness_hysteresis',
-            
+
             // Shading - Temperature
             'shading_temperatur_sensor1', 'shading_min_temperatur1', 'shading_temperature_hysteresis1',
             'shading_temperatur_sensor2', 'shading_min_temperatur2', 'shading_temperature_hysteresis2',
-            
+
             // Shading - Forecast
             'shading_forecast_sensor', 'shading_forecast_temp_sensor', 'shading_forecast_type',
             'shading_forecast_temp', 'shading_forecast_temp_hysteresis',
             'shading_weather_conditions', 'shading_config',
-            
+
             // Shading - Conditions
             'shading_conditions_start_and', 'shading_conditions_start_or',
             'shading_conditions_end_and', 'shading_conditions_end_or',
-            
+
             // Shading - Timing
             'shading_waitingtime_start', 'shading_waitingtime_end',
             'shading_start_max_duration', 'shading_end_max_duration',
             'shading_end_immediate_by_sun_position',
-            
+
             // Resident
             'resident_sensor', 'resident_config',
-            
+
             // Manual Override
             'ignore_after_manual_config', 'reset_override_config',
             'reset_override_time', 'reset_override_timeout',
-            
+
             // Delays
             'drive_delay_fix', 'drive_delay_random',
-            
+
             // Force
             'auto_recover_after_force',
             'auto_up_force', 'auto_down_force', 'auto_ventilate_force', 'auto_shading_start_force',
-            
+
             // Conditions
             'auto_global_condition',
             'auto_up_condition', 'auto_down_condition',
             'auto_ventilate_condition', 'auto_ventilate_end_condition',
             'auto_shading_start_condition', 'auto_shading_tilt_condition', 'auto_shading_end_condition',
-            
+
             // Actions
             'auto_up_action', 'auto_up_action_before',
             'auto_down_action', 'auto_down_action_before',
@@ -112,16 +112,16 @@ class CCAValidator {
             'auto_shading_start_action', 'auto_shading_start_action_before',
             'auto_shading_end_action', 'auto_shading_end_action_before',
             'auto_manual_action', 'auto_override_reset_action',
-            
+
             // Config Check
             'check_config', 'check_config_debuglevel'
         ]);
-        
+
         // Parameters that should be ignored completely (no warnings)
         this.ignoredParams = new Set([
             'alias', 'description', 'trace', 'use_blueprint', 'id', 'mode', 'max', 'max_exceeded'
         ]);
-        
+
         // Deprecated/Removed parameters with migration info
         this.deprecatedParams = {
             'shading_start_behavior': {
@@ -145,12 +145,12 @@ class CCAValidator {
                 migration: 'Use calendar_entity with time_control: time_control_calendar instead'
             }
         };
-        
+
         // Required parameters (must be configured, no defaults)
         this.requiredParams = {
             'blind': { category: 'Core', description: 'Cover entity to control - REQUIRED' }
         };
-        
+
         // Optional but recommended parameters
         this.recommendedParams = {
             'default_sun_sensor': { category: 'Sun', description: 'Sun sensor for position-based control' },
@@ -167,12 +167,12 @@ class CCAValidator {
         try {
             const rawConfig = jsyaml.load(yamlText);
             this.config = this.extractConfig(rawConfig);
-            
+
             if (!this.config) {
                 this.addError('Could not parse configuration. Expected either a blueprint or an automation configuration.');
                 return this.getResults();
             }
-            
+
             this.validateParameterNames();
             this.validateTimeConfiguration();
             this.validatePositions();
@@ -201,7 +201,7 @@ class CCAValidator {
 
     validateParameterNames() {
         const configKeys = Object.keys(this.config).filter(key => !this.ignoredParams.has(key));
-        
+
         for (const [param, info] of Object.entries(this.deprecatedParams)) {
             if (configKeys.includes(param)) {
                 let message = `⚠️ DEPRECATED: '${param}' was removed in version ${info.removed}.`;
@@ -212,13 +212,13 @@ class CCAValidator {
                 this.addWarning(message);
             }
         }
-        
-        const unknownParams = configKeys.filter(key => 
-            !this.validParams.has(key) && 
+
+        const unknownParams = configKeys.filter(key =>
+            !this.validParams.has(key) &&
             !this.deprecatedParams.hasOwnProperty(key) &&
             !this.ignoredParams.has(key)
         );
-        
+
         if (unknownParams.length > 0) {
             unknownParams.forEach(param => {
                 const suggestion = this.findClosestMatch(param);
@@ -233,41 +233,41 @@ class CCAValidator {
 
     checkMissingParameters() {
         for (const [param, info] of Object.entries(this.requiredParams)) {
-            if (!this.config[param] || 
+            if (!this.config[param] ||
                 (Array.isArray(this.config[param]) && this.config[param].length === 0)) {
                 this.addError(`❌ ${info.category}: '${param}' is REQUIRED - ${info.description}`);
             }
         }
-        
+
         const missingRecommended = [];
         for (const [param, info] of Object.entries(this.recommendedParams)) {
-            if (!this.config[param] || 
+            if (!this.config[param] ||
                 (Array.isArray(this.config[param]) && this.config[param].length === 0)) {
                 missingRecommended.push({ param, ...info });
             }
         }
-        
+
         if (missingRecommended.length > 0) {
             const grouped = {};
             missingRecommended.forEach(item => {
                 if (!grouped[item.category]) grouped[item.category] = [];
                 grouped[item.category].push(item);
             });
-            
+
             for (const [category, items] of Object.entries(grouped)) {
                 const params = items.map(i => `'${i.param}' (${i.description})`).join(', ');
                 this.addInfo(`ℹ️ ${category}: Using blueprint defaults for: ${params}`);
             }
         }
-        
+
         const autoOptions = this.config.auto_options || [];
-        
+
         if (autoOptions.includes('auto_shading_enabled') || autoOptions.includes('auto_ventilate_enabled')) {
             if (!this.config.cover_status_helper || this.config.cover_status_helper.length === 0) {
                 this.addWarning('🦮 Shading or Ventilation enabled but no cover_status_helper configured. These features require a helper to work properly.');
             }
         }
-        
+
         if (autoOptions.includes('auto_shading_enabled')) {
             if (!this.config.shading_conditions_start_and && !this.config.shading_conditions_start_or) {
                 this.addInfo('ℹ️ Shading: No custom conditions configured. Using default AND/OR conditions from blueprint.');
@@ -276,7 +276,7 @@ class CCAValidator {
                 this.addInfo('ℹ️ Shading: shading_start_max_duration not set. Using blueprint default: 7200s (2 hours).');
             }
         }
-        
+
         if (autoOptions.includes('auto_sun_enabled')) {
             const mode = this.config.sun_elevation_mode || 'fixed';
             if (mode === 'fixed' && !this.config.sun_elevation_up_sensor && !this.config.sun_elevation_down_sensor) {
@@ -298,7 +298,7 @@ class CCAValidator {
     findClosestMatch(input) {
         let bestMatch = null;
         let bestDistance = Infinity;
-        
+
         for (const validParam of this.validParams) {
             const distance = this.levenshteinDistance(input.toLowerCase(), validParam.toLowerCase());
             if (distance < bestDistance && distance <= 3) {
@@ -306,7 +306,7 @@ class CCAValidator {
                 bestMatch = validParam;
             }
         }
-        
+
         return bestMatch;
     }
 
@@ -340,25 +340,25 @@ class CCAValidator {
             this.addInfo('📋 Blueprint file detected - extracting default values');
             return this.extractFromBlueprint(rawConfig.blueprint.input);
         }
-        
+
         // 2. Automation with use_blueprint: use_blueprint.input
         if (rawConfig.use_blueprint && rawConfig.use_blueprint.input) {
             this.addInfo('🤖 Automation configuration detected - extracting from use_blueprint.input');
             return rawConfig.use_blueprint.input;
         }
-        
+
         // 3. Legacy format: input at root level
         if (rawConfig.input && typeof rawConfig.input === 'object') {
             this.addInfo('📝 Legacy automation format - extracting from input');
             return rawConfig.input;
         }
-        
+
         // 4. Flat configuration (direct parameters)
         if (rawConfig.blind || rawConfig.open_position || rawConfig.cover_type) {
             this.addInfo('📝 Flat configuration format detected');
             return rawConfig;
         }
-        
+
         // 5. Unknown format
         this.addWarning('⚠️ Unknown configuration format. Expected blueprint, automation, or flat config.');
         return rawConfig;
@@ -410,12 +410,12 @@ class CCAValidator {
 
     validatePositions() {
         const c = this.config;
-        
+
         if (c.open_position === undefined || c.open_position === null) {
             this.addInfo('ℹ️ Positions: open_position not configured. Using blueprint default (100 for blinds, 0 for awnings).');
             return;
         }
-        
+
         const isAwning = c.cover_type === 'awning';
         const tolerance = c.position_tolerance || 0;
 
@@ -461,20 +461,20 @@ class CCAValidator {
             }
         }
     }
-    
+
     validateShadingConditions() {
         const c = this.config;
         if (!this.isShadingEnabled()) return;
-        
+
         const startAnd = c.shading_conditions_start_and || [];
         const startOr = c.shading_conditions_start_or || [];
         const endAnd = c.shading_conditions_end_and || [];
         const endOr = c.shading_conditions_end_or || [];
-        
+
         // Blueprint defaults
         const hasStartAndDefault = c.shading_conditions_start_and === undefined;
         const hasEndOrDefault = c.shading_conditions_end_or === undefined;
-        
+
         // START CONDITIONS VALIDATION
         if (startAnd.length === 0 && startOr.length === 0) {
             if (hasStartAndDefault) {
@@ -499,7 +499,7 @@ class CCAValidator {
                 this.addInfo(`✅ Shading START: ${startInfo.join(' + ')}`);
             }
         }
-        
+
         // END CONDITIONS VALIDATION
         if (endAnd.length === 0 && endOr.length === 0) {
             if (hasEndOrDefault) {
@@ -524,7 +524,7 @@ class CCAValidator {
                 this.addInfo(`✅ Shading END: ${endInfo.join(' + ')}`);
             }
         }
-        
+
         // Check for duplicates between AND and OR lists (only if both have values)
         if (startAnd.length > 0 && startOr.length > 0) {
             const startDuplicates = startAnd.filter(c => startOr.includes(c));
@@ -532,7 +532,7 @@ class CCAValidator {
                 this.addError(`❌ Same START condition in both AND and OR lists: ${startDuplicates.join(', ')}`);
             }
         }
-        
+
         if (endAnd.length > 0 && endOr.length > 0) {
             const endDuplicates = endAnd.filter(c => endOr.includes(c));
             if (endDuplicates.length > 0) {
@@ -598,11 +598,11 @@ class CCAValidator {
         const c = this.config;
         const autoOptions = c.auto_options || [];
         const needsHelper = autoOptions.includes('auto_shading_enabled') || autoOptions.includes('auto_ventilate_enabled');
-        
+
         if (needsHelper && c.cover_status_options !== 'cover_helper_enabled') {
             this.addWarning('🦮 Shading or Ventilation requires a cover status helper. Set cover_status_options to "cover_helper_enabled" and configure cover_status_helper.');
         }
-        
+
         if (c.cover_status_options === 'cover_helper_enabled' && (!c.cover_status_helper || c.cover_status_helper.length === 0)) {
             this.addError('❌ Helper enabled (cover_status_options) but cover_status_helper entity not configured.');
         }
@@ -722,9 +722,9 @@ class CCAValidator {
 /**
  * UI Controller
  */
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     console.log('CCA Validator loaded');
-    
+
     const validator = new CCAValidator();
     const fileUpload = document.getElementById('file-upload');
     const yamlInput = document.getElementById('yaml-input');
@@ -737,15 +737,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const resultsSection = document.getElementById('results-section');
     const summary = document.getElementById('summary');
     const issuesList = document.getElementById('issues-list');
-    
+
     let currentResult = null;
     let currentFilter = 'all';
 
-    fileUpload.addEventListener('change', function(e) {
+    fileUpload.addEventListener('change', function (e) {
         const file = e.target.files[0];
         if (file) {
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = function (e) {
                 yamlInput.value = e.target.result;
                 validateConfiguration();
             };
@@ -753,19 +753,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    validateBtn.addEventListener('click', function() {
+    validateBtn.addEventListener('click', function () {
         console.log('Validate button clicked');
         validateConfiguration();
     });
 
     document.querySelectorAll('.example-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
+        btn.addEventListener('click', function () {
             const example = this.dataset.example;
             loadExample(example);
         });
     });
 
-    clearBtn.addEventListener('click', function() {
+    clearBtn.addEventListener('click', function () {
         if (confirm('Clear the current configuration?')) {
             yamlInput.value = '';
             yamlInput.focus();
@@ -779,7 +779,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    pasteBtn.addEventListener('click', async function() {
+    pasteBtn.addEventListener('click', async function () {
         try {
             const text = await navigator.clipboard.readText();
             if (text) {
@@ -797,13 +797,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    exportBtn.addEventListener('click', function() {
+    exportBtn.addEventListener('click', function () {
         if (currentResult) {
             exportResults(currentResult);
         }
     });
 
-    filterSelect.addEventListener('change', function() {
+    filterSelect.addEventListener('change', function () {
         currentFilter = this.value;
         if (currentResult) {
             displayResults(currentResult);
@@ -811,7 +811,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Keyboard shortcuts
-    yamlInput.addEventListener('keydown', function(e) {
+    yamlInput.addEventListener('keydown', function (e) {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();
             validateConfiguration();
@@ -821,7 +821,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function validateConfiguration() {
         console.log('Starting validation...');
         const yamlText = yamlInput.value.trim();
-        
+
         if (!yamlText) {
             validationStatus.textContent = '⚠️ Please provide a configuration to validate';
             validationStatus.style.color = 'var(--accent-yellow)';
@@ -840,11 +840,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const startTime = performance.now();
                 const result = validator.validate(yamlText);
                 const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-                
+
                 console.log('Validation result:', result);
                 currentResult = result;
                 displayResults(result);
-                
+
                 validationStatus.textContent = `✓ Validated in ${duration}s`;
                 validationStatus.style.color = result.valid ? 'var(--accent-green)' : 'var(--accent-yellow)';
             } catch (error) {
@@ -862,7 +862,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function displayResults(result) {
         resultsSection.classList.remove('hidden');
         resultsSection.classList.add('visible');
-        
+
         // Update filter select to show counts
         filterSelect.innerHTML = `
             <option value="all">All Issues (${result.errors.length + result.warnings.length + result.info.length})</option>
@@ -871,7 +871,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <option value="info">Info (${result.info.length})</option>
         `;
         filterSelect.value = currentFilter;
-        
+
         summary.className = 'summary ' + (result.valid ? 'valid' : 'invalid');
         summary.innerHTML = `
             <h3>${result.valid ? '✅ Configuration Valid' : '❌ Issues Found'}</h3>
@@ -883,18 +883,18 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
 
         issuesList.innerHTML = '';
-        
+
         let allIssues = [
-            ...result.errors.map(e => ({...e, severity: 'error'})),
-            ...result.warnings.map(w => ({...w, severity: 'warning'})),
-            ...result.info.map(i => ({...i, severity: 'info'}))
+            ...result.errors.map(e => ({ ...e, severity: 'error' })),
+            ...result.warnings.map(w => ({ ...w, severity: 'warning' })),
+            ...result.info.map(i => ({ ...i, severity: 'info' }))
         ];
-        
+
         // Apply filter
         if (currentFilter !== 'all') {
             allIssues = allIssues.filter(issue => issue.severity === currentFilter);
         }
-        
+
         if (allIssues.length === 0) {
             if (currentFilter === 'all') {
                 issuesList.innerHTML = '<div class="no-issues">✨ No issues found! Your configuration looks good.</div>';
@@ -907,7 +907,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const order = { 'error': 0, 'warning': 1, 'info': 2 };
                 return order[a.severity] - order[b.severity];
             });
-            
+
             allIssues.forEach(issue => {
                 const div = document.createElement('div');
                 div.className = `issue ${issue.severity}`;
@@ -1053,7 +1053,7 @@ auto_options:
   - auto_up_enabled
   - auto_down_enabled`
         };
-        
+
         yamlInput.value = examples[type] || '';
         validateConfiguration();
     }
