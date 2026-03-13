@@ -1783,7 +1783,7 @@ Result: Cover won't open automatically
 
 ### Q: How does the state hierarchy work?
 
-**A:** CCA uses a **5-layer state hierarchy** where higher layers override lower layers. This ensures that critical functions (like window protection) always take priority over convenience features (like schedules).
+**A:** CCA uses a **6-layer state hierarchy** where higher layers override lower layers. This ensures that critical functions (like window protection) always take priority over convenience features (like schedules).
 
 **State Hierarchy (Priority Order):**
 
@@ -1800,19 +1800,24 @@ Result: Cover won't open automatically
 │  └─ Variable: state_window == "open"                            │
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 3: VENTILATION                                           │
-│  ├─ window == "tilted" → return "vent" (30% open default)       │
+│  ├─ window == "tilted" AND allow_ventilate → return "vent"      │
 │  ├─ Purpose: Allow air flow through tilted windows              │
-│  └─ Variable: state_window == "tilted"                          │
+│  └─ Variable: state_window == "tilted" + resident_allow_vent    │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 4: SHADING                                               │
-│  ├─ shade == true → return "shade" (25% closed default)         │
+│  Layer 4: PRIVACY                                               │
+│  ├─ resident == 1 AND closing_trigger → return "close"          │
+│  ├─ Purpose: Privacy / darkness when resident is sleeping       │
+│  └─ Variable: state_resident + resident_closing_enabled         │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 5: SHADING                                               │
+│  ├─ shade == true AND allow_shade → return "shade"              │
 │  ├─ Purpose: Sun protection during hot periods                  │
-│  └─ Variable: state_shade                                       │
+│  └─ Variable: state_shade + resident_allow_shading              │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 5: BASE                                                  │
+│  Layer 6: BASE                                                  │
 │  ├─ return base ("open" or "close")                             │
 │  ├─ Purpose: Time-based schedule (morning/evening)              │
-│  └─ Variable: state_base                                        │
+│  └─ Variable: state_base + resident_allow_opening (for "open")  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1833,21 +1838,30 @@ Result: Cover won't open automatically
                    │ window != "open"                      │
                    ▼                                       │
           ┌─────────────────┐                              │
-          │ window="tilted" │──────────────────────────────┤
+          │window="tilted"  │──────────────────────────────┤
+          │ AND allow_vent  │                              │
           │ 3. VENTILATION  │  → 30% open (ventilate)      │
           └────────┬────────┘                              │
-                   │ window = "closed"                     │
+                   │ window = "closed" / vent blocked      │
                    ▼                                       │
           ┌─────────────────┐                              │
-          │  shade = true   │──────────────────────────────┤
-          │   4. SHADING    │  → 25% closed (shade)        │
+          │  resident==1    │──────────────────────────────┤
+          │AND closing_trig │                              │
+          │   4. PRIVACY    │  → 100% closed (privacy)     │
           └────────┬────────┘                              │
-                   │ shade = false                         │
+                   │ no resident / trigger disabled        │
                    ▼                                       │
           ┌─────────────────┐                              │
-          │    5. BASE      │◄─────────────────────────────┘
+          │shade=true AND   │──────────────────────────────┤
+          │  allow_shade    │                              │
+          │   5. SHADING    │  → 25% closed (shade)        │
+          └────────┬────────┘                              │
+                   │ shade = false / shade blocked         │
+                   ▼                                       │
+          ┌─────────────────┐                              │
+          │    6. BASE      │◄─────────────────────────────┘
           │  (open/close)   │  → Scheduled position
-          └─────────────────┘
+          └─────────────────┘       (open blocked if !allow_open)
 ```
 
 **Examples:**
@@ -1856,15 +1870,18 @@ Result: Cover won't open automatically
 |----------|-------------|---------|---------|
 | Heavy rain | Layer 1 (Force) | Close completely | Emergency protection |
 | Window fully open | Layer 2 (Lockout) | Stay 100% open | Prevent damage |
-| Window tilted | Layer 3 (Ventilation) | Move to 30% | Allow ventilation |
-| Hot summer, window closed | Layer 4 (Shading) | Move to 25% | Sun protection |
-| Normal evening | Layer 5 (Base) | Close | Time schedule |
+| Window tilted, resident awake | Layer 3 (Ventilation) | Move to 30% | Allow ventilation |
+| Window tilted, resident sleeping, vent blocked | Layer 4 (Privacy) | Close completely | Privacy overrides ventilation |
+| Resident sleeping | Layer 4 (Privacy) | Close completely | Privacy / darkness |
+| Hot summer, resident absent | Layer 5 (Shading) | Move to 25% | Sun protection |
+| Normal evening | Layer 6 (Base) | Close | Time schedule |
 | Window open + rain | Layer 1 (Force) | Close completely | Force overrides lockout! |
 
 **Key Points:**
 - ✅ Higher layers **always override** lower layers
 - ✅ Each layer is **independent** and can be checked separately
-- ✅ Resident mode modifies Layer 5 behavior
+- ✅ Resident presence is a **first-class layer** (Layer 4: PRIVACY)
+- ✅ `allow_ventilate`, `allow_shade`, `allow_open` gate their respective layers directly
 - ✅ Manual overrides are tracked separately and respected
 - ✅ Force functions (Layer 1) can override even window protection
 
@@ -1872,9 +1889,9 @@ Result: Cover won't open automatically
 - `effective_state`: Computed final state via priority cascade (open/close/shade/vent/lock/force-*)
 - `state_force`: Current force state from helper ("none", "open", "close", "shade", "vent")
 - `state_window`: Window sensor state from helper ("closed", "tilted", "open")
+- `state_resident`: Boolean flag for resident presence (from helper `res` field)
 - `state_shade`: Boolean flag for active shading (from helper `shd` field)
 - `state_base`: Time-based ground state ("open" or "close", from helper `bas` field)
-- `state_resident`: Boolean flag for resident presence (from helper `res` field)
 - `state_manual`: Boolean flag for active manual override (from helper `man` field)
 
 ---
