@@ -2128,7 +2128,7 @@ Disables default cover commands for custom integrations
 | `t_open_4` - `t_open_5` | Cover Opening | Condition-based (brightness / sun elevation) |
 | `t_close_1` - `t_close_2` | Cover Closing | Time-based (early/late time reached) |
 | `t_close_4` - `t_close_5` | Cover Closing | Condition-based (brightness / sun elevation) |
-| `t_resident_update` | Resident | Resident sensor changed (arriving or leaving) → Branch 6 |
+| `t_resident_update` | Resident | Resident sensor changed (arriving or leaving) |
 | `t_calendar_event_start` | Calendar Event Start | Calendar event becomes active |
 | `t_calendar_event_end` | Calendar Event End | Calendar event ends |
 | `t_contact_tilted_changed` | Ventilation - Tilted | Window tilted sensor change |
@@ -2143,8 +2143,8 @@ Disables default cover commands for custom integrations
 | `t_manual_tilt` | Manual Tilt Detection | Tilt changed manually |
 | `t_reset_fixedtime` | Reset Override - Fixed Time | Manual override reset at configured time |
 | `t_reset_timeout` | Reset Override - Timeout | Manual override timeout expired |
-| `t_force_enabled_*` | Force Enabled | Force function activated → Branch 7 |
-| `t_force_disabled_*` | Force Disabled | Force function deactivated → Branch 8 |
+| `t_force_enabled_*` | Force Enabled | Force function activated |
+| `t_force_disabled_*` | Force Disabled | Force function deactivated |
 
 **Debugging tips:**
 - Look for triggers that SHOULD have fired but didn't
@@ -2326,11 +2326,9 @@ All triggers available in CCA and their purposes:
 
 ### Resident-Based Triggers
 
-> **Note (since v2026.01.25):** The old separate `t_open_6` (resident leaving) and `t_close_6` (resident arriving) triggers have been **replaced** by a single unified trigger `t_resident_update`. This eliminates the race condition when both sensor changes occurred simultaneously.
-
 | Trigger ID | Category | Description |
 |------------|----------|-------------|
-| `t_resident_update` | Resident | Resident sensor changed state — handles both arriving and leaving in Branch 6 |
+| `t_resident_update` | Resident | Resident sensor changed state — handles both arriving and leaving |
 
 ### Calendar Triggers
 
@@ -2437,8 +2435,6 @@ Likely causes: Manual override active OR time values incorrect
 
 **A:** CCA uses a **priority-based state machine** where the cover can be in one of 6 states. Each transition is handled by a specific action branch:
 
-> **Branch numbering applies to CCA v2026.01.25+**. The branches were renumbered when Force Functions were consolidated and Resident Update was added as a dedicated branch.
-
 | From ↓ \ To → | OPEN | CLOSE | SHADE | VENT | LOCK | FORCE |
 |----------------|------|-------|-------|------|------|-------|
 | **OPEN** | – | Branch 1 | Branch 2 | Branch 5 | Branch 5 | Branch 7 |
@@ -2452,7 +2448,7 @@ Likely causes: Manual override active OR time values incorrect
 - `*` = Branch 2 saves shading intent when the cover is closed (base state preserved, no movement)
 - `⚠️` = LOCK → CLOSE has no direct transition. The window must first be closed (LOCK → VENT/OPEN → CLOSE)
 
-**Branch Overview (v2026.01.25+):**
+**Branch Overview:**
 
 | Branch | Name | Primary Trigger |
 |--------|------|----------------|
