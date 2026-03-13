@@ -3030,6 +3030,9 @@ variables:
       }}
     {% endif %}
 
+  # Resident configuration input - defined here so effective_state can reference it
+  resident_config: !input resident_config
+
   # ═══════════════════════════════════════════════════════════════════════════
   # STATE MANAGER v6 - Centralized State Access with Priority Cascade
   # ═══════════════════════════════════════════════════════════════════════════
@@ -3037,9 +3040,10 @@ variables:
   # Priority Order (highest first):
   # 1. FORCE    → force != "none" → Force-Position
   # 2. LOCKOUT  → window == "open" → Open-Position (prevent lockout)
-  # 3. VENT     → window == "tilted" → Ventilate-Position
-  # 4. SHADING  → shade == 1 → Shading-Position
-  # 5. BASE     → base → Open- or Close-Position
+  # 3. VENT     → window == "tilted" AND allow_ventilate → Ventilate-Position
+  # 4. PRIVACY  → resident == 1 AND closing_trigger → Close-Position
+  # 5. SHADING  → shade == 1 AND allow_shade → Shading-Position
+  # 6. BASE     → base (respects allow_open for "open" state)
   #
   # ═══════════════════════════════════════════════════════════════════════════
 
@@ -3048,14 +3052,23 @@ variables:
   # Use this directly instead of the old state_current variable
   effective_state: >-
     {% set h = helper_json %}
+    {% set resident_present = h.resident | default(0) | int == 1 %}
+    {% set allow_vent = 'resident_allow_ventilation' in resident_config or not resident_present %}
+    {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %}
+    {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %}
+    {% set privacy_active = resident_present and 'resident_closing_enabled' in resident_config %}
     {% if h.force != 'none' %}
       {{ h.force }}
     {% elif h.window == 'open' %}
       lock
-    {% elif h.window == 'tilted' %}
+    {% elif h.window == 'tilted' and allow_vent %}
       vent
-    {% elif h.shade | int == 1 %}
+    {% elif privacy_active %}
+      close
+    {% elif h.shade | int == 1 and allow_shade %}
       shade
+    {% elif h.base == 'open' and not allow_open %}
+      close
     {% else %}
       {{ h.base }}
     {% endif %}
@@ -3159,9 +3172,13 @@ variables:
   # ═══════════════════════════════════════════════════════════════════════════
   # These flags check resident status (from state_resident) once, avoiding
   # redundant sensor reads across the entire code.
-
-  # Resident sensor configuration
-  resident_config: !input resident_config
+  #
+  # Relationship to effective_state priority cascade:
+  #   closing_trigger → Activates Layer 4 (PRIVACY) in effective_state
+  #   opening_trigger → One-shot trigger action (not a hierarchy layer)
+  #   allow_ventilate → Conditions Layer 3 (VENT) in effective_state
+  #   allow_shade     → Conditions Layer 5 (SHADING) in effective_state
+  #   allow_open      → Conditions Layer 6 (BASE="open") in effective_state
 
   # Resident flags - All resident permission checks in one place
   resident_flags:
