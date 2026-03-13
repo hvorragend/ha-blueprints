@@ -4636,6 +4636,14 @@ actions:
                   - "{{ not state_is_shaded }}"
                   - "{{ not state_pending_start }}"
                   - "{{ not state_shade }}"
+                  - or:
+                      # Primary: base not yet reflecting current schedule
+                      # (e.g. Force Open is active while closing time has passed,
+                      # or Resident override holds cover open past opening time)
+                      - "{{ state_base != 'open' }}"
+                      # Secondary: ts.opn is from a previous day
+                      # (needed for prevent_multiple_times to work correctly)
+                      - "{{ now().day != ts_open | timestamp_custom('%-d', true) | int }}"
                 sequence:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
@@ -4688,7 +4696,7 @@ actions:
             ###################################
               - alias: "Normal opening of the cover"
                 conditions:
-                  - "{{ not in_shading_position }}" # Don't switch from Shading to Open here - that's handled by Shading End branch
+                  - "{{ not in_shading_position }}" # Don't switch from Shading to Open here - that's handled by Shading End 
                 sequence:
                   - variables:
                       target_position: !input open_position
@@ -4828,6 +4836,13 @@ actions:
               - alias: "Already in close position - only update base state"
                 conditions:
                   - "{{ effective_state == 'close' and in_close_position }}"
+                  - or:
+                      # Primary: base not yet reflecting current schedule
+                      # (e.g. Force Close is active while opening time has passed)
+                      - "{{ state_base != 'close' }}"
+                      # Secondary: ts.cls is from a previous day
+                      # (needed for prevent_multiple_times to work correctly)
+                      - "{{ now().day != ts_close | timestamp_custom('%-d', true) | int }}"
                 sequence:
                   - variables:
                       ts_now: "{{ as_timestamp(now()) | round(0) }}"
