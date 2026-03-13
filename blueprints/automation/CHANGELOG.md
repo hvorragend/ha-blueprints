@@ -1,6 +1,6 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
-# 🚀 CCA 2026.03.12 - Final Fixes, Documentation & Tools Update
+# 🚀 CCA 2026.03.alpha - Final Fixes, Documentation & Tools Update
 
 ## 🔧 Bug Fixes
 
@@ -54,7 +54,7 @@
 ---
 
 
-# 🚀 CCA 2026.02.05 - Force Function Refactoring & State Guard Standardization
+# Force Function Refactoring & State Guard Standardization
 
 ## ♻️ Internal Refactoring
 
@@ -75,7 +75,7 @@
 ---
 
 
-# 🚀 CCA 2026.02.04 - State Machine v6 Architecture & Compact JSON Helper
+# State Machine v6 Architecture & Compact JSON Helper
 
 This release is a major internal overhaul of the Cover Control Automation engine. The state machine was completely redesigned around a structured JSON helper schema with an explicit priority cascade for state resolution. There are no new user-facing configuration options; all changes are internal architecture improvements that improve reliability, debuggability, and correctness.
 
@@ -180,7 +180,7 @@ This release is a major internal overhaul of the Cover Control Automation engine
 ---
 
 
-# 🚀 CCA 2026.01.25 - Resident Branch Refactoring
+# Resident Branch Refactoring
 
 ## 🔧 Bug Fixes
 
@@ -192,6 +192,72 @@ This release is a major internal overhaul of the Cover Control Automation engine
   - Eliminates race condition through single trigger (`t_resident_update`) with intelligent bidirectional handling
 
 - **Enhanced resident sensor force recovery** (#332): Added resident checks to force recovery logic to prevent covers from returning to positions that violate resident requirements. Uses existing computed flags (`can_open_with_resident`, `can_shade_with_resident`, `can_ventilate_with_resident`) for elegant 3-line solution.
+
+---
+
+# 🚀 CCA 2026.01.26 - Force Features Self-Blocking Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed Force features blocking themselves** (#339): Force Open/Close/Ventilation/Shading features can now execute properly. Previously, these features failed to move the cover because `cover_move_action` and `tilt_move_action` checked `is_cover_movement_blocked.any`, which was already `true` when the force feature was active. The movement blocking condition now allows Force triggers to bypass the check using regex pattern `trigger.id is match('^t_force_')`, enabling force features to work as intended while maintaining protection for background automations.
+
+
+---
+
+
+# 🚀 CCA 2026.01.23 - Force Features & Ventilation Recovery Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed covers closing during ventilation despite active force features** (#337): Ventilation recovery now properly respects force features (force-open, force-close, etc.). Previously, covers would close when windows closed even when force-open was still active. Force feature checks are now centralized in YAML anchors for consistent behavior across all branches.
+
+
+---
+
+
+# 🚀 CCA 2026.01.22 - Force Recovery Resident Sensor Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed force recovery ignoring resident sensor status** (#332): Force recovery (BRANCH 12) now validates resident sensor conditions before returning to background state. Previously, when a force function was disabled, the cover could execute an invalid action if the resident sensor status had changed while the force function was active.
+
+---
+
+
+# 🚀 CCA 2026.01.14 - Force State Preservation Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed force operations incorrectly updating helper status** (#318): Force operations (force-open, force-close, force-ventilate, force-shading) now preserve the background helper state instead of updating it. 
+
+---
+
+
+# 🚀 CCA 2026.01.12 - Window Tilted Closing Time Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed incorrect open status when window is tilted during closing time**: The "Window tilted - Move to ventilation position" branch (inside BRANCH 1: CLOSE) now correctly sets `open=0, close=1` to reflect that this is a closing action redirected to ventilation position. Previously, it incorrectly set `open=1, close=0`, causing shutters to open instead of close when the window was closed in the morning after being tilted during evening hours.
+
+- **Fixed shading state persistence**: The shading state is now correctly saved to the helper. Previously, this state was lost, preventing the cover from directly entering shading mode when opening the following morning.
+
+---
+
+
+# 🚀 CCA 2026.01.11 - Manual Position Trigger Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed manual position detection trigger** (#326): Replaced non-functional template trigger with separate state triggers for each position source (current_position, position, custom sensor). Manual position changes are now reliably detected within 60 seconds.
+
+---
+
+
+# 🚀 CCA 2026.01.09 - Shading Trigger Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed shading not triggering automatically after cover opens** (#325): Shading conditions are now correctly re-evaluated when covers open, ensuring shading activates when all conditions are met.
 
 ---
 
