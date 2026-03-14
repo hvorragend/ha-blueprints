@@ -3841,7 +3841,7 @@ actions:
               {# Overlay with update values #}
               {% if 'ts' in updates %}
                 {% for key, value in updates.ts.items() %}
-                  {% set merged_ts.data = dict(merged_ts.data, **{key: value | int}) %}
+                  {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
                 {% endfor %}
               {% endif %}
 
@@ -4668,14 +4668,13 @@ actions:
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         # Activate shading, base state is open (time-based)
                         bas: "opn"
                         shd: 1
                         man: 0
                         ts:
-                          shd: "{{ ts_now | int }}"
+                          shd: "now"
                           shs: 0
                           she: 0
                   - if: "{{ force_allows_shade }}"
@@ -4703,14 +4702,13 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: "{{ open_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         # Set base state to open, clear shading
                         bas: "opn"
                         shd: 0
                         man: 0
                         ts:
-                          opn: "{{ ts_now | int }}"
+                          opn: "now"
                           shs: 0
                           she: 0
                   - delay:
@@ -4812,13 +4810,12 @@ actions:
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         shd: 0
                         win: "tlt"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
+                          win: "now"
                           shs: 0
                           she: 0
                   - if: "{{ force_allows_ventilate }}"
@@ -5291,15 +5288,14 @@ actions:
                       - variables:
                           target_position: !input ventilate_position
                           target_tilt_position: !input ventilate_tilt_position
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
                             # Shading ends, window is tilted
                             shd: 0
                             win: "tlt"
                             man: 0
                             ts:
-                              win: "{{ ts_now | int }}"
-                              shd: "{{ ts_now | int }}"
+                              win: "now"
+                              shd: "now"
                               shs: 0
                               she: 0
                       - if: "{{ force_allows_ventilate }}"
@@ -5337,15 +5333,14 @@ actions:
                           - variables:
                               target_position: "{{ open_position }}"
                               target_tilt_position: "{{ open_tilt_position | int }}"
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Shading ends, return to open base state
                                 bas: "opn"
                                 shd: 0
                                 man: 0
                                 ts:
-                                  opn: "{{ ts_now | int }}"
-                                  shd: "{{ ts_now | int }}"
+                                  opn: "now"
+                                  shd: "now"
                                   shs: 0
                                   she: 0
                           - if: "{{ force_allows_open }}"
@@ -5556,15 +5551,14 @@ actions:
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to shading (shade is already true)
                         shd: 1
                         win: "cls"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
-                          shd: "{{ ts_now | int }}"
+                          win: "now"
+                          shd: "now"
                           shs: 0
                           she: 0
                   - if: "{{ force_allows_shade }}"
@@ -5603,13 +5597,12 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to open base state
                         win: "cls"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
+                          win: "now"
                           shs: 0
                           she: 0
                   - if: "{{ not prevent_flags.opening_after_ventilation_end and force_allows_open }}"
@@ -5649,13 +5642,12 @@ actions:
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to close base state
                         win: "cls"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
+                          win: "now"
                           shs: 0
                           she: 0
                   - if: "{{ force_allows_close }}"
@@ -5709,7 +5701,6 @@ actions:
                           - variables:
                               target_position: !input open_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to open
                                 bas: "opn"
@@ -5717,8 +5708,8 @@ actions:
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  opn: "{{ ts_now | int }}"
-                                  shd: "{{ ts_now | int }}"
+                                  opn: "now"
+                                  shd: "now"
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                           - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
@@ -5835,7 +5826,6 @@ actions:
                           - variables:
                               target_position: !input close_position
                               target_tilt_position: "{{ close_tilt_position | int }}"
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to close
                                 bas: "cls"
@@ -5843,8 +5833,8 @@ actions:
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  cls: "{{ ts_now | int }}"
-                                  shd: "{{ ts_now | int }}"
+                                  cls: "now"
+                                  shd: "now"
                           - if: "{{ force_allows_close }}"
                             then:
                               - delay:
@@ -5876,15 +5866,14 @@ actions:
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: "{{ close_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Resident arriving, close cover (base unchanged - only time triggers update base)
                         shd: 0
                         man: 0
                         res: "{{ new_resident_status | int }}"
                         ts:
-                          cls: "{{ ts_now | int }}"
-                          shd: "{{ ts_now | int }}"
+                          cls: "now"
+                          shd: "now"
                   - if: "{{ force_allows_close }}"
                     then:
                       - delay:
