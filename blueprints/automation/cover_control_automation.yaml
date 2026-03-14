@@ -3858,7 +3858,7 @@ actions:
               {# Overlay with update values #}
               {% if 'ts' in updates %}
                 {% for key, value in updates.ts.items() %}
-                  {% set merged_ts.data = dict(merged_ts.data, **{key: value | int}) %}
+                  {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
                 {% endfor %}
               {% endif %}
 
@@ -4685,17 +4685,15 @@ actions:
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         # Activate shading, base state is open (time-based)
                         bas: "opn"
                         shd: 1
                         man: 0
                         ts:
-                          shd: "{{ ts_now | int }}"
+                          shd: "now"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
                       - delay:
@@ -4704,8 +4702,11 @@ actions:
                         default: !input auto_shading_start_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_shading_start_action
+                    else:
+                      - *helper_update
                   - stop: "Opening skipped: Shading detected"
 
             ###################################
@@ -4718,17 +4719,15 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: "{{ open_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}" # Note: ts_now must be evaluated at runtime after delays, not at blueprint load time
                       update_values:
                         # Set base state to open, clear shading
                         bas: "opn"
                         shd: 0
                         man: 0
                         ts:
-                          opn: "{{ ts_now | int }}"
+                          opn: "now"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - if: "{{ resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) }}"
@@ -4737,8 +4736,11 @@ actions:
                         default: !input auto_up_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_up_action
+                    else:
+                      - *helper_update
                   - stop: "Opening executed"
 
             ###################################
@@ -4825,16 +4827,14 @@ actions:
                   - variables:
                       target_position: !input ventilate_position
                       target_tilt_position: !input ventilate_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         shd: 0
                         win: "tlt"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
+                          win: "now"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - delay:
@@ -4843,8 +4843,11 @@ actions:
                         default: !input auto_ventilate_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_ventilate_action
+                    else:
+                      - *helper_update
                   - stop: "Closing skipped: Window tilted (Ventilation activated)"
 
               ###################################
@@ -4917,7 +4920,6 @@ actions:
                       cls: "{{ as_timestamp(now()) | round(0) | int }}"
                       shs: 0
                       she: 0
-              - *helper_update
               - if: "{{ force_allows_close }}"
                 then:
                   - delay:
@@ -4926,8 +4928,11 @@ actions:
                     default: !input auto_down_action_before
                   - *cover_move_action
                   - *tilt_move_action
+                  - *helper_update
                   - choose: []
                     default: !input auto_down_action
+                else:
+                  - *helper_update
               - stop: "Closing executed"
 
       ############################################################
@@ -5048,7 +5053,6 @@ actions:
                               shd: "{{ as_timestamp(now()) | round(0) | int }}"
                               shs: 0
                               she: 0
-                      - *helper_update
                       - if: "{{ force_allows_shade }}"
                         then:
                           - delay:
@@ -5057,8 +5061,11 @@ actions:
                             default: !input auto_shading_start_action_before
                           - *cover_move_action
                           - *tilt_move_action
+                          - *helper_update
                           - choose: []
                             default: !input auto_shading_start_action
+                        else:
+                          - *helper_update
                       - stop: "Shading Start executed"
 
                   ####################################
@@ -5298,18 +5305,16 @@ actions:
                       - variables:
                           target_position: !input ventilate_position
                           target_tilt_position: !input ventilate_tilt_position
-                          ts_now: "{{ as_timestamp(now()) | round(0) }}"
                           update_values:
                             # Shading ends, window is tilted
                             shd: 0
                             win: "tlt"
                             man: 0
                             ts:
-                              win: "{{ ts_now | int }}"
-                              shd: "{{ ts_now | int }}"
+                              win: "now"
+                              shd: "now"
                               shs: 0
                               she: 0
-                      - *helper_update
                       - if: "{{ force_allows_ventilate }}"
                         then:
                           - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
@@ -5323,8 +5328,11 @@ actions:
                             default: !input auto_ventilate_action_before
                           - *cover_move_action
                           - *tilt_move_action
+                          - *helper_update
                           - choose: []
                             default: !input auto_ventilate_action
+                        else:
+                          - *helper_update
                       - stop: "Shading End: Ventilation activated"
 
                   ########################################################
@@ -5342,18 +5350,16 @@ actions:
                           - variables:
                               target_position: "{{ open_position }}"
                               target_tilt_position: "{{ open_tilt_position | int }}"
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Shading ends, return to open base state
                                 bas: "opn"
                                 shd: 0
                                 man: 0
                                 ts:
-                                  opn: "{{ ts_now | int }}"
-                                  shd: "{{ ts_now | int }}"
+                                  opn: "now"
+                                  shd: "now"
                                   shs: 0
                                   she: 0
-                          - *helper_update
                           - if: "{{ force_allows_open }}"
                             then:
                               - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
@@ -5367,6 +5373,7 @@ actions:
                                 default: !input auto_shading_end_action_before
                               - *cover_move_action
                               - *tilt_move_action
+                              - *helper_update
                               - choose: []
                                 default: !input auto_shading_end_action
                             else:
@@ -5476,7 +5483,6 @@ actions:
                           win: "{{ as_timestamp(now()) | round(0) | int }}"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_open }}"
                     then:
                       - delay:
@@ -5485,8 +5491,11 @@ actions:
                         default: !input auto_up_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_up_action
+                    else:
+                      - *helper_update
                   - stop: "Ventilation Start (Full) executed"
 
               ###################################
@@ -5527,7 +5536,6 @@ actions:
                           win: "{{ as_timestamp(now()) | round(0) | int }}"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - delay:
@@ -5536,8 +5544,11 @@ actions:
                         default: !input auto_ventilate_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_ventilate_action
+                    else:
+                      - *helper_update
                   - stop: "Ventilation Start (Partial) executed"
 
               ###################################
@@ -5557,18 +5568,16 @@ actions:
                   - variables:
                       target_position: !input shading_position
                       target_tilt_position: "{{ shading_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to shading (shade is already true)
                         shd: 1
                         win: "cls"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
-                          shd: "{{ ts_now | int }}"
+                          win: "now"
+                          shd: "now"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
                       - if: # Optional delay if enabled
@@ -5580,8 +5589,11 @@ actions:
                         default: !input auto_shading_start_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_shading_start_action
+                    else:
+                      - *helper_update
                   - stop: "Ventilation End: Return to Shading executed"
 
               ###################################
@@ -5602,16 +5614,14 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: !input open_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to open base state
                         win: "cls"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
+                          win: "now"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ not prevent_flags.opening_after_ventilation_end and force_allows_open }}"
                     then:
                       - if: # Optional delay if enabled
@@ -5623,8 +5633,11 @@ actions:
                         default: !input auto_up_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_up_action
+                    else:
+                      - *helper_update
                   - stop: "Ventilation End: Return to Open executed"
 
               ###################################
@@ -5646,16 +5659,14 @@ actions:
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: !input close_tilt_position
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Window closed, return to close base state
                         win: "cls"
                         man: 0
                         ts:
-                          win: "{{ ts_now | int }}"
+                          win: "now"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_close }}"
                     then:
                       - if: # Optional delay if enabled
@@ -5667,8 +5678,11 @@ actions:
                         default: !input auto_down_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_down_action
+                    else:
+                      - *helper_update
                   - stop: "Ventilation End: Return to Close executed"
 
       ############################################################
@@ -5704,7 +5718,6 @@ actions:
                           - variables:
                               target_position: !input open_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to open
                                 bas: "opn"
@@ -5712,9 +5725,8 @@ actions:
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  opn: "{{ ts_now | int }}"
-                                  shd: "{{ ts_now | int }}"
-                          - *helper_update
+                                  opn: "now"
+                                  shd: "now"
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                           - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
@@ -5723,8 +5735,11 @@ actions:
                                 default: !input auto_up_action_before
                               - *cover_move_action
                               - *tilt_move_action
+                              - *helper_update
                               - choose: []
                                 default: !input auto_up_action
+                            else:
+                              - *helper_update
 
                       # Target is SHADED
                       - conditions:
@@ -5744,7 +5759,6 @@ actions:
                                 ts:
                                   shd: "{{ as_timestamp(now()) | round(0) | int }}"
                                   shs: 0
-                          - *helper_update
                           - if: "{{ force_allows_shade }}"
                             then:
                               - delay:
@@ -5753,8 +5767,11 @@ actions:
                                 default: !input auto_shading_start_action_before
                               - *cover_move_action
                               - *tilt_move_action
+                              - *helper_update
                               - choose: []
                                 default: !input auto_shading_start_action
+                            else:
+                              - *helper_update
 
                       # Target is VENTILATION (window tilted)
                       - conditions:
@@ -5772,7 +5789,6 @@ actions:
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "{{ as_timestamp(now()) | round(0) | int }}"
-                          - *helper_update
                           - if: "{{ force_allows_ventilate  }}"
                             then:
                               - delay:
@@ -5781,8 +5797,11 @@ actions:
                                 default: !input auto_ventilate_action_before
                               - *cover_move_action
                               - *tilt_move_action
+                              - *helper_update
                               - choose: []
                                 default: !input auto_ventilate_action
+                            else:
+                              - *helper_update
 
                       # Target is VENTILATION FULL (window open)
                       - conditions:
@@ -5800,7 +5819,6 @@ actions:
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "{{ as_timestamp(now()) | round(0) | int }}"
-                          - *helper_update
                           - if: "{{ force_allows_ventilate }}"
                             then:
                               - delay:
@@ -5809,8 +5827,11 @@ actions:
                                 default: !input auto_ventilate_action_before
                               - *cover_move_action
                               - *tilt_move_action
+                              - *helper_update
                               - choose: []
                                 default: !input auto_ventilate_action
+                            else:
+                              - *helper_update
 
                       # Target is CLOSE
                       - conditions:
@@ -5822,7 +5843,6 @@ actions:
                           - variables:
                               target_position: !input close_position
                               target_tilt_position: "{{ close_tilt_position | int }}"
-                              ts_now: "{{ as_timestamp(now()) | round(0) }}"
                               update_values:
                                 # Resident leaving, move to close
                                 bas: "cls"
@@ -5830,9 +5850,8 @@ actions:
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  cls: "{{ ts_now | int }}"
-                                  shd: "{{ ts_now | int }}"
-                          - *helper_update
+                                  cls: "now"
+                                  shd: "now"
                           - if: "{{ force_allows_close }}"
                             then:
                               - delay:
@@ -5841,8 +5860,11 @@ actions:
                                 default: !input auto_down_action_before
                               - *cover_move_action
                               - *tilt_move_action
+                              - *helper_update
                               - choose: []
                                 default: !input auto_down_action
+                            else:
+                              - *helper_update
                     default:
                       # No matching target state or conditions not met, just update resident status
                       - variables:
@@ -5861,16 +5883,14 @@ actions:
                   - variables:
                       target_position: !input close_position
                       target_tilt_position: "{{ close_tilt_position | int }}"
-                      ts_now: "{{ as_timestamp(now()) | round(0) }}"
                       update_values:
                         # Resident arriving, close cover (base unchanged - only time triggers update base)
                         shd: 0
                         man: 0
                         res: "{{ new_resident_status | int }}"
                         ts:
-                          cls: "{{ ts_now | int }}"
-                          shd: "{{ ts_now | int }}"
-                  - *helper_update
+                          cls: "now"
+                          shd: "now"
                   - if: "{{ force_allows_close }}"
                     then:
                       - delay:
@@ -5879,8 +5899,11 @@ actions:
                         default: !input auto_down_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_down_action
+                    else:
+                      - *helper_update
             default:
               # No action required, but still update resident status
               - variables:
@@ -5912,15 +5935,17 @@ actions:
                         ts:
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_open }}"
                     then:
                       - choose: []
                         default: !input auto_up_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_up_action
+                    else:
+                      - *helper_update
                   - stop: "Force Open executed"
 
               # FORCE CLOSE - "Last Wins": Always execute, regardless of other active forces
@@ -5937,15 +5962,17 @@ actions:
                         ts:
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_close }}"
                     then:
                       - choose: []
                         default: !input auto_down_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_down_action
+                    else:
+                      - *helper_update
                   - stop: "Force Close executed"
 
               # FORCE VENTILATION - "Last Wins": Always execute, regardless of other active forces
@@ -5962,15 +5989,17 @@ actions:
                         ts:
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - choose: []
                         default: !input auto_ventilate_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_ventilate_action
+                    else:
+                      - *helper_update
                   - stop: "Force Ventilation executed"
 
               # FORCE SHADING - "Last Wins": Always execute, regardless of other active forces
@@ -5988,15 +6017,17 @@ actions:
                           shd: "{{ as_timestamp(now()) | round(0) | int }}"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
                       - choose: []
                         default: !input auto_shading_start_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_shading_start_action
+                    else:
+                      - *helper_update
                   - stop: "Force Shading executed"
 
       ############################################################
@@ -6025,15 +6056,17 @@ actions:
                         ts:
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_open }}"
                     then:
                       - choose: []
                         default: !input auto_up_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_up_action
+                    else:
+                      - *helper_update
                   - stop: "Switched to active Force Open"
 
               # Switch to FORCE CLOSE if still active
@@ -6050,15 +6083,17 @@ actions:
                         ts:
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_close }}"
                     then:
                       - choose: []
                         default: !input auto_down_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_down_action
+                    else:
+                      - *helper_update
                   - stop: "Switched to active Force Close"
 
               # Switch to FORCE SHADING if still active
@@ -6076,15 +6111,17 @@ actions:
                           shd: "{{ as_timestamp(now()) | round(0) | int }}"
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_shade }}"
                     then:
                       - choose: []
                         default: !input auto_shading_start_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_shading_start_action
+                    else:
+                      - *helper_update
                   - stop: "Switched to active Force Shading"
 
               # Switch to FORCE VENTILATION if still active
@@ -6101,15 +6138,17 @@ actions:
                         ts:
                           shs: 0
                           she: 0
-                  - *helper_update
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - choose: []
                         default: !input auto_ventilate_action_before
                       - *cover_move_action
                       - *tilt_move_action
+                      - *helper_update
                       - choose: []
                         default: !input auto_ventilate_action
+                    else:
+                      - *helper_update
                   - stop: "Switched to active Force Ventilation"
 
             # No other force active - proceed with recovery (if enabled)
@@ -6134,15 +6173,17 @@ actions:
                                     ts:
                                       shs: 0
                                       she: 0
-                              - *helper_update
                               - if: "{{ force_allows_close }}"
                                 then:
                                   - choose: []
                                     default: !input auto_down_action_before
                                   - *cover_move_action
                                   - *tilt_move_action
+                                  - *helper_update
                                   - choose: []
                                     default: !input auto_down_action
+                                else:
+                                  - *helper_update
                               - stop: "Return to Close executed"
 
                           # Return to SHADING position
@@ -6162,15 +6203,17 @@ actions:
                                       shd: "{{ as_timestamp(now()) | round(0) | int }}"
                                       shs: 0
                                       she: 0
-                              - *helper_update
                               - if: "{{ force_allows_shade }}"
                                 then:
                                   - choose: []
                                     default: !input auto_shading_start_action_before
                                   - *cover_move_action
                                   - *tilt_move_action
+                                  - *helper_update
                                   - choose: []
                                     default: !input auto_shading_start_action
+                                else:
+                                  - *helper_update
                               - stop: "Return to Shading executed"
 
                           # Return to VENTILATION position (window tilted)
@@ -6188,15 +6231,17 @@ actions:
                                     ts:
                                       shs: 0
                                       she: 0
-                              - *helper_update
                               - if: "{{ force_allows_ventilate }}"
                                 then:
                                   - choose: []
                                     default: !input auto_ventilate_action_before
                                   - *cover_move_action
                                   - *tilt_move_action
+                                  - *helper_update
                                   - choose: []
                                     default: !input auto_ventilate_action
+                                else:
+                                  - *helper_update
                               - stop: "Return to Ventilation executed"
 
                           # Return to OPEN position
@@ -6217,15 +6262,17 @@ actions:
                                       opn: "{{ as_timestamp(now()) | round(0) | int }}"
                                       shs: 0
                                       she: 0
-                              - *helper_update
                               - if: "{{ force_allows_open }}"
                                 then:
                                   - choose: []
                                     default: !input auto_up_action_before
                                   - *cover_move_action
                                   - *tilt_move_action
+                                  - *helper_update
                                   - choose: []
                                     default: !input auto_up_action
+                                else:
+                                  - *helper_update
                               - stop: "Return to Open executed"
                         default:
                           # No matching recovery condition (e.g., resident restrictions)
