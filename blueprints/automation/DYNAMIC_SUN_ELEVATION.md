@@ -36,33 +36,42 @@ The sensors provide **dynamic threshold values** that change throughout the year
   - Higher values = later closing (sun can set further)
 
 **Example scenario (Berlin, 52°N):**
-- Summer solstice (June 21): Opening sensor = 5.5°, Closing sensor = 1.5°
-- Winter solstice (Dec 21): Opening sensor = -1.5°, Closing sensor = -5.5°
-- Result: Covers open/close at consistent solar times year-round, despite the sun reaching vastly different maximum elevations
+- Summer solstice (June 21): Opening sensor = -1.6°, Closing sensor = -0.6°
+- Winter solstice (Dec 21): Opening sensor = 5.4°, Closing sensor = 2.4°
+- Result: Covers open earlier and close later in summer (long day), open later and close earlier in winter (short day)
 
 ### Visual Comparison
+
+![Annual Threshold Curve](../../docs/images/threshold_curve_annual.png)
+
+The graph above shows how the dynamic sun elevation threshold changes throughout the year, comparing sinusoidal interpolation (recommended) with linear interpolation.
+
+<details>
+<summary>ASCII version (click to expand)</summary>
+
 ```
 Sun Elevation Threshold Throughout Year (50°N)
 
-  6° ┤                    ╭─Sine curve─╮
-     │                  ╱               ╲
-  4° ┤     Linear    ╱                   ╲
-     │      ╱─╲    ╱                       ╲
-  2° ┤    ╱    ╲ ╱   ← Spring/Autumn:       ╲
-     │  ╱       ╳      Sine changes faster!   ╲
-  0° ┤╱        ╱ ╲                              ╲
-     │       ╱    ╲                               ╲
- -2° ┤     ╱       ╲─────────────────────────────╲
-     │   ╱                                          ╲
- -4° ┼──┴────┬────┬────┬────┬────┬────┬────┬────┬──┴─
+  6° ┤╲                                          ╱
+     │ ╲                                        ╱
+  4° ┤  ╲       ╲─────────────────────────╱   ╱
+     │   ╲       ╲                       ╱   ╱
+  2° ┤    ╲       ╲   ← Spring/Autumn:  ╱   ╱  Linear
+     │     ╲       ╲     Sine changes   ╱  ╱─╲
+  0° ┤      ╲       ╲    faster!       ╱ ╱    ╲
+     │       ╲       ╲                ╱╱       ╲
+ -2° ┤        ╲       ╰─Sine curve─╯╱          ╲
+     │         ╲                   ╱            ╲
+ -4° ┼──┬────┬──┴─────────────────┴────┬────┬───
      Jan    Mar  May  Jul  Sep  Nov  Jan
             ↑                    ↑
         Equinox              Equinox
         (faster)             (faster)
-        
+
         Solstice →  Jun/Dec  ← Solstice
                     (slower)
 ```
+</details>
 
 **Why Sine is Better:**
 - 📈 **Physically accurate** - matches Earth's declination cycle
@@ -98,8 +107,8 @@ template:
           {% set lat = state_attr('zone.home', 'latitude') | float(52.0) %}
 
           {# Reference values for 50°N #}
-          {% set summer = 5.0 %}
-          {% set winter = 2.0 %}
+          {% set summer = -2.0 %}
+          {% set winter = 5.0 %}
 
           {# Sinusoidal interpolation (physically correct) #}
           {# Day 80.75 ≈ March 21 (spring equinox) as reference #}
@@ -124,8 +133,8 @@ template:
           {% set lat = state_attr('zone.home', 'latitude') | float(52.0) %}
 
           {# Reference values for 50°N #}
-          {% set summer = 2.0 %}
-          {% set winter = -1.0 %}
+          {% set summer = -1.0 %}
+          {% set winter = 2.0 %}
 
           {# Sinusoidal interpolation (physically correct) #}
           {% set seasonal_factor = sin(2 * pi * (day - 80.75) / 365) %}
@@ -164,7 +173,70 @@ In your CCA automation configuration:
 
 ---
 
+## ⚠️ Common Mistake: Inverted Values
+
+**CRITICAL: Make sure your `summer` and `winter` values are NOT inverted!**
+
+Many users initially configure these values backwards. Here's how to verify you have them correct:
+
+### ✅ Correct Configuration
+
+**Opening sensor (Sun Elevation Up Dynamic):**
+```yaml
+{% set summer = -2.0 %}  # ✅ LOWER value for summer (opens EARLIER)
+{% set winter = 5.0 %}   # ✅ HIGHER value for winter (opens LATER)
+```
+
+**Closing sensor (Sun Elevation Down Dynamic):**
+```yaml
+{% set summer = -1.0 %}  # ✅ LOWER value for summer (closes LATER)
+{% set winter = 2.0 %}   # ✅ HIGHER value for winter (closes EARLIER)
+```
+
+### ❌ Common Mistake (INVERTED)
+
+**If you have this, it's WRONG:**
+```yaml
+# Opening sensor - INVERTED (WRONG!)
+{% set summer = 5.0 %}   # ❌ Summer value HIGHER than winter
+{% set winter = -2.0 %}  # ❌ Winter value LOWER than summer
+
+# Closing sensor - INVERTED (WRONG!)
+{% set summer = 2.0 %}   # ❌ Summer value HIGHER than winter
+{% set winter = -1.0 %}  # ❌ Winter value LOWER than summer
+```
+
+### 🧪 Quick Test
+
+After setting up your sensors, verify the values in Developer Tools:
+
+**In Summer (June-July):**
+- Opening sensor should show **NEGATIVE** or **LOW** values (e.g., -1.5° to 0°)
+- Closing sensor should show **NEGATIVE** or **LOW** values (e.g., -0.5° to 1°)
+
+**In Winter (December-January):**
+- Opening sensor should show **POSITIVE** and **HIGH** values (e.g., 4° to 6°)
+- Closing sensor should show **POSITIVE** values (e.g., 1.5° to 3°)
+
+**If your values are the opposite, your configuration is INVERTED!**
+
+### 🎯 Remember the Logic
+
+- **Opening**: Cover opens when `sun elevation > threshold`
+  - Lower threshold = Opens earlier (summer behavior)
+  - Higher threshold = Opens later (winter behavior)
+
+- **Closing**: Cover closes when `sun elevation < threshold`
+  - Lower threshold = Closes later (summer behavior)
+  - Higher threshold = Closes earlier (winter behavior)
+
+---
+
 ## 📊 How It Works
+
+![Both Sensors Throughout Year](../../docs/images/both_sensors_annual.png)
+
+The graph above visualizes how both opening and closing sensors work together throughout the year, creating different "open window" durations in summer vs winter.
 
 ### Understanding the Comparison Logic
 
@@ -174,15 +246,15 @@ The dynamic sensors provide **threshold values** that are compared with the **cu
 - ✅ Cover **opens** when: `current sun elevation > sensor value`
 - 📈 **Example**: Sensor = 2.5° → Cover opens when sun rises **above** 2.5°
 - 🔄 **Seasonal behavior**:
-  - Summer (sensor = 5.0°): Opens later (sun must climb higher)
-  - Winter (sensor = -2.0°): Opens earlier (sun below horizon is enough)
+  - Summer (sensor = -2.0°): Opens earlier (sun can be below horizon)
+  - Winter (sensor = 5.0°): Opens later (sun must climb higher)
 
 **Closing Logic (Sun Elevation Down):**
 - ✅ Cover **closes** when: `current sun elevation < sensor value`
 - 📉 **Example**: Sensor = 0.5° → Cover closes when sun sets **below** 0.5°
 - 🔄 **Seasonal behavior**:
-  - Summer (sensor = 2.0°): Closes later (sun can be higher)
-  - Winter (sensor = -4.0°): Closes earlier (closes well before sunset)
+  - Summer (sensor = -1.0°): Closes later (sun can drop below horizon)
+  - Winter (sensor = 2.0°): Closes earlier (closes before sunset)
 
 ### Automatic Features
 
@@ -198,25 +270,29 @@ The sensors use these baseline values for **50°N latitude** (Central Europe):
 
 | Sensor | Summer (Jun 21) | Winter (Dec 21) | Range |
 |--------|-----------------|-----------------|-------|
-| **Opening** | 5.0° | -2.0° | 7.0° span |
-| **Closing** | 3.0° | -4.0° | 7.0° span |
+| **Opening** | -2.0° | 5.0° | 7.0° span |
+| **Closing** | -1.0° | 2.0° | 3.0° span |
 
 **Automatic latitude adjustment:** ±0.2° per degree difference from 50°N
 
 ### Values at Different Latitudes
 
+![Latitude Comparison](../../docs/images/latitude_comparison.png)
+
+The graph above shows how the opening sensor thresholds automatically adjust for different latitudes across Europe.
+
 | Location | Latitude | Opening Summer | Opening Winter |
 |----------|----------|----------------|----------------|
-| **Tromsø** 🇳🇴 | 69.6°N | 8.9° | 1.9° |
-| **Stockholm** 🇸🇪 | 59.3°N | 6.9° | -0.1° |
-| **Copenhagen** 🇩🇰 | 55.7°N | 6.1° | -0.9° |
-| **Berlin** 🇩🇪 | 52.5°N | 5.5° | -1.5° |
-| **London** 🇬🇧 | 51.5°N | 5.3° | -1.7° |
-| **Paris** 🇫🇷 | 48.9°N | 4.8° | -2.2° |
-| **Vienna** 🇦🇹 | 48.2°N | 4.6° | -2.4° |
-| **Milan** 🇮🇹 | 45.5°N | 3.9° | -3.1° |
-| **Rome** 🇮🇹 | 41.9°N | 3.2° | -3.8° |
-| **Athens** 🇬🇷 | 38.0°N | 2.4° | -4.6° |
+| **Tromsø** 🇳🇴 | 69.6°N | 1.9° | 8.9° |
+| **Stockholm** 🇸🇪 | 59.3°N | -0.1° | 6.9° |
+| **Copenhagen** 🇩🇰 | 55.7°N | -0.9° | 6.1° |
+| **Berlin** 🇩🇪 | 52.5°N | -1.5° | 5.5° |
+| **London** 🇬🇧 | 51.5°N | -1.7° | 5.3° |
+| **Paris** 🇫🇷 | 48.9°N | -2.2° | 4.8° |
+| **Vienna** 🇦🇹 | 48.2°N | -2.4° | 4.6° |
+| **Milan** 🇮🇹 | 45.5°N | -3.1° | 3.9° |
+| **Rome** 🇮🇹 | 41.9°N | -3.8° | 3.2° |
+| **Athens** 🇬🇷 | 38.0°N | -4.6° | 2.4° |
 
 ---
 
@@ -239,16 +315,16 @@ The sensors use these baseline values for **50°N latitude** (Central Europe):
 Modify the `summer` and `winter` values to shift timing:
 ```yaml
 {# Original values #}
-{% set summer = 5.0 %}
-{% set winter = -2.0 %}
+{% set summer = -2.0 %}
+{% set winter = 5.0 %}
 
 {# Open earlier in morning #}
-{% set summer = 3.0 %}   # Lower value = earlier opening
-{% set winter = -4.0 %}
+{% set summer = -4.0 %}   # Lower value = earlier opening
+{% set winter = 3.0 %}
 
 {# Open later in morning #}
-{% set summer = 7.0 %}   # Higher value = later opening  
-{% set winter = 0.0 %}
+{% set summer = 0.0 %}   # Higher value = later opening
+{% set winter = 7.0 %}
 ```
 
 **Rule of thumb:** Each 1° change shifts timing by approximately 4-6 minutes.
@@ -271,13 +347,13 @@ Change latitude sensitivity by modifying the `0.2` multiplier:
 
 Create asymmetric behavior:
 ```yaml
-{# Aggressive summer, conservative winter #}
-{% set summer = 8.0 %}
-{% set winter = -1.0 %}
+{# Aggressive summer (very early), conservative winter #}
+{% set summer = -5.0 %}
+{% set winter = 3.0 %}
 
-{# Conservative summer, aggressive winter #}
-{% set summer = 3.0 %}
-{% set winter = -5.0 %}
+{# Conservative summer, aggressive winter (very late) #}
+{% set summer = -1.0 %}
+{% set winter = 8.0 %}
 ```
 
 ---
@@ -287,12 +363,12 @@ Create asymmetric behavior:
 ### Early Bird Setup (Opens Early)
 ```yaml
 # Opening sensor
-{% set summer = 3.0 %}   # Was: 5.0
-{% set winter = -4.0 %}  # Was: -2.0
+{% set summer = -4.0 %}  # Was: -2.0
+{% set winter = 3.0 %}   # Was: 5.0
 
-# Closing sensor  
-{% set summer = 1.0 %}   # Was: 3.0
-{% set winter = -6.0 %}  # Was: -4.0
+# Closing sensor
+{% set summer = -3.0 %}  # Was: -1.0
+{% set winter = 0.0 %}   # Was: 2.0
 ```
 
 **Effect:** Covers open ~30 min earlier, close ~30 min earlier
@@ -300,12 +376,12 @@ Create asymmetric behavior:
 ### Night Owl Setup (Opens Late)
 ```yaml
 # Opening sensor
-{% set summer = 7.0 %}   # Was: 5.0
-{% set winter = 0.0 %}   # Was: -2.0
+{% set summer = 0.0 %}   # Was: -2.0
+{% set winter = 7.0 %}   # Was: 5.0
 
 # Closing sensor
-{% set summer = 5.0 %}   # Was: 3.0  
-{% set winter = -2.0 %}  # Was: -4.0
+{% set summer = 1.0 %}   # Was: -1.0
+{% set winter = 4.0 %}   # Was: 2.0
 ```
 
 **Effect:** Covers open ~30 min later, close ~30 min later
@@ -313,12 +389,12 @@ Create asymmetric behavior:
 ### Maximum Privacy (Stays Closed Longer)
 ```yaml
 # Opening sensor - very late
-{% set summer = 10.0 %}
-{% set winter = 3.0 %}
+{% set summer = 3.0 %}
+{% set winter = 10.0 %}
 
 # Closing sensor - very early
-{% set summer = 0.0 %}
-{% set winter = -7.0 %}
+{% set summer = 1.0 %}
+{% set winter = 5.0 %}
 ```
 
 **Effect:** Minimum exposure time, maximum privacy
@@ -326,12 +402,12 @@ Create asymmetric behavior:
 ### Energy Saving (Solar Heat Gain)
 ```yaml
 # Opening sensor - early to capture morning sun
-{% set summer = 2.0 %}
-{% set winter = -5.0 %}
+{% set summer = -5.0 %}
+{% set winter = 2.0 %}
 
 # Closing sensor - late to keep warmth inside
-{% set summer = 1.0 %}
-{% set winter = -6.0 %}
+{% set summer = -4.0 %}
+{% set winter = 0.0 %}
 ```
 
 **Effect:** Opens early (solar gain), closes late (heat retention)
@@ -339,6 +415,10 @@ Create asymmetric behavior:
 ---
 
 ## 📐 Mathematical Background
+
+![Sine Wave Explanation](../../docs/images/sine_wave_explanation.png)
+
+The diagram above shows how the sine function transforms the seasonal cycle into smooth threshold values.
 
 ### The Sine Formula
 ```
@@ -356,21 +436,29 @@ This is the **reference point** where:
 
 ### Key Dates in Solar Cycle
 ```
+        Dec 21 (Day 355)           Jan 1
+      MAXIMUM THRESHOLD        MAXIMUM THRESHOLD
+              ╲╱                      ╲╱
+            ╱  ╲                    ╱  ╲
+          ╱      ╲                ╱      ╲
+        ╱          ╲            ╱          ╲
+     ╱              ╲        ╱              ╲
+Mar 21                ╲    ╱                Sep 23
+(Day 80)               ╲  ╱                 (Day 266)
+EQUINOX                 ╲╱                  EQUINOX
+                        ╱╲
+                      ╱    ╲
+                    ╱        ╲
+                  ╱            ╲
+                ╱                ╲
+              ╱                    ╲
+            ╱                        ╲
+          ╱                            ╲
         Jun 21 (Day 172)
-           MAXIMUM
-              ╱╲
-            ╱    ╲
-          ╱        ╲
-        ╱            ╲
-Mar 21 ╱              ╲ Sep 23
-(Day 80)              (Day 266)
-EQUINOX               EQUINOX
-        ╲            ╱
-          ╲        ╱
-            ╲    ╱
-              ╲╱
-        Dec 21 (Day 355)
-           MINIMUM
+     MINIMUM THRESHOLD
+
+Note: For threshold values with summer < winter,
+      the sine curve is inverted compared to sun's declination
 ```
 
 ### Step-by-Step Calculation
@@ -380,8 +468,8 @@ Example: **September 20** (Day 263), **52°N** (Berlin), **Opening sensor**
 # 1. Get inputs
 day = 263
 lat = 52.0
-summer = 5.0
-winter = -2.0
+summer = -2.0
+winter = 5.0
 
 # 2. Calculate seasonal factor
 days_from_equinox = 263 - 80.75 = 182.25
@@ -390,8 +478,8 @@ sin_value = sin(3.14) ≈ 0.00
 seasonal_factor = 0.00
 
 # 3. Calculate base elevation
-base = -2.0 + (5.0 - (-2.0)) × (0.00 + 1) / 2
-base = -2.0 + 7.0 × 0.5
+base = 5.0 + (-2.0 - 5.0) × (0.00 + 1) / 2
+base = 5.0 + (-7.0) × 0.5
 base = 1.5°
 
 # 4. Apply latitude adjustment
@@ -450,18 +538,18 @@ Check values at different dates:
 {# Simulate summer (Day 172) #}
 {% set day = 172 %}
 {% set lat = state_attr('zone.home', 'latitude') | float(50.0) %}
-{% set summer = 5.0 %}
-{% set winter = -2.0 %}
+{% set summer = -2.0 %}
+{% set winter = 5.0 %}
 {% set seasonal_factor = sin(2 * pi * (day - 80.75) / 365) %}
 {% set base = winter + (summer - winter) * (seasonal_factor + 1) / 2 %}
 {% set adjustment = (lat - 50) * 0.2 %}
 {{ (base + adjustment) | round(1) }}
-{# Should be close to 5.0° #}
+{# Should be close to -2.0° #}
 
 {# Simulate winter (Day 355) #}
 {% set day = 355 %}
 {# ... same calculation ... #}
-{# Should be close to -2.0° (or adjusted for your latitude) #}
+{# Should be close to 5.0° (or adjusted for your latitude) #}
 ```
 
 ### Test with Automation
@@ -529,12 +617,12 @@ Enable **Automation Traces** to verify sensor usage:
 Extreme seasonal variation requires wider range:
 ```yaml
 # Opening sensor
-{% set summer = 7.0 %}   # Much higher maximum
-{% set winter = -5.0 %}  # Much lower minimum
+{% set summer = -5.0 %}  # Much lower minimum
+{% set winter = 7.0 %}   # Much higher maximum
 
 # Closing sensor
-{% set summer = 5.0 %}
-{% set winter = -7.0 %}
+{% set summer = -4.0 %}
+{% set winter = 3.0 %}
 ```
 
 ### Mediterranean (35-45°N)
@@ -542,12 +630,12 @@ Extreme seasonal variation requires wider range:
 Less variation, higher year-round sun:
 ```yaml
 # Opening sensor
-{% set summer = 8.0 %}   # Higher baseline
-{% set winter = 1.0 %}   # Stays positive
+{% set summer = -4.0 %}  # Lower baseline
+{% set winter = 8.0 %}   # Higher baseline
 
 # Closing sensor
-{% set summer = 6.0 %}
-{% set winter = -1.0 %}
+{% set summer = -2.0 %}
+{% set winter = 4.0 %}
 ```
 
 ### Southern Hemisphere
@@ -620,8 +708,8 @@ Fine-tune in **spring/autumn** (equinoxes) when changes are fastest. This ensure
 Account for buildings, trees, hills:
 ```yaml
 # Blocked sunrise by building - delay opening
-{% set summer = 7.0 %}  # Higher = later
-{% set winter = 1.0 %}
+{% set summer = 1.0 %}  # Higher = later
+{% set winter = 7.0 %}
 ```
 
 ### 5. Different Sensors Per Room
@@ -630,13 +718,13 @@ East-facing rooms might need different values than west-facing:
 ```yaml
 # East (morning sun) - open earlier
 sensor.sun_elevation_up_dynamic_east:
-  {% set summer = 3.0 %}
-  {% set winter = -4.0 %}
+  {% set summer = -4.0 %}
+  {% set winter = 3.0 %}
 
-# West (evening sun) - open later  
+# West (evening sun) - open later
 sensor.sun_elevation_up_dynamic_west:
-  {% set summer = 7.0 %}
-  {% set winter = 0.0 %}
+  {% set summer = 0.0 %}
+  {% set winter = 7.0 %}
 ```
 
 ### 6. Combine with Time Constraints
