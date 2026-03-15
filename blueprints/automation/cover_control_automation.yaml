@@ -2938,11 +2938,6 @@ variables:
     {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
     {% set ts_now = as_timestamp(now()) | round(0) %}
 
-    {# Value mappings for compact → internal conversion #}
-    {% set base_map = {'cls': 'close', 'opn': 'open'} %}
-    {% set win_map = {'cls': 'closed', 'tlt': 'tilted', 'opn': 'open'} %}
-    {% set frc_map = {'non': 'none', 'opn': 'open', 'cls': 'close', 'shd': 'shade', 'vnt': 'vent'} %}
-
     {# Detect v5 format by version number #}
     {% set is_v5 = helper_raw.v | default(0) == 5 %}
     {# Detect v6 compact format: has 'bas' field #}
@@ -2962,44 +2957,44 @@ variables:
 
       {{
         {
-          'base': 'close' if v5_current == 'close' else 'open',
-          'shade': 1 if v5_current == 'shade' else 0,
-          'window': 'open' if v5_current == 'vfull' else ('tilted' if v5_current == 'vpart' else 'closed'),
-          'force': 'none',
-          'resident': 0,
-          'manual': helper_raw.manual.a | default(0),
+          'bas': 'cls' if v5_current == 'close' else 'opn',
+          'shd': 1 if v5_current == 'shade' else 0,
+          'win': 'opn' if v5_current == 'vfull' else ('tlt' if v5_current == 'vpart' else 'cls'),
+          'frc': 'non',
+          'res': 0,
+          'man': helper_raw.manual.a | default(0),
           'ts': {
-            'open': helper_raw.open.t | default(0),
-            'close': helper_raw.close.t | default(0),
-            'shade': helper_raw.shading.t | default(0) if v5_current == 'shade' else 0,
-            'shade_start': helper_raw.shading.p | default(0),
-            'shade_end': helper_raw.shading.q | default(0),
-            'window': helper_raw.vpart.t | default(helper_raw.vfull.t | default(0)),
-            'manual': helper_raw.manual.t | default(0)
+            'opn': helper_raw.open.t | default(0),
+            'cls': helper_raw.close.t | default(0),
+            'shd': helper_raw.shading.t | default(0) if v5_current == 'shade' else 0,
+            'shs': helper_raw.shading.p | default(0),
+            'she': helper_raw.shading.q | default(0),
+            'win': helper_raw.vpart.t | default(helper_raw.vfull.t | default(0)),
+            'man': helper_raw.manual.t | default(0)
           },
           'v': 6,
           't': ts_now
         }
       }}
     {% elif is_v6_compact %}
-      {# ═══════════════ v6 COMPACT → INTERNAL ═══════════════ #}
+      {# ═══════════════ v6 COMPACT (pass-through) ═══════════════ #}
       {% set raw_ts = helper_raw.ts | default({}) %}
       {{
         {
-          'base': base_map[helper_raw.bas] | default('open'),
-          'shade': helper_raw.shd | default(0) | int,
-          'window': win_map[helper_raw.win] | default('closed'),
-          'force': frc_map[helper_raw.frc] | default('none'),
-          'resident': helper_raw.res | default(0) | int,
-          'manual': helper_raw.man | default(0) | int,
+          'bas': helper_raw.bas | default('opn'),
+          'shd': helper_raw.shd | default(0) | int,
+          'win': helper_raw.win | default('cls'),
+          'frc': helper_raw.frc | default('non'),
+          'res': helper_raw.res | default(0) | int,
+          'man': helper_raw.man | default(0) | int,
           'ts': {
-            'open': raw_ts.opn | default(0) | int,
-            'close': raw_ts.cls | default(0) | int,
-            'shade': raw_ts.shd | default(0) | int,
-            'shade_start': raw_ts.shs | default(0) | int,
-            'shade_end': raw_ts.she | default(0) | int,
-            'window': raw_ts.win | default(0) | int,
-            'manual': raw_ts.man | default(0) | int
+            'opn': raw_ts.opn | default(0) | int,
+            'cls': raw_ts.cls | default(0) | int,
+            'shd': raw_ts.shd | default(0) | int,
+            'shs': raw_ts.shs | default(0) | int,
+            'she': raw_ts.she | default(0) | int,
+            'win': raw_ts.win | default(0) | int,
+            'man': raw_ts.man | default(0) | int
           },
           'v': 6,
           't': helper_raw.t | default(ts_now) | int
@@ -3009,20 +3004,20 @@ variables:
       {# New/empty/invalid helper - create default v6 structure #}
       {{
         {
-          'base': 'open',
-          'shade': 0,
-          'window': 'closed',
-          'force': 'none',
-          'resident': 0,
-          'manual': 0,
+          'bas': 'opn',
+          'shd': 0,
+          'win': 'cls',
+          'frc': 'non',
+          'res': 0,
+          'man': 0,
           'ts': {
-            'open': 0,
-            'close': 0,
-            'shade': 0,
-            'shade_start': 0,
-            'shade_end': 0,
-            'window': 0,
-            'manual': 0
+            'opn': 0,
+            'cls': 0,
+            'shd': 0,
+            'shs': 0,
+            'she': 0,
+            'win': 0,
+            'man': 0
           },
           'v': 6,
           't': ts_now
@@ -3052,65 +3047,65 @@ variables:
   # Use this directly instead of the old state_current variable
   effective_state: >-
     {% set h = helper_json %}
-    {% set resident_present = h.resident | default(0) | int == 1 %}
+    {% set resident_present = h.res | default(0) | int == 1 %}
     {% set allow_vent = 'resident_allow_ventilation' in resident_config or not resident_present %}
     {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %}
     {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %}
     {% set privacy_active = resident_present and 'resident_closing_enabled' in resident_config %}
-    {% if h.force != 'none' %}
-      {{ h.force }}
-    {% elif h.window == 'open' %}
+    {% if h.frc != 'non' %}
+      {{ h.frc }}
+    {% elif h.win == 'opn' %}
       lock
-    {% elif h.window == 'tilted' and allow_vent %}
-      vent
+    {% elif h.win == 'tlt' and allow_vent %}
+      vnt
     {% elif privacy_active %}
-      close
-    {% elif h.shade | int == 1 and allow_shade %}
-      shade
-    {% elif h.base == 'open' and not allow_open %}
-      close
+      cls
+    {% elif h.shd | int == 1 and allow_shade %}
+      shd
+    {% elif h.bas == 'opn' and not allow_open %}
+      cls
     {% else %}
-      {{ h.base }}
+      {{ h.bas }}
     {% endif %}
 
   # STATE FORCE - Which force function is currently active? (from helper)
-  # Values: none|open|close|shade|vent
-  state_force: "{{ helper_json.force | default('none') }}"
+  # Values: non|opn|cls|shd|vnt
+  state_force: "{{ helper_json.frc | default('non') }}"
 
   # RESIDENT STATUS - Is someone present? (from helper, synced with sensor)
-  state_resident: "{{ helper_json.resident | default(0) | int == 1 }}"
+  state_resident: "{{ helper_json.res | default(0) | int == 1 }}"
 
   # MANUAL FLAG - Is manual override active? (from helper)
-  state_manual: "{{ helper_json.manual | default(0) | int == 1 }}"
+  state_manual: "{{ helper_json.man | default(0) | int == 1 }}"
 
-  # BASE STATE - The time-based ground state (open/close)
-  state_base: "{{ helper_json.base | default('open') }}"
+  # BASE STATE - The time-based ground state (opn/cls)
+  state_base: "{{ helper_json.bas | default('opn') }}"
 
-  # WINDOW STATE - Current window sensor state (closed/tilted/open)
-  state_window: "{{ helper_json.window | default('closed') }}"
+  # WINDOW STATE - Current window sensor state (cls/tlt/opn)
+  state_window: "{{ helper_json.win | default('cls') }}"
 
   # SHADE STATE - Is shading currently active (not pending)?
-  state_shade: "{{ helper_json.shade | default(0) | int == 1 }}"
+  state_shade: "{{ helper_json.shd | default(0) | int == 1 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # TIMESTAMPS - Unified timestamp access
   # ═══════════════════════════════════════════════════════════════════════════
 
-  ts_open: "{{ helper_json.ts.open | default(0) | int }}"
-  ts_close: "{{ helper_json.ts.close | default(0) | int }}"
-  ts_shade: "{{ helper_json.ts.shade | default(0) | int }}"
-  ts_man: "{{ helper_json.ts.manual | default(0) | int }}"
-  ts_window: "{{ helper_json.ts.window | default(0) | int }}"
+  ts_open: "{{ helper_json.ts.opn | default(0) | int }}"
+  ts_close: "{{ helper_json.ts.cls | default(0) | int }}"
+  ts_shade: "{{ helper_json.ts.shd | default(0) | int }}"
+  ts_man: "{{ helper_json.ts.man | default(0) | int }}"
+  ts_window: "{{ helper_json.ts.win | default(0) | int }}"
 
   # SHADED STATUS - Is cover currently shaded (not pending)?
   # True when shade == 1 AND no pending start time active
-  state_is_shaded: "{{ helper_json.shade | default(0) | int == 1 and helper_json.ts.shade_start | default(0) | int == 0 }}"
+  state_is_shaded: "{{ helper_json.shd | default(0) | int == 1 and helper_json.ts.shs | default(0) | int == 0 }}"
 
   # PENDING START - Is shading start pending?
-  state_pending_start: "{{ helper_json.ts.shade_start | default(0) | int > 0 }}"
+  state_pending_start: "{{ helper_json.ts.shs | default(0) | int > 0 }}"
 
   # PENDING END - Is shading end pending?
-  state_pending_end: "{{ helper_json.ts.shade_end | default(0) | int > 0 }}"
+  state_pending_end: "{{ helper_json.ts.she | default(0) | int > 0 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # COMPUTED FLAGS - Simplified Movement Permissions
@@ -3153,18 +3148,18 @@ variables:
 
   # Which force is currently active based on sensor states (not helper)?
   # Used for "Last Wins" logic - when a force is disabled, switch to another active force
-  # v6 uses 'vent' for ventilation instead of vpart/vfull
+  # Values: opn|cls|shd|vnt|non
   active_force_from_sensors: >-
     {% if auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
-      open
+      opn
     {% elif auto_down_force != [] and states(auto_down_force) in ['on', 'true'] %}
-      close
+      cls
     {% elif auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'] %}
-      shade
+      shd
     {% elif auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true'] %}
-      vent
+      vnt
     {% else %}
-      none
+      non
     {% endif %}
 
   # ═══════════════════════════════════════════════════════════════════════════
@@ -4649,7 +4644,7 @@ actions:
               ###################################
               - alias: "Already in open position - only update base state"
                 conditions:
-                  - "{{ effective_state == 'open' and in_open_position }}"
+                  - "{{ effective_state == 'opn' and in_open_position }}"
                   - "{{ not state_is_shaded }}"
                   - "{{ not state_pending_start }}"
                   - "{{ not state_shade }}"
@@ -4657,7 +4652,7 @@ actions:
                       # Primary: base not yet reflecting current schedule
                       # (e.g. Force Open is active while closing time has passed,
                       # or Resident override holds cover open past opening time)
-                      - "{{ state_base != 'open' }}"
+                      - "{{ state_base != 'opn' }}"
                       # Secondary: ts.opn is from a previous day
                       # (needed for prevent_multiple_times to work correctly)
                       - "{{ now().day != ts_open | timestamp_custom('%-d', true) | int }}"
@@ -4846,11 +4841,11 @@ actions:
               ###################################
               - alias: "Already in close position - only update base state"
                 conditions:
-                  - "{{ effective_state == 'close' and in_close_position }}"
+                  - "{{ effective_state == 'cls' and in_close_position }}"
                   - or:
                       # Primary: base not yet reflecting current schedule
                       # (e.g. Force Close is active while opening time has passed)
-                      - "{{ state_base != 'close' }}"
+                      - "{{ state_base != 'cls' }}"
                       # Secondary: ts.cls is from a previous day
                       # (needed for prevent_multiple_times to work correctly)
                       - "{{ now().day != ts_close | timestamp_custom('%-d', true) | int }}"
@@ -4939,7 +4934,7 @@ actions:
           - condition: !input auto_shading_start_condition
           - or: # Check the helper status or the target status
               - "{{ not state_is_shaded }}"
-              - "{{ state_window not in ['tilted', 'open'] }}"
+              - "{{ state_window not in ['tlt', 'opn'] }}"
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
@@ -5058,7 +5053,7 @@ actions:
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ state_pending_start }}" # Only when it comes back from pending status
-                      - "{{ effective_state == 'close' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                      - "{{ effective_state == 'cls' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                     sequence:
                       - variables:
                           update_values:
@@ -5132,7 +5127,7 @@ actions:
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
           - "{{ force_allows_shade }}"
-          - "{{ state_window not in ['tilted', 'open'] }}"
+          - "{{ state_window not in ['tlt', 'opn'] }}"
           - "{{ not (state_manual and override_flags.shading) }}" # Override check
         sequence:
           - variables:
@@ -5164,7 +5159,7 @@ actions:
           - condition: !input auto_shading_end_condition
           - "{{ is_shading_allowed_window }}"
           - "{{ not (state_manual and override_flags.shading) }}" # Override check
-          - "{{ effective_state != 'close' }}"
+          - "{{ effective_state != 'cls' }}"
           - or:
               - "{{ state_is_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
@@ -5494,7 +5489,7 @@ actions:
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
                       - and:
-                          - "{{ state_window == 'open' }}"
+                          - "{{ state_window == 'opn' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
 
                 sequence:
@@ -5530,7 +5525,7 @@ actions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - "{{ state_is_shaded or state_shade }}"
                   - or: # Was ventilating before
-                      - "{{ state_window in ['tilted', 'open'] }}"
+                      - "{{ state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
@@ -5571,10 +5566,10 @@ actions:
               - alias: "Window closed - Return to open position"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ state_base == 'open' and not state_resident }}"
+                  - "{{ state_base == 'opn' and not state_resident }}"
                   - "{{ not state_is_shaded and not state_shade }}"
                   - or: # Was ventilating before
-                      - "{{ state_window in ['tilted', 'open'] }}"
+                      - "{{ state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
@@ -5614,10 +5609,10 @@ actions:
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - or:
-                      - "{{ state_base == 'close' }}"
+                      - "{{ state_base == 'cls' }}"
                       - "{{ state_resident }}"  # Wenn Resident anwesend, zurück zu close
                   - or: # Was ventilating before
-                      - "{{ state_window in ['tilted', 'open'] }}"
+                      - "{{ state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
@@ -5674,10 +5669,10 @@ actions:
                   - choose:
                       # Target is OPEN
                       - conditions:
-                          - "{{ state_base == 'open' }}"
+                          - "{{ state_base == 'opn' }}"
                           - "{{ resident_flags.opening_trigger }}"
                           - "{{ is_up_enabled }}"
-                          - "{{ effective_state != 'open' or not in_open_position }}"
+                          - "{{ effective_state != 'opn' or not in_open_position }}"
                           - "{{ force_allows_open }}"
                         sequence:
                           - variables:
@@ -5709,7 +5704,7 @@ actions:
                           - "{{ state_shade }}"
                           - "{{ resident_flags.allow_shade }}"
                           - "{{ is_shading_enabled }}"
-                          - "{{ effective_state != 'shade' or not in_shading_position }}"
+                          - "{{ effective_state != 'shd' or not in_shading_position }}"
                         sequence:
                           - variables:
                               target_position: !input shading_position
@@ -5736,10 +5731,10 @@ actions:
 
                       # Target is VENTILATION (window tilted)
                       - conditions:
-                          - "{{ state_window == 'tilted' }}"
+                          - "{{ state_window == 'tlt' }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
-                          - "{{ effective_state != 'vent' or not in_ventilate_position }}"
+                          - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
                         sequence:
                           - variables:
                               target_position: !input ventilate_position
@@ -5764,7 +5759,7 @@ actions:
 
                       # Target is VENTILATION FULL (window open)
                       - conditions:
-                          - "{{ state_window == 'open' }}"
+                          - "{{ state_window == 'opn' }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ effective_state != 'lock' or not in_open_position }}"
@@ -5792,9 +5787,9 @@ actions:
 
                       # Target is CLOSE
                       - conditions:
-                          - "{{ state_base == 'close' }}"
+                          - "{{ state_base == 'cls' }}"
                           - "{{ is_down_enabled }}"
-                          - "{{ effective_state != 'close' or not in_close_position }}"
+                          - "{{ effective_state != 'cls' or not in_close_position }}"
                           - "{{ force_allows_close }}" # TODO
                         sequence:
                           - variables:
@@ -5832,7 +5827,7 @@ actions:
                   - "{{ resident_arriving }}"
                   - "{{ is_down_enabled }}"
                   - "{{ resident_flags.closing_trigger }}"
-                  - "{{ effective_state != 'close' or not in_close_position }}"
+                  - "{{ effective_state != 'cls' or not in_close_position }}"
                   - "{{ force_allows_close }}" # TODO
                 sequence:
                   - variables:
@@ -5989,7 +5984,7 @@ actions:
           - choose:
               # Switch to FORCE OPEN if still active
               - conditions:
-                  - "{{ active_force_from_sensors == 'open' }}"
+                  - "{{ active_force_from_sensors == 'opn' }}"
                 sequence:
                   - variables:
                       target_position: !input open_position
@@ -6014,7 +6009,7 @@ actions:
 
               # Switch to FORCE CLOSE if still active
               - conditions:
-                  - "{{ active_force_from_sensors == 'close' }}"
+                  - "{{ active_force_from_sensors == 'cls' }}"
                 sequence:
                   - variables:
                       target_position: !input close_position
@@ -6039,7 +6034,7 @@ actions:
 
               # Switch to FORCE SHADING if still active
               - conditions:
-                  - "{{ active_force_from_sensors == 'shade' }}"
+                  - "{{ active_force_from_sensors == 'shd' }}"
                 sequence:
                   - variables:
                       target_position: !input shading_position
@@ -6065,7 +6060,7 @@ actions:
 
               # Switch to FORCE VENTILATION if still active
               - conditions:
-                  - "{{ active_force_from_sensors == 'vent' }}"
+                  - "{{ active_force_from_sensors == 'vnt' }}"
                 sequence:
                   - variables:
                       target_position: !input ventilate_position
@@ -6097,8 +6092,8 @@ actions:
                       - choose:
                           # Return to CLOSE position (base state is close)
                           - conditions:
-                              - "{{ state_base == 'close' }}"
-                              - "{{ state_window == 'closed' }}"
+                              - "{{ state_base == 'cls' }}"
+                              - "{{ state_window == 'cls' }}"
                             sequence:
                               - variables:
                                   target_position: !input close_position
@@ -6124,7 +6119,7 @@ actions:
                           # Return to SHADING position
                           - conditions:
                               - "{{ state_shade }}"
-                              - "{{ state_window == 'closed' }}"
+                              - "{{ state_window == 'cls' }}"
                               - "{{ resident_flags.allow_shade }}"
                             sequence:
                               - variables:
@@ -6151,7 +6146,7 @@ actions:
 
                           # Return to VENTILATION position (window tilted)
                           - conditions:
-                              - "{{ state_window == 'tilted' }}"
+                              - "{{ state_window == 'tlt' }}"
                               - "{{ resident_flags.allow_ventilate }}"
                             sequence:
                               - variables:
@@ -6177,8 +6172,8 @@ actions:
 
                           # Return to OPEN position
                           - conditions:
-                              - "{{ state_base == 'open' }}"
-                              - "{{ state_window == 'closed' }}"
+                              - "{{ state_base == 'opn' }}"
+                              - "{{ state_window == 'cls' }}"
                               - "{{ not state_shade }}"
                               - "{{ resident_flags.allow_open }}"
                             sequence:
