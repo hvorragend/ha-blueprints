@@ -5670,36 +5670,60 @@ actions:
                   - "{{ resident_leaving }}"
                 sequence:
                   - choose:
-                      # Target is OPEN
+                      # Target is VENTILATION FULL (window open) — highest priority: window lock
                       - conditions:
-                          - "{{ state_base == 'opn' }}"
-                          - "{{ resident_flags.opening_trigger }}"
-                          - "{{ is_up_enabled }}"
-                          - "{{ effective_state != 'opn' or not in_open_position }}"
-                          - "{{ force_allows_open }}"
+                          - "{{ state_window == 'opn' }}"
+                          - "{{ resident_flags.allow_ventilate }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ effective_state != 'lock' or not in_open_position }}"
                         sequence:
                           - variables:
-                              target_position: !input open_position
+                              target_position: !input ventilate_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
-                                # Resident leaving, move to open
-                                bas: "opn"
-                                shd: 0
+                                # Resident leaving, window open
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  opn: "now"
-                                  shd: "now"
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
+                                  win: "now"
+                          - if: "{{ force_allows_ventilate }}"
                             then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
-                                default: !input auto_up_action_before
+                                default: !input auto_ventilate_action_before
                               - *cover_move_action
                               - *tilt_move_action
                               - choose: []
-                                default: !input auto_up_action
+                                default: !input auto_ventilate_action
+                          - *helper_update
+
+                      # Target is VENTILATION (window tilted)
+                      - conditions:
+                          - "{{ state_window == 'tlt' }}"
+                          - "{{ resident_flags.allow_ventilate }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
+                        sequence:
+                          - variables:
+                              target_position: !input ventilate_position
+                              target_tilt_position: "{{ ventilate_tilt_position | int }}"
+                              update_values:
+                                # Resident leaving, window tilted
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
+                                ts:
+                                  win: "now"
+                          - if: "{{ force_allows_ventilate  }}"
+                            then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                              - choose: []
+                                default: !input auto_ventilate_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_ventilate_action
                           - *helper_update
 
                       # Target is SHADED
@@ -5732,60 +5756,34 @@ actions:
                                 default: !input auto_shading_start_action
                           - *helper_update
 
-                      # Target is VENTILATION (window tilted)
+                      # Target is OPEN
                       - conditions:
-                          - "{{ state_window == 'tlt' }}"
-                          - "{{ resident_flags.allow_ventilate }}"
-                          - "{{ is_ventilation_enabled }}"
-                          - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
+                          - "{{ state_base == 'opn' }}"
+                          - "{{ resident_flags.opening_trigger }}"
+                          - "{{ is_up_enabled }}"
+                          - "{{ effective_state != 'opn' or not in_open_position }}"
+                          - "{{ force_allows_open }}"
                         sequence:
                           - variables:
-                              target_position: !input ventilate_position
-                              target_tilt_position: "{{ ventilate_tilt_position | int }}"
-                              update_values:
-                                # Resident leaving, window tilted
-                                man: 0
-                                res: "{{ new_resident_status | int }}"
-                                ts:
-                                  win: "now"
-                          - if: "{{ force_allows_ventilate  }}"
-                            then:
-                              - delay:
-                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_ventilate_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_ventilate_action
-                          - *helper_update
-
-                      # Target is VENTILATION FULL (window open)
-                      - conditions:
-                          - "{{ state_window == 'opn' }}"
-                          - "{{ resident_flags.allow_ventilate }}"
-                          - "{{ is_ventilation_enabled }}"
-                          - "{{ effective_state != 'lock' or not in_open_position }}"
-                        sequence:
-                          - variables:
-                              target_position: !input ventilate_position
+                              target_position: !input open_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
-                                # Resident leaving, window open
+                                # Resident leaving, move to open
+                                bas: "opn"
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  win: "now"
-                          - if: "{{ force_allows_ventilate }}"
+                                  opn: "now"
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
                             then:
-                              - delay:
-                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
-                                default: !input auto_ventilate_action_before
+                                default: !input auto_up_action_before
                               - *cover_move_action
                               - *tilt_move_action
                               - choose: []
-                                default: !input auto_ventilate_action
+                                default: !input auto_up_action
                           - *helper_update
 
                       # Target is CLOSE
@@ -5801,12 +5799,10 @@ actions:
                               update_values:
                                 # Resident leaving, move to close
                                 bas: "cls"
-                                shd: 0
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   cls: "now"
-                                  shd: "now"
                           - if: "{{ force_allows_close }}"
                             then:
                               - delay:
