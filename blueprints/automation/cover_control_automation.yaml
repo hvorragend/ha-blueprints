@@ -2970,7 +2970,8 @@ variables:
             'shs': helper_raw.shading.p | default(0),
             'she': helper_raw.shading.q | default(0),
             'win': helper_raw.vpart.t | default(helper_raw.vfull.t | default(0)),
-            'man': helper_raw.manual.t | default(0)
+            'man': helper_raw.manual.t | default(0),
+            'res': 0
           },
           'v': 6,
           't': ts_now
@@ -2994,7 +2995,8 @@ variables:
             'shs': raw_ts.shs | default(0) | int,
             'she': raw_ts.she | default(0) | int,
             'win': raw_ts.win | default(0) | int,
-            'man': raw_ts.man | default(0) | int
+            'man': raw_ts.man | default(0) | int,
+            'res': raw_ts.res | default(0) | int
           },
           'v': 6,
           't': helper_raw.t | default(ts_now) | int
@@ -3017,7 +3019,8 @@ variables:
             'shs': 0,
             'she': 0,
             'win': 0,
-            'man': 0
+            'man': 0,
+            'res': 0
           },
           'v': 6,
           't': ts_now
@@ -3847,7 +3850,7 @@ actions:
               {# Build timestamp object - preserve existing values and merge updates #}
               {% set merged_ts = namespace(data={}) %}
               {# Start with existing timestamp values #}
-              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'win', 'man'] %}
+              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'win', 'man', 'res'] %}
                 {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
               {% endfor %}
               {# Overlay with update values #}
@@ -3872,7 +3875,8 @@ actions:
                   'shs': merged_ts.data.shs | default(0) | int,
                   'she': merged_ts.data.she | default(0) | int,
                   'win': merged_ts.data.win | default(0) | int,
-                  'man': merged_ts.data.man | default(0) | int
+                  'man': merged_ts.data.man | default(0) | int,
+                  'res': merged_ts.data.res | default(0) | int
                 },
                 'v': 6,
                 't': ts_now | int
@@ -5667,66 +5671,33 @@ actions:
                   - "{{ resident_leaving }}"
                 sequence:
                   - choose:
-                      # Target is OPEN
+                      # Target is VENTILATION FULL (window open) — highest priority: window lock
                       - conditions:
-                          - "{{ state_base == 'opn' }}"
-                          - "{{ resident_flags.opening_trigger }}"
-                          - "{{ is_up_enabled }}"
-                          - "{{ effective_state != 'opn' or not in_open_position }}"
-                          - "{{ force_allows_open }}"
+                          - "{{ state_window == 'opn' }}"
+                          - "{{ resident_flags.allow_ventilate }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ effective_state != 'lock' or not in_open_position }}"
                         sequence:
                           - variables:
-                              target_position: !input open_position
+                              target_position: !input ventilate_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
-                                # Resident leaving, move to open
-                                bas: "opn"
-                                shd: 0
+                                # Resident leaving, window open
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  opn: "now"
-                                  shd: "now"
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
-                            then:
-                              - choose: []
-                                default: !input auto_up_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_up_action
-                          - *helper_update
-
-                      # Target is SHADED
-                      - conditions:
-                          - "{{ state_shade }}"
-                          - "{{ resident_flags.allow_shade }}"
-                          - "{{ is_shading_enabled }}"
-                          - "{{ effective_state != 'shd' or not in_shading_position }}"
-                        sequence:
-                          - variables:
-                              target_position: !input shading_position
-                              target_tilt_position: "{{ shading_tilt_position | int }}"
-                              update_values:
-                                # Resident leaving, activate shading
-                                shd: 1
-                                man: 0
-                                res: "{{ new_resident_status | int }}"
-                                ts:
-                                  shd: "now"
-                                  shs: 0
-                          - if: "{{ force_allows_shade }}"
+                                  win: "now"
+                                  res: "now"
+                          - if: "{{ force_allows_ventilate }}"
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
-                                default: !input auto_shading_start_action_before
+                                default: !input auto_ventilate_action_before
                               - *cover_move_action
                               - *tilt_move_action
                               - choose: []
-                                default: !input auto_shading_start_action
+                                default: !input auto_ventilate_action
                           - *helper_update
 
                       # Target is VENTILATION (window tilted)
@@ -5745,6 +5716,7 @@ actions:
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "now"
+                                  res: "now"
                           - if: "{{ force_allows_ventilate  }}"
                             then:
                               - delay:
@@ -5757,32 +5729,63 @@ actions:
                                 default: !input auto_ventilate_action
                           - *helper_update
 
-                      # Target is VENTILATION FULL (window open)
+                      # Target is SHADED
                       - conditions:
-                          - "{{ state_window == 'opn' }}"
-                          - "{{ resident_flags.allow_ventilate }}"
-                          - "{{ is_ventilation_enabled }}"
-                          - "{{ effective_state != 'lock' or not in_open_position }}"
+                          - "{{ state_shade }}"
+                          - "{{ resident_flags.allow_shade }}"
+                          - "{{ is_shading_enabled }}"
+                          - "{{ effective_state != 'shd' or not in_shading_position }}"
                         sequence:
                           - variables:
-                              target_position: !input ventilate_position
-                              target_tilt_position: "{{ open_tilt_position | int }}"
+                              target_position: !input shading_position
+                              target_tilt_position: "{{ shading_tilt_position | int }}"
                               update_values:
-                                # Resident leaving, window open
+                                # Resident leaving, shade already active — preserve ts.shd
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
-                                  win: "now"
-                          - if: "{{ force_allows_ventilate }}"
+                                  res: "now"
+                          - if: "{{ force_allows_shade }}"
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
-                                default: !input auto_ventilate_action_before
+                                default: !input auto_shading_start_action_before
                               - *cover_move_action
                               - *tilt_move_action
                               - choose: []
-                                default: !input auto_ventilate_action
+                                default: !input auto_shading_start_action
+                          - *helper_update
+
+                      # Target is OPEN
+                      - conditions:
+                          - "{{ state_base == 'opn' }}"
+                          - "{{ resident_flags.opening_trigger }}"
+                          - "{{ is_up_enabled }}"
+                          - "{{ effective_state != 'opn' or not in_open_position }}"
+                          - "{{ force_allows_open }}"
+                        sequence:
+                          - variables:
+                              target_position: !input open_position
+                              target_tilt_position: "{{ open_tilt_position | int }}"
+                              update_values:
+                                # Resident leaving, move to open
+                                bas: "opn"
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
+                                ts:
+                                  opn: "now"
+                                  res: "now"
+                          - delay:
+                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                          - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
+                            then:
+                              - choose: []
+                                default: !input auto_up_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_up_action
                           - *helper_update
 
                       # Target is CLOSE
@@ -5798,12 +5801,11 @@ actions:
                               update_values:
                                 # Resident leaving, move to close
                                 bas: "cls"
-                                shd: 0
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   cls: "now"
-                                  shd: "now"
+                                  res: "now"
                           - if: "{{ force_allows_close }}"
                             then:
                               - delay:
@@ -5820,6 +5822,8 @@ actions:
                       - variables:
                           update_values:
                             res: "{{ new_resident_status | int }}"
+                            ts:
+                              res: "now"
                       - *helper_update
 
               # Resident is arriving (OFF→ON): Try to close cover
@@ -5834,13 +5838,12 @@ actions:
                       target_position: !input close_position
                       target_tilt_position: "{{ close_tilt_position | int }}"
                       update_values:
-                        # Resident arriving, close cover (base unchanged - only time triggers update base)
-                        shd: 0
+                        # Resident arriving, close cover (base and shade unchanged - resident is an overlay layer)
                         man: 0
                         res: "{{ new_resident_status | int }}"
                         ts:
                           cls: "now"
-                          shd: "now"
+                          res: "now"
                   - if: "{{ force_allows_close }}"
                     then:
                       - delay:
@@ -5857,6 +5860,8 @@ actions:
               - variables:
                   update_values:
                     res: "{{ new_resident_status | int }}"
+                    ts:
+                      res: "now"
               - *helper_update
 
       ############################################################
