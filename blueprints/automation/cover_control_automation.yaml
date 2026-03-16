@@ -5826,35 +5826,96 @@ actions:
                               res: "now"
                       - *helper_update
 
-              # Resident is arriving (OFF→ON): Try to close cover
+              # Resident is arriving (OFF→ON): Determine correct action based on window state
               - conditions:
                   - "{{ resident_arriving }}"
-                  - "{{ is_down_enabled }}"
-                  - "{{ resident_flags.closing_trigger }}"
-                  - "{{ effective_state != 'cls' or not in_close_position }}"
-                  - "{{ force_allows_close }}" # TODO
                 sequence:
-                  - variables:
-                      target_position: !input close_position
-                      target_tilt_position: "{{ close_tilt_position | int }}"
-                      update_values:
-                        # Resident arriving, close cover (base and shade unchanged - resident is an overlay layer)
-                        man: 0
-                        res: "{{ new_resident_status | int }}"
-                        ts:
-                          cls: "now"
-                          res: "now"
-                  - if: "{{ force_allows_close }}"
-                    then:
-                      - delay:
-                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_down_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_down_action
-                  - *helper_update
+                  - choose:
+                      ##########################################################
+                      # Window fully open → lockout protection: skip closing,
+                      # only update resident status in helper
+                      ##########################################################
+                      - conditions:
+                          - "{{ state_window == 'opn' }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                # Resident arriving, window open — lockout prevents closing
+                                res: "{{ new_resident_status | int }}"
+                                ts:
+                                  res: "now"
+                          - *helper_update
+
+                      ##########################################################
+                      # Window tilted + resident_allow_ventilation → stay at
+                      # ventilation position instead of closing
+                      ##########################################################
+                      - conditions:
+                          - "{{ state_window == 'tlt' }}"
+                          - "{{ 'resident_allow_ventilation' in resident_config }}"
+                          - "{{ is_ventilation_enabled }}"
+                          - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
+                        sequence:
+                          - variables:
+                              target_position: !input ventilate_position
+                              target_tilt_position: "{{ ventilate_tilt_position | int }}"
+                              update_values:
+                                # Resident arriving, window tilted — hold ventilate position
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
+                                ts:
+                                  win: "now"
+                                  res: "now"
+                          - if: "{{ force_allows_ventilate }}"
+                            then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                              - choose: []
+                                default: !input auto_ventilate_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_ventilate_action
+                          - *helper_update
+
+                      ##########################################################
+                      # Normal closing: no window open/tilted override applies
+                      ##########################################################
+                      - conditions:
+                          - "{{ is_down_enabled }}"
+                          - "{{ resident_flags.closing_trigger }}"
+                          - "{{ effective_state != 'cls' or not in_close_position }}"
+                          - "{{ force_allows_close }}"
+                        sequence:
+                          - variables:
+                              target_position: !input close_position
+                              target_tilt_position: "{{ close_tilt_position | int }}"
+                              update_values:
+                                # Resident arriving, close cover (base and shade unchanged - resident is an overlay layer)
+                                man: 0
+                                res: "{{ new_resident_status | int }}"
+                                ts:
+                                  cls: "now"
+                                  res: "now"
+                          - if: "{{ force_allows_close }}"
+                            then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
+                              - choose: []
+                                default: !input auto_down_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_down_action
+                          - *helper_update
+                    default:
+                      # No matching condition: just update resident status
+                      - variables:
+                          update_values:
+                            res: "{{ new_resident_status | int }}"
+                            ts:
+                              res: "now"
+                      - *helper_update
             default:
               # No action required, but still update resident status
               - variables:
