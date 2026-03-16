@@ -2970,7 +2970,8 @@ variables:
             'shs': helper_raw.shading.p | default(0),
             'she': helper_raw.shading.q | default(0),
             'win': helper_raw.vpart.t | default(helper_raw.vfull.t | default(0)),
-            'man': helper_raw.manual.t | default(0)
+            'man': helper_raw.manual.t | default(0),
+            'res': 0
           },
           'v': 6,
           't': ts_now
@@ -2994,7 +2995,8 @@ variables:
             'shs': raw_ts.shs | default(0) | int,
             'she': raw_ts.she | default(0) | int,
             'win': raw_ts.win | default(0) | int,
-            'man': raw_ts.man | default(0) | int
+            'man': raw_ts.man | default(0) | int,
+            'res': raw_ts.res | default(0) | int
           },
           'v': 6,
           't': helper_raw.t | default(ts_now) | int
@@ -3017,7 +3019,8 @@ variables:
             'shs': 0,
             'she': 0,
             'win': 0,
-            'man': 0
+            'man': 0,
+            'res': 0
           },
           'v': 6,
           't': ts_now
@@ -3847,7 +3850,7 @@ actions:
               {# Build timestamp object - preserve existing values and merge updates #}
               {% set merged_ts = namespace(data={}) %}
               {# Start with existing timestamp values #}
-              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'win', 'man'] %}
+              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'win', 'man', 'res'] %}
                 {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
               {% endfor %}
               {# Overlay with update values #}
@@ -3872,7 +3875,8 @@ actions:
                   'shs': merged_ts.data.shs | default(0) | int,
                   'she': merged_ts.data.she | default(0) | int,
                   'win': merged_ts.data.win | default(0) | int,
-                  'man': merged_ts.data.man | default(0) | int
+                  'man': merged_ts.data.man | default(0) | int,
+                  'res': merged_ts.data.res | default(0) | int
                 },
                 'v': 6,
                 't': ts_now | int
@@ -5683,6 +5687,7 @@ actions:
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "now"
+                                  res: "now"
                           - if: "{{ force_allows_ventilate }}"
                             then:
                               - delay:
@@ -5711,6 +5716,7 @@ actions:
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "now"
+                                  res: "now"
                           - if: "{{ force_allows_ventilate  }}"
                             then:
                               - delay:
@@ -5737,6 +5743,8 @@ actions:
                                 # Resident leaving, shade already active — preserve ts.shd
                                 man: 0
                                 res: "{{ new_resident_status | int }}"
+                                ts:
+                                  res: "now"
                           - if: "{{ force_allows_shade }}"
                             then:
                               - delay:
@@ -5767,6 +5775,7 @@ actions:
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   opn: "now"
+                                  res: "now"
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                           - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
@@ -5796,6 +5805,7 @@ actions:
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   cls: "now"
+                                  res: "now"
                           - if: "{{ force_allows_close }}"
                             then:
                               - delay:
@@ -5812,6 +5822,8 @@ actions:
                       - variables:
                           update_values:
                             res: "{{ new_resident_status | int }}"
+                            ts:
+                              res: "now"
                       - *helper_update
 
               # Resident is arriving (OFF→ON): Try to close cover
@@ -5831,6 +5843,7 @@ actions:
                         res: "{{ new_resident_status | int }}"
                         ts:
                           cls: "now"
+                          res: "now"
                   - if: "{{ force_allows_close }}"
                     then:
                       - delay:
@@ -5847,6 +5860,8 @@ actions:
               - variables:
                   update_values:
                     res: "{{ new_resident_status | int }}"
+                    ts:
+                      res: "now"
               - *helper_update
 
       ############################################################
