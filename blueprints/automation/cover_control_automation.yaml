@@ -4938,7 +4938,7 @@ actions:
           - condition: !input auto_shading_start_condition
           - or: # Check the helper status or the target status
               - "{{ not state_is_shaded }}"
-              - "{{ state_window not in ['tlt', 'opn'] }}"
+              - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
@@ -5131,7 +5131,7 @@ actions:
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
           - "{{ force_allows_shade }}"
-          - "{{ state_window not in ['tlt', 'opn'] }}"
+          - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
           - "{{ not (state_manual and override_flags.shading) }}" # Override check
         sequence:
           - variables:
@@ -5471,6 +5471,24 @@ actions:
                   - stop: "Ventilation Start (Full) executed"
 
               ###################################
+              # VENTILATION START: Window fully opened
+              # Cover already at open position — just update win in helper
+              ###################################
+              - alias: "Window opened - Cover already at open position, update win"
+                conditions:
+                  - "{{ contact_opened_now }}"
+                  - "{{ in_open_position }}"
+                  - "{{ state_window != 'opn' }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        win: "opn"
+                        ts:
+                          win: "now"
+                  - *helper_update
+                  - stop: "Ventilation (full): cover already at open position, win updated"
+
+              ###################################
               # VENTILATION START: Window tilted
               # Moves cover to ventilation position
               ###################################
@@ -5520,6 +5538,24 @@ actions:
                         default: !input auto_ventilate_action
                   - *helper_update
                   - stop: "Ventilation Start (Partial) executed"
+
+              ###################################
+              # VENTILATION START: Window tilted
+              # Cover already at/above ventilate position — just update win in helper
+              ###################################
+              - alias: "Window tilted - Cover already at ventilate position, update win"
+                conditions:
+                  - "{{ contact_tilted_now }}"
+                  - "{{ not contact_opened_now }}"
+                  - "{{ state_window != 'tlt' }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        win: "tlt"
+                        ts:
+                          win: "now"
+                  - *helper_update
+                  - stop: "Ventilation (partial): cover already at ventilate position, win updated"
 
               ###################################
               # VENTILATION END: Window closed - Return to SHADING
@@ -5673,7 +5709,7 @@ actions:
                   - choose:
                       # Target is VENTILATION FULL (window open) — highest priority: window lock
                       - conditions:
-                          - "{{ state_window == 'opn' }}"
+                          - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ effective_state != 'lock' or not in_open_position }}"
@@ -5702,7 +5738,7 @@ actions:
 
                       # Target is VENTILATION (window tilted)
                       - conditions:
-                          - "{{ state_window == 'tlt' }}"
+                          - "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
@@ -5833,10 +5869,13 @@ actions:
                   - choose:
                       ##########################################################
                       # Window fully open → lockout protection: skip closing,
-                      # only update resident status in helper
+                      # only update resident status in helper.
+                      # Use real-time sensor check (not state_window from helper)
+                      # because the helper's win field may not be updated when
+                      # the cover was already at open position when window opened.
                       ##########################################################
                       - conditions:
-                          - "{{ state_window == 'opn' }}"
+                          - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
                         sequence:
                           - variables:
                               update_values:
@@ -5848,10 +5887,13 @@ actions:
 
                       ##########################################################
                       # Window tilted + resident_allow_ventilation → stay at
-                      # ventilation position instead of closing
+                      # ventilation position instead of closing.
+                      # Use real-time sensor check (not state_window from helper)
+                      # because the helper's win field may not be updated when
+                      # the cover was already at/above ventilate position.
                       ##########################################################
                       - conditions:
-                          - "{{ state_window == 'tlt' }}"
+                          - "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
                           - "{{ 'resident_allow_ventilation' in resident_config }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
@@ -6159,7 +6201,7 @@ actions:
                           # Return to CLOSE position (base state is close)
                           - conditions:
                               - "{{ state_base == 'cls' }}"
-                              - "{{ state_window == 'cls' }}"
+                              - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
                             sequence:
                               - variables:
                                   target_position: !input close_position
@@ -6185,7 +6227,7 @@ actions:
                           # Return to SHADING position
                           - conditions:
                               - "{{ state_shade }}"
-                              - "{{ state_window == 'cls' }}"
+                              - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
                               - "{{ resident_flags.allow_shade }}"
                             sequence:
                               - variables:
@@ -6212,7 +6254,7 @@ actions:
 
                           # Return to VENTILATION position (window tilted)
                           - conditions:
-                              - "{{ state_window == 'tlt' }}"
+                              - "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
                               - "{{ resident_flags.allow_ventilate }}"
                             sequence:
                               - variables:
@@ -6239,7 +6281,7 @@ actions:
                           # Return to OPEN position
                           - conditions:
                               - "{{ state_base == 'opn' }}"
-                              - "{{ state_window == 'cls' }}"
+                              - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
                               - "{{ not state_shade }}"
                               - "{{ resident_flags.allow_open }}"
                             sequence:
