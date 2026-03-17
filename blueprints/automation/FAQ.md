@@ -1322,208 +1322,177 @@ entities:
 columns:
   - name: Cover
     data: friendly_name
-    modify: x.replace('Cover Status ', '')
+    modify: x.replace('Rollo Status ', '')
   - name: Status
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
-          const baseMap = {'cls': 'close', 'opn': 'open'};
-          const winMap = {'cls': 'closed', 'tlt': 'tilted', 'opn': 'open'};
-          const frcMap = {'non': 'none', 'opn': 'open', 'cls': 'close', 'shd': 'shade', 'vnt': 'vent'};
-          
-          const base = baseMap[j.bas] || 'open';
-          const shade = j.shd || 0;
-          const win = winMap[j.win] || 'closed';
+          const frcMap = { non: 'none', opn: 'open', cls: 'close', shd: 'shade', vnt: 'vent' };
           const force = frcMap[j.frc] || 'none';
-          
-          // Priority cascade
-          let status;
-          if (force !== 'none') {
-            status = force;
-          } else if (win === 'open') {
-            status = 'vfull';
-          } else if (win === 'tilted') {
-            status = 'vpart';
-          } else if (shade === 1) {
-            status = 'shade';
-          } else {
-            status = base;
-          }
-          
-          const icons = {
-            'open':'🔼',
-            'close':'🔽',
-            'shade':'🥵',
-            'vpart':'💨',
-            'vfull':'🚪',
-            'vent':'💨',
-            'none':'⚫'
-          };
-          
-          return (icons[status] || '❓') + ' ' + status;
-        } catch(e) { 
-          return '❌ Error'; 
-        } 
+          const win   = j.win  || 'cls';
+          const shade = j.shd  || 0;
+          const base  = j.bas === 'cls' ? 'close' : 'open';
+
+          if (force !== 'none') return '⚡ ' + force;
+          if (win === 'opn')    return '🪟 vent (open)';
+          if (win === 'tlt')    return '💨 vent (tilt)';
+          if (shade === 1)      return '🥵 shade';
+          return base === 'close' ? '🔽 close' : '🔼 open';
+        } catch(e) {
+          return '❌';
+        }
       })()
-  - name: Target
+  - name: Base
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
-          const baseMap = {'cls': 'close', 'opn': 'open'};
-          const shade = j.shd || 0;
-          const base = baseMap[j.bas] || 'open';
-          
-          return shade === 1 ? 'shade' : base;
-        } catch(e) { 
-          return '—'; 
-        } 
+          return j.bas === 'cls' ? '🔽 cls' : '🔼 opn';
+        } catch(e) { return '—'; }
+      })()
+  - name: Shade
+    data: state
+    modify: |-
+      (() => {
+        try {
+          const j = JSON.parse(x);
+          return j.shd ? '🥵 1' : '0';
+        } catch(e) { return '—'; }
+      })()
+    align: center
+  - name: Window
+    data: state
+    modify: |-
+      (() => {
+        try {
+          const j = JSON.parse(x);
+          const map = { cls: 'cls', tlt: '💨 tlt', opn: '🪟 opn' };
+          return map[j.win] || (j.win || '—');
+        } catch(e) { return '—'; }
       })()
   - name: Force
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
-          const frcMap = {'non': 'none', 'opn': 'open', 'cls': 'close', 'shd': 'shade', 'vnt': 'vent'};
-          const force = frcMap[j.frc] || 'none';
-          
-          return force !== 'none' ? '⚡ ' + force : '—';
-        } catch(e) { 
-          return '—'; 
-        } 
+          const map = { non: '—', opn: '⚡ opn', cls: '⚡ cls', shd: '⚡ shd', vnt: '⚡ vnt' };
+          return map[j.frc] || (j.frc || '—');
+        } catch(e) { return '—'; }
       })()
-  - name: R
+  - name: Resident
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
           return j.res ? '👤' : '';
-        } catch(e) { 
-          return ''; 
-        } 
+        } catch(e) { return ''; }
       })()
     align: center
-  - name: M
+  - name: Manual
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
           return j.man ? '✋' : '';
-        } catch(e) { 
-          return ''; 
-        } 
+        } catch(e) { return ''; }
       })()
     align: center
-  - name: 🔼 Last Open
+  - name: 🔼 ts.opn
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
           const ts = j.ts?.opn;
-          
-          if (!ts || ts === 0) return '—';
-          
+          if (!ts) return '—';
           const d = new Date(ts * 1000);
-          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
-                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-        } catch(e) { 
-          return '—'; 
-        } 
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' +
+                 d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { return '—'; }
       })()
-  - name: 🔽 Last Close
+  - name: 🔽 ts.cls
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
           const ts = j.ts?.cls;
-          
-          if (!ts || ts === 0) return '—';
-          
+          if (!ts) return '—';
           const d = new Date(ts * 1000);
-          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
-                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-        } catch(e) { 
-          return '—'; 
-        } 
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' +
+                 d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { return '—'; }
       })()
-  - name: 🥵 Last Shade
+  - name: 🥵 ts.shd
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
           const ts = j.ts?.shd;
-          
-          if (!ts || ts === 0) return '—';
-          
+          if (!ts) return '—';
           const d = new Date(ts * 1000);
-          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
-                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-        } catch(e) { 
-          return '—'; 
-        } 
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' +
+                 d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { return '—'; }
       })()
-  - name: 💨 Last Window
+  - name: 💨 ts.win
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
           const ts = j.ts?.win;
-          
-          if (!ts || ts === 0) return '—';
-          
+          if (!ts) return '—';
           const d = new Date(ts * 1000);
-          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
-                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-        } catch(e) { 
-          return '—'; 
-        } 
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' +
+                 d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { return '—'; }
       })()
-  - name: Pending
+  - name: ⏳ ts.shs
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
-          
-          if (j.ts) {
-            const start = j.ts.shs || 0;
-            const end = j.ts.she || 0;
-            if (start > 0) return '⏳ Start';
-            if (end > 0) return '⏳ End';
-          }
-          
-          return '—';
-        } catch(e) { 
-          return '—'; 
-        } 
+          const ts = j.ts?.shs;
+          if (!ts) return '—';
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' +
+                 d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { return '—'; }
       })()
-    align: center
+  - name: ⏳ ts.she
+    data: state
+    modify: |-
+      (() => {
+        try {
+          const j = JSON.parse(x);
+          const ts = j.ts?.she;
+          if (!ts) return '—';
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' +
+                 d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { return '—'; }
+      })()
   - name: Updated
     data: state
     modify: |-
-      (() => { 
-        try { 
+      (() => {
+        try {
           const j = JSON.parse(x);
           const ts = j.t;
-          
-          if (!ts || ts === 0) return 'Never';
-          
+          if (!ts) return 'Never';
           const d = new Date(ts * 1000);
-          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + 
-                 ' ' + d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
-        } catch(e) { 
-          return '—'; 
-        } 
+          return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}) + ' ' +
+                 d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+        } catch(e) { return '—'; }
       })()
 sort_by: friendly_name
 css:
