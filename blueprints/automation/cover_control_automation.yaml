@@ -5805,7 +5805,7 @@ actions:
                           - "{{ effective_state != 'lock' or not in_open_position }}"
                         sequence:
                           - variables:
-                              target_position: !input ventilate_position
+                              target_position: !input open_position
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
                                 # Resident leaving, window open
@@ -6342,9 +6342,39 @@ actions:
                               - *helper_update
                               - stop: "Return to Shading executed"
 
-                          # Return to VENTILATION position (window tilted)
+                          # Return to OPEN position (window open — higher priority than tilted)
+                          - conditions:
+                              - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
+                              - "{{ resident_flags.allow_ventilate }}"
+                              - "{{ is_ventilation_enabled }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input open_position
+                                  target_tilt_position: "{{ open_tilt_position | int }}"
+                                  update_values:
+                                    # Force ended, window open — lockout protection
+                                    frc: "non"
+                                    win: "opn"
+                                    man: 0
+                                    ts:
+                                      win: "now"
+                                      shs: 0
+                                      she: 0
+                              - if: "{{ force_allows_ventilate }}"
+                                then:
+                                  - choose: []
+                                    default: !input auto_ventilate_action_before
+                                  - *cover_move_action
+                                  - *tilt_move_action
+                                  - choose: []
+                                    default: !input auto_ventilate_action
+                              - *helper_update
+                              - stop: "Return to Open (window open - lockout protection)"
+
+                          # Return to VENTILATION position (window tilted, only if NOT also opened)
                           - conditions:
                               - "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
+                              - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}"
                               - "{{ resident_flags.allow_ventilate }}"
                             sequence:
                               - variables:
