@@ -1331,15 +1331,19 @@ columns:
           const j = JSON.parse(x);
           const frcMap = { non: 'none', opn: 'open', cls: 'close', shd: 'shade', vnt: 'vent' };
           const force = frcMap[j.frc] || 'none';
-          const win   = j.win  || 'cls';
-          const shade = j.shd  || 0;
-          const base  = j.bas === 'cls' ? 'close' : 'open';
 
+          // Layer 1: Force
           if (force !== 'none') return '⚡ ' + force;
-          if (win === 'opn')    return '🪟 vent (open)';
-          if (win === 'tlt')    return '💨 vent (tilt)';
-          if (shade === 1)      return '🥵 shade';
-          return base === 'close' ? '🔽 close' : '🔼 open';
+          // Layer 2: Lockout
+          if (j.win === 'opn') return '🔒 lock';
+          // Layer 3: Ventilation
+          if (j.win === 'tlt') return '💨 vent';
+          // Layer 4: Resident (config-dependent, shown when res=1)
+          if (j.res) return '👤 resident';
+          // Layer 5: Shading
+          if (j.shd === 1) return '🥵 shade';
+          // Layer 6: Base
+          return j.bas === 'cls' ? '🔽 close' : '🔼 open';
         } catch(e) {
           return '❌';
         }
