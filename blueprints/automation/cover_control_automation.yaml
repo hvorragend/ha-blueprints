@@ -148,6 +148,9 @@ blueprint:
 
             </details>
 
+
+            💡 **Brightness & Sun Elevation conditions** are configured in their dedicated sections below (Brightness Configuration / Sun Elevation Settings).
+
           default:
             [
               auto_up_enabled,
@@ -161,10 +164,6 @@ blueprint:
                   value: "auto_up_enabled"
                 - label: "🔻 Evening Closing — Automatically close based on configured time"
                   value: "auto_down_enabled"
-                - label: "🔅 Add Brightness Condition — Open/close earlier when brightness sensor reaches threshold"
-                  value: "auto_brightness_enabled"
-                - label: "☀️ Add Sun Elevation Condition — Open/close earlier based on sun height (not sun protection!)"
-                  value: "auto_sun_enabled"
                 - label: "💨 Ventilation Mode — React to open/tilted windows, prevent lockout (requires helper)"
                   value: "auto_ventilate_enabled"
                 - label: "🥵 Sun Protection / Shading — Partially close when sun shines on window (requires helper)"
@@ -814,10 +813,27 @@ blueprint:
       name: "Brightness Configuration"
       description: >-
         <br />
-        <center><code>Settings if the feature ‘🔅 - Add Brightness Condition’ has been activated above.</code></center><br />
+        <center>
+        <strong>⚠️ Only for morning opening &amp; evening closing!</strong><br />
+        This condition allows the cover to open earlier in the morning or close earlier in the evening,<br />
+        triggered by ambient brightness reaching its threshold.<br />
+        <strong>This is NOT related to sun protection / shading.</strong>
+        </center><br />
       icon: mdi:brightness-5
       collapsed: true
       input:
+        enable_brightness_condition:
+          name: "🔅 Enable Brightness Condition"
+          description: >-
+            Activate brightness-based opening/closing for morning and evening timing.
+
+            ⚠️ **Only affects morning opening & evening closing** — not sun protection!
+
+            When enabled, configure the sensor and thresholds below.
+          default: false
+          selector:
+            boolean:
+
         default_brightness_sensor:
           name: "🔅 Default Brightness Sensor"
           description: "This default brightness sensor can be defined here, which is used for daily up and down."
@@ -878,10 +894,26 @@ blueprint:
       name: "Sun Elevation Settings"
       description: >-
         <br />
-        <center><code>Settings if the feature ‘☀️ - Add Sun Elevation Condition’ has been activated above.</code></center><br />
+        <center>
+        <strong>⚠️ Only for morning opening &amp; evening closing!</strong><br />
+        This condition opens the cover when the sun rises above a threshold and closes it when the sun drops below a threshold.<br />
+        <strong>This is NOT sun protection / shading</strong> (which controls midday partial closing).
+        </center><br />
       icon: mdi:weather-sunny
       collapsed: true
       input:
+        enable_sun_elevation_condition:
+          name: "☀️ Enable Sun Elevation Condition"
+          description: >-
+            Activate sun-elevation-based opening/closing for morning and evening timing.
+
+            ⚠️ **Only affects morning opening & evening closing** — NOT sun protection / shading!
+
+            When enabled, configure the sensor and thresholds below.
+          default: false
+          selector:
+            boolean:
+
         default_sun_sensor:
           name: "☀️ Sun Sensor"
           description: >-
@@ -1065,6 +1097,43 @@ blueprint:
             entity:
               filter:
                 - domain: [sensor, input_number]
+
+        brightness_sun_operator:
+          name: "🔀 Condition Logic — Brightness & Sun Elevation"
+          description: >-
+            How should Brightness and Sun Elevation conditions be combined when **both** are active?
+
+
+            **⚡ OR** *(Default — recommended for most users)*
+
+            The cover opens/closes as soon as **either** condition is met.
+
+            Example: Opens when it gets bright enough *or* the sun rises above the threshold.
+
+            More responsive — reacts earlier on clear mornings.
+
+
+            **🔒 AND**
+
+            The cover opens/closes only when **both** conditions are met simultaneously.
+
+            Example: Opens only when it's bright enough *and* the sun is above the threshold.
+
+            More conservative — reduces false triggers on overcast mornings.
+
+
+            *Has no effect when only one of the two conditions is enabled.*
+          default: "or"
+          selector:
+            select:
+              options:
+                - label: "⚡ OR — Either condition triggers the action (default)"
+                  value: "or"
+                - label: "🔒 AND — Both conditions must be met simultaneously"
+                  value: "and"
+              mode: dropdown
+              sort: false
+              custom_value: false
 
     contacts_section:
       name: "Contact Sensors for Ventilation"
@@ -2600,12 +2669,15 @@ trigger_variables:
   is_calendar_enabled: "{{ 'time_control_calendar' in time_control and calendar_entity != [] }}"
 
   # Brightness configuration
+  enable_brightness_condition: !input enable_brightness_condition
   default_brightness_sensor: !input default_brightness_sensor
   brightness_up: !input brightness_up
   brightness_down: !input brightness_down
   brightness_hysteresis: !input brightness_hysteresis
 
   # Sun configuration
+  enable_sun_elevation_condition: !input enable_sun_elevation_condition
+  brightness_sun_operator: !input brightness_sun_operator
   default_sun_sensor: !input default_sun_sensor
   sun_elevation_mode: !input sun_elevation_mode
   sun_elevation_up: !input sun_elevation_up
@@ -2661,8 +2733,10 @@ trigger_variables:
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
   is_up_enabled: "{{ 'auto_up_enabled' in auto_options }}"
   is_down_enabled: "{{ 'auto_down_enabled' in auto_options }}"
-  is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
-  is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
+  # Backward compatible: check new dedicated toggle OR legacy auto_options value
+  is_brightness_enabled: "{{ enable_brightness_condition or 'auto_brightness_enabled' in auto_options }}"
+  is_sun_elevation_enabled: "{{ enable_sun_elevation_condition or 'auto_sun_enabled' in auto_options }}"
+  use_and_operator: "{{ brightness_sun_operator == 'and' }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
   is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
 
@@ -4535,39 +4609,36 @@ actions:
 
       # ========== ENVIRONMENTAL CONDITIONS ==========
 
-      # At least one enabled sensor must allow opening (OR logic)
+      # Environmental conditions: configurable AND/OR logic between brightness and sun elevation
       environment_allows_opening: >-
-        {{
-          (
-            not is_brightness_enabled or
-            default_brightness_sensor == [] or
-            states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
-          ) or
-          (
-            not is_sun_elevation_enabled or
-            default_sun_sensor == [] or
-            current_sun_elevation | float(default=sun_elevation_up_current) > sun_elevation_up_current
-          )
-        }}
+        {%- set brightness_ok = (
+          not is_brightness_enabled or
+          default_brightness_sensor == [] or
+          states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
+        ) -%}
+        {%- set sun_ok = (
+          not is_sun_elevation_enabled or
+          default_sun_sensor == [] or
+          current_sun_elevation | float(default=sun_elevation_up_current) > sun_elevation_up_current
+        ) -%}
+        {{ (brightness_ok and sun_ok) if use_and_operator else (brightness_ok or sun_ok) }}
 
-      # At least one enabled sensor must require closing (OR logic)
       environment_allows_closing: >-
-        {{
+        {%- set brightness_close = (
+          is_brightness_enabled and
           (
-            is_brightness_enabled and
-            (
-              default_brightness_sensor == [] or
-              states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
-            )
-          ) or
-          (
-            is_sun_elevation_enabled and
-            (
-              default_sun_sensor == [] or
-              current_sun_elevation | float(default=sun_elevation_down_current) < sun_elevation_down_current
-            )
+            default_brightness_sensor == [] or
+            states(default_brightness_sensor) | float(default=brightness_down) < (brightness_down - brightness_hysteresis)
           )
-        }}
+        ) -%}
+        {%- set sun_close = (
+          is_sun_elevation_enabled and
+          (
+            default_sun_sensor == [] or
+            current_sun_elevation | float(default=sun_elevation_down_current) < sun_elevation_down_current
+          )
+        ) -%}
+        {{ (brightness_close and sun_close) if (use_and_operator and is_brightness_enabled and is_sun_elevation_enabled) else (brightness_close or sun_close) }}
 
       # ========== COMBINED CONDITIONS ==========
 
