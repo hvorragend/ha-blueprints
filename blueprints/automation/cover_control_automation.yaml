@@ -1211,21 +1211,44 @@ blueprint:
               min: 0.0
               max: 10.0
               unit_of_measurement: seconds
-              step: 1.0
+              step: 0.1
               mode: slider
 
         contact_delay_status:
           name: "🕛 Contact Sensor Status Delay"
           description: >-
-            How long should the automation wait until a trigger of a contact sensor becomes valid?
-            This may be necessary if the status of a three-state sensor has an intermediate value for a short time.
+            How long should the automation wait after a contact sensor trigger before
+            re-evaluating all sensor states?
+
+            This delay is applied inside the contact sensor handling. After the
+            delay, CCA reads the **live state** of all contact sensors — so the final
+            decision (return to open / close / shading) reflects the actual situation
+            at that moment, not the state at trigger time.
+
+
+            **When to increase this value:**
+
+            - Your window/door sensor briefly shows an intermediate state when changing
+
+            - You switch the window contact and the resident sensor off in quick
+              succession — with a delay of 0.5–1 s, CCA will see the resident as
+              already gone and return to open instead of close
+
+
+            **⚠️ Race Condition: Window closed + Resident off in quick succession:**
+
+            If `contact_window_opened` and the resident sensor are turned off within
+            milliseconds of each other, CCA may still see the resident as present
+            at trigger time and incorrectly close the cover.
+            Setting this delay to **0.5–1 second** gives the resident sensor enough
+            time to settle before CCA makes its routing decision.
           default: 3
           selector:
             number:
               min: 0.0
               max: 10.0
               unit_of_measurement: seconds
-              step: 1.0
+              step: 0.1
               mode: slider
 
     shading_section:
@@ -5420,6 +5443,9 @@ actions:
           - variables:
               contact_opened_now: "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
               contact_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
+              # Live resident check — like contact sensors above, must be read after delay
+              # to detect race conditions when both window and resident change quickly
+              resident_now: "{{ resident_sensor != [] and states(resident_sensor) in ['on', 'true'] }}"
 
           - choose:
               ###################################
@@ -5599,7 +5625,7 @@ actions:
               - alias: "Window closed - Return to open position"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ state_base == 'opn' and not state_resident }}"
+                  - "{{ state_base == 'opn' and not resident_now }}"  # Use live sensor, not stale helper
                   - "{{ not state_is_shaded and not state_shade }}"
                   - or: # Was ventilating before
                       - "{{ state_window in ['tlt', 'opn'] }}"
@@ -5643,7 +5669,7 @@ actions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - or:
                       - "{{ state_base == 'cls' }}"
-                      - "{{ state_resident }}"  # Wenn Resident anwesend, zurück zu close
+                      - "{{ resident_now }}"  # Use live sensor, not stale helper
                   - or: # Was ventilating before
                       - "{{ state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"
