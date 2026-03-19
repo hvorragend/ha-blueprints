@@ -14,6 +14,7 @@ This comprehensive FAQ covers the most common questions about Cover Control Auto
 6. [Cover Types (Blinds vs. Awnings)](#cover-types-blinds-vs-awnings)
 7. [Sun Shading & Sun Protection](#sun-shading--sun-protection)
 8. [Ventilation & Contact Sensors](#ventilation--contact-sensors)
+   - [Which window sensor has higher priority — opened or tilted?](#q-which-window-sensor-has-higher-priority--opened-or-tilted)
 9. [Manual Override & Detection](#manual-override--detection)
 10. [Resident Mode](#resident-mode)
 11. [Force Functions & Emergency Control](#force-functions--emergency-control)
@@ -782,6 +783,44 @@ Lockout Protection Options:
 - Not directly - binary sensors are on/off
 - Three-way sensors require template conversion
 - See [forum example](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593)
+
+---
+
+### Q: Which window sensor has higher priority — opened or tilted?
+
+**A:** `contact_window_opened` (window fully open) **always has higher priority** than `contact_window_tilted` (window tilted). If both sensors are `on` at the same time, CCA treats the window as **fully open** and acts accordingly — the cover never moves to the ventilation position in this case.
+
+**Priority Table:**
+
+| `contact_window_opened` | `contact_window_tilted` | CCA Behavior |
+|------------------------|------------------------|--------------|
+| `off` | `off` | Normal operation |
+| `off` | `on` | Partial ventilation → `ventilate_position` |
+| `on` | `off` | Full ventilation + lockout → `open_position` |
+| `on` | `on` | Full ventilation + lockout → `open_position` (**opened wins!**) |
+
+**How the priority is enforced per event:**
+
+| Event / Trigger | Only `opened` = on | Only `tilted` = on | Both = on |
+|-----------------|-------------------|-------------------|-----------|
+| Contact sensor changes (`t_contact_*`) | → `open_position` | → `ventilate_position` | → `open_position` |
+| Evening closing (`t_close_*`) | Lockout — no movement | → `ventilate_position` (if lockout for tilted disabled) | Lockout — no movement |
+| Shading start (`t_shading_start_*`) | Shading blocked (lockout) | Shading blocked (if lockout for tilted enabled) | Shading blocked |
+| Shading end (`t_shading_end_*`) | Lockout skip | → `ventilate_position` (if configured) | Lockout skip |
+| Force disabled — recovery (`t_force_disabled_*`) | → `open_position` | → `ventilate_position` | → `open_position` |
+| Resident leaves (`t_resident_update`) | → `open_position` | → `ventilate_position` | → `open_position` |
+| Resident arrives (`t_resident_update`) | Helper updated only (no movement) | → `ventilate_position` (if `resident_allow_ventilation`) | Helper updated only (no movement) |
+
+**Implementation details:**
+
+CCA enforces this priority in two ways:
+1. **Explicit condition check:** Sections that handle `tilted` explicitly require `contact_window_opened = off` (e.g. evening closing, shading end, contact sensor change handler).
+2. **`choose` block ordering:** In sections where both window states are evaluated (e.g. resident leaving), the `opened` case is always placed **before** the `tilted` case in the `choose` block — the first matching branch wins.
+
+**Why this matters in practice:**
+- 3-position window handle sensors may briefly activate both contacts during a state transition (closed → tilted → open)
+- The **Contact Trigger Delay** (default: 2 seconds) ensures both sensors have settled before CCA evaluates the final state, preventing unwanted moves to `ventilate_position` during the transition
+- If a shutter unexpectedly moves to `ventilate_position` (50%) while the window is fully open, verify that `contact_window_opened` correctly reports `on` for the fully open state
 
 ---
 
