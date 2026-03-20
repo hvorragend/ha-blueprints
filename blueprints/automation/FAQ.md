@@ -47,6 +47,17 @@ This comprehensive FAQ covers the most common questions about Cover Control Auto
 
 ---
 
+### Q: Can I use a cover group?
+
+**A:** In principle, you can use a group here.
+But please note that there are problems with position detection for a group of covers!
+For example, one cover may be at position 100% and the other cover at position 0%.
+This results in a wrong group-value of 50%.
+
+My clear recommendation is to create **one automation for each cover**.
+
+---
+
 ### Q: What are the main benefits of using CCA?
 
 **A:** 
