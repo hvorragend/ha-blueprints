@@ -6142,7 +6142,9 @@ actions:
 
       ############################################################
       # BRANCH (8): RETURN TO BACKGROUND STATE AFTER FORCE DISABLE
-      # "Last Wins" Logic: If another force is still active, switch to it
+      # "Last Wins" Logic: If another force is still active, switch to it.
+      # Uses entity last_changed timestamps to identify the most recently
+      # activated force (instead of a fixed priority chain).
       ############################################################
 
       - alias: "Return to background position after force disable"
@@ -6150,11 +6152,47 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id.startswith('t_force_disabled') }}"
         sequence:
+          # Determine which force was just disabled and which (if any) is the most recently activated
+          - variables:
+              disabled_force: >-
+                {% if trigger.id == 't_force_disabled_open' %}opn
+                {% elif trigger.id == 't_force_disabled_close' %}cls
+                {% elif trigger.id == 't_force_disabled_shading' %}shd
+                {% elif trigger.id == 't_force_disabled_ventilate' %}vnt
+                {% else %}non{% endif %}
+              next_active_force: >-
+                {# Find the most recently activated force still ON, using entity last_changed.
+                   This ensures "last activated wins" instead of a fixed priority chain. #}
+                {% set candidates = namespace(best='non', best_ts=-1) %}
+                {% if auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
+                  {% set t = as_timestamp(states[auto_up_force].last_changed) | float(0) %}
+                  {% if t > candidates.best_ts %}{% set candidates.best = 'opn' %}{% set candidates.best_ts = t %}{% endif %}
+                {% endif %}
+                {% if auto_down_force != [] and states(auto_down_force) in ['on', 'true'] %}
+                  {% set t = as_timestamp(states[auto_down_force].last_changed) | float(0) %}
+                  {% if t > candidates.best_ts %}{% set candidates.best = 'cls' %}{% set candidates.best_ts = t %}{% endif %}
+                {% endif %}
+                {% if auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'] %}
+                  {% set t = as_timestamp(states[auto_shading_start_force].last_changed) | float(0) %}
+                  {% if t > candidates.best_ts %}{% set candidates.best = 'shd' %}{% set candidates.best_ts = t %}{% endif %}
+                {% endif %}
+                {% if auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true'] %}
+                  {% set t = as_timestamp(states[auto_ventilate_force].last_changed) | float(0) %}
+                  {% if t > candidates.best_ts %}{% set candidates.best = 'vnt' %}{% set candidates.best_ts = t %}{% endif %}
+                {% endif %}
+                {{ candidates.best }}
           # First check: Is another force still active? ("Last Wins" logic)
           - choose:
-              # Switch to FORCE OPEN if still active
+              # Problem 1 fix: If the disabled force is NOT the currently stored active force,
+              # the helper's frc is still valid — do nothing and stop.
               - conditions:
-                  - "{{ active_force_from_sensors == 'opn' }}"
+                  - "{{ disabled_force != state_force and state_force != 'non' }}"
+                sequence:
+                  - stop: "Disabled force ({{ disabled_force }}) was not the active force (frc={{ state_force }}), keeping current state"
+
+              # Switch to FORCE OPEN if most recently activated
+              - conditions:
+                  - "{{ next_active_force == 'opn' }}"
                 sequence:
                   - variables:
                       target_position: !input open_position
@@ -6177,9 +6215,9 @@ actions:
                   - *helper_update
                   - stop: "Switched to active Force Open"
 
-              # Switch to FORCE CLOSE if still active
+              # Switch to FORCE CLOSE if most recently activated
               - conditions:
-                  - "{{ active_force_from_sensors == 'cls' }}"
+                  - "{{ next_active_force == 'cls' }}"
                 sequence:
                   - variables:
                       target_position: !input close_position
@@ -6202,9 +6240,9 @@ actions:
                   - *helper_update
                   - stop: "Switched to active Force Close"
 
-              # Switch to FORCE SHADING if still active
+              # Switch to FORCE SHADING if most recently activated
               - conditions:
-                  - "{{ active_force_from_sensors == 'shd' }}"
+                  - "{{ next_active_force == 'shd' }}"
                 sequence:
                   - variables:
                       target_position: !input shading_position
@@ -6228,9 +6266,9 @@ actions:
                   - *helper_update
                   - stop: "Switched to active Force Shading"
 
-              # Switch to FORCE VENTILATION if still active
+              # Switch to FORCE VENTILATION if most recently activated
               - conditions:
-                  - "{{ active_force_from_sensors == 'vnt' }}"
+                  - "{{ next_active_force == 'vnt' }}"
                 sequence:
                   - variables:
                       target_position: !input ventilate_position
