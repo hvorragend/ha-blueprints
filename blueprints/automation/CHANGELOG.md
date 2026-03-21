@@ -10,8 +10,6 @@ All enable/disable decisions for morning/evening cover control are now configure
 
 | Before | After | Breaking? |
 |--------|-------|-----------|
-| `enable_brightness_condition: true` (dedicated toggle) | Add `auto_brightness_enabled` to `auto_options` | ✅ No — option was unreleased |
-| `enable_sun_elevation_condition: true` (dedicated toggle) | Add `auto_sun_enabled` to `auto_options` | ✅ No — option was unreleased |
 | `time_control: time_control_disabled` | Uncheck `time_control_enabled` in `auto_options` | ⚠️ Legacy (still works, but deprecated) |
 | `Condition Logic — Brightness & Sun Elevation` in Sun Elevation section | Moved to Automation Options section (parameter name `brightness_sun_operator` unchanged) | ✅ No |
 
@@ -37,21 +35,6 @@ auto_options:
 ```
 
 ### Migration for existing configurations
-
-**Brightness / Sun Elevation conditions** — most users do not need to change anything.
-The `auto_brightness_enabled` and `auto_sun_enabled` values were always accepted in `auto_options` (as legacy values). If you configured these before via `enable_brightness_condition` / `enable_sun_elevation_condition`, switch to the `auto_options` list:
-
-```yaml
-# Before
-enable_brightness_condition: true
-
-# After
-auto_options:
-  - auto_up_enabled
-  - auto_down_enabled
-  - time_control_enabled
-  - auto_brightness_enabled
-```
 
 **Disabling time control** — `time_control: time_control_disabled` still works (backward compatible). For new configurations, prefer unchecking `time_control_enabled` from `auto_options`.
 

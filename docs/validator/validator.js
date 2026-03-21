@@ -143,16 +143,6 @@ class CCAValidator {
                 removed: '2025.12.17',
                 replacement: 'calendar_entity',
                 migration: 'Use calendar_entity with time_control: time_control_calendar instead'
-            },
-            'enable_brightness_condition': {
-                removed: '2026.03',
-                replacement: null,
-                migration: 'Add "auto_brightness_enabled" to the auto_options list instead. Configure sensor and thresholds in the Brightness section.'
-            },
-            'enable_sun_elevation_condition': {
-                removed: '2026.03',
-                replacement: null,
-                migration: 'Add "auto_sun_enabled" to the auto_options list instead. Configure sensor and thresholds in the Sun Elevation section.'
             }
         };
 
