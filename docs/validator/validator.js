@@ -143,6 +143,16 @@ class CCAValidator {
                 removed: '2025.12.17',
                 replacement: 'calendar_entity',
                 migration: 'Use calendar_entity with time_control: time_control_calendar instead'
+            },
+            'enable_brightness_condition': {
+                removed: '2026.03',
+                replacement: null,
+                migration: 'Add "auto_brightness_enabled" to the auto_options list instead. Configure sensor and thresholds in the Brightness section.'
+            },
+            'enable_sun_elevation_condition': {
+                removed: '2026.03',
+                replacement: null,
+                migration: 'Add "auto_sun_enabled" to the auto_options list instead. Configure sensor and thresholds in the Sun Elevation section.'
             }
         };
 
@@ -277,7 +287,16 @@ class CCAValidator {
             }
         }
 
+        if (autoOptions.includes('auto_brightness_enabled')) {
+            if (!this.config.default_brightness_sensor) {
+                this.addWarning('⚠️ Brightness Control (auto_brightness_enabled) is enabled but no default_brightness_sensor configured.');
+            }
+        }
+
         if (autoOptions.includes('auto_sun_enabled')) {
+            if (!this.config.default_sun_sensor) {
+                this.addWarning('⚠️ Sun Elevation Control (auto_sun_enabled) is enabled but no default_sun_sensor configured.');
+            }
             const mode = this.config.sun_elevation_mode || 'fixed';
             if (mode === 'fixed' && !this.config.sun_elevation_up_sensor && !this.config.sun_elevation_down_sensor) {
                 this.addInfo('ℹ️ Sun Control: Fixed mode — using static elevation values (no seasonal adaptation).');
@@ -394,10 +413,24 @@ class CCAValidator {
 
     validateTimeConfiguration() {
         const c = this.config;
-        if (!c.time_control || c.time_control === 'time_control_disabled') {
+        const autoOptions = c.auto_options || [];
+        // Hybrid backward-compat logic: matches blueprint is_time_control_disabled
+        const isTimeControlDisabled = !autoOptions.includes('time_control_enabled') && c.time_control === 'time_control_disabled';
+
+        if (isTimeControlDisabled || !c.time_control) {
             this.addInfo('⏰ Time control is disabled - skipping time validation');
             return;
         }
+
+        if (c.time_control === 'time_control_disabled') {
+            // Still active because time_control_enabled overrides it, but warn about legacy usage
+            this.addWarning('⚠️ time_control: time_control_disabled is the legacy way to disable time control. Prefer unchecking "Time Control" (time_control_enabled) in auto_options instead.');
+        }
+
+        if (!autoOptions.includes('time_control_enabled') && c.time_control !== 'time_control_disabled') {
+            this.addInfo('ℹ️ time_control_enabled is not in auto_options. Time control remains active for backward compatibility. Add "time_control_enabled" to auto_options to use the new consolidated control.');
+        }
+
         if (c.time_control === 'time_control_calendar') {
             this.addInfo('📅 Calendar control enabled - time inputs not used');
             return;
@@ -989,7 +1022,8 @@ time_down_late: "22:00:00"
 
 auto_options:
   - auto_up_enabled
-  - auto_down_enabled`,
+  - auto_down_enabled
+  - time_control_enabled`,
 
             advanced: `# Advanced with Shading
 blind: cover.example_blind
@@ -1008,6 +1042,7 @@ time_down_late: "22:00:00"
 auto_options:
   - auto_up_enabled
   - auto_down_enabled
+  - time_control_enabled
   - auto_shading_enabled
   - auto_sun_enabled
 
@@ -1051,7 +1086,8 @@ time_down_late: "21:00:00"
 
 auto_options:
   - auto_up_enabled
-  - auto_down_enabled`
+  - auto_down_enabled
+  - time_control_enabled`
         };
 
         yamlInput.value = examples[type] || '';
