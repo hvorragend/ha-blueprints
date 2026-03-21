@@ -1107,6 +1107,30 @@ Enables automatic opening even if resident sensor is "on"
 
 ---
 
+### Q: How does a force function work?
+
+**A:**
+
+**Basic Behavior (Without Background State Tracking):**
+- When a force is activated, the cover moves immediately to the target position
+- All other automation logic is disabled while force is active
+- When the force is deactivated, CCA remains idle until the next trigger
+- You must manually reset the cover to the desired position or rely on other automations
+
+**Advanced: Automatic Return to Target (With Background State Tracking)**
+- Enable "Return to Target State After Force Disable" to automatically restore the cover
+- While a force is active, CCA continues tracking what position the cover *should* be in
+- When you deactivate the force, the cover automatically returns to that target position
+- Example: Force-close for rain protection → Rain stops → Cover automatically returns to open or shading position
+
+**Important Constraints:**
+- Only ONE force function can be active at a time
+- Force functions have the highest priority - no other automation can override them
+- To stop forcing, manually deactivate the force entity
+- Multiple simultaneous force activations will trigger a configuration warning
+
+---
+
 ### Q: What is "Return to Target State After Force Disable"?
 
 **A:** NEW in 2025.12.22! Automatic recovery after emergency:
