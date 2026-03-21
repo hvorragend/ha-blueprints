@@ -2,6 +2,48 @@
 
 # 🚀 CCA 2026.03.alpha – New State Machine & Mandatory JSON Helper
 
+## ⚠️ Configuration Changes — Automation Options Consolidated
+
+All enable/disable decisions for morning/evening cover control are now configured centrally in the **Automation Options** section (`auto_options`).
+
+### What changed
+
+| Before | After | Breaking? |
+|--------|-------|-----------|
+| `time_control: time_control_disabled` | Uncheck `time_control_enabled` in `auto_options` | ⚠️ Legacy (still works, but deprecated) |
+| `Condition Logic — Brightness & Sun Elevation` in Sun Elevation section | Moved to Automation Options section (parameter name `brightness_sun_operator` unchanged) | ✅ No |
+
+### New `auto_options` values
+
+```yaml
+auto_options:
+  - auto_up_enabled          # Morning opening (existing)
+  - auto_down_enabled        # Evening closing (existing)
+  - time_control_enabled     # NEW — enables time-based triggers
+  - auto_brightness_enabled  # Brightness-based opening/closing (now a visible option)
+  - auto_sun_enabled         # Sun elevation-based opening/closing (now a visible option)
+  - auto_ventilate_enabled   # Ventilation mode (existing)
+  - auto_shading_enabled     # Sun protection / shading (existing)
+```
+
+The new default includes `time_control_enabled`:
+```yaml
+auto_options:
+  - auto_up_enabled
+  - auto_down_enabled
+  - time_control_enabled
+```
+
+### Migration for existing configurations
+
+**Disabling time control** — `time_control: time_control_disabled` still works (backward compatible). For new configurations, prefer unchecking `time_control_enabled` from `auto_options`.
+
+**Backward compatibility guarantee:**
+- Existing automations that do **not** include `time_control_enabled` in `auto_options` continue to work exactly as before — time control is controlled by the `time_control` selector value, just as it always was.
+- The new `time_control_enabled` flag is an additive change: it takes precedence when present, but its absence does not break existing setups.
+
+---
+
 ## 🏗️ New Architecture: State Machine v6 & Mandatory JSON Helper
 
 This release brings a **major internal overhaul** of the Cover Control Automation engine. While there are no new configuration options for you to set up, the improvements make the automation significantly more reliable, predictable, and easier to diagnose.

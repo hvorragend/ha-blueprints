@@ -54,10 +54,14 @@ blueprint:
           description: >-
             **Basic Controls (When to move):**
 
-            Enable morning opening and/or evening closing based on time.
+            Enable morning opening and/or evening closing.
 
 
-            **Brightness & Sun Elevation conditions** (for earlier morning/evening timing) are enabled and configured in their dedicated sections below.
+            **Fine-Tuning (When to trigger):**
+
+            Control whether time, brightness, and sun elevation influence opening and closing.
+            Set the condition logic (AND/OR) when both brightness and sun elevation are active.
+            Configure thresholds and sensors in the dedicated sections below.
 
 
             **Advanced Features (How to react):**
@@ -67,7 +71,7 @@ blueprint:
 
             **Sun Elevation vs. Sun Protection — two different things!**
 
-            - **Sun Elevation** (☀️) = Opens/closes based on sunrise/sunset — configured in *Sun Elevation Settings* below
+            - **Sun Elevation** (☀️) = Opens/closes based on sunrise/sunset — configure thresholds in *Sun Elevation Settings* below
 
             - **Sun Protection** (🥵) = Partially closes the cover during midday when the sun shines directly on the window
 
@@ -90,7 +94,7 @@ blueprint:
 
 
             <details>
-            
+
 
             <summary><code><strong>⚙️ CLICK HERE:</strong> Notes on multiple triggering</code></summary>
 
@@ -105,6 +109,7 @@ blueprint:
             [
               auto_up_enabled,
               auto_down_enabled,
+              time_control_enabled,
             ]
           selector:
             select:
@@ -113,6 +118,12 @@ blueprint:
                   value: "auto_up_enabled"
                 - label: "🔻 Evening Closing — Automatically close based on configured time"
                   value: "auto_down_enabled"
+                - label: "⏲️ Time Control — Enable time-based opening & closing triggers"
+                  value: "time_control_enabled"
+                - label: "🔅 Brightness Control — Open/close earlier based on ambient brightness"
+                  value: "auto_brightness_enabled"
+                - label: "☀️ Sun Elevation Control — Open/close based on sun position (sunrise/sunset)"
+                  value: "auto_sun_enabled"
                 - label: "💨 Ventilation Mode — React to open/tilted windows, prevent lockout"
                   value: "auto_ventilate_enabled"
                 - label: "🥵 Sun Protection / Shading — Partially close when sun shines on window"
@@ -121,6 +132,76 @@ blueprint:
               sort: false
               custom_value: false
               mode: list
+
+        time_control:
+          name: "⏲️ Time Control Type"
+          description: >-
+            Select how time-based opening and closing is scheduled.
+            Only relevant when **Time Control** is enabled above.
+
+            <details>
+            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
+            <br />
+            <ins>Input fields for time control</ins><br />
+            The times for opening and closing the cover are configured in the Time Control section below.
+            Even if you only want to control the covers using brightness values or the sun elevation,
+            it is important to specify times — they are used to define the "morning" (up) and "evening" (down) windows.
+            <br /><br />
+            <ins>Calendar Control</ins><br />
+            You can use a Home Assistant calendar to define when covers should be open or closed.
+            Create calendar events with titles "Open Cover" (for daytime) or "Close Cover" (for evening).
+            The automation reacts immediately when events start or end.
+
+            </details>
+
+          default: time_control_input
+          selector:
+            select:
+              options:
+                - label: "✏️ Use the time input fields in this blueprint section"
+                  value: "time_control_input"
+                - label: "📅 Use a Home Assistant calendar"
+                  value: "time_control_calendar"
+              sort: false
+              multiple: false
+              custom_value: false
+
+        brightness_sun_operator:
+          name: "🔀 Condition Logic — Brightness & Sun Elevation"
+          description: >-
+            How should Brightness and Sun Elevation conditions be combined when **both** are active?
+
+
+            **⚡ OR** *(Default — recommended for most users)*
+
+            The cover opens/closes as soon as **either** condition is met.
+
+            Example: Opens when it gets bright enough *or* the sun rises above the threshold.
+
+            More responsive — reacts earlier on clear mornings.
+
+
+            **🔒 AND**
+
+            The cover opens/closes only when **both** conditions are met simultaneously.
+
+            Example: Opens only when it's bright enough *and* the sun is above the threshold.
+
+            More conservative — reduces false triggers on overcast mornings.
+
+
+            *Has no effect when only one of the two conditions is enabled.*
+          default: "or"
+          selector:
+            select:
+              options:
+                - label: "⚡ OR — Either condition triggers the action (default)"
+                  value: "or"
+                - label: "🔒 AND — Both conditions must be met simultaneously"
+                  value: "and"
+              mode: dropdown
+              sort: false
+              custom_value: false
 
         individual_config:
           name: "⚙️ Behavior Customization"
@@ -542,54 +623,14 @@ blueprint:
       description: >-
         <center>
         <br />
-        <strong>Time Control Modes:</strong><br />
-        - Input Fields: Use time inputs directly in this section (recommended)<br />
-        - Schedule Helper: Use external schedule entity for flexible weekday configuration<br />
-        - Disabled: No time-based triggers, only brightness/sun/manual control<br />
+        Configure the time windows for morning opening and evening closing.<br />
+        Time control can be enabled and the type selected in the <strong>Automation Options</strong> section above.<br />
         <br />
         For comprehensive explanations, examples, and timing diagrams, see:
         <a href="https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/TIME_CONTROL_VISUALIZATION.md">Time Control Guide</a><br />
         <br /><br />
         </center>
       input:
-        time_control:
-          name: "⏲️ Selection of time control options"
-          description: >-
-            <details>
-            <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-            <br />
-            <ins>Input fields for time control</ins><br />
-            The times for opening and closing the cover are configured here in the blueprint.
-            There are various input fields here for this purpose.
-            Even if you only want to control the covers using brightness values or the sun elevation,
-            it is important to specify times. The times are used to divide the day into "morning" (up) and "evening" (down).
-            <br /><br />
-            <ins>Calendar Control</ins><br />
-            You can use a Home Assistant calendar to define when covers should be open or closed.
-            Create calendar events with titles "Open Cover" (for daytime) or "Close Cover" (for evening).
-            The automation reacts immediately when events start or end.
-            <br /><br />
-            <ins>Disable time control and all time triggers</ins><br />
-            Finally, you can also deactivate the time control completely.
-            This means that the roller shutters are not opened or closed via time triggers.
-            The sun-elevation and brightness control then also runs completely independently.
-
-            </details>
-
-          default: time_control_input
-          selector:
-            select:
-              options:
-                - label: "✏️ Use the time input fields in this blueprint section"
-                  value: "time_control_input"
-                - label: "📅 Use a Home Assistant calendar"
-                  value: "time_control_calendar"
-                - label: "🚫 Disable time control and all time triggers"
-                  value: "time_control_disabled"
-              sort: false
-              multiple: false
-              custom_value: false
-
         time_up_early:
           name: "🔼 Time For Drive Up - Early On Workdays"
           description: >-
@@ -771,18 +812,6 @@ blueprint:
       icon: mdi:brightness-5
       collapsed: true
       input:
-        enable_brightness_condition:
-          name: "🔅 Enable Brightness Condition"
-          description: >-
-            Activate brightness-based opening/closing for morning and evening timing.
-
-            ⚠️ **Only affects morning opening & evening closing** — not sun protection!
-
-            When enabled, configure the sensor and thresholds below.
-          default: false
-          selector:
-            boolean:
-
         default_brightness_sensor:
           name: "🔅 Default Brightness Sensor"
           description: "This default brightness sensor can be defined here, which is used for daily up and down."
@@ -851,18 +880,6 @@ blueprint:
       icon: mdi:weather-sunny
       collapsed: true
       input:
-        enable_sun_elevation_condition:
-          name: "☀️ Enable Sun Elevation Condition"
-          description: >-
-            Activate sun-elevation-based opening/closing for morning and evening timing.
-
-            ⚠️ **Only affects morning opening & evening closing** — NOT sun protection / shading!
-
-            When enabled, configure the sensor and thresholds below.
-          default: false
-          selector:
-            boolean:
-
         default_sun_sensor:
           name: "☀️ Sun Sensor"
           description: >-
@@ -1046,43 +1063,6 @@ blueprint:
             entity:
               filter:
                 - domain: [sensor, input_number]
-
-        brightness_sun_operator:
-          name: "🔀 Condition Logic — Brightness & Sun Elevation"
-          description: >-
-            How should Brightness and Sun Elevation conditions be combined when **both** are active?
-
-
-            **⚡ OR** *(Default — recommended for most users)*
-
-            The cover opens/closes as soon as **either** condition is met.
-
-            Example: Opens when it gets bright enough *or* the sun rises above the threshold.
-
-            More responsive — reacts earlier on clear mornings.
-
-
-            **🔒 AND**
-
-            The cover opens/closes only when **both** conditions are met simultaneously.
-
-            Example: Opens only when it's bright enough *and* the sun is above the threshold.
-
-            More conservative — reduces false triggers on overcast mornings.
-
-
-            *Has no effect when only one of the two conditions is enabled.*
-          default: "or"
-          selector:
-            select:
-              options:
-                - label: "⚡ OR — Either condition triggers the action (default)"
-                  value: "or"
-                - label: "🔒 AND — Both conditions must be met simultaneously"
-                  value: "and"
-              mode: dropdown
-              sort: false
-              custom_value: false
 
     contacts_section:
       name: "Contact Sensors for Ventilation"
@@ -2618,14 +2598,12 @@ trigger_variables:
   is_calendar_enabled: "{{ 'time_control_calendar' in time_control and calendar_entity != [] }}"
 
   # Brightness configuration
-  enable_brightness_condition: !input enable_brightness_condition
   default_brightness_sensor: !input default_brightness_sensor
   brightness_up: !input brightness_up
   brightness_down: !input brightness_down
   brightness_hysteresis: !input brightness_hysteresis
 
   # Sun configuration
-  enable_sun_elevation_condition: !input enable_sun_elevation_condition
   brightness_sun_operator: !input brightness_sun_operator
   default_sun_sensor: !input default_sun_sensor
   sun_elevation_mode: !input sun_elevation_mode
@@ -2682,12 +2660,13 @@ trigger_variables:
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
   is_up_enabled: "{{ 'auto_up_enabled' in auto_options }}"
   is_down_enabled: "{{ 'auto_down_enabled' in auto_options }}"
-  # Backward compatible: check new dedicated toggle OR legacy auto_options value
-  is_brightness_enabled: "{{ enable_brightness_condition or 'auto_brightness_enabled' in auto_options }}"
-  is_sun_elevation_enabled: "{{ enable_sun_elevation_condition or 'auto_sun_enabled' in auto_options }}"
+  is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
+  is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   use_and_operator: "{{ brightness_sun_operator == 'and' }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
-  is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
+  # Disabled when explicitly unchecked in auto_options AND the legacy selector is also set to disabled.
+  # This preserves backward compatibility: existing users with time_control_input/calendar remain active.
+  is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options and 'time_control_disabled' in time_control }}"
 
   # Ventilation and tilt are only available for blinds, not awnings
   is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
