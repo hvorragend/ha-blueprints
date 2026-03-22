@@ -2340,20 +2340,20 @@ blueprint:
               custom_value: false
               mode: list
 
-        auto_pause_mode:
-          name: "⏸️ Pause Automatic Actions"
+        force_pause:
+          name: "⏸️ Force Pause (Suspend Automatic Actions)"
           description: >-
-            When this entity is active (on/true), all automatic cover movements are
-            paused. The background state (target positions) is still tracked continuously
-            in the helper — even while paused.
+            If the status of this entity changes to on or true, all automatic cover
+            movements are suspended immediately. The background state (target positions)
+            is still tracked continuously in the helper — even while paused.
 
-            When pause mode is disabled, the cover **immediately returns** to its
-            correct target position — no waiting for the next trigger.
+            When this entity turns off again, the cover **immediately returns** to its
+            correct target position — no waiting for the next scheduled trigger.
 
-            💡 **Unlike the global condition approach:** The global condition blocks
-            everything including helper state updates. This dedicated pause input only
-            blocks cover movement, so the helper always reflects the correct target.
-            Switching to automatic mode is therefore instant and reliable.
+            💡 **Tip:** Use an `input_boolean` as a manual/automatic toggle. Unlike
+            putting a switch in the global condition (which blocks helper state updates
+            too), this force pause only blocks cover movement. The helper always
+            reflects the correct background state, so resuming is instant and reliable.
           default: []
           selector:
             entity:
@@ -2697,9 +2697,9 @@ trigger_variables:
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
 
-  # Pause mode
-  auto_pause_mode: !input auto_pause_mode
-  is_paused: "{{ auto_pause_mode != [] and states(auto_pause_mode) in ['on', 'true'] }}"
+  # Force pause
+  force_pause: !input force_pause
+  is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
 
   # Cover status helper configuration
   cover_status_helper: !input cover_status_helper
@@ -3569,11 +3569,11 @@ triggers:
     id: "t_force_disabled_shading"
 
   - trigger: state
-    entity_id: !input auto_pause_mode
+    entity_id: !input force_pause
     from: "on"
     to: "off"
-    enabled: "{{ auto_pause_mode != [] }}"
-    id: "t_pause_disabled"
+    enabled: "{{ force_pause != [] }}"
+    id: "t_force_pause_disabled"
 
   ########################################
   # Triggers for shading tilt
@@ -6127,17 +6127,17 @@ actions:
                   - stop: "Force Shading executed"
 
       ############################################################
-      # BRANCH (8a): RESUME FROM PAUSE MODE
-      # When the pause entity turns off, immediately drive the cover
-      # to the correct position derived from the up-to-date helper.
+      # BRANCH (8a): RESUME FROM FORCE PAUSE
+      # When force_pause turns off, immediately drive the cover to the
+      # correct position derived from the up-to-date helper.
       # The helper is already current (it was updated throughout the pause),
       # so effective_state gives the correct target directly.
       ############################################################
 
-      - alias: "Drive to target position after pause mode disabled"
+      - alias: "Drive to target position after force pause disabled"
         conditions:
           - "{{ trigger.id is defined }}"
-          - "{{ trigger.id == 't_pause_disabled' }}"
+          - "{{ trigger.id == 't_force_pause_disabled' }}"
         sequence:
           - choose:
               # FORCE OPEN
