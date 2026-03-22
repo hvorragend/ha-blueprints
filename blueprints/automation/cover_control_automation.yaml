@@ -3059,12 +3059,17 @@ variables:
   #
   # ═══════════════════════════════════════════════════════════════════════════
 
+  # LIVE RESIDENT STATE - Read directly from sensor, not from helper.
+  # Use this (and resident_flags which depends on it) wherever the real-time sensor state matters,
+  # e.g. in the resident arriving/leaving handler where helper_json.res hasn't been updated yet.
+  state_resident: "{{ resident_sensor != [] and states(resident_sensor) in ['on', 'true'] }}"
+
   # EFFECTIVE STATE - The actual state the cover should be in based on priority cascade
   # Replaces v5's state_current (which was just an alias with old names vpart/vfull)
   # Use this directly instead of the old state_current variable
   effective_state: >-
     {% set h = helper_json %}
-    {% set resident_present = h.res | default(0) | int == 1 %}
+    {% set resident_present = state_resident %}
     {% set allow_vent = 'resident_allow_ventilation' in resident_config or not resident_present %}
     {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %}
     {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %}
@@ -3087,42 +3092,41 @@ variables:
 
   # STATE FORCE - Which force function is currently active? (from helper)
   # Values: non|opn|cls|shd|vnt
-  state_force: "{{ helper_json.frc | default('non') }}"
+  helper_state_force: "{{ helper_json.frc | default('non') }}"
 
   # RESIDENT STATUS - Is someone present? (from helper, synced with sensor)
-  state_resident: "{{ helper_json.res | default(0) | int == 1 }}"
+  helper_state_resident: "{{ helper_json.res | default(0) | int == 1 }}"
 
   # MANUAL FLAG - Is manual override active? (from helper)
-  state_manual: "{{ helper_json.man | default(0) | int == 1 }}"
+  helper_state_manual: "{{ helper_json.man | default(0) | int == 1 }}"
 
   # BASE STATE - The time-based ground state (opn/cls)
-  state_base: "{{ helper_json.bas | default('opn') }}"
+  helper_state_base: "{{ helper_json.bas | default('opn') }}"
 
   # WINDOW STATE - Current window sensor state (cls/tlt/opn)
-  state_window: "{{ helper_json.win | default('cls') }}"
+  helper_state_window: "{{ helper_json.win | default('cls') }}"
 
   # SHADE STATE - Is shading currently active (not pending)?
-  state_shade: "{{ helper_json.shd | default(0) | int == 1 }}"
+  helper_state_shade: "{{ helper_json.shd | default(0) | int == 1 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # TIMESTAMPS - Unified timestamp access
   # ═══════════════════════════════════════════════════════════════════════════
 
-  ts_open: "{{ helper_json.ts.opn | default(0) | int }}"
-  ts_close: "{{ helper_json.ts.cls | default(0) | int }}"
-  ts_shade: "{{ helper_json.ts.shd | default(0) | int }}"
-  ts_man: "{{ helper_json.ts.man | default(0) | int }}"
-  ts_window: "{{ helper_json.ts.win | default(0) | int }}"
+  helper_ts_open: "{{ helper_json.ts.opn | default(0) | int }}"
+  helper_ts_close: "{{ helper_json.ts.cls | default(0) | int }}"
+  helper_ts_shade: "{{ helper_json.ts.shd | default(0) | int }}"
+  helper_ts_man: "{{ helper_json.ts.man | default(0) | int }}"
 
   # SHADED STATUS - Is cover currently shaded (not pending)?
   # True when shade == 1 AND no pending start time active
-  state_is_shaded: "{{ helper_json.shd | default(0) | int == 1 and helper_json.ts.shs | default(0) | int == 0 }}"
+  helper_state_is_shaded: "{{ helper_json.shd | default(0) | int == 1 and helper_json.ts.shs | default(0) | int == 0 }}"
 
   # PENDING START - Is shading start pending?
-  state_pending_start: "{{ helper_json.ts.shs | default(0) | int > 0 }}"
+  helper_state_pending_start: "{{ helper_json.ts.shs | default(0) | int > 0 }}"
 
   # PENDING END - Is shading end pending?
-  state_pending_end: "{{ helper_json.ts.she | default(0) | int > 0 }}"
+  helper_state_pending_end: "{{ helper_json.ts.she | default(0) | int > 0 }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # COMPUTED FLAGS - Simplified Movement Permissions
@@ -3131,7 +3135,7 @@ variables:
   # FORCE STATE ARCHITECTURE (Dual-Source Design):
   # CCA intentionally maintains TWO sources of force state:
   #
-  #   1. state_force (from JSON helper) – The PERSISTED force that was last
+  #   1. helper_state_force (from JSON helper) – The PERSISTED force that was last
   #      written to the helper. Used to track which force was active across
   #      automation runs and for state recovery after force ends.
   #
@@ -3182,7 +3186,7 @@ variables:
   # ═══════════════════════════════════════════════════════════════════════════
   # RESIDENT PERMISSION FLAGS - Centralized Resident-based Access Control
   # ═══════════════════════════════════════════════════════════════════════════
-  # These flags check resident status (from state_resident) once, avoiding
+  # These flags check resident status (from helper_state_resident) once, avoiding
   # redundant sensor reads across the entire code.
   #
   # Relationship to effective_state priority cascade:
@@ -3310,7 +3314,7 @@ triggers:
     enabled: "{{ is_sun_elevation_enabled and default_sun_sensor != [] }}"
     id: "t_open_5"
 
-  # Resident sensor state change (for updating state_resident and optional actions)
+  # Resident sensor state change (for updating helper_state_resident and optional actions)
   - trigger: state
     entity_id: !input resident_sensor
     enabled: "{{ resident_sensor not in [none, ''] }}"
@@ -4640,10 +4644,10 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_open|t_calendar_event)') }}"
           - condition: !input auto_up_condition
-          - "{{ not (state_manual and override_flags.opening) }}" # Override check
+          - "{{ not (helper_state_manual and override_flags.opening) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.opening_multiple_times }}"
-              - "{{ prevent_flags.opening_multiple_times and ((now().day != ts_open|timestamp_custom('%-d')|int) or ts_man <= ts_open) }}"
+              - "{{ prevent_flags.opening_multiple_times and ((now().day != helper_ts_open|timestamp_custom('%-d')|int) or helper_ts_man <= helper_ts_open) }}"
           - or: # Opening scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - and: # Ultimate opening ONLY for specific time triggers (no environment checks)
@@ -4660,17 +4664,17 @@ actions:
               - alias: "Already in open position - only update base state"
                 conditions:
                   - "{{ effective_state == 'opn' and in_open_position }}"
-                  - "{{ not state_is_shaded }}"
-                  - "{{ not state_pending_start }}"
-                  - "{{ not state_shade }}"
+                  - "{{ not helper_state_is_shaded }}"
+                  - "{{ not helper_state_pending_start }}"
+                  - "{{ not helper_state_shade }}"
                   - or:
                       # Primary: base not yet reflecting current schedule
                       # (e.g. Force Open is active while closing time has passed,
                       # or Resident override holds cover open past opening time)
-                      - "{{ state_base != 'opn' }}"
+                      - "{{ helper_state_base != 'opn' }}"
                       # Secondary: ts.opn is from a previous day
                       # (needed for prevent_multiple_times to work correctly)
-                      - "{{ now().day != ts_open | timestamp_custom('%-d', true) | int }}"
+                      - "{{ now().day != helper_ts_open | timestamp_custom('%-d', true) | int }}"
                 sequence:
                   - variables:
                       update_values:
@@ -4686,9 +4690,9 @@ actions:
               - alias: "Shading detected. Move to shading position"
                 conditions:
                   - or:
-                      - "{{ state_is_shaded }}" # TODO
-                      - "{{ state_pending_start }}" # Pending-Timestamp
-                      - "{{ state_shade }}" # Check for target(!) marker
+                      - "{{ helper_state_is_shaded }}" # TODO
+                      - "{{ helper_state_pending_start }}" # Pending-Timestamp
+                      - "{{ helper_state_shade }}" # Check for target(!) marker
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                 sequence:
                   - variables:
@@ -4774,10 +4778,10 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_close|t_calendar_event)') }}"
           - condition: !input auto_down_condition
-          - "{{ not (state_manual and override_flags.closing) }}" # Override check
+          - "{{ not (helper_state_manual and override_flags.closing) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.closing_multiple_times }}"
-              - "{{ prevent_flags.closing_multiple_times and ((ts_close < today_at(time_down_early_today) | as_timestamp) or ts_man <= ts_close) }}"
+              - "{{ prevent_flags.closing_multiple_times and ((helper_ts_close < today_at(time_down_early_today) | as_timestamp) or helper_ts_man <= helper_ts_close) }}"
           - or: # Closing scenarios - works for BOTH time and calendar mode
               - "{{ is_time_control_disabled }}"
               - and: # Ultimate closing ONLY for specific time triggers (no environment checks)
@@ -4859,10 +4863,10 @@ actions:
                   - or:
                       # Primary: base not yet reflecting current schedule
                       # (e.g. Force Close is active while opening time has passed)
-                      - "{{ state_base != 'cls' }}"
+                      - "{{ helper_state_base != 'cls' }}"
                       # Secondary: ts.cls is from a previous day
                       # (needed for prevent_multiple_times to work correctly)
-                      - "{{ now().day != ts_close | timestamp_custom('%-d', true) | int }}"
+                      - "{{ now().day != helper_ts_close | timestamp_custom('%-d', true) | int }}"
                 sequence:
                   - variables:
                       update_values:
@@ -4880,7 +4884,7 @@ actions:
                   - or:
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ prevent_flags.lowering_when_closing_if_shaded }}"
-                          - "{{ state_is_shaded }}"
+                          - "{{ helper_state_is_shaded }}"
                           - "{{ not position_comparisons.shading_above_close }}"
                       - and: # Stop if cover is shaded and close position is lower than shading position
                           - "{{ prevent_flags.lowering_when_closing_if_shaded }}"
@@ -4947,15 +4951,15 @@ actions:
           - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1|t_open_3)') }}"
           - condition: !input auto_shading_start_condition
           - or: # Check the helper status or the target status
-              - "{{ not state_is_shaded }}"
+              - "{{ not helper_state_is_shaded }}"
               - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
-          - "{{ not (state_manual and override_flags.shading) }}" # Override check
+          - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.shading_multiple_times }}"
-              - "{{ prevent_flags.shading_multiple_times and ((now().day != ts_shade|timestamp_custom('%-d')|int) or ts_man <= ts_shade) }}"
+              - "{{ prevent_flags.shading_multiple_times and ((now().day != helper_ts_shade|timestamp_custom('%-d')|int) or helper_ts_man <= helper_ts_shade) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
           - "{{ resident_flags.allow_shade }}"
 
@@ -4974,7 +4978,7 @@ actions:
                   - alias: "Shading detected. Save next execution time and pending status"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
-                      - "{{ not state_pending_start }}" # Not if a pending is already active
+                      - "{{ not helper_state_pending_start }}" # Not if a pending is already active
                     sequence:
                       - variables:
                           update_values:
@@ -4993,7 +4997,7 @@ actions:
                   - alias: "Consider lockout protection when shading starts"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ state_pending_start }}" # Only when it comes back from pending status
+                      - "{{ helper_state_pending_start }}" # Only when it comes back from pending status
                       - "{{ is_ventilation_enabled }}"
                       - or:
                           - and:
@@ -5023,7 +5027,7 @@ actions:
                   - alias: "Start Shading"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ state_pending_start }}" # Only when it comes back from pending status
+                      - "{{ helper_state_pending_start }}" # Only when it comes back from pending status
                       - or: # Position check
                           - and:
                               - "{{ not is_cover_tilt_enabled_and_possible }}"
@@ -5064,7 +5068,7 @@ actions:
                   - alias: "Save shading state for the future"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ state_pending_start }}" # Only when it comes back from pending status
+                      - "{{ helper_state_pending_start }}" # Only when it comes back from pending status
                       - "{{ effective_state == 'cls' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
                     sequence:
                       - variables:
@@ -5086,10 +5090,10 @@ actions:
                   - alias: "Shading start conditions not met - check if we should continue"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ state_pending_start }}"
+                      - "{{ helper_state_pending_start }}"
                       - "{{ shading_start_max_duration > 0 }}"
                       - "{{ is_shading_allowed_window }}" # Continue only within time window
-                      - "{{ (as_timestamp(now()) - ts_shade) <= shading_start_max_duration }}"
+                      - "{{ (as_timestamp(now()) - helper_ts_shade) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
                           update_values:
@@ -5108,7 +5112,7 @@ actions:
                   - alias: "Shading start / Stop retry"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ state_pending_start }}"
+                      - "{{ helper_state_pending_start }}"
                     sequence:
                       - variables:
                           update_values:
@@ -5131,13 +5135,13 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_tilt)') }}"
           - and:
-              - "{{ state_is_shaded }}"
-              - "{{ not state_pending_start }}"
+              - "{{ helper_state_is_shaded }}"
+              - "{{ not helper_state_pending_start }}"
           - "{{ is_cover_tilt_enabled_and_possible }}"
           - condition: !input auto_shading_tilt_condition
           - "{{ force_allows_shade }}"
           - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
-          - "{{ not (state_manual and override_flags.shading) }}" # Override check
+          - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
@@ -5167,10 +5171,10 @@ actions:
           - "{{ trigger.id | regex_match('^(t_shading_end)') }}"
           - condition: !input auto_shading_end_condition
           - "{{ is_shading_allowed_window }}"
-          - "{{ not (state_manual and override_flags.shading) }}" # Override check
+          - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
           - "{{ effective_state != 'cls' }}"
           - or:
-              - "{{ state_is_shaded }}"
+              - "{{ helper_state_is_shaded }}"
               - "{{ in_shading_position }}" # Be careful if the tolerance value is too high!
           - or: # Optional: Continue if cover is not already closed
               - "{{ not prevent_flags.shading_end_if_closed }}"
@@ -5187,7 +5191,7 @@ actions:
                   - alias: "Shading end detected. Save next execution time and pending status"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
-                      - "{{ not state_pending_end }}"
+                      - "{{ not helper_state_pending_end }}"
                     sequence:
                       - variables:
                           local_waitingtime_end: >
@@ -5212,7 +5216,7 @@ actions:
                   - alias: "Only tilt open after shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ state_pending_end }}"
+                      - "{{ helper_state_pending_end }}"
                       - "{{ is_cover_tilt_enabled_and_possible }}"
                       - "{{ prevent_flags.opening_after_shading_end}}"
                     sequence:
@@ -5239,7 +5243,7 @@ actions:
                   - alias: "Lockout protection when shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ state_pending_end }}"
+                      - "{{ helper_state_pending_end }}"
                       - "{{ is_ventilation_enabled }}"
                       - "{{ position_comparisons.current_below_ventilate }}"
                       - or:
@@ -5270,7 +5274,7 @@ actions:
                   - alias: "Ventilation after shading ends"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ state_pending_end }}"
+                      - "{{ helper_state_pending_end }}"
                       - "{{ is_ventilation_enabled }}"
                       - "{{ ventilation_flags.after_shading_end }}"
                       - "{{ contact_window_tilted != [] }}"
@@ -5320,7 +5324,7 @@ actions:
                   - alias: "Move cover after shading end - conditions still valid"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ state_pending_end }}"
+                      - "{{ helper_state_pending_end }}"
                       - "{{ shading_end_conditions_met }}"
                     sequence:
                       - if:
@@ -5373,10 +5377,10 @@ actions:
                   - alias: "Shading end conditions not met - check if we should continue"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ state_pending_end }}"
+                      - "{{ helper_state_pending_end }}"
                       - "{{ shading_end_max_duration > 0 }}"
                       - "{{ is_shading_allowed_window }}" # Continue only within time window
-                      - "{{ (as_timestamp(now()) - ts_shade) <= shading_end_max_duration }}"
+                      - "{{ (as_timestamp(now()) - helper_ts_shade) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
                           update_values:
@@ -5395,7 +5399,7 @@ actions:
                   - alias: "Shading end / Stop retry"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ state_pending_end }}"
+                      - "{{ helper_state_pending_end }}"
                     sequence:
                       - variables:
                           update_values:
@@ -5480,7 +5484,7 @@ actions:
                 conditions:
                   - "{{ contact_opened_now }}"
                   - "{{ in_open_position }}"
-                  - "{{ state_window != 'opn' }}"
+                  - "{{ helper_state_window != 'opn' }}"
                 sequence:
                   - variables:
                       update_values:
@@ -5514,7 +5518,7 @@ actions:
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
                       - and:
-                          - "{{ state_window == 'opn' }}"
+                          - "{{ helper_state_window == 'opn' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
                       # Cover is above ventilate position but system is in privacy-close mode (resident present):
                       # drive down to ventilate position instead of continuing to close fully
@@ -5556,7 +5560,7 @@ actions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
                   - "{{ in_ventilate_position }}" # Only update win state if cover is actually at ventilate position
-                  - "{{ state_window != 'tlt' }}"
+                  - "{{ helper_state_window != 'tlt' }}"
                 sequence:
                   - variables:
                       update_values:
@@ -5572,12 +5576,12 @@ actions:
               - alias: "Window closed - Return to shading"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ state_is_shaded or state_shade }}"
+                  - "{{ helper_state_is_shaded or helper_state_shade }}"
                   - or: # Was ventilating before
-                      - "{{ state_window in ['tlt', 'opn'] }}"
+                      - "{{ helper_state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
-                  - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (helper_state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition
                 sequence:
                   - variables:
@@ -5615,13 +5619,13 @@ actions:
               - alias: "Window closed - Return to open position"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ state_base == 'opn' and not resident_now }}"  # Use live sensor, not stale helper
-                  - "{{ not state_is_shaded and not state_shade }}"
+                  - "{{ helper_state_base == 'opn' and not resident_now }}"  # Use live sensor, not stale helper
+                  - "{{ not helper_state_is_shaded and not helper_state_shade }}"
                   - or: # Was ventilating before
-                      - "{{ state_window in ['tlt', 'opn'] }}"
+                      - "{{ helper_state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
-                  - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (helper_state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition
                 sequence:
                   - variables:
@@ -5658,13 +5662,13 @@ actions:
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - or:
-                      - "{{ state_base == 'cls' }}"
+                      - "{{ helper_state_base == 'cls' }}"
                       - "{{ resident_now }}"  # Use live sensor, not stale helper
                   - or: # Was ventilating before
-                      - "{{ state_window in ['tlt', 'opn'] }}"
+                      - "{{ helper_state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
-                  - "{{ not (state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not (helper_state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
                   - condition: !input auto_ventilate_end_condition 
                 sequence:
                   - variables:
@@ -5696,8 +5700,8 @@ actions:
 
       ############################################################
       # BRANCH (6): UPDATE RESIDENT STATUS IN HELPER
-      #   This block updates state_resident in the helper whenever
-      #   the resident_sensor changes. This ensures state_resident
+      #   This block updates helper_state_resident in the helper whenever
+      #   the resident_sensor changes. This ensures helper_state_resident
       #   stays synchronized with the actual sensor state.
       ############################################################
 
@@ -5719,7 +5723,7 @@ actions:
                       # Target is VENTILATION FULL (window open) — highest priority: window lock
                       - conditions:
                           - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
-                          - "{{ 'resident_allow_ventilation' in resident_config or new_resident_status == 0 }}" # Use new_resident_status (=0) instead of resident_flags.allow_ventilate — helper.res is still 1 at this point (not yet updated)
+                          - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ effective_state != 'lock' or not in_open_position }}"
                         sequence:
@@ -5749,7 +5753,7 @@ actions:
                       - conditions:
                           - "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
                           - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}"
-                          - "{{ 'resident_allow_ventilation' in resident_config or new_resident_status == 0 }}" # Use new_resident_status (=0) instead of resident_flags.allow_ventilate — helper.res is still 1 at this point (not yet updated)
+                          - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
                           - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
                         sequence:
@@ -5777,8 +5781,8 @@ actions:
 
                       # Target is SHADED
                       - conditions:
-                          - "{{ state_shade }}"
-                          - "{{ 'resident_allow_shading' in resident_config or new_resident_status == 0 }}" # Use new_resident_status (=0) instead of resident_flags.allow_shade — helper.res is still 1 at this point (not yet updated), so resident_flags.allow_shade would incorrectly evaluate to false
+                          - "{{ helper_state_shade }}"
+                          - "{{ resident_flags.allow_shade }}"
                           - "{{ is_shading_enabled }}"
                           - "{{ effective_state != 'shd' or not in_shading_position }}"
                         sequence:
@@ -5805,7 +5809,7 @@ actions:
 
                       # Target is OPEN
                       - conditions:
-                          - "{{ state_base == 'opn' }}"
+                          - "{{ helper_state_base == 'opn' }}"
                           - "{{ resident_flags.opening_trigger }}"
                           - "{{ is_up_enabled }}"
                           - "{{ effective_state != 'opn' or not in_open_position }}"
@@ -5836,7 +5840,7 @@ actions:
 
                       # Target is CLOSE
                       - conditions:
-                          - "{{ state_base == 'cls' }}"
+                          - "{{ helper_state_base == 'cls' }}"
                           - "{{ is_down_enabled }}"
                           - "{{ effective_state != 'cls' or not in_close_position }}"
                           - "{{ force_allows_close }}" # TODO
@@ -5880,7 +5884,7 @@ actions:
                       ##########################################################
                       # Window fully open → lockout protection: skip closing,
                       # only update resident status in helper.
-                      # Use real-time sensor check (not state_window from helper)
+                      # Use real-time sensor check (not helper_state_window from helper)
                       # because the helper's win field may not be updated when
                       # the cover was already at open position when window opened.
                       ##########################################################
@@ -5898,7 +5902,7 @@ actions:
                       ##########################################################
                       # Window tilted + resident_allow_ventilation → stay at
                       # ventilation position instead of closing.
-                      # Use real-time sensor check (not state_window from helper)
+                      # Use real-time sensor check (not helper_state_window from helper)
                       # because the helper's win field may not be updated when
                       # the cover was already at/above ventilate position.
                       ##########################################################
@@ -6134,9 +6138,9 @@ actions:
               # If the disabled force is NOT the currently stored active force,
               # the helper's frc is still valid — do nothing and stop.
               - conditions:
-                  - "{{ disabled_force != state_force and state_force != 'non' }}"
+                  - "{{ disabled_force != helper_state_force and helper_state_force != 'non' }}"
                 sequence:
-                  - stop: "Disabled force ({{ disabled_force }}) was not the active force (frc={{ state_force }}), keeping current state"
+                  - stop: "Disabled force ({{ disabled_force }}) was not the active force (frc={{ helper_state_force }}), keeping current state"
 
               # Switch to FORCE OPEN if most recently activated
               - conditions:
@@ -6248,7 +6252,7 @@ actions:
                       - choose:
                           # Return to CLOSE position (base state is close)
                           - conditions:
-                              - "{{ state_base == 'cls' }}"
+                              - "{{ helper_state_base == 'cls' }}"
                               - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
                             sequence:
                               - variables:
@@ -6274,7 +6278,7 @@ actions:
 
                           # Return to SHADING position
                           - conditions:
-                              - "{{ state_shade }}"
+                              - "{{ helper_state_shade }}"
                               - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
                               - "{{ resident_flags.allow_shade }}"
                             sequence:
@@ -6358,9 +6362,9 @@ actions:
 
                           # Return to OPEN position
                           - conditions:
-                              - "{{ state_base == 'opn' }}"
+                              - "{{ helper_state_base == 'opn' }}"
                               - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
-                              - "{{ not state_shade }}"
+                              - "{{ not helper_state_shade }}"
                               - "{{ resident_flags.allow_open }}"
                             sequence:
                               - variables:
@@ -6606,9 +6610,9 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id == 't_shading_reset' }}"
           - or:
-              - "{{ state_is_shaded }}"
-              - "{{ state_pending_start }}"  # Also clear pending status
-              - "{{ state_pending_end }}"    # Also clear end‑pending status
+              - "{{ helper_state_is_shaded }}"
+              - "{{ helper_state_pending_start }}"  # Also clear pending status
+              - "{{ helper_state_pending_end }}"    # Also clear end‑pending status
         sequence:
           - delay:
               seconds: "{{ (range(0, 60) | random | int) }}"
