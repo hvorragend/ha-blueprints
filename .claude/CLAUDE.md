@@ -226,6 +226,75 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 
 ---
 
+## Language & Style Conventions
+
+- **CLAUDE.md**: Written in English.
+- **Code comments** in the blueprint YAML: Written in English.
+- **Chat responses**: In German.
+
+---
+
+## Home Assistant Limited Templates
+
+Home Assistant distinguishes between *full* and *limited* template contexts. In limited contexts, only a restricted set of Jinja2 functions is available.
+
+### Where limited templates apply
+
+| Context | Limited? | Notes |
+|---------|----------|-------|
+| `trigger_variables:` | **Yes** | Evaluated at trigger time, before the action runs |
+| `variables:` (action scope) | No | Full template access |
+| `conditions:` | No | Full template access |
+| `sequence:` / `action:` | No | Full template access |
+
+### What is unavailable in limited templates
+
+- `states()` — cannot read entity states
+- `is_state()` — cannot check entity states
+- `state_attr()` — cannot read attributes
+- Integration-specific functions that require runtime context
+
+### Consequences for this blueprint
+
+Variables that need to read entity state (e.g. `is_paused` reading a `input_boolean`) **must** be defined in `variables:` (action scope), not in `trigger_variables:`. Only static or trigger-derived values (e.g. `trigger.to_state.state`) are safe in `trigger_variables:`.
+
+**Wrong:**
+```yaml
+trigger_variables:
+  is_paused: "{{ states('input_boolean.pause') == 'on' }}"  # states() not allowed here!
+```
+
+**Correct:**
+```yaml
+trigger_variables:
+  pause_entity: input_boolean.pause  # static reference is fine
+
+variables:
+  is_paused: "{{ states(pause_entity) == 'on' }}"  # evaluated in action scope
+```
+
+---
+
+## Code Style
+
+### No implementation comments in the blueprint
+
+Comments explaining *why* something is placed at a specific location (e.g. template context restrictions) do **not** belong in the blueprint YAML. They are irrelevant to end users and clutter the file. Put such explanations in CLAUDE.md or commit messages instead.
+
+**Wrong:**
+```yaml
+# Force pause (evaluated here because states() is not allowed in trigger_variables)
+is_paused: ...
+```
+
+**Correct:**
+```yaml
+# Force pause
+is_paused: ...
+```
+
+---
+
 ## Running Unit Tests
 
 ```bash
