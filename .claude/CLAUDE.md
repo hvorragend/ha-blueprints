@@ -224,6 +224,21 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
 ```
 
+### Bug Pattern H: Base state not updated when closing trigger fires with tilted window
+
+**Symptom:** After the closing trigger fires with the window tilted, the cover correctly stays at the ventilation position — but `bas` remains `opn` instead of being updated to `cls`. The next day, `prevent_multiple_times` incorrectly suppresses the closing trigger because `ts.cls` was never set.
+
+**Cause:** The tilted-closing branch ("Window tilted. No lockout. Move to ventilation position instead of closing") omitted `bas: 'cls'` and `ts.cls: 'now'` from its `update_values`. The branch correctly drives to the ventilation position but forgot to record the base state change.
+
+**Rule:** The CLOSE handler always updates the base state (`bas: 'cls'`, `ts.cls: 'now'`), regardless of whether the cover physically moves. The base state reflects the time schedule, not the physical position.
+
+**Fix:** Add to the tilted-closing branch `update_values`:
+```yaml
+bas: 'cls'
+ts:
+  cls: 'now'
+```
+
 ---
 
 ## Language & Style Conventions
