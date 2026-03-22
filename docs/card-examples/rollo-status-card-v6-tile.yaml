@@ -7,9 +7,8 @@
 # No custom card dependencies beyond stack-in-card and card_mod.
 #
 # Adjust entity IDs to match your setup:
-#   cover entity      → cover.wohnzimmer_osten
-#   status helper     → input_text.rollo_status_wohnzimmer_osten
-#   freeze boolean    → input_boolean.freeze_alarm
+#   cover entity   → cover.wohnzimmer_osten
+#   status helper  → input_text.rollo_status_wohnzimmer_osten
 # ═══════════════════════════════════════════════════════════════════════════
 
 type: custom:stack-in-card
@@ -33,7 +32,7 @@ card_mod:
 cards:
   - type: tile
     entity: cover.wohnzimmer_osten
-    name: EG Esszimmer Rollo
+    name: Living Room East Blind
     vertical: false
     features_position: bottom
     features:
@@ -54,38 +53,41 @@ cards:
       {% set pos = state_attr(cover, 'current_position') | int(100) %}
       {% if raw not in ['unknown', 'unavailable', 'none', 'null', ''] %}
         {% set s = raw | from_json %}
-        {% set freeze = is_state('input_boolean.freeze_alarm', 'on') %}
 
-        {# ── Primär: Statusbezeichnung ── #}
+        {# ── Primary: status label ── #}
         {% set title %}
-          {%- if s.win == 'opn' %}🛡️ Aussperrschutz
-          {%- elif s.win == 'tlt' %}🪟 Lüftungsposition
-          {%- elif s.man == 1 %}🖐️ Manuelle Sperre
-          {%- elif s.ts.shs | default(0) > 0 %}⏳ Beschattung naht...
-          {%- elif s.shd == 1 %}☀️ Sonnenschutz aktiv
-          {%- elif s.ts.she | default(0) > 0 %}🌤️ Sonne weg (Warten)
-          {%- elif s.bas == 'cls' %}🌙 Nachtmodus
-          {%- else %}✅ Automatik bereit
+          {%- if s.frc | default('non') == 'opn' %}💪 Force Open
+          {%- elif s.frc | default('non') == 'cls' %}💪 Force Close
+          {%- elif s.frc | default('non') == 'shd' %}💪 Force Shading
+          {%- elif s.frc | default('non') == 'vnt' %}💪 Force Ventilate
+          {%- elif s.win == 'opn' %}🛡️ Anti-Lockout Active
+          {%- elif s.win == 'tlt' %}🪟 Ventilation Position
+          {%- elif s.man == 1 %}🖐️ Manual Hold
+          {%- elif s.ts.shs | default(0) > 0 %}⏳ Shading Pending...
+          {%- elif s.shd == 1 %}☀️ Shading Active
+          {%- elif s.ts.she | default(0) > 0 %}🌤️ Sun Gone (Waiting)
+          {%- elif s.bas == 'cls' %}🌙 Night Mode
+          {%- else %}✅ Automation Ready
           {%- endif %}
         {% endset %}
 
-        {# ── Sekundär: Zeitstempel / Positionsinfo ── #}
+        {# ── Secondary: timestamp / position info ── #}
         {% set detail %}
-          {%- if s.man == 1 %}
-            {%- if freeze %}❄️ Frostschutz bis {{ s.ts.man | default(0) | timestamp_custom('%H:%M', true) }} Uhr
-            {%- else %}🖐️ Halt bis {{ s.ts.man | default(0) | timestamp_custom('%H:%M', true) }} Uhr
-            {%- endif %}
+          {%- set frc = s.frc | default('non') %}
+          {%- if frc == 'shd' %}🕒 Active since {{ s.ts.shd | default(0) | timestamp_custom('%H:%M', true) }}
+          {%- elif frc != 'non' %}📍 Position: {{ pos }}%
+          {%- elif s.man == 1 %}🖐️ Hold until {{ s.ts.man | default(0) | timestamp_custom('%H:%M', true) }}
           {%- elif (s.bas == 'cls' and pos > 5) or
                    (s.bas == 'opn' and s.shd == 0 and s.win == 'cls' and pos < 95) %}
-            📍 Aktuell bei {{ pos }}% (Automatik aktiv)
+            📍 Currently at {{ pos }}% (automation active)
           {%- else %}
-            {%- if s.ts.shs | default(0) > 0 %}🎬 Startet um {{ s.ts.shs | timestamp_custom('%H:%M', true) }}
-            {%- elif s.ts.she | default(0) > 0 %}🔚 Endet um {{ s.ts.she | timestamp_custom('%H:%M', true) }}
-            {%- elif s.shd == 1 %}🕒 Aktiv seit {{ s.ts.shd | default(0) | timestamp_custom('%H:%M', true) }}
-            {%- elif s.win == 'tlt' %}🕒 Lüftung seit {{ s.ts.win | default(0) | timestamp_custom('%H:%M', true) }}
-            {%- elif s.win == 'opn' %}🛡️ Gesperrt seit {{ s.ts.win | default(0) | timestamp_custom('%H:%M', true) }}
-            {%- elif s.bas == 'cls' %}🌙 Zu seit {{ s.ts.cls | default(0) | timestamp_custom('%H:%M', true) }}
-            {%- elif s.bas == 'opn' %}🌅 Auf seit {{ s.ts.opn | default(0) | timestamp_custom('%H:%M', true) }}
+            {%- if s.ts.shs | default(0) > 0 %}🎬 Starts at {{ s.ts.shs | timestamp_custom('%H:%M', true) }}
+            {%- elif s.ts.she | default(0) > 0 %}🔚 Ends at {{ s.ts.she | timestamp_custom('%H:%M', true) }}
+            {%- elif s.shd == 1 %}🕒 Active since {{ s.ts.shd | default(0) | timestamp_custom('%H:%M', true) }}
+            {%- elif s.win == 'tlt' %}🕒 Ventilating since {{ s.ts.win | default(0) | timestamp_custom('%H:%M', true) }}
+            {%- elif s.win == 'opn' %}🛡️ Locked since {{ s.ts.win | default(0) | timestamp_custom('%H:%M', true) }}
+            {%- elif s.bas == 'cls' %}🌙 Closed since {{ s.ts.cls | default(0) | timestamp_custom('%H:%M', true) }}
+            {%- elif s.bas == 'opn' %}🌅 Open since {{ s.ts.opn | default(0) | timestamp_custom('%H:%M', true) }}
             {%- else %}ℹ️ Status OK
             {%- endif %}
           {%- endif %}
@@ -94,8 +96,8 @@ cards:
         **{{ title | trim }}**
         {{ detail | trim }}
       {% else %}
-        ⚠️ **Status lädt...**
-        Konfig. prüfen
+        ⚠️ **Status loading...**
+        Check configuration
       {% endif %}
     card_mod:
       style: |
