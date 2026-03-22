@@ -2340,6 +2340,27 @@ blueprint:
               custom_value: false
               mode: list
 
+        auto_pause_mode:
+          name: "⏸️ Pause Automatic Actions"
+          description: >-
+            When this entity is active (on/true), all automatic cover movements are
+            paused. The background state (target positions) is still tracked continuously
+            in the helper — even while paused.
+
+            When pause mode is disabled, the cover **immediately returns** to its
+            correct target position — no waiting for the next trigger.
+
+            💡 **Unlike the global condition approach:** The global condition blocks
+            everything including helper state updates. This dedicated pause input only
+            blocks cover movement, so the helper always reflects the correct target.
+            Switching to automatic mode is therefore instant and reliable.
+          default: []
+          selector:
+            entity:
+              domain:
+                - input_boolean
+                - switch
+
         auto_up_force:
           name: "🔼 Force Immediate Opening via Entity"
           description: >-
@@ -2675,6 +2696,10 @@ trigger_variables:
   auto_down_force: !input auto_down_force
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
+
+  # Pause mode
+  auto_pause_mode: !input auto_pause_mode
+  is_paused: "{{ auto_pause_mode != [] and states(auto_pause_mode) in ['on', 'true'] }}"
 
   # Cover status helper configuration
   cover_status_helper: !input cover_status_helper
@@ -3543,6 +3568,13 @@ triggers:
     enabled: "{{ auto_shading_start_force != [] }}"
     id: "t_force_disabled_shading"
 
+  - trigger: state
+    entity_id: !input auto_pause_mode
+    from: "on"
+    to: "off"
+    enabled: "{{ auto_pause_mode != [] }}"
+    id: "t_pause_disabled"
+
   ########################################
   # Triggers for shading tilt
   ########################################
@@ -3758,6 +3790,8 @@ actions:
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - condition: template
+            value_template: "{{ not is_paused }}"
+          - condition: template
             value_template: "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
           - repeat:
               for_each: "{{ blind_entities | list }}"
@@ -3792,7 +3826,7 @@ actions:
       tilt_move_action: &tilt_move_action
         sequence:
           - condition: template
-            value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible }}"
+            value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible and not is_paused }}"
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
@@ -6091,6 +6125,163 @@ actions:
                         default: !input auto_shading_start_action
                   - *helper_update
                   - stop: "Force Shading executed"
+
+      ############################################################
+      # BRANCH (8a): RESUME FROM PAUSE MODE
+      # When the pause entity turns off, immediately drive the cover
+      # to the correct position derived from the up-to-date helper.
+      # The helper is already current (it was updated throughout the pause),
+      # so effective_state gives the correct target directly.
+      ############################################################
+
+      - alias: "Drive to target position after pause mode disabled"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id == 't_pause_disabled' }}"
+        sequence:
+          - choose:
+              # FORCE OPEN
+              - conditions: "{{ effective_state == 'opn' and helper_json.frc == 'opn' }}"
+                sequence:
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: "{{ open_tilt_position | int }}"
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_up_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_up_action
+                  - *helper_update
+
+              # FORCE CLOSE
+              - conditions: "{{ effective_state == 'cls' and helper_json.frc == 'cls' }}"
+                sequence:
+                  - variables:
+                      target_position: !input close_position
+                      target_tilt_position: "{{ close_tilt_position | int }}"
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_down_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_down_action
+                  - *helper_update
+
+              # FORCE SHADE
+              - conditions: "{{ effective_state == 'shd' and helper_json.frc == 'shd' }}"
+                sequence:
+                  - variables:
+                      target_position: !input shading_position
+                      target_tilt_position: "{{ shading_tilt_position | int }}"
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_shading_start_action
+                  - *helper_update
+
+              # FORCE VENTILATE
+              - conditions: "{{ effective_state == 'vnt' and helper_json.frc == 'vnt' }}"
+                sequence:
+                  - variables:
+                      target_position: !input ventilate_position
+                      target_tilt_position: !input ventilate_tilt_position
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_ventilate_action
+                  - *helper_update
+
+              # LOCKOUT — window fully open (safety protection, no force active)
+              - conditions: "{{ effective_state == 'lock' }}"
+                sequence:
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: "{{ open_tilt_position | int }}"
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_ventilate_action
+                  - *helper_update
+
+              # VENTILATION — window tilted (no force active)
+              - conditions: "{{ effective_state == 'vnt' }}"
+                sequence:
+                  - variables:
+                      target_position: !input ventilate_position
+                      target_tilt_position: !input ventilate_tilt_position
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_ventilate_action
+                  - *helper_update
+
+              # SHADING — background shading active (no force)
+              - conditions: "{{ effective_state == 'shd' }}"
+                sequence:
+                  - variables:
+                      target_position: !input shading_position
+                      target_tilt_position: "{{ shading_tilt_position | int }}"
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_shading_start_action
+                  - *helper_update
+
+              # BASE CLOSE — time/resident-based close (no force, no window)
+              - conditions: "{{ effective_state == 'cls' }}"
+                sequence:
+                  - variables:
+                      target_position: !input close_position
+                      target_tilt_position: "{{ close_tilt_position | int }}"
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_down_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_down_action
+                  - *helper_update
+
+            # BASE OPEN — default / fallback
+            default:
+              - variables:
+                  target_position: !input open_position
+                  target_tilt_position: "{{ open_tilt_position | int }}"
+                  update_values:
+                    man: 0
+              - choose: []
+                default: !input auto_up_action_before
+              - *cover_move_action
+              - *tilt_move_action
+              - choose: []
+                default: !input auto_up_action
+              - *helper_update
 
       ############################################################
       # BRANCH (8): RETURN TO BACKGROUND STATE AFTER FORCE DISABLE
