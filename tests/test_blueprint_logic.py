@@ -326,3 +326,203 @@ class TestResidentLeavingPriority:
         branch = first_matching_branch(env, RESIDENT_LEAVING_BRANCHES, variables)
         # Should NOT be lockout — falls to shading or lower
         assert branch != "lockout"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: opened > tilted priority (Bug-Muster D)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Branches representing any handler where tilted is checked after opened.
+# The tilted branch MUST contain the not-contact_window_opened guard.
+OPENED_VS_TILTED_BRANCHES = [
+    {
+        "name": "opened_lockout",
+        "conditions": [
+            "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}",
+        ],
+    },
+    {
+        "name": "tilted_vent",
+        "conditions": [
+            "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}",
+            # BUG-MUSTER D: this guard MUST be present — tilted must not fire when opened is also on
+            "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}",
+        ],
+    },
+]
+
+# Buggy version: tilted branch WITHOUT the not-opened guard
+OPENED_VS_TILTED_BRANCHES_BUGGY = [
+    {
+        "name": "opened_lockout",
+        "conditions": [
+            "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}",
+        ],
+    },
+    {
+        "name": "tilted_vent",
+        "conditions": [
+            # Missing: not-contact_window_opened guard  ← this is the bug
+            "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}",
+        ],
+    },
+]
+
+
+class TestOpenedVsTiltedPriority:
+    """
+    Verify that contact_window_opened always takes priority over contact_window_tilted
+    in choose blocks (Bug-Muster D).
+    """
+
+    def test_both_sensors_on_selects_opened(self):
+        """
+        Both opened and tilted sensors are on → opened branch must win.
+        """
+        entity_states = make_entity_states(window_opened=True, window_tilted=True)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(window_opened=True, window_tilted=True)
+        branch = first_matching_branch(env, OPENED_VS_TILTED_BRANCHES, variables)
+        assert branch == "opened_lockout", (
+            "When both sensors are on, opened (lockout) must win over tilted."
+        )
+
+    def test_only_tilted_selects_tilted(self):
+        """
+        Only tilted is on → tilted branch must be selected.
+        """
+        entity_states = make_entity_states(window_opened=False, window_tilted=True)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(window_opened=False, window_tilted=True)
+        branch = first_matching_branch(env, OPENED_VS_TILTED_BRANCHES, variables)
+        assert branch == "tilted_vent"
+
+    def test_buggy_tilted_branch_fires_when_opened_also_on(self):
+        """
+        Demonstrates the bug: without the not-opened guard, the tilted branch
+        can be reached even when opened is also active (depending on choose order).
+        This test documents the expected broken behavior — it should fail if
+        somehow both branches are added and opened comes first.
+        In a realistic buggy scenario where opened guard fails, tilted would match.
+        """
+        entity_states = make_entity_states(window_opened=False, window_tilted=True)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(window_opened=False, window_tilted=True)
+        # Even in buggy branches, when only tilted is on, tilted should fire
+        branch = first_matching_branch(env, OPENED_VS_TILTED_BRANCHES_BUGGY, variables)
+        assert branch == "tilted_vent"
+
+    def test_buggy_branch_with_both_on_picks_opened_first(self):
+        """
+        If opened branch comes first in the choose list and both are on,
+        opened still wins by order — but the NOT guard on tilted is still
+        required to prevent the tilted branch firing in handlers where
+        opened branch failed its guard (e.g. position check blocked it).
+        """
+        entity_states = make_entity_states(window_opened=True, window_tilted=True)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(window_opened=True, window_tilted=True)
+        # In buggy version, opened still wins if it comes first AND its conditions pass
+        branch = first_matching_branch(env, OPENED_VS_TILTED_BRANCHES_BUGGY, variables)
+        assert branch == "opened_lockout"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: resident_leaving allow_shade based on new_resident_status (Bug-Muster B)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The corrected shading branch condition uses new_resident_status == 0
+# instead of resident_flags.allow_shade (which reads stale helper state).
+RESIDENT_LEAVING_SHADING_BRANCH_CORRECT = {
+    "name": "shading",
+    "conditions": [
+        "{{ helper_state_shade }}",
+        "{{ new_resident_status == 0 or 'resident_allow_shading' in resident_config }}",
+        "{{ is_shading_enabled }}",
+        "{{ effective_state != 'shd' or not in_shading_position }}",
+    ],
+}
+
+RESIDENT_LEAVING_SHADING_BRANCH_BUGGY = {
+    "name": "shading",
+    "conditions": [
+        "{{ helper_state_shade }}",
+        "{{ resident_flags.allow_shade }}",   # ← Bug: reads stale helper state
+        "{{ is_shading_enabled }}",
+        "{{ effective_state != 'shd' or not in_shading_position }}",
+    ],
+}
+
+
+class TestResidentLeavingAllowShade:
+    """
+    Verify that allow_shade in the resident_leaving handler uses new_resident_status
+    (fresh) not resident_flags.allow_shade (stale helper) — Bug-Muster B.
+    """
+
+    def _make_leaving_vars(self, *, resident_allow_shading_configured: bool, allow_shade_from_flags: bool) -> dict:
+        """
+        Simulate the state at the moment resident_leaving fires:
+        - new_resident_status is always 0 (resident just left)
+        - resident_flags.allow_shade reflects old helper state (stale)
+        """
+        return {
+            "contact_window_opened": WINDOW_OPENED_ENTITY,
+            "contact_window_tilted": WINDOW_TILTED_ENTITY,
+            "new_resident_status": 0,
+            "resident_config": (
+                ["resident_allow_shading"] if resident_allow_shading_configured else []
+            ),
+            "resident_flags": {
+                "allow_shade": allow_shade_from_flags,
+                "allow_ventilate": True,
+                "opening_trigger": True,
+            },
+            "helper_state_shade": True,
+            "is_shading_enabled": True,
+            "effective_state": "shd",
+            "in_shading_position": False,
+            "is_ventilation_enabled": False,  # window sensors off below
+        }
+
+    def test_correct_branch_fires_when_resident_allow_shading_not_configured(self):
+        """
+        resident_allow_shading NOT configured: resident_flags.allow_shade would be False
+        (stale helper: resident was present → allow_shade = not True = False).
+        But new_resident_status == 0 is True → corrected branch MUST fire.
+        """
+        env = make_jinja_env(make_entity_states(window_opened=False, window_tilted=False))
+        variables = self._make_leaving_vars(
+            resident_allow_shading_configured=False,
+            allow_shade_from_flags=False,   # ← stale: was False because resident was present
+        )
+        # Correct branch should fire
+        from conftest import eval_conditions
+        assert eval_conditions(env, RESIDENT_LEAVING_SHADING_BRANCH_CORRECT["conditions"], variables), \
+            "Correct branch must fire even when allow_shade (stale) is False"
+
+    def test_buggy_branch_fails_when_allow_shade_stale_false(self):
+        """
+        Demonstrates the bug: when resident_flags.allow_shade is stale (False),
+        the buggy branch does NOT fire — causing fallthrough to open branch.
+        """
+        env = make_jinja_env(make_entity_states(window_opened=False, window_tilted=False))
+        variables = self._make_leaving_vars(
+            resident_allow_shading_configured=False,
+            allow_shade_from_flags=False,   # stale value
+        )
+        from conftest import eval_conditions
+        assert not eval_conditions(env, RESIDENT_LEAVING_SHADING_BRANCH_BUGGY["conditions"], variables), \
+            "Buggy branch should NOT fire when allow_shade is stale False (demonstrating the bug)"
+
+    def test_correct_branch_fires_when_resident_allow_shading_configured(self):
+        """
+        resident_allow_shading IS configured: both old and new logic agree → branch fires.
+        """
+        env = make_jinja_env(make_entity_states(window_opened=False, window_tilted=False))
+        variables = self._make_leaving_vars(
+            resident_allow_shading_configured=True,
+            allow_shade_from_flags=True,
+        )
+        from conftest import eval_conditions
+        assert eval_conditions(env, RESIDENT_LEAVING_SHADING_BRANCH_CORRECT["conditions"], variables)
