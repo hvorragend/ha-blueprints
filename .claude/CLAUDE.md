@@ -24,7 +24,14 @@ State is persisted as a JSON string in an `input_text` helper:
 | `frc` | `non`/`opn`/`cls`/`shd`/`vnt` | Active force function |
 | `res` | `1`/`0` | Resident present |
 | `man` | `1`/`0` | Manual override active |
-| `ts.*` | Unix timestamp | Timestamp of last change per field |
+| `ts.opn` | Unix timestamp | Last time base state switched to open |
+| `ts.cls` | Unix timestamp | Last time base state switched to closed |
+| `ts.shd` | Unix timestamp | Last time shading state changed (0↔1) |
+| `ts.shs` | Unix timestamp | Shading pending start: when pending-start was armed |
+| `ts.she` | Unix timestamp | Shading pending end: when pending-end was armed |
+| `ts.win` | Unix timestamp | Last window state change |
+| `ts.man` | Unix timestamp | Last manual override event |
+| `ts.res` | Unix timestamp | Last resident status change |
 
 ---
 
@@ -144,6 +151,48 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 **ts.shs / ts.she (shading pending timestamps):**
 - These must not be reset in win-only helper updates (when only `win` is updated without a drive)
 
+### ⚠️ Invariant 9: `ts_now` must be evaluated at the point of use
+
+`ts_now` (`as_timestamp(now()) | round(0)`) must **never** be defined as a single global variable at the top of the automation action. It must be set locally — directly in the block where the current timestamp is needed.
+
+**Why:** The automation can execute `delay:` steps or other time-consuming actions before reaching a block that writes to the helper. A global `ts_now` set once at the start would capture the trigger time, not the actual execution time — producing incorrect timestamps in the helper.
+
+**Wrong:**
+```yaml
+variables:
+  ts_now: "{{ as_timestamp(now()) | round(0) }}"  # set once, stale after any delay!
+# ... delay, other actions ...
+# ts_now is now potentially minutes behind actual time
+```
+
+**Correct:**
+```jinja2
+{# Inside helper_update anchor or any block that needs the current time: #}
+{% set ts_now = as_timestamp(now()) | round(0) %}
+{# Evaluated fresh at this exact point in execution #}
+```
+
+### ⚠️ Invariant 10: `trigger_variables:` accepts only limited templates
+
+`trigger_variables:` is evaluated at trigger time in a **limited template context**. The functions `states()`, `is_state()`, and `state_attr()` are **not available** here. Only static values and trigger-derived properties (e.g. `trigger.to_state.state`) are safe.
+
+Move any variable that reads entity state into the `variables:` (action scope) block. See "Home Assistant Limited Templates" for the full reference.
+
+**Wrong:**
+```yaml
+trigger_variables:
+  is_paused: "{{ states(force_pause) in ['on', 'true'] }}"  # states() unavailable!
+```
+
+**Correct:**
+```yaml
+trigger_variables:
+  force_pause: !input force_pause  # static !input reference is fine
+
+variables:
+  is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
+```
+
 ---
 
 ## Known Bug Patterns (with cause and fix)
@@ -224,6 +273,21 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
 ```
 
+### Bug Pattern H: Base state not updated when closing trigger fires with tilted window
+
+**Symptom:** After the closing trigger fires with the window tilted, the cover correctly stays at the ventilation position — but `bas` remains `opn` instead of being updated to `cls`. The next day, `prevent_multiple_times` incorrectly suppresses the closing trigger because `ts.cls` was never set.
+
+**Cause:** The tilted-closing branch ("Window tilted. No lockout. Move to ventilation position instead of closing") omitted `bas: 'cls'` and `ts.cls: 'now'` from its `update_values`. The branch correctly drives to the ventilation position but forgot to record the base state change.
+
+**Rule:** The CLOSE handler always updates the base state (`bas: 'cls'`, `ts.cls: 'now'`), regardless of whether the cover physically moves. The base state reflects the time schedule, not the physical position.
+
+**Fix:** Add to the tilted-closing branch `update_values`:
+```yaml
+bas: 'cls'
+ts:
+  cls: 'now'
+```
+
 ---
 
 ## Language & Style Conventions
@@ -236,9 +300,7 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 
 ## Home Assistant Limited Templates
 
-Home Assistant distinguishes between *full* and *limited* template contexts. In limited contexts, only a restricted set of Jinja2 functions is available.
-
-### Where limited templates apply
+Home Assistant distinguishes between *full* and *limited* template contexts. See also Invariant 10.
 
 | Context | Limited? | Notes |
 |---------|----------|-------|
@@ -247,31 +309,7 @@ Home Assistant distinguishes between *full* and *limited* template contexts. In 
 | `conditions:` | No | Full template access |
 | `sequence:` / `action:` | No | Full template access |
 
-### What is unavailable in limited templates
-
-- `states()` — cannot read entity states
-- `is_state()` — cannot check entity states
-- `state_attr()` — cannot read attributes
-- Integration-specific functions that require runtime context
-
-### Consequences for this blueprint
-
-Variables that need to read entity state (e.g. `is_paused` reading a `input_boolean`) **must** be defined in `variables:` (action scope), not in `trigger_variables:`. Only static or trigger-derived values (e.g. `trigger.to_state.state`) are safe in `trigger_variables:`.
-
-**Wrong:**
-```yaml
-trigger_variables:
-  is_paused: "{{ states('input_boolean.pause') == 'on' }}"  # states() not allowed here!
-```
-
-**Correct:**
-```yaml
-trigger_variables:
-  pause_entity: input_boolean.pause  # static reference is fine
-
-variables:
-  is_paused: "{{ states(pause_entity) == 'on' }}"  # evaluated in action scope
-```
+**Unavailable in limited templates:** `states()`, `is_state()`, `state_attr()`, and any integration-specific runtime function.
 
 ---
 
@@ -292,6 +330,47 @@ is_paused: ...
 # Force pause
 is_paused: ...
 ```
+
+---
+
+## Code Quality Gates
+
+Every change to the blueprint must pass all of the following checks before commit.
+
+### Logic correctness
+
+- No logic gaps: every reachable combination of sensor states must lead to a defined, intentional outcome.
+- The priority cascade must be respected in every branch (see Invariant 1).
+- `*helper_update` must be called at the end of every branch sequence (see Invariant 2).
+- After any code change, run `pytest tests/ -v` — all tests must pass.
+
+### No Home Assistant warnings or errors
+
+- No unknown service calls, invalid entity domains, or blueprint schema violations.
+- No Jinja2 template errors at runtime. Test critical templates with Developer Tools → Template before committing.
+- No undefined variable references in templates — guard with `| default()` where a value may be absent.
+- No deprecation warnings from HA service calls (use current action syntax).
+
+### Code consolidation
+
+- Use YAML anchors (`&anchor` / `*anchor`) for repeated action sequences instead of copy-paste.
+- Extract shared computed values into `variables:` rather than duplicating complex expressions across branches.
+- Do NOT over-abstract: three similar lines of code are better than a premature abstraction that hides intent.
+- Keep individual `choose:` branches short and focused. A branch that is hard to read is a bug waiting to happen.
+
+### End-user usability
+
+- Every blueprint input must have a `name:` and a `description:` that a non-technical user can understand without reading the code.
+- Optional inputs must use `default:` values or constrained `selector:` types so misconfiguration is difficult.
+- Section headers (`section:`) must group related inputs logically as visible in the HA UI.
+- Never expose internal field names, compact keys, or implementation details in user-facing descriptions.
+
+### Debug-friendliness
+
+- Every `choose:` branch must have an `alias:` that uniquely identifies it. This text appears in the HA automation trace and is the primary tool for remote support.
+- `sequence:` steps that drive the cover or write the helper must have an `alias:` describing what they do.
+- The helper JSON is the primary debug artifact. All fields must be kept meaningful and up to date at all times — a stale helper is as bad as no helper.
+- Do not suppress HA log output for unexpected or error states. Unexpected states should log a warning so they are discoverable.
 
 ---
 
