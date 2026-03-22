@@ -1,0 +1,130 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# CCA Status Card – v6 JSON Helper (compact schema)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# v6 schema fields used:
+#   bas  : 'opn' | 'cls'          – base state (open / closed)
+#   shd  : 0 | 1                  – shading active
+#   win  : 'cls' | 'tlt' | 'opn' – window state (closed / tilted / fully open)
+#   man  : 0 | 1                  – manual hold active
+#   ts.opn : timestamp – last open time
+#   ts.cls : timestamp – last close time
+#   ts.shd : timestamp – shading-active since
+#   ts.shs : timestamp – shading scheduled start (> 0 → pending)
+#   ts.she : timestamp – shading scheduled end   (> 0 → ending soon)
+#   ts.win : timestamp – ventilation / lockout since
+#   ts.man : timestamp – manual hold until
+#
+# v5 → v6 quick-reference:
+#   vfull.a == 1        →  win == 'opn'
+#   vpart.a == 1        →  win == 'tlt'
+#   manual.a == 1       →  man == 1
+#   shading.p == 1      →  ts.shs > 0
+#   shading.a == 1      →  shd == 1
+#   shading.q == 1      →  ts.she > 0
+#   close.a  == 1       →  bas == 'cls'
+# ═══════════════════════════════════════════════════════════════════════════
+
+type: custom:stack-in-card
+mode: vertical
+grid_options:
+  columns: 8
+  rows: 3
+keep:
+  margin: false
+  box_shadow: false
+  background: false
+card_mod:
+  style: |
+    ha-card {
+      background: var(--ha-card-background, var(--card-background-color, white)) !important;
+      border-radius: 12px !important;
+      border: none !important;
+      padding: 0px !important;
+      min-height: 100% !important;
+    }
+cards:
+  - type: custom:mushroom-cover-card
+    entity: cover.wohnzimmer_osten
+    name: EG Esszimmer Rollo
+    show_position_control: true
+    show_buttons_control: false
+    card_mod:
+      style:
+        mushroom-cover-position-control$: |
+          mushroom-slider {
+            --main-color: #4CAF50 !important;
+            --bg-color: rgba(76, 175, 80, 0.15) !important;
+          }
+        .: >
+          ha-card { background: none !important; border: none !important;
+          padding-top: 12px !important; }
+
+  - type: custom:mushroom-template-card
+    entity: input_text.rollo_status_wohnzimmer_osten
+    primary: >
+      {% set raw = states(entity) %}
+      {% if raw not in ['unknown', 'unavailable', 'none', 'null', ''] %}
+        {% set s = raw | from_json %}
+        {# v6 compact schema – priority order matches CCA internal logic #}
+        {% if s.win == 'opn' %} 🛡️ Aussperrschutz
+        {% elif s.win == 'tlt' %} 🪟 Lüftungsposition
+        {% elif s.man == 1 %} 🖐️ Manuelle Sperre
+        {% elif s.ts.shs | default(0) > 0 %} ⏳ Beschattung naht...
+        {% elif s.shd == 1 %} ☀️ Sonnenschutz aktiv
+        {% elif s.ts.she | default(0) > 0 %} 🌤️ Sonne weg (Warten)
+        {% elif s.bas == 'cls' %} 🌙 Nachtmodus
+        {% else %} ✅ Automatik bereit
+        {% endif %}
+      {% else %} ⚠️ Status lädt... {% endif %}
+
+    secondary: >-
+      {% set raw = states(entity) %}
+      {% set cover = 'cover.eg_esszimmer_rollo' %}
+      {% set pos = state_attr(cover, 'current_position') | int(100) %}
+      {% if raw not in ['unknown', 'unavailable', 'none', 'null', ''] %}
+        {% set s = raw | from_json %}
+        {% set freeze = is_state('input_boolean.freeze_alarm', 'on') %}
+
+        {# Fall 1: Manuelle Sperre / Frostschutz-Fahrt #}
+        {% if s.man == 1 %}
+          {% if freeze %}
+            ❄️ Frostschutz bis {{ s.ts.man | default(0) | timestamp_custom('%H:%M', true) }} Uhr
+          {% else %}
+            🖐️ Halt bis {{ s.ts.man | default(0) | timestamp_custom('%H:%M', true) }} Uhr
+          {% endif %}
+
+        {# Fall 2: Automatik aktiv, Rollo aber noch nicht auf Zielposition #}
+        {% elif (s.bas == 'cls' and pos > 5) or
+                (s.bas == 'opn' and s.shd == 0 and s.win == 'cls' and pos < 95) %}
+          📍 Aktuell bei {{ pos }}% (Automatik aktiv)
+
+        {# Fall 3: Standard Zeitstempel-Anzeige der CCA-Modi #}
+        {% else %}
+          {% if s.ts.shs | default(0) > 0 %}
+            🎬 Startet um {{ s.ts.shs | timestamp_custom('%H:%M', true) }}
+          {% elif s.ts.she | default(0) > 0 %}
+            🔚 Endet um {{ s.ts.she | timestamp_custom('%H:%M', true) }}
+          {% elif s.shd == 1 %}
+            🕒 Aktiv seit {{ s.ts.shd | default(0) | timestamp_custom('%H:%M', true) }}
+          {% elif s.win == 'tlt' %}
+            🕒 Lüftung seit {{ s.ts.win | default(0) | timestamp_custom('%H:%M', true) }}
+          {% elif s.win == 'opn' %}
+            🛡️ Gesperrt seit {{ s.ts.win | default(0) | timestamp_custom('%H:%M', true) }}
+          {% elif s.bas == 'cls' %}
+            🌙 Zu seit {{ s.ts.cls | default(0) | timestamp_custom('%H:%M', true) }}
+          {% elif s.bas == 'opn' %}
+            🌅 Auf seit {{ s.ts.opn | default(0) | timestamp_custom('%H:%M', true) }}
+          {% else %}
+            ℹ️ Status OK
+          {% endif %}
+        {% endif %}
+      {% else %} Konfig. prüfen {% endif %}
+
+    icon: ""
+    card_mod:
+      style: >
+        ha-card { margin-top: -12px !important; margin-left: 52px !important;
+        border: none !important; background: transparent !important;
+        padding-bottom: 12px !important; } .mushroom-template-card {
+        flex-direction: column !important; align-items: flex-start !important; }
