@@ -7,8 +7,13 @@ from the blueprint against mocked variable sets.
 
 Run with: pytest tests/ -v
 """
+import pathlib
 import pytest
+import yaml
 from conftest import make_jinja_env, eval_condition, first_matching_branch
+
+
+BLUEPRINT_PATH = pathlib.Path(__file__).parent.parent / "blueprints" / "automation" / "cover_control_automation.yaml"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -526,3 +531,108 @@ class TestResidentLeavingAllowShade:
         )
         from conftest import eval_conditions
         assert eval_conditions(env, RESIDENT_LEAVING_SHADING_BRANCH_CORRECT["conditions"], variables)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: base status update when window tilted at closing time (Bug-Muster E)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _load_blueprint_yaml(path) -> dict:
+    """Load HA blueprint YAML, tolerating custom tags like !input and anchors."""
+    class _Loader(yaml.SafeLoader):
+        pass
+
+    # Allow !input tags (return their value as a plain string)
+    _Loader.add_constructor(
+        "!input",
+        lambda loader, node: loader.construct_scalar(node),
+    )
+    with open(path, encoding="utf-8") as f:
+        return yaml.load(f, Loader=_Loader)  # noqa: S506
+
+
+def _find_tilted_closing_sequence(blueprint: dict) -> dict | None:
+    """
+    Walk the blueprint automation sequence to find the choose branch
+    'Window tilted. No lockout. Move to ventilation position instead of closing'.
+    Returns the sequence dict or None.
+    """
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("alias") == "Window tilted. No lockout. Move to ventilation position instead of closing":
+                return node
+            for v in node.values():
+                result = walk(v)
+                if result is not None:
+                    return result
+        elif isinstance(node, list):
+            for item in node:
+                result = walk(item)
+                if result is not None:
+                    return result
+        return None
+
+    return walk(blueprint)
+
+
+class TestBaseStatusUpdateWhenTiltedAtClosingTime:
+    """
+    Regression for Bug-Muster E:
+    When the closing trigger fires (e.g. at latest closing time) and the window
+    is tilted, the cover moves to the ventilation position. But the base state
+    helper (bas) was NOT updated to 'cls', staying 'opn'.
+
+    The section comment at the closing handler says:
+      'Note: Always updates base state, movement only if conditions allow'
+
+    Fix: add bas: 'cls' and ts.cls: 'now' to the update_values of the
+    tilted-closing branch.
+    """
+
+    def _load_blueprint(self) -> dict:
+        return _load_blueprint_yaml(BLUEPRINT_PATH)
+
+    def test_tilted_closing_branch_sets_bas_cls(self):
+        """
+        The 'Window tilted, no lockout' closing branch must include bas: 'cls'
+        so that the base state is updated to closed even though the cover
+        physically stays at the ventilation position.
+        """
+        blueprint = self._load_blueprint()
+        branch = _find_tilted_closing_sequence(blueprint)
+        assert branch is not None, (
+            "Could not find 'Window tilted. No lockout. Move to ventilation position "
+            "instead of closing' branch in blueprint YAML."
+        )
+        # The first item in sequence is 'variables:', which contains update_values
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+        )
+        assert variables_step is not None, "No 'variables:' step found in tilted closing sequence"
+        update_values = variables_step["variables"].get("update_values", {})
+        assert update_values.get("bas") == "cls", (
+            f"Expected update_values.bas == 'cls' but got {update_values.get('bas')!r}. "
+            "Base status must be updated to 'cls' when closing time fires, "
+            "even if cover stays in ventilation position due to tilted window."
+        )
+
+    def test_tilted_closing_branch_sets_ts_cls(self):
+        """
+        The tilted-closing branch must also set ts.cls so that
+        prevent_multiple_times works correctly the next day.
+        """
+        blueprint = self._load_blueprint()
+        branch = _find_tilted_closing_sequence(blueprint)
+        assert branch is not None
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+        )
+        assert variables_step is not None
+        update_values = variables_step["variables"].get("update_values", {})
+        ts = update_values.get("ts", {})
+        assert "cls" in ts, (
+            f"Expected update_values.ts.cls to be set, but ts = {ts!r}. "
+            "ts.cls is needed for prevent_multiple_times to work correctly."
+        )
