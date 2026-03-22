@@ -127,6 +127,19 @@ Resident control was completely redesigned. A single smart trigger now handles b
 ### Automatic return to background state after force ends
 When a force function is deactivated, the cover automatically returns to the state the automation would have applied at that moment — open, closed, shading, or ventilation — without any manual intervention.
 
+### Force Pause — suspend all movements with immediate resume
+A new `force_pause` input (optional `input_boolean` or `switch`) allows suspending all automatic cover movements while keeping the background state fully up to date.
+
+**How it works:**
+- While `force_pause` is active, all triggers still fire and the JSON helper is updated normally — the automation tracks what it *would* be doing (base state, shading, window sensor state, resident status, etc.).
+- Cover movement is the only thing blocked.
+- When `force_pause` turns off, the cover **immediately drives** to the correct target position based on the current `effective_state` — no waiting for the next scheduled trigger.
+
+**Why not just use the global condition?**
+The global condition blocks the entire action block, including helper state updates. When you re-enable automation that way, the helper is stale and the cover only catches up when the next trigger fires (which may be hours away). `force_pause` solves this by only blocking movement, not state tracking.
+
+**Typical use case:** A manual/automatic toggle switch. Flip it off to pause, flip it back on and the cover moves instantly to the correct position.
+
 ---
 
 ## 📚 Documentation
