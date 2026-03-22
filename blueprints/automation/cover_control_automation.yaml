@@ -5582,6 +5582,7 @@ actions:
                       - "{{ in_ventilate_position }}"
                       - "{{ in_open_position }}"
                   - "{{ not (helper_state_manual and override_flags.ventilation) }}" # Skip if manual override for ventilation is active
+                  - "{{ not resident_now or 'resident_allow_shading' in resident_config }}" # Resident privacy overrides shading unless explicitly allowed
                   - condition: !input auto_ventilate_end_condition
                 sequence:
                   - variables:
@@ -5725,7 +5726,6 @@ actions:
                           - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
-                          - "{{ effective_state != 'lock' or not in_open_position }}"
                         sequence:
                           - variables:
                               target_position: !input open_position
@@ -5737,7 +5737,7 @@ actions:
                                 ts:
                                   win: "now"
                                   res: "now"
-                          - if: "{{ force_allows_ventilate }}"
+                          - if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5755,7 +5755,6 @@ actions:
                           - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}"
                           - "{{ resident_flags.allow_ventilate }}"
                           - "{{ is_ventilation_enabled }}"
-                          - "{{ effective_state != 'vnt' or not in_ventilate_position }}"
                         sequence:
                           - variables:
                               target_position: !input ventilate_position
@@ -5767,7 +5766,7 @@ actions:
                                 ts:
                                   win: "now"
                                   res: "now"
-                          - if: "{{ force_allows_ventilate  }}"
+                          - if: "{{ force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) }}"
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
