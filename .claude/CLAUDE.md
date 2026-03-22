@@ -226,6 +226,16 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 
 ---
 
+## Code Style
+
+- Keine Implementierungskommentare in YAML-Variablen. Solche Hinweise gehören in die CLAUDE.md, nicht in den Blueprint.
+
+## Home Assistant Jinja2-Einschränkungen
+
+- `states()` ist in `trigger_variables` **nicht** erlaubt. Variablen, die den aktuellen Zustand einer Entität abfragen (z. B. `is_paused`), müssen daher in `variables:` (action-scope) ausgewertet werden, nicht in `trigger_variables:`.
+
+---
+
 ## Running Unit Tests
 
 ```bash
