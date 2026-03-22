@@ -1,14 +1,14 @@
 # CLAUDE.md — Cover Control Automation (CCA) Blueprint
 
-## Überblick
+## Overview
 
-`blueprints/automation/cover_control_automation.yaml` ist ein Home Assistant Automatisierungs-Blueprint (Jinja2 + YAML). Das Blueprint steuert Rollläden/Jalousien basierend auf Zeit, Sonne, Fenster-Kontaktsensoren und Anwesenheit.
+`blueprints/automation/cover_control_automation.yaml` is a Home Assistant automation blueprint (Jinja2 + YAML). It controls roller blinds/shutters based on time, sun position, window contact sensors, and presence detection.
 
 ---
 
-## Helper-JSON-Schema (v6)
+## Helper JSON Schema (v6)
 
-Der Zustand wird als JSON-String in einem `input_text`-Helper persistiert:
+State is persisted as a JSON string in an `input_text` helper:
 
 ```json
 {"bas":"opn","shd":1,"win":"opn","frc":"non","res":1,"man":0,
@@ -16,221 +16,221 @@ Der Zustand wird als JSON-String in einem `input_text`-Helper persistiert:
  "v":6,"t":0}
 ```
 
-| Feld | Werte | Bedeutung |
-|------|-------|-----------|
-| `bas` | `opn`/`cls` | Base-Zustand (Zeit-basiert: offen / geschlossen) |
-| `shd` | `1`/`0` | Beschattung aktiv |
-| `win` | `cls`/`tlt`/`opn` | Fensterzustand (geschlossen / gekippt / offen) |
-| `frc` | `non`/`opn`/`cls`/`shd`/`vnt` | Aktive Force-Funktion |
-| `res` | `1`/`0` | Bewohner anwesend |
-| `man` | `1`/`0` | Manueller Override aktiv |
-| `ts.*` | Unix-Timestamp | Zeitstempel der letzten Änderung je Feld |
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `bas` | `opn`/`cls` | Base state (time-based: open / closed) |
+| `shd` | `1`/`0` | Shading active |
+| `win` | `cls`/`tlt`/`opn` | Window state (closed / tilted / open) |
+| `frc` | `non`/`opn`/`cls`/`shd`/`vnt` | Active force function |
+| `res` | `1`/`0` | Resident present |
+| `man` | `1`/`0` | Manual override active |
+| `ts.*` | Unix timestamp | Timestamp of last change per field |
 
 ---
 
-## Prioritätskaskade (`effective_state`)
+## Priority Cascade (`effective_state`)
 
 ```
-1. FORCE    → frc != "non"          → Force-Position
-2. LOCKOUT  → win == "opn"          → Open-Position (Einschlusschutz)
-3. VENT     → win == "tlt"          → Ventilationsposition
-4. PRIVACY  → resident && closing   → Schließposition
-5. SHADING  → shd == 1 && allow     → Beschattungsposition
-6. BASE     → bas                   → Basisposition (opn/cls)
+1. FORCE    → frc != "non"          → Force position
+2. LOCKOUT  → win == "opn"          → Open position (lockout protection)
+3. VENT     → win == "tlt"          → Ventilation position
+4. PRIVACY  → resident && closing   → Close position
+5. SHADING  → shd == 1 && allow     → Shading position
+6. BASE     → bas                   → Base position (opn/cls)
 ```
 
-Die Variable `effective_state` gibt den aktuell gültigen Zustand aus dieser Kaskade zurück (`lock`, `vnt`, `cls`, `shd`, `opn`).
+The variable `effective_state` returns the currently active state from this cascade (`lock`, `vnt`, `cls`, `shd`, `opn`).
 
 ---
 
-## Architekturinvarianten — IMMER BEACHTEN
+## Architectural Invariants — ALWAYS FOLLOW
 
-### ⚠️ Invariante 1: Positions-Check NIEMALS in Branch-Conditions
+### ⚠️ Invariant 1: NEVER put position checks in branch conditions
 
-**Falsch:**
+**Wrong:**
 ```yaml
 - conditions:
     - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
-    - "{{ effective_state != 'lock' or not in_open_position }}"  # ← HIER NICHT!
+    - "{{ effective_state != 'lock' or not in_open_position }}"  # ← NOT HERE!
   sequence:
     - if: "{{ force_allows_ventilate }}"
       then: ...drive...
 ```
 
-**Richtig:**
+**Correct:**
 ```yaml
 - conditions:
     - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
-    # Kein Positions-Check hier!
+    # No position check here!
   sequence:
     - if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
       then: ...drive...
-    - *helper_update  # Helper wird IMMER aktualisiert
+    - *helper_update  # Helper is ALWAYS updated
 ```
 
-**Warum:** Wenn der Positions-Check in den Branch-Conditions steht, wird der Branch nicht gewählt wenn das Cover bereits an der Zielposition ist. Dadurch fällt die Logik auf den nächsten Branch durch (z.B. Shading), was die Prioritätskaskade bricht.
+**Why:** When the position check is in the branch conditions, the branch is not selected if the cover is already at the target position. This causes the logic to fall through to the next branch (e.g. shading), breaking the priority cascade.
 
-**Regel:** Jeder Branch, der per Priorität Vorrang hat, muss **immer konsumiert** werden (auch wenn kein Drive nötig ist). Der Helper-Update soll immer stattfinden.
+**Rule:** Every branch that has priority must always be consumed (even if no drive is needed). The helper update must always happen.
 
-### ⚠️ Invariante 2: Helper immer aktualisieren
+### ⚠️ Invariant 2: Always update the helper
 
-`*helper_update` muss am Ende **jedes** Branch-Sequences stehen — auch wenn kein Cover-Drive stattfindet. Nur so wird der `res`-Status (und andere Felder) korrekt persistiert.
+`*helper_update` must be at the end of **every** branch sequence — even when no cover drive occurs. This is the only way to correctly persist the `res` status (and other fields).
 
-### ⚠️ Invariante 3: Realtime-Sensor vs. Helper-Zustand
+### ⚠️ Invariant 3: Realtime sensor vs. helper state
 
-- `state_resident` / Sensor-Checks (`states(contact_window_opened)`) → **Realtime** (aktueller Sensor-Wert)
-- `helper_state_window` / `helper_json.win` → **Helper** (zuletzt persistierter Zustand)
+- `state_resident` / sensor checks (`states(contact_window_opened)`) → **Realtime** (current sensor value)
+- `helper_state_window` / `helper_json.win` → **Helper** (last persisted state)
 
-Im `resident_arriving`/`resident_leaving`-Handler: immer Realtime-Sensoren prüfen, da der Helper noch den alten Zustand hat.
+In the `resident_arriving`/`resident_leaving` handler: always check realtime sensors, as the helper still holds the old state.
 
-**Konkret:** `helper_json.win` (= `helper_state_window`) wird nur aktualisiert wenn der Contact-Handler das Cover tatsächlich bewegt. Wenn das Cover bei Fensteröffnung bereits an der Zielposition war, bleibt `win` im Helper auf `cls` — obwohl das Fenster physisch offen ist. Daher im `resident_arriving`-Handler immer `states(contact_window_opened)` verwenden, nicht `helper_state_window`.
+**Specifically:** `helper_json.win` (= `helper_state_window`) is only updated when the contact handler actually moves the cover. If the cover was already at the target position when the window opened, `win` stays `cls` in the helper — even though the window is physically open. Therefore, always use `states(contact_window_opened)` in the `resident_arriving` handler, not `helper_state_window`.
 
-### ⚠️ Invariante 4: `resident_leaving` — `allow_shade`/`allow_ventilate` gegen neue Status evaluieren
+### ⚠️ Invariant 4: `resident_leaving` — evaluate `allow_shade`/`allow_ventilate` against the new status
 
-Im `resident_leaving`-Handler basiert `resident_flags.allow_shade` auf `state_resident` — und der liest aus `helper_json.res` (noch nicht aktualisiert → noch `1`). Dadurch liefert `allow_shade` = `not state_resident` = `false`, wenn `resident_allow_shading` nicht konfiguriert ist.
+In the `resident_leaving` handler, `resident_flags.allow_shade` is based on `state_resident` — which reads from `helper_json.res` (not yet updated → still `1`). This causes `allow_shade` = `not state_resident` = `false` when `resident_allow_shading` is not configured.
 
-**Falsch:**
+**Wrong:**
 ```yaml
-- "{{ resident_flags.allow_shade }}"  # Liest alten Helper-Zustand!
+- "{{ resident_flags.allow_shade }}"  # Reads stale helper state!
 ```
 
-**Richtig:**
+**Correct:**
 ```yaml
 - "{{ new_resident_status == 0 or resident_flags.allow_shade }}"
-# oder direkt: new_resident_status == 0 ist im leaving-Kontext immer true
+# simplified: new_resident_status == 0 is always true in the leaving context
 ```
 
-Da im `leaving`-Kontext `new_resident_status` immer `0` ist, kann der Guard vereinfacht werden zu `new_resident_status == 0`.
+Since `new_resident_status` is always `0` in the leaving context, the guard can be simplified to `new_resident_status == 0`.
 
-### ⚠️ Invariante 5: `opened` hat immer Vorrang vor `tilted`
+### ⚠️ Invariant 5: `opened` always takes priority over `tilted`
 
-In **jedem** Branch/Handler, der sowohl `contact_window_opened` als auch `contact_window_tilted` behandelt, muss der `tilted`-Zweig explizit prüfen, dass `opened` **nicht** aktiv ist:
+In **every** branch/handler that handles both `contact_window_opened` and `contact_window_tilted`, the `tilted` branch must explicitly check that `opened` is **not** active:
 
 ```yaml
-# Tilted-Branch muss immer diese Bedingung enthalten:
+# Tilted branch must always contain this condition:
 - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}"
 ```
 
-Fehlende Priority-Checks zwischen opened/tilted führen dazu, dass bei gleichzeitig aktiven Sensoren der tilted-Branch feuert und nur auf Ventilationsposition (z.B. 50%) fährt statt auf die Open-Position (100%).
+Missing priority checks between opened/tilted cause the tilted branch to fire when both sensors are active, moving the cover to the ventilation position (e.g. 50%) instead of the open position (100%).
 
-**Betrifft alle Handler:** `resident_leaving`, `resident_arriving`, `force_disabled`, `contact_sensor_changed`, Shading-Start/-End.
+**Applies to all handlers:** `resident_leaving`, `resident_arriving`, `force_disabled`, `contact_sensor_changed`, shading start/end.
 
-### ⚠️ Invariante 6: Lockout funktioniert unabhängig von `resident_allow_ventilation`
+### ⚠️ Invariant 6: Lockout works regardless of `resident_allow_ventilation`
 
-Der Lockout-Schutz (Fenster komplett offen → Cover auf Open-Position) ist eine **Sicherheitsfunktion** und darf nicht von `resident_flags.allow_ventilate` abhängen.
+Lockout protection (window fully open → cover to open position) is a **safety feature** and must not depend on `resident_flags.allow_ventilate`.
 
-**Falsch:** Contact-Handler komplett mit `resident_flags.allow_ventilate` gaten → Lockout deaktiviert wenn `resident_allow_ventilation` nicht konfiguriert.
+**Wrong:** Gating the entire contact handler with `resident_flags.allow_ventilate` → lockout disabled when `resident_allow_ventilation` is not configured.
 
-**Richtig:** `resident_flags.allow_ventilate` nur im tilted-Branch prüfen. Der opened-Branch (Lockout) muss immer laufen.
+**Correct:** Check `resident_flags.allow_ventilate` only in the tilted sub-branch. The opened branch (lockout) must always run.
 
-### ⚠️ Invariante 7: `man: 0` nur bei echten Cover-Drives setzen
+### ⚠️ Invariant 7: `man: 0` only when actually driving the cover
 
-Der `man`-Flag (manueller Override) darf nur auf `0` gesetzt werden, wenn das Automation das Cover tatsächlich auf eine definierte Position bewegt. In folgenden Situationen **nicht** `man: 0`:
+The `man` flag (manual override) may only be set to `0` when the automation actually moves the cover to a defined position. Do **not** set `man: 0` in:
 
-- Pending-Timer (Shading Start/End Pending)
-- Lockout-Blöcke ohne Drive (Cover bereits an Zielposition)
-- Reine State-Änderungen ohne Bewegung
-- Win-only Helper-Updates
+- Pending timers (shading start/end pending)
+- Lockout blocks without a drive (cover already at target position)
+- Pure state changes without movement
+- Win-only helper updates
 
-**Falsch:** `man: 0` in `update_values` für jeden Block der `*helper_update` aufruft.
-**Richtig:** `man: 0` nur in `update_values` für Blöcke, die auch `*cover_move_action` ausführen.
+**Wrong:** `man: 0` in `update_values` for every block that calls `*helper_update`.
+**Correct:** `man: 0` only in `update_values` for blocks that also execute `*cover_move_action`.
 
-### ⚠️ Invariante 8: Timestamp-Invarianten
+### ⚠️ Invariant 8: Timestamp invariants
 
-**ts.shd (Beschattungs-Timestamp):**
-- `ts.shd` darf nur gesetzt werden, wenn `shd` sich tatsächlich ändert (guard in `helper_update`: nur wenn `new_shd != current.shd`)
-- Im SHADED-Branch des `resident_leaving`-Handlers: `shd` war schon `1` (Precondition) → `ts.shd` **nicht** auf `now` setzen, ursprünglichen Zeitstempel erhalten
+**ts.shd (shading timestamp):**
+- `ts.shd` may only be set when `shd` actually changes (guard in `helper_update`: only when `new_shd != current.shd`)
+- In the SHADED branch of the `resident_leaving` handler: `shd` was already `1` (precondition) → do **not** set `ts.shd` to `now`, preserve the original activation timestamp
 
-**ts.shs / ts.she (Shading-Pending-Timestamps):**
-- Diese dürfen nicht resettet werden in win-only Helper-Updates (wenn nur `win` aktualisiert wird, ohne dass ein Drive stattfand)
+**ts.shs / ts.she (shading pending timestamps):**
+- These must not be reset in win-only helper updates (when only `win` is updated without a drive)
 
 ---
 
-## Bekannte Bug-Muster (mit Ursache und Fix)
+## Known Bug Patterns (with cause and fix)
 
-### Bug-Muster A: Branch-Selektion durch Positions-Check blockiert
+### Bug Pattern A: Branch selection blocked by position check
 
-**Symptom:** Wenn Cover bereits an Zielposition X, wird beim nächsten Trigger fälschlicherweise ein niedrigerprioritärer Branch ausgeführt (z.B. Shading statt Lockout).
+**Symptom:** When cover is already at target position X, the next trigger incorrectly executes a lower-priority branch (e.g. shading instead of lockout).
 
-**Ursache:** `effective_state != 'X' or not in_X_position` in Branch-Conditions → bei Position=X und effective_state=X ist die Bedingung `FALSE`, Branch wird übersprungen.
+**Cause:** `effective_state != 'X' or not in_X_position` in branch conditions → when position=X and effective_state=X the condition is `FALSE`, branch is skipped.
 
-**Betroffene Stellen (zuletzt gefunden):**
-- Zeile ~5729: `resident_leaving` → LOCKOUT-Branch (behoben)
-- Zeile ~5758: `resident_leaving` → VENT-Branch (behoben)
-- `resident_arriving` mit `resident_allow_ventilation` aktiviert (behoben)
+**Affected locations (last found):**
+- Line ~5729: `resident_leaving` → LOCKOUT branch (fixed)
+- Line ~5758: `resident_leaving` → VENT branch (fixed)
+- `resident_arriving` with `resident_allow_ventilation` enabled (fixed)
 
-**Fix:** Positions-Check in den `if:`-Guard verschieben:
+**Fix:** Move position check into the `if:` guard:
 ```yaml
 if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
 ```
 
-### Bug-Muster B: `resident_flags.allow_shade/allow_ventilate` im `resident_leaving`-Handler
+### Bug Pattern B: `resident_flags.allow_shade/allow_ventilate` in the `resident_leaving` handler
 
-**Symptom:** Nach Resident-Abwesenheit fährt Cover auf Open-Position statt auf Shading- oder Ventilationsposition.
+**Symptom:** After resident leaves, cover moves to open position instead of shading or ventilation position.
 
-**Ursache:** `resident_flags.allow_shade` basiert auf `state_resident` = `helper_json.res` = noch `1` (alter Wert). Daher `allow_shade` = `false` wenn `resident_allow_shading` nicht konfiguriert → Branch übersprungen.
+**Cause:** `resident_flags.allow_shade` is based on `state_resident` = `helper_json.res` = still `1` (old value). So `allow_shade` = `false` when `resident_allow_shading` is not configured → branch skipped.
 
-**Fix:** Im `resident_leaving`-Handler `new_resident_status == 0` statt `resident_flags.allow_shade` verwenden:
+**Fix:** Use `new_resident_status == 0` instead of `resident_flags.allow_shade` in the `resident_leaving` handler:
 ```yaml
 - "{{ new_resident_status == 0 or 'resident_allow_shading' in resident_config }}"
 ```
 
-### Bug-Muster C: Lockout durch `resident_allow_ventilation`-Gate blockiert
+### Bug Pattern C: Lockout blocked by `resident_allow_ventilation` gate
 
-**Symptom:** Wenn `resident_allow_ventilation` nicht konfiguriert ist, funktioniert der Lockout-Schutz nicht mehr.
+**Symptom:** When `resident_allow_ventilation` is not configured, lockout protection stops working.
 
-**Ursache:** `resident_flags.allow_ventilate` als Top-Level-Bedingung im Contact-Handler gatet den gesamten Ventilations-Handler inklusive Lockout.
+**Cause:** `resident_flags.allow_ventilate` as a top-level condition in the contact handler gates the entire ventilation handler including lockout.
 
-**Fix:** `resident_flags.allow_ventilate` nur im tilted-Sub-Branch prüfen, nicht als globale Condition des Contact-Handlers.
+**Fix:** Check `resident_flags.allow_ventilate` only in the tilted sub-branch, not as a global condition of the contact handler.
 
-### Bug-Muster D: Fehlender `not contact_window_opened`-Check im tilted-Branch
+### Bug Pattern D: Missing `not contact_window_opened` check in tilted branch
 
-**Symptom:** Bei gleichzeitig aktiven `contact_window_opened` und `contact_window_tilted` fährt Cover auf Ventilationsposition (50%) statt Open-Position (100%).
+**Symptom:** When both `contact_window_opened` and `contact_window_tilted` are active, cover moves to ventilation position (50%) instead of open position (100%).
 
-**Ursache:** Der tilted-Branch prüft nicht, ob opened ebenfalls aktiv ist. Da opened- und tilted-Branch die gleiche Priorität zu haben scheinen, kann tilted zuerst matchen.
+**Cause:** The tilted branch does not check whether opened is also active. Since opened and tilted branches appear to have the same priority, tilted can match first.
 
-**Fix:** In **jedem** tilted-Branch hinzufügen:
+**Fix:** Add to **every** tilted branch:
 ```yaml
 - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}"
 ```
 
-### Bug-Muster E: `man: 0` in Nicht-Bewegungs-Blöcken
+### Bug Pattern E: `man: 0` in non-movement blocks
 
-**Symptom:** Manueller Override wird unerwartet zurückgesetzt, obwohl kein Cover-Drive stattfand.
+**Symptom:** Manual override is unexpectedly cleared even though no cover drive occurred.
 
-**Ursache:** `man: 0` in `update_values` für jeden Block mit `*helper_update`, auch wenn kein Drive erfolgt.
+**Cause:** `man: 0` in `update_values` for every block that calls `*helper_update`, even when no drive happens.
 
-**Fix:** `man: 0` entfernen aus: Pending-Timern, Lockout-only-Blöcken, reine State-Updates.
+**Fix:** Remove `man: 0` from: pending timers, lockout-only blocks, pure state updates.
 
-### Bug-Muster F: Phantom-Timestamp-Updates
+### Bug Pattern F: Phantom timestamp updates
 
-**Symptom:** `ts.shd` zeigt falschen Zeitstempel; Shading-Pending-State wird unerwartet zurückgesetzt.
+**Symptom:** `ts.shd` shows incorrect timestamp; shading pending state is unexpectedly reset.
 
-**Ursache A:** `ts.shd: "now"` wird in Sequences gesetzt, die `shd` gar nicht von 0→1 ändern.
-**Ursache B:** `ts.shs/ts.she` werden in win-only Helper-Updates resettet.
+**Cause A:** `ts.shd: "now"` is set in sequences that do not change `shd` from 0→1.
+**Cause B:** `ts.shs/ts.she` are reset in win-only helper updates.
 
-**Fix:** Guard in `helper_update` — `ts.shd` nur anwenden wenn `new_shd != current.shd`. `ts.shs/ts.she` nicht in win-only Updates resetten.
+**Fix:** Guard in `helper_update` — only apply `ts.shd` when `new_shd != current.shd`. Do not reset `ts.shs/ts.she` in win-only updates.
 
-### Bug-Muster G: `helper_state_window` statt Realtime-Sensor im `resident_arriving`-Handler
+### Bug Pattern G: `helper_state_window` instead of realtime sensor in `resident_arriving` handler
 
-**Symptom:** Wenn Cover bereits an Open-Position war als Fenster geöffnet wurde, erkennt `resident_arriving` den Lockout-Zustand nicht → Cover schließt fälschlicherweise.
+**Symptom:** When cover was already at open position when the window was opened, `resident_arriving` does not recognize the lockout state → cover incorrectly closes.
 
-**Ursache:** `helper_json.win` wird nur aktualisiert wenn ein Drive erfolgt. War Cover bereits offen, bleibt `win = 'cls'` im Helper.
+**Cause:** `helper_json.win` is only updated when a drive occurs. If the cover was already open, `win` stays `cls` in the helper.
 
-**Fix:** Im `resident_arriving`-Handler immer Realtime-Sensoren prüfen:
+**Fix:** Always use realtime sensors in the `resident_arriving` handler:
 ```yaml
-# Falsch: helper_state_window != 'opn'
-# Richtig:
+# Wrong: helper_state_window != 'opn'
+# Correct:
 - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
 ```
 
 ---
 
-## Unit-Tests ausführen
+## Running Unit Tests
 
 ```bash
 pip install pytest jinja2 pyyaml
 pytest tests/ -v
 ```
 
-Tests prüfen die Prioritätskaskade für kritische Szenarien ohne echtes Home Assistant.
+Tests verify the priority cascade for critical scenarios without a real Home Assistant instance.
