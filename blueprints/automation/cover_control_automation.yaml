@@ -2878,11 +2878,6 @@ variables:
       )
     }}
 
-  # TODO: in_shading_position is volatile when tilt is enabled because shading_tilt_position
-  #       is dynamically computed from current sun elevation. When the sun moves and a new tilt
-  #       stage is calculated, the cover is no longer considered "in shading position" even though
-  #       it was correctly set before. Consider storing the last applied tilt in the JSON helper
-  #       (e.g. field 'tp') and comparing against that instead of the dynamic value.
   in_shading_position: >-
     {% set min = shading_position - position_tolerance %}
     {% set max = shading_position + position_tolerance %}
@@ -2969,11 +2964,6 @@ variables:
   #   ts.shs → ts.shade_start, ts.she → ts.shade_end
   #   ts.win → ts.window, ts.man → ts.manual
   #
-  # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
-  #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
-  #   lt  → last_trigger  (+6 chars) – Which trigger caused last action (debug)
-  #   tp  → tilt_position  (+5 chars) – Last applied tilt value (fixes in_shading_position volatility)
-  #   ec  → error_count    (+4 chars) – Consecutive error counter
   # ═══════════════════════════════════════════════════════════════════════════
   helper_json: >-
     {% set helper_state = states(cover_status_helper) %}
@@ -3914,6 +3904,10 @@ actions:
                   {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
                 {% endfor %}
               {% endif %}
+              {# Guard: ts.shd only updates when shd actually changes #}
+              {% if new_shd == (current.shd | default(0) | int) and 'ts' in updates and 'shd' in updates.ts %}
+                {% set merged_ts.data = dict(merged_ts.data, **{'shd': current_ts.shd | default(0) | int}) %}
+              {% endif %}
 
               {# Build final v6 COMPACT JSON structure #}
               {% set dict_new = {
@@ -4727,7 +4721,7 @@ actions:
               - alias: "Shading detected. Move to shading position"
                 conditions:
                   - or:
-                      - "{{ helper_state_is_shaded }}" # TODO
+                      - "{{ helper_state_is_shaded }}"
                       - "{{ helper_state_pending_start }}" # Pending-Timestamp
                       - "{{ helper_state_shade }}" # Check for target(!) marker
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
@@ -4739,7 +4733,7 @@ actions:
                         # Activate shading, base state is open (time-based)
                         bas: "opn"
                         shd: 1
-                        man: 0
+                        man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
                         ts:
                           shd: "now"
                           shs: 0
@@ -4771,7 +4765,7 @@ actions:
                         # Set base state to open, clear shading
                         bas: "opn"
                         shd: 0
-                        man: 0
+                        man: "{{ 0 if resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) else helper_json.man | default(0) | int }}"
                         ts:
                           opn: "now"
                           shs: 0
@@ -4874,7 +4868,7 @@ actions:
                         bas: "cls"
                         shd: 0
                         win: "tlt"
-                        man: 0
+                        man: "{{ 0 if force_allows_ventilate else helper_json.man | default(0) | int }}"
                         ts:
                           cls: "now"
                           win: "now"
@@ -4938,7 +4932,6 @@ actions:
                         # Set base state to close, clear shading
                         bas: "cls"
                         shd: 0
-                        man: 0
                         ts:
                           cls: "now"
                           shs: 0
@@ -4957,7 +4950,7 @@ actions:
                     # Set base state to close, clear shading
                     bas: "cls"
                     shd: 0
-                    man: 0
+                    man: "{{ 0 if force_allows_close else helper_json.man | default(0) | int }}"
                     ts:
                       cls: "now"
                       shs: 0
@@ -5083,7 +5076,7 @@ actions:
                           update_values:
                             # Activate shading
                             shd: 1
-                            man: 0
+                            man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
                             ts:
                               shd: "now"
                               shs: 0
@@ -5184,13 +5177,8 @@ actions:
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
-              tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
-              # TODO: Consider storing the applied tilt value in the JSON helper (e.g. 'tp' field)
-              #       so that in_shading_position can compare against the actually applied tilt
-              #       instead of the dynamically computed shading_tilt_position.
-              update_values:
-                ts:
-                  shd: "now"
+              tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}"
+              update_values: {}
           - *tilt_move_action
           - *helper_update
           - stop: "Shading Tilt executed"
@@ -5264,7 +5252,7 @@ actions:
                           update_values:
                             # Clear shading, tilt only
                             shd: 0
-                            man: 0
+                            man: "{{ 0 if not is_forced else helper_json.man | default(0) | int }}"
                             ts:
                               shd: "now"
                               shs: 0
@@ -5333,7 +5321,7 @@ actions:
                             # Shading ends, window is tilted
                             shd: 0
                             win: "tlt"
-                            man: 0
+                            man: "{{ 0 if force_allows_ventilate else helper_json.man | default(0) | int }}"
                             ts:
                               win: "now"
                               shd: "now"
@@ -5341,7 +5329,7 @@ actions:
                               she: 0
                       - if: "{{ force_allows_ventilate }}"
                         then:
-                          - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                          - delay:
                               seconds: >
                                 {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
                                   {{ range(0, 2) | random }}
@@ -5384,7 +5372,7 @@ actions:
                                   she: 0
                           - if: "{{ force_allows_open }}"
                             then:
-                              - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
+                              - delay:
                                   seconds: >
                                     {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
                                       {{ range(0, 2) | random }}
@@ -5488,7 +5476,7 @@ actions:
                 conditions:
                   - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
-                  - "{{ force_allows_ventilate }}" # TODO
+                  - "{{ force_allows_ventilate }}"
                   - condition: !input auto_ventilate_condition
                 sequence:
                   - variables:
@@ -5497,7 +5485,7 @@ actions:
                       update_values:
                         # Window is fully open (lockout)
                         win: "opn"
-                        man: 0
+                        man: "{{ 0 if force_allows_open else helper_json.man | default(0) | int }}"
                         ts:
                           win: "now"
                           shs: 0
@@ -5541,7 +5529,7 @@ actions:
                 conditions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
-                  - "{{ force_allows_ventilate }}" # TODO
+                  - "{{ force_allows_ventilate }}"
                   - "{{ 'resident_allow_ventilation' in resident_config or not resident_now }}"
                   - condition: !input auto_ventilate_condition
                   # Position check: Only move if cover is below ventilation position (or option enabled)
@@ -5631,10 +5619,9 @@ actions:
                         # Window closed, return to shading (shade is already true)
                         shd: 1
                         win: "cls"
-                        man: 0
+                        man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
                         ts:
                           win: "now"
-                          shd: "now"
                           shs: 0
                           she: 0
                   - if: "{{ force_allows_shade }}"
@@ -5674,7 +5661,7 @@ actions:
                       update_values:
                         # Window closed, return to open base state
                         win: "cls"
-                        man: 0
+                        man: "{{ 0 if not prevent_flags.opening_after_ventilation_end and force_allows_open else helper_json.man | default(0) | int }}"
                         ts:
                           win: "now"
                           shs: 0
@@ -5717,7 +5704,7 @@ actions:
                       update_values:
                         # Window closed, return to close base state
                         win: "cls"
-                        man: 0
+                        man: "{{ 0 if force_allows_close else helper_json.man | default(0) | int }}"
                         ts:
                           win: "now"
                           shs: 0
@@ -5771,7 +5758,7 @@ actions:
                               target_tilt_position: "{{ open_tilt_position | int }}"
                               update_values:
                                 # Resident leaving, window open
-                                man: 0
+                                man: "{{ 0 if force_allows_ventilate and (effective_state != 'lock' or not in_open_position) else helper_json.man | default(0) | int }}"
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "now"
@@ -5800,7 +5787,7 @@ actions:
                               target_tilt_position: "{{ ventilate_tilt_position | int }}"
                               update_values:
                                 # Resident leaving, window tilted
-                                man: 0
+                                man: "{{ 0 if force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) else helper_json.man | default(0) | int }}"
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "now"
@@ -5822,18 +5809,17 @@ actions:
                           - "{{ helper_state_shade }}"
                           - "{{ resident_flags.allow_shade }}"
                           - "{{ is_shading_enabled }}"
-                          - "{{ effective_state != 'shd' or not in_shading_position }}"
                         sequence:
                           - variables:
                               target_position: !input shading_position
                               target_tilt_position: "{{ shading_tilt_position | int }}"
                               update_values:
                                 # Resident leaving, shade already active — preserve ts.shd
-                                man: 0
+                                man: "{{ 0 if force_allows_shade and (effective_state != 'shd' or not in_shading_position) else helper_json.man | default(0) | int }}"
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   res: "now"
-                          - if: "{{ force_allows_shade }}"
+                          - if: "{{ force_allows_shade and (effective_state != 'shd' or not in_shading_position) }}"
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5850,8 +5836,6 @@ actions:
                           - "{{ helper_state_base == 'opn' }}"
                           - "{{ resident_flags.opening_trigger }}"
                           - "{{ is_up_enabled }}"
-                          - "{{ effective_state != 'opn' or not in_open_position }}"
-                          - "{{ force_allows_open }}"
                         sequence:
                           - variables:
                               target_position: !input open_position
@@ -5859,15 +5843,15 @@ actions:
                               update_values:
                                 # Resident leaving, move to open
                                 bas: "opn"
-                                man: 0
+                                man: "{{ 0 if (force_allows_open or trigger.id is match('^t_force_')) and (effective_state != 'opn' or not in_open_position) else helper_json.man | default(0) | int }}"
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   opn: "now"
                                   res: "now"
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                          - if: "{{ force_allows_open or trigger.id is match('^t_force_') }}"
+                          - if: "{{ (force_allows_open or trigger.id is match('^t_force_')) and (effective_state != 'opn' or not in_open_position) }}"
                             then:
+                              - delay:
+                                  seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                               - choose: []
                                 default: !input auto_up_action_before
                               - *cover_move_action
@@ -5880,8 +5864,6 @@ actions:
                       - conditions:
                           - "{{ helper_state_base == 'cls' }}"
                           - "{{ is_down_enabled }}"
-                          - "{{ effective_state != 'cls' or not in_close_position }}"
-                          - "{{ force_allows_close }}" # TODO
                         sequence:
                           - variables:
                               target_position: !input close_position
@@ -5889,12 +5871,12 @@ actions:
                               update_values:
                                 # Resident leaving, move to close
                                 bas: "cls"
-                                man: 0
+                                man: "{{ 0 if force_allows_close and (effective_state != 'cls' or not in_close_position) else helper_json.man | default(0) | int }}"
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   cls: "now"
                                   res: "now"
-                          - if: "{{ force_allows_close }}"
+                          - if: "{{ force_allows_close and (effective_state != 'cls' or not in_close_position) }}"
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
@@ -5954,7 +5936,7 @@ actions:
                               target_tilt_position: "{{ ventilate_tilt_position | int }}"
                               update_values:
                                 # Resident arriving, window tilted — hold ventilate position
-                                man: 0
+                                man: "{{ 0 if force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) else helper_json.man | default(0) | int }}"
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   win: "now"
@@ -5977,20 +5959,18 @@ actions:
                       - conditions:
                           - "{{ is_down_enabled }}"
                           - "{{ resident_flags.closing_trigger }}"
-                          - "{{ effective_state != 'cls' or not in_close_position }}"
-                          - "{{ force_allows_close }}"
                         sequence:
                           - variables:
                               target_position: !input close_position
                               target_tilt_position: "{{ close_tilt_position | int }}"
                               update_values:
                                 # Resident arriving, close cover (base and shade unchanged - resident is an overlay layer)
-                                man: 0
+                                man: "{{ 0 if force_allows_close and (effective_state != 'cls' or not in_close_position) else helper_json.man | default(0) | int }}"
                                 res: "{{ new_resident_status | int }}"
                                 ts:
                                   cls: "now"
                                   res: "now"
-                          - if: "{{ force_allows_close }}"
+                          - if: "{{ force_allows_close and (effective_state != 'cls' or not in_close_position) }}"
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
