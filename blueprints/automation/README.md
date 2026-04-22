@@ -81,7 +81,12 @@
 - **Background State Tracking**: Automatically returns to target position when force is disabled
 - **Real-Time Status Updates**: Helper continues tracking target state even during force functions
 - **All Position Types**: Return-to-background works for open, close, shading, and ventilation
-- **Safeguard Checks**: Only one force function can be active simultaneously
+- **Last-Wins Priority**: If multiple force functions are active, the most recently activated one takes precedence
+
+### ⏸️ **Force Pause (Manual/Auto Toggle)**
+- **Suspend all cover movements** via an `input_boolean` or `switch` while the automation keeps tracking state in the background
+- **Instant resume**: When you turn the pause off, the cover immediately drives to the correct target position — no waiting for the next trigger
+- **Superior to global conditions**: Unlike a global `condition:`, pause does not freeze the helper, so state stays in sync and the cover catches up the moment you re-enable automation
 
 ### 🔌 **Flexible Position Source Support**
 - **Multiple Position Attributes**: Works with `current_position`, `position`, or custom sensors
