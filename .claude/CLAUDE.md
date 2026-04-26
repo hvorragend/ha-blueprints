@@ -321,6 +321,21 @@ is_paused: ...
 is_paused: ...
 ```
 
+### No Jinja2 comments in templates
+
+Do **not** use `{# ... #}` comments inside Jinja2 templates. They clutter the template code and are not visible to end users. Use YAML comments (`#`) outside of templates where needed, or document in CLAUDE.md.
+
+**Wrong:**
+```jinja2
+{# Guard: ts.shd only updates when shd actually changes #}
+{% if new_shd == current_shd %}
+```
+
+**Correct:**
+```jinja2
+{% if new_shd == current_shd %}
+```
+
 ---
 
 ## Code Quality Gates

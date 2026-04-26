@@ -2980,14 +2980,10 @@ variables:
     {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
     {% set ts_now = as_timestamp(now()) | round(0) %}
 
-    {# Detect v5 format by version number #}
     {% set is_v5 = helper_raw.v | default(0) == 5 %}
-    {# Detect v6 compact format: has 'bas' field #}
     {% set is_v6_compact = helper_raw.bas is defined and helper_raw.v is defined and helper_raw.v == 6 %}
 
     {% if is_v5 %}
-      {# ═══════════════ MIGRATION v5 → v6 ═══════════════ #}
-      {# Determine current active state from v5 flags #}
       {% set v5_current =
         'vfull' if helper_raw.vfull.a | default(0) == 1 else
         'vpart' if helper_raw.vpart.a | default(0) == 1 else
@@ -3020,7 +3016,6 @@ variables:
         }
       }}
     {% elif is_v6_compact %}
-      {# ═══════════════ v6 COMPACT (pass-through) ═══════════════ #}
       {% set raw_ts = helper_raw.ts | default({}) %}
       {{
         {
@@ -3045,7 +3040,6 @@ variables:
         }
       }}
     {% else %}
-      {# New/empty/invalid helper - create default v6 structure #}
       {{
         {
           'bas': 'opn',
@@ -3893,7 +3887,6 @@ actions:
               {% set updates = update_values | default({}) %}
               {% set ts_now = as_timestamp(now()) | round(0) %}
 
-              {# Apply updates using compact names directly #}
               {% set new_bas = updates.bas | default(current.bas | default('opn')) %}
               {% set new_shd = updates.shd | default(current.shd | default(0)) | int %}
               {% set new_win = updates.win | default(current.win | default('cls')) %}
@@ -3902,24 +3895,19 @@ actions:
               {% set new_man = updates.man | default(current.man | default(0)) | int %}
               {% set current_ts = current.ts | default({}) %}
 
-              {# Build timestamp object - preserve existing values and merge updates #}
               {% set merged_ts = namespace(data={}) %}
-              {# Start with existing timestamp values #}
               {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'win', 'man', 'res'] %}
                 {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
               {% endfor %}
-              {# Overlay with update values #}
               {% if 'ts' in updates %}
                 {% for key, value in updates.ts.items() %}
                   {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
                 {% endfor %}
               {% endif %}
-              {# Guard: ts.shd only updates when shd actually changes #}
               {% if new_shd == (current.shd | default(0) | int) and 'ts' in updates and 'shd' in updates.ts %}
                 {% set merged_ts.data = dict(merged_ts.data, **{'shd': current_ts.shd | default(0) | int}) %}
               {% endif %}
 
-              {# Build final v6 COMPACT JSON structure #}
               {% set dict_new = {
                 'bas': new_bas,
                 'shd': new_shd | int,
@@ -6300,8 +6288,6 @@ actions:
                 {% elif trigger.id == 't_force_disabled_ventilate' %}vnt
                 {% else %}non{% endif %}
               next_active_force: >-
-                {# Find the most recently activated force still ON, using entity last_changed.
-                   This ensures "last activated wins" instead of a fixed priority chain. #}
                 {% set candidates = namespace(best='non', best_ts=-1) %}
                 {% if auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
                   {% set t = as_timestamp(states[auto_up_force].last_changed) | float(0) %}
