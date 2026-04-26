@@ -98,6 +98,7 @@ class CCAValidator {
             // Force
             'auto_recover_after_force',
             'auto_up_force', 'auto_down_force', 'auto_ventilate_force', 'auto_shading_start_force',
+            'force_pause',
 
             // Conditions
             'auto_global_condition',
