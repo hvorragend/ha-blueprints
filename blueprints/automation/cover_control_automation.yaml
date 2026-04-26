@@ -2878,6 +2878,11 @@ variables:
       )
     }}
 
+  # TODO: in_shading_position is volatile when tilt is enabled because shading_tilt_position
+  #       is dynamically computed from current sun elevation. When the sun moves and a new tilt
+  #       stage is calculated, the cover is no longer considered "in shading position" even though
+  #       it was correctly set before. Consider storing the last applied tilt in the JSON helper
+  #       (e.g. field 'tp') and comparing against that instead of the dynamic value.
   in_shading_position: >-
     {% set min = shading_position - position_tolerance %}
     {% set max = shading_position + position_tolerance %}
@@ -2964,6 +2969,11 @@ variables:
   #   ts.shs → ts.shade_start, ts.she → ts.shade_end
   #   ts.win → ts.window, ts.man → ts.manual
   #
+  # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
+  #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
+  #   lt  → last_trigger  (+6 chars) – Which trigger caused last action (debug)
+  #   tp  → tilt_position  (+5 chars) – Last applied tilt value (fixes in_shading_position volatility)
+  #   ec  → error_count    (+4 chars) – Consecutive error counter
   # ═══════════════════════════════════════════════════════════════════════════
   helper_json: >-
     {% set helper_state = states(cover_status_helper) %}
@@ -4721,7 +4731,7 @@ actions:
               - alias: "Shading detected. Move to shading position"
                 conditions:
                   - or:
-                      - "{{ helper_state_is_shaded }}"
+                      - "{{ helper_state_is_shaded }}" # TODO
                       - "{{ helper_state_pending_start }}" # Pending-Timestamp
                       - "{{ helper_state_shade }}" # Check for target(!) marker
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
@@ -5177,7 +5187,10 @@ actions:
         sequence:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
-              tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}"
+              tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
+              # TODO: Consider storing the applied tilt value in the JSON helper (e.g. 'tp' field)
+              #       so that in_shading_position can compare against the actually applied tilt
+              #       instead of the dynamically computed shading_tilt_position.
               update_values: {}
           - *tilt_move_action
           - *helper_update
@@ -5329,7 +5342,7 @@ actions:
                               she: 0
                       - if: "{{ force_allows_ventilate }}"
                         then:
-                          - delay:
+                          - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                               seconds: >
                                 {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
                                   {{ range(0, 2) | random }}
@@ -5372,7 +5385,7 @@ actions:
                                   she: 0
                           - if: "{{ force_allows_open }}"
                             then:
-                              - delay:
+                              - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
                                   seconds: >
                                     {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool %}
                                       {{ range(0, 2) | random }}
@@ -5476,7 +5489,7 @@ actions:
                 conditions:
                   - "{{ contact_opened_now }}"
                   - "{{ not in_open_position }}"
-                  - "{{ force_allows_ventilate }}"
+                  - "{{ force_allows_ventilate }}" # TODO
                   - condition: !input auto_ventilate_condition
                 sequence:
                   - variables:
@@ -5529,7 +5542,7 @@ actions:
                 conditions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
-                  - "{{ force_allows_ventilate }}"
+                  - "{{ force_allows_ventilate }}" # TODO
                   - "{{ 'resident_allow_ventilation' in resident_config or not resident_now }}"
                   - condition: !input auto_ventilate_condition
                   # Position check: Only move if cover is below ventilation position (or option enabled)
