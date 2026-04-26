@@ -652,6 +652,71 @@ class TestBaseStatusUpdateWhenTiltedAtClosingTime:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tests: Lockout protection in close handler must update base state (#402)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _find_branch_by_alias(blueprint: dict, alias: str) -> dict | None:
+    """Walk the blueprint to find a choose branch by its alias."""
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("alias") == alias:
+                return node
+            for v in node.values():
+                result = walk(v)
+                if result is not None:
+                    return result
+        elif isinstance(node, list):
+            for item in node:
+                result = walk(item)
+                if result is not None:
+                    return result
+        return None
+    return walk(blueprint)
+
+
+class TestLockoutClosingBaseStateUpdate:
+    """
+    Regression for #402 (Bug Pattern H in lockout-closing branch):
+    When closing time fires and the window is open, lockout protection runs
+    but must still update bas to 'cls' and set ts.cls.
+    """
+
+    def _load_blueprint(self) -> dict:
+        return _load_blueprint_yaml(BLUEPRINT_PATH)
+
+    def test_lockout_closing_branch_sets_bas_cls(self):
+        blueprint = self._load_blueprint()
+        branch = _find_branch_by_alias(blueprint, "Lockout protection when closing")
+        assert branch is not None, "Could not find 'Lockout protection when closing' branch"
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+        )
+        assert variables_step is not None
+        update_values = variables_step["variables"].get("update_values", {})
+        assert update_values.get("bas") == "cls", (
+            f"Expected update_values.bas == 'cls' but got {update_values.get('bas')!r}. "
+            "Base status must be updated to 'cls' when closing time fires with lockout."
+        )
+
+    def test_lockout_closing_branch_sets_ts_cls(self):
+        blueprint = self._load_blueprint()
+        branch = _find_branch_by_alias(blueprint, "Lockout protection when closing")
+        assert branch is not None
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+        )
+        assert variables_step is not None
+        update_values = variables_step["variables"].get("update_values", {})
+        ts = update_values.get("ts", {})
+        assert "cls" in ts, (
+            f"Expected update_values.ts.cls to be set, but ts = {ts!r}. "
+            "ts.cls is needed for prevent_multiple_times to work correctly."
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tests: Invariant 1 — position checks in if-guard, not conditions
 #   Regression for SHADED/OPEN/CLOSE branches in resident_leaving
 # ─────────────────────────────────────────────────────────────────────────────
