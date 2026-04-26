@@ -2975,6 +2975,8 @@ variables:
   #   tp  → tilt_position  (+5 chars) – Last applied tilt value (fixes in_shading_position volatility)
   #   ec  → error_count    (+4 chars) – Consecutive error counter
   # ═══════════════════════════════════════════════════════════════════════════
+  # Parses the helper JSON and normalises to v6 compact format.
+  # Handles three cases: v5 → v6 migration, v6 pass-through, new/empty default.
   helper_json: >-
     {% set helper_state = states(cover_status_helper) %}
     {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
@@ -3877,6 +3879,12 @@ actions:
       #
       # Fields: bas, shd (1/0), win, frc, res (1/0), man (1/0)
       # Timestamps: ts.opn, ts.cls, ts.shd, ts.shs, ts.she, ts.win, ts.man
+      #
+      # Template logic:
+      #   1. Apply field updates (compact names directly)
+      #   2. Build timestamp object (preserve existing, merge updates, 'now' → ts_now)
+      #   3. Guard: ts.shd only updates when shd actually changes
+      #   4. Build final v6 compact JSON structure
       # ═══════════════════════════════════════════════════════════════════════════
       helper_update: &helper_update
         action: input_text.set_value
@@ -6287,6 +6295,8 @@ actions:
                 {% elif trigger.id == 't_force_disabled_shading' %}shd
                 {% elif trigger.id == 't_force_disabled_ventilate' %}vnt
                 {% else %}non{% endif %}
+              # Find the most recently activated force still ON, using entity last_changed.
+              # This ensures "last activated wins" instead of a fixed priority chain.
               next_active_force: >-
                 {% set candidates = namespace(best='non', best_ts=-1) %}
                 {% if auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
