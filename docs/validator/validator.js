@@ -49,6 +49,7 @@ class CCAValidator {
             // Brightness
             'default_brightness_sensor', 'brightness_time_duration',
             'brightness_up', 'brightness_down', 'brightness_hysteresis',
+            'brightness_sun_operator',
 
             // Sun
             'default_sun_sensor', 'sun_time_duration',
