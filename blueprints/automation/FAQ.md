@@ -18,6 +18,7 @@ This comprehensive FAQ covers the most common questions about Cover Control Auto
 9. [Manual Override & Detection](#manual-override--detection)
 10. [Resident Mode](#resident-mode)
 11. [Force Functions & Emergency Control](#force-functions--emergency-control)
+    - [What is Force Pause and how is it different from a global condition?](#q-what-is-force-pause-and-how-is-it-different-from-a-global-condition)
 12. [Cover Status Helper](#cover-status-helper)
 13. [Troubleshooting](#troubleshooting)
 14. [Advanced Features](#advanced-features)
@@ -185,6 +186,32 @@ Close Position: 100%     # Fully extended
 **Binary Sensors:**
 - `resident_sensor` must be on/off/true/false (binary)
 - Contact sensors must be binary sensors
+
+---
+
+### Q: Where do I enable/disable individual features (opening, closing, shading, ventilation)?
+
+**A:** All feature toggles are centralized in the **Automation Options** section (parameter `auto_options`).
+
+Instead of hunting through multiple sections, a single checklist controls what CCA manages:
+
+```yaml
+auto_options:
+  - auto_up_enabled          # Morning opening
+  - auto_down_enabled        # Evening closing
+  - time_control_enabled     # Time-based triggers
+  - auto_brightness_enabled  # Brightness-based opening/closing
+  - auto_sun_enabled         # Sun elevation-based opening/closing
+  - auto_ventilate_enabled   # Ventilation mode
+  - auto_shading_enabled     # Sun protection / shading
+```
+
+**Backward compatibility:**
+- Old configurations without `time_control_enabled` keep working — the legacy `time_control: time_control_disabled` selector is still honored.
+- The new flag is additive. If `time_control_enabled` is present in `auto_options`, it takes precedence.
+- The `brightness_sun_operator` parameter (AND/OR link between brightness and sun conditions) has moved to this section as well. Its value is preserved; only the UI location changed.
+
+**When to update:** Only when you reconfigure the automation in the UI. No forced migration.
 
 ---
 
@@ -1197,6 +1224,28 @@ action:
   - service: input_boolean.turn_on
     entity_id: input_boolean.force_close_rain
 ```
+
+---
+
+### Q: What is Force Pause and how is it different from a global condition?
+
+**A:** Force Pause is a dedicated input (`force_pause`, accepts `input_boolean` or `switch`) that suspends all automatic cover movements while keeping the background state fully up to date.
+
+**While paused (`force_pause` = on):**
+- All triggers still fire and evaluate normally.
+- The JSON helper is updated on every run — base state, shading, window state, resident status, etc.
+- The cover does **not** move. That's the only thing blocked.
+
+**On resume (`force_pause` = off):**
+- The cover immediately drives to the correct target position based on the current `effective_state`.
+- No waiting for the next scheduled trigger (which could be hours away).
+
+**Why not just put the same entity into the global condition?**
+The global condition blocks the entire action block — including helper state updates. When you re-enable automation that way, the helper is stale and the cover only catches up on the next trigger. Force Pause only blocks movement, not state tracking, so resume is instant and accurate.
+
+**Typical use case:** A manual/automatic toggle in your dashboard. Flip it to pause during a party, cleaning, or filming; flip it back on and the cover jumps straight to where it should be.
+
+**Note:** Force Pause is not a force *function* — it does not override state (lockout, shading, etc.), it only freezes cover movement. Regular force functions (Force Open/Close/Shade/Ventilate) continue to take the absolute highest priority when active.
 
 ---
 
