@@ -1521,7 +1521,8 @@
             't_force_disabled_open': 'Force open entity deactivated',
             't_force_disabled_close': 'Force close entity deactivated',
             't_force_disabled_ventilate': 'Force ventilate entity deactivated',
-            't_force_disabled_shading': 'Force shading entity deactivated'
+            't_force_disabled_shading': 'Force shading entity deactivated',
+            't_force_pause_disabled': 'Force pause entity deactivated (immediate resume)'
         };
 
         // State
@@ -2946,17 +2947,20 @@
                 }
             }
 
-            // v6 State Machine fields (internal format after blueprint conversion)
+            // v6 State Machine fields (compact keys as written by the blueprint)
+            const basMap = { opn: 'open', cls: 'closed' };
+            const winMapDisplay = { cls: 'closed', tlt: 'tilted', opn: 'open' };
+            const frcMapDisplay = { non: 'none', opn: 'open', cls: 'close', shd: 'shade', vnt: 'vent' };
             const v6Items = [
-                { key: 'base', label: 'Base State', format: v => v || 'open' },
-                { key: 'shade', label: 'Shading', format: v => (v === 1 || v === true) ? '✓ Active' : '– Inactive' },
-                { key: 'window', label: 'Window', format: v => v || 'closed' },
-                { key: 'force', label: 'Force', format: v => v || 'none' },
-                { key: 'resident', label: 'Resident', format: v => (v === 1 || v === true) ? '✓ Present' : '– Away' },
-                { key: 'manual', label: 'Manual Override', format: v => (v === 1 || v === true) ? '✓ Active' : '– Inactive' }
+                { key: 'bas', label: 'Base State', format: v => basMap[v] || v || 'open' },
+                { key: 'shd', label: 'Shading', format: v => (v === 1 || v === true) ? '✓ Active' : '– Inactive' },
+                { key: 'win', label: 'Window', format: v => winMapDisplay[v] || v || 'closed' },
+                { key: 'frc', label: 'Force', format: v => frcMapDisplay[v] || v || 'none' },
+                { key: 'res', label: 'Resident', format: v => (v === 1 || v === true) ? '✓ Present' : '– Away' },
+                { key: 'man', label: 'Manual Override', format: v => (v === 1 || v === true) ? '✓ Active' : '– Inactive' }
             ];
 
-            const isV6 = helperJson.base !== undefined || helperJson.bas !== undefined;
+            const isV6 = helperJson.bas !== undefined;
 
             let html = `
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 12px; border: 1px solid var(--border-color);">
@@ -2978,9 +2982,9 @@
                 html += v6Items.map(item => {
                     const rawVal = helperJson[item.key];
                     const displayVal = item.format(rawVal);
-                    const isActive = (item.key === 'shade' || item.key === 'manual' || item.key === 'resident')
+                    const isActive = (item.key === 'shd' || item.key === 'man' || item.key === 'res')
                         ? (rawVal === 1 || rawVal === true)
-                        : (rawVal && rawVal !== 'none' && rawVal !== 'closed' && rawVal !== 'close');
+                        : (rawVal && rawVal !== 'non' && rawVal !== 'cls');
                     return `
                         <div class="helper-item">
                             <div class="helper-label">${item.label}</div>
@@ -3000,8 +3004,8 @@
                 if (helperJson.ts && typeof helperJson.ts === 'object') {
                     const ts = helperJson.ts;
                     const tsLabels = {
-                        open: 'Last Open', close: 'Last Close', shade: 'Last Shade Active', shade_start: 'Shade Start Pending', shade_end: 'Shade End Pending', window: 'Last Window Change', manual: 'Last Manual Override',
-                        opn: 'Last Open', cls: 'Last Close', shd: 'Last Shade', shs: 'Shade Start Pending', she: 'Shade End Pending', win: 'Last Window', man: 'Last Manual'
+                        open: 'Last Open', close: 'Last Close', shade: 'Last Shade Active', shade_start: 'Shade Start Pending', shade_end: 'Shade End Pending', window: 'Last Window Change', manual: 'Last Manual Override', resident: 'Last Resident Change',
+                        opn: 'Last Open', cls: 'Last Close', shd: 'Last Shade', shs: 'Shade Start Pending', she: 'Shade End Pending', win: 'Last Window', man: 'Last Manual', res: 'Last Resident'
                     };
                     const tsEntries = Object.entries(ts).filter(([, v]) => v && v > 0);
                     if (tsEntries.length > 0) {

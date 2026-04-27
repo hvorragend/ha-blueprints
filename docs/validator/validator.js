@@ -49,6 +49,7 @@ class CCAValidator {
             // Brightness
             'default_brightness_sensor', 'brightness_time_duration',
             'brightness_up', 'brightness_down', 'brightness_hysteresis',
+            'brightness_sun_operator',
 
             // Sun
             'default_sun_sensor', 'sun_time_duration',
@@ -98,6 +99,7 @@ class CCAValidator {
             // Force
             'auto_recover_after_force',
             'auto_up_force', 'auto_down_force', 'auto_ventilate_force', 'auto_shading_start_force',
+            'force_pause',
 
             // Conditions
             'auto_global_condition',
