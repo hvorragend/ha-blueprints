@@ -76,6 +76,9 @@ The helper stores all relevant state information: the current base state, shadin
 
 ## 🔧 Bug Fixes
 
+### Cover stuck in shading position when conditions change rapidly ([#395](https://github.com/hvorragend/ha-blueprints/issues/395))
+On days with rapidly changing luminosity (e.g. alternating sun and clouds), the cover could remain stuck in the shading position for the rest of the day instead of opening when the sun moved past `shading_azimuth_end`. The internal shading-end pending state was never cleared if conditions recovered between the pending and execution phase, blocking all subsequent shading-end attempts until the midnight reset. The pending state is now cleared correctly so the next trigger can re-arm the shading-end flow.
+
 ### Redundant cover movements prevented ([#344](https://github.com/hvorragend/ha-blueprints/issues/344))
 The cover no longer moves when it is already at the target position or within the configured position tolerance range.
 
