@@ -5450,6 +5450,23 @@ actions:
                               she: 0
                       - *helper_update
                       - stop: "Shading End aborted: Timeout or invalid"
+            # Issue #395: Execution trigger fires but end conditions are no longer met
+            # (e.g. brightness recovered after a brief cloud). Without clearing 'she'
+            # the template trigger stays true forever (now() >= she always holds for a
+            # past timestamp), so it never re-fires and new pending triggers are blocked
+            # by helper_state_pending_end — cover gets stuck on the shading position.
+            else:
+              - if:
+                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                  - "{{ helper_state_pending_end }}"
+                then:
+                  - variables:
+                      update_values:
+                        shd: 1
+                        ts:
+                          she: 0
+                  - *helper_update
+                  - stop: "Shading End: cleared stale pending (conditions no longer met)"
 
       ############################################################
       # BRANCH (5): CONTACT SENSOR HANDLING
