@@ -92,22 +92,17 @@ In the `resident_arriving`/`resident_leaving` handler: always check realtime sen
 
 **Specifically:** `helper_json.win` (= `helper_state_window`) is only updated when the contact handler actually moves the cover. If the cover was already at the target position when the window opened, `win` stays `cls` in the helper — even though the window is physically open. Therefore, always use `states(contact_window_opened)` in the `resident_arriving` handler, not `helper_state_window`.
 
-### ⚠️ Invariant 4: `resident_leaving` — evaluate `allow_shade`/`allow_ventilate` against the new status
+### ⚠️ Invariant 4: `resident_flags` reads the live sensor — no stale-state problem
 
-In the `resident_leaving` handler, `resident_flags.allow_shade` is based on `state_resident` — which reads from `helper_json.res` (not yet updated → still `1`). This causes `allow_shade` = `not state_resident` = `false` when `resident_allow_shading` is not configured.
+`resident_flags.allow_shade/allow_ventilate/allow_open` are based on `state_resident` (line ~3083), which reads the **live** sensor via `states(resident_sensor)` — **not** from `helper_json.res`.
 
-**Wrong:**
-```yaml
-- "{{ resident_flags.allow_shade }}"  # Reads stale helper state!
-```
+In the `resident_leaving` context the sensor has already changed to `off`, so `state_resident == false` and all `resident_flags.allow_*` evaluate to `true` (because `not state_resident == true`). No special handling with `new_resident_status` is needed.
 
-**Correct:**
-```yaml
-- "{{ new_resident_status == 0 or resident_flags.allow_shade }}"
-# simplified: new_resident_status == 0 is always true in the leaving context
-```
+**Key distinction:**
+- `state_resident` → **live sensor** (`states(resident_sensor)`) → always current
+- `helper_json.res` → **persisted helper** → stale until `*helper_update` runs
 
-Since `new_resident_status` is always `0` in the leaving context, the guard can be simplified to `new_resident_status == 0`.
+`resident_flags.*` uses `state_resident`, so it automatically reflects the new sensor state at trigger time.
 
 ### ⚠️ Invariant 5: `opened` always takes priority over `tilted`
 
@@ -213,16 +208,11 @@ variables:
 if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
 ```
 
-### Bug Pattern B: `resident_flags.allow_shade/allow_ventilate` in the `resident_leaving` handler
+### Bug Pattern B: ~~`resident_flags.allow_shade/allow_ventilate` stale in `resident_leaving`~~ (NOT A BUG)
 
-**Symptom:** After resident leaves, cover moves to open position instead of shading or ventilation position.
+**Previous assumption:** `resident_flags.allow_shade` reads stale state from `helper_json.res`.
 
-**Cause:** `resident_flags.allow_shade` is based on `state_resident` = `helper_json.res` = still `1` (old value). So `allow_shade` = `false` when `resident_allow_shading` is not configured → branch skipped.
-
-**Fix:** Use `new_resident_status == 0` instead of `resident_flags.allow_shade` in the `resident_leaving` handler:
-```yaml
-- "{{ new_resident_status == 0 or 'resident_allow_shading' in resident_config }}"
-```
+**Actual behavior:** `resident_flags.*` is based on `state_resident` (line ~3083), which reads the **live sensor** via `states(resident_sensor)`. In the `resident_leaving` context the sensor is already `off`, so `state_resident == false` → all `allow_*` flags are `true`. No stale-state problem exists. See Invariant 4.
 
 ### Bug Pattern C: Lockout blocked by `resident_allow_ventilation` gate
 
@@ -329,6 +319,21 @@ is_paused: ...
 ```yaml
 # Force pause
 is_paused: ...
+```
+
+### No Jinja2 comments in templates
+
+Do **not** use `{# ... #}` comments inside Jinja2 templates. They clutter the template code and are not visible to end users. Use YAML comments (`#`) outside of templates where needed, or document in CLAUDE.md.
+
+**Wrong:**
+```jinja2
+{# Guard: ts.shd only updates when shd actually changes #}
+{% if new_shd == current_shd %}
+```
+
+**Correct:**
+```jinja2
+{% if new_shd == current_shd %}
 ```
 
 ---

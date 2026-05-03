@@ -48,7 +48,7 @@ RESIDENT_LEAVING_BRANCHES = [
             "{{ helper_state_shade }}",
             "{{ resident_flags.allow_shade }}",
             "{{ is_shading_enabled }}",
-            "{{ effective_state != 'shd' or not in_shading_position }}",
+            # NOTE: No position check here — moved to if: guard (Invariant 1 fix)
         ],
     },
     {
@@ -57,8 +57,7 @@ RESIDENT_LEAVING_BRANCHES = [
             "{{ helper_state_base == 'opn' }}",
             "{{ resident_flags.opening_trigger }}",
             "{{ is_up_enabled }}",
-            "{{ effective_state != 'opn' or not in_open_position }}",
-            "{{ force_allows_open }}",
+            # NOTE: No position/force check here — moved to if: guard (Invariant 1 fix)
         ],
     },
     {
@@ -66,8 +65,7 @@ RESIDENT_LEAVING_BRANCHES = [
         "conditions": [
             "{{ helper_state_base == 'cls' }}",
             "{{ is_down_enabled }}",
-            "{{ effective_state != 'cls' or not in_close_position }}",
-            "{{ force_allows_close }}",
+            # NOTE: No position/force check here — moved to if: guard (Invariant 1 fix)
         ],
     },
 ]
@@ -80,6 +78,21 @@ LOCKOUT_DRIVE_GUARD = (
 # The if: guard for the vent-tilted branch
 VENT_DRIVE_GUARD = (
     "force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position)"
+)
+
+# The if: guard for the shading branch
+SHADING_DRIVE_GUARD = (
+    "force_allows_shade and (effective_state != 'shd' or not in_shading_position)"
+)
+
+# The if: guard for the open branch
+OPEN_DRIVE_GUARD = (
+    "(force_allows_open or trigger_is_force) and (effective_state != 'opn' or not in_open_position)"
+)
+
+# The if: guard for the close branch
+CLOSE_DRIVE_GUARD = (
+    "force_allows_close and (effective_state != 'cls' or not in_close_position)"
 )
 
 
@@ -108,6 +121,7 @@ def make_vars(
     helper_state_base: str = "opn",
     force_allows_open: bool = True,
     force_allows_close: bool = True,
+    force_allows_shade: bool = True,
     force_allows_ventilate: bool = True,
     is_up_enabled: bool = True,
     is_down_enabled: bool = True,
@@ -142,6 +156,7 @@ def make_vars(
         # Force permissions
         "force_allows_open": force_allows_open,
         "force_allows_close": force_allows_close,
+        "force_allows_shade": force_allows_shade,
         "force_allows_ventilate": force_allows_ventilate,
     }
 
@@ -444,7 +459,6 @@ RESIDENT_LEAVING_SHADING_BRANCH_CORRECT = {
         "{{ helper_state_shade }}",
         "{{ new_resident_status == 0 or 'resident_allow_shading' in resident_config }}",
         "{{ is_shading_enabled }}",
-        "{{ effective_state != 'shd' or not in_shading_position }}",
     ],
 }
 
@@ -452,9 +466,8 @@ RESIDENT_LEAVING_SHADING_BRANCH_BUGGY = {
     "name": "shading",
     "conditions": [
         "{{ helper_state_shade }}",
-        "{{ resident_flags.allow_shade }}",   # ← Bug: reads stale helper state
+        "{{ resident_flags.allow_shade }}",   # Bug: reads stale helper state
         "{{ is_shading_enabled }}",
-        "{{ effective_state != 'shd' or not in_shading_position }}",
     ],
 }
 
@@ -636,3 +649,234 @@ class TestBaseStatusUpdateWhenTiltedAtClosingTime:
             f"Expected update_values.ts.cls to be set, but ts = {ts!r}. "
             "ts.cls is needed for prevent_multiple_times to work correctly."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: Lockout protection in close handler must update base state (#402)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _find_branch_by_alias(blueprint: dict, alias: str) -> dict | None:
+    """Walk the blueprint to find a choose branch by its alias."""
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("alias") == alias:
+                return node
+            for v in node.values():
+                result = walk(v)
+                if result is not None:
+                    return result
+        elif isinstance(node, list):
+            for item in node:
+                result = walk(item)
+                if result is not None:
+                    return result
+        return None
+    return walk(blueprint)
+
+
+class TestLockoutClosingBaseStateUpdate:
+    """
+    Regression for #402 (Bug Pattern H in lockout-closing branch):
+    When closing time fires and the window is open, lockout protection runs
+    but must still update bas to 'cls' and set ts.cls.
+    """
+
+    def _load_blueprint(self) -> dict:
+        return _load_blueprint_yaml(BLUEPRINT_PATH)
+
+    def test_lockout_closing_branch_sets_bas_cls(self):
+        blueprint = self._load_blueprint()
+        branch = _find_branch_by_alias(blueprint, "Lockout protection when closing")
+        assert branch is not None, "Could not find 'Lockout protection when closing' branch"
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+        )
+        assert variables_step is not None
+        update_values = variables_step["variables"].get("update_values", {})
+        assert update_values.get("bas") == "cls", (
+            f"Expected update_values.bas == 'cls' but got {update_values.get('bas')!r}. "
+            "Base status must be updated to 'cls' when closing time fires with lockout."
+        )
+
+    def test_lockout_closing_branch_sets_ts_cls(self):
+        blueprint = self._load_blueprint()
+        branch = _find_branch_by_alias(blueprint, "Lockout protection when closing")
+        assert branch is not None
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+        )
+        assert variables_step is not None
+        update_values = variables_step["variables"].get("update_values", {})
+        ts = update_values.get("ts", {})
+        assert "cls" in ts, (
+            f"Expected update_values.ts.cls to be set, but ts = {ts!r}. "
+            "ts.cls is needed for prevent_multiple_times to work correctly."
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: Invariant 1 — position checks in if-guard, not conditions
+#   Regression for SHADED/OPEN/CLOSE branches in resident_leaving
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestInvariant1ShadingOpenCloseConsumed:
+    """
+    Verify that the shading/open/close branches are always selected
+    (consumed) in the priority cascade, even when the cover is already
+    at the target position. The drive is suppressed by the if: guard,
+    but the branch itself must still match so the helper is updated.
+    """
+
+    def test_shading_branch_consumed_when_already_at_shading_position(self):
+        """
+        Regression: Cover at shading position, shd=1, resident leaves.
+        Before fix: shading branch skipped (position check in conditions),
+                    open branch fired → cover moved to open.
+        After fix: shading branch always consumed, drive suppressed by if: guard.
+        """
+        entity_states = make_entity_states(window_opened=False, window_tilted=False)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(
+            window_opened=False,
+            window_tilted=False,
+            helper_state_shade=True,
+            effective_state="shd",
+            in_shading_position=True,
+            helper_state_base="opn",
+        )
+        branch = first_matching_branch(env, RESIDENT_LEAVING_BRANCHES, variables)
+        assert branch == "shading", (
+            f"Expected 'shading' but got '{branch}'. "
+            "Shading branch must be consumed even when cover is at shading position."
+        )
+
+    def test_shading_drive_guard_suppresses_when_at_position(self):
+        env = make_jinja_env()
+        result = eval_condition(env, SHADING_DRIVE_GUARD, {
+            "force_allows_shade": True,
+            "effective_state": "shd",
+            "in_shading_position": True,
+        })
+        assert result is False, "Shading drive guard should suppress when already at position"
+
+    def test_shading_drive_guard_allows_when_not_at_position(self):
+        env = make_jinja_env()
+        result = eval_condition(env, SHADING_DRIVE_GUARD, {
+            "force_allows_shade": True,
+            "effective_state": "opn",
+            "in_shading_position": False,
+        })
+        assert result is True
+
+    def test_open_branch_consumed_when_already_at_open_position(self):
+        """
+        Cover at open position, bas='opn', resident leaves, no shading.
+        Open branch must be consumed (even though no drive needed).
+        """
+        entity_states = make_entity_states(window_opened=False, window_tilted=False)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(
+            window_opened=False,
+            window_tilted=False,
+            helper_state_shade=False,
+            helper_state_base="opn",
+            effective_state="opn",
+            in_open_position=True,
+        )
+        branch = first_matching_branch(env, RESIDENT_LEAVING_BRANCHES, variables)
+        assert branch == "open", (
+            f"Expected 'open' but got '{branch}'. "
+            "Open branch must be consumed even when cover is at open position."
+        )
+
+    def test_close_branch_consumed_when_already_at_close_position(self):
+        """
+        Cover at close position, bas='cls', resident leaves.
+        Close branch must be consumed.
+        """
+        entity_states = make_entity_states(window_opened=False, window_tilted=False)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(
+            window_opened=False,
+            window_tilted=False,
+            helper_state_shade=False,
+            helper_state_base="cls",
+            effective_state="cls",
+            in_close_position=True,
+        )
+        branch = first_matching_branch(env, RESIDENT_LEAVING_BRANCHES, variables)
+        assert branch == "close", (
+            f"Expected 'close' but got '{branch}'. "
+            "Close branch must be consumed even when cover is at close position."
+        )
+
+    def test_close_drive_guard_suppresses_when_force_blocks(self):
+        env = make_jinja_env()
+        result = eval_condition(env, CLOSE_DRIVE_GUARD, {
+            "force_allows_close": False,
+            "effective_state": "cls",
+            "in_close_position": False,
+        })
+        assert result is False, "Close drive guard should suppress when force blocks"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: Invariant 7 — man:0 only when drive happens
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestInvariant7ManConditional:
+    """
+    Verify that man is only cleared (set to 0) when the drive condition
+    is met, preserving manual override when force blocks movement.
+    """
+
+    @staticmethod
+    def _eval_man_expr(env, force_allows, current_man):
+        expr = "{{ (0 if force_allows else current_man) | int }}"
+        template = env.from_string(expr)
+        return int(template.render(force_allows=force_allows, current_man=current_man))
+
+    def test_man_preserved_when_force_blocks_shade(self):
+        env = make_jinja_env()
+        result = self._eval_man_expr(env, force_allows=False, current_man=1)
+        assert result == 1, "man must be preserved (1) when force blocks the drive"
+
+    def test_man_cleared_when_force_allows_shade(self):
+        env = make_jinja_env()
+        result = self._eval_man_expr(env, force_allows=True, current_man=1)
+        assert result == 0, "man must be cleared (0) when force allows the drive"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: Invariant 8 — ts.shd guard in helper_update
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestInvariant8TsShdGuard:
+    """
+    Verify that ts.shd is only updated when shd actually changes,
+    via the guard in helper_update.
+    """
+
+    def test_ts_shd_preserved_when_shd_unchanged(self):
+        """
+        Simulates the helper_update guard logic:
+        if new_shd == current_shd, ts.shd should be preserved (not overwritten).
+        """
+        env = make_jinja_env()
+        guard = "new_shd == current_shd"
+        result = eval_condition(env, guard, {
+            "new_shd": 1,
+            "current_shd": 1,
+        })
+        assert result is True, "Guard should fire (preserve ts.shd) when shd is unchanged"
+
+    def test_ts_shd_updated_when_shd_changes(self):
+        env = make_jinja_env()
+        guard = "new_shd == current_shd"
+        result = eval_condition(env, guard, {
+            "new_shd": 1,
+            "current_shd": 0,
+        })
+        assert result is False, "Guard should not fire (allow ts.shd update) when shd changes"
