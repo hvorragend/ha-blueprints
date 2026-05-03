@@ -4990,14 +4990,12 @@ actions:
           - "{{ is_shading_enabled }}"
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_shading_start|t_open_1)') }}"
-          - condition: !input auto_shading_start_condition
           - or: # Check the helper status or the target status
               - "{{ not helper_state_is_shaded }}"
               - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
-          - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
           - or: # Only once a day?
               - "{{ not prevent_flags.shading_multiple_times }}"
               - "{{ prevent_flags.shading_multiple_times and ((now().day != helper_ts_shade|timestamp_custom('%-d')|int) or helper_ts_man <= helper_ts_shade) }}"
@@ -5006,6 +5004,8 @@ actions:
 
         sequence:
           - if:
+              - condition: !input auto_shading_start_condition
+              - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
               - or:
                   - and: # Independent temperature-based shading
                       - "{{ 'shading_temp_comparison_independent' in shading_config }}"
