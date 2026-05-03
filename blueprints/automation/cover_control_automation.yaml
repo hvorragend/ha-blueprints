@@ -5028,8 +5028,6 @@ actions:
 
         sequence:
           - if:
-              - condition: !input auto_shading_start_condition
-              - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
               - or:
                   - and: # Independent temperature-based shading
                       - "{{ 'shading_temp_comparison_independent' in shading_config }}"
@@ -5056,96 +5054,136 @@ actions:
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
 
-                  ##################################################
-                  # Consider lockout protection when shading starts
-                  ##################################################
-                  - alias: "Consider lockout protection when shading starts"
+                  ###################################################
+                  # Execution: pending elapsed - drive or retry/abort
+                  ###################################################
+                  - alias: "Shading start execution"
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ helper_state_pending_start }}" # Only when it comes back from pending status
-                      - "{{ is_ventilation_enabled }}"
-                      - or:
-                          - and:
-                              - "{{ contact_window_opened != [] }}"
-                              - "{{ states(contact_window_opened) in ['true', 'on'] }}"
-                          - and:
-                              - "{{ lockout_tilted_when_shading_starts }}"
-                              - "{{ contact_window_tilted != [] }}"
-                              - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
                     sequence:
-                      - variables:
-                          update_values:
-                            # Shading blocked by lockout, record window state, store shading intent
-                            shd: 1
-                            win: "opn"
-                            ts:
-                              shd: "now"
-                              win: "now"
-                              shs: 0
-                              she: 0
-                      - *helper_update
-                      - stop: "Shading Start skipped: Lockout enabled"
-
-                  ###################################
-                  # Start Shading
-                  ###################################
-                  - alias: "Start Shading"
-                    conditions:
-                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_state_pending_start }}" # Only when it comes back from pending status
-                      - or: # Position check
-                          - and:
-                              - "{{ not is_cover_tilt_enabled_and_possible }}"
-                              - "{{ position_comparisons.current_above_shading }}"
-                          - and:
-                              - "{{ is_cover_tilt_enabled_and_possible }}"
-                              - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
-                      - "{{ is_shading_allowed_window }}" # Shading during daytime window
-                      - "{{ resident_flags.allow_shade }}"
-                    sequence:
-                      - variables:
-                          target_position: !input shading_position
-                          target_tilt_position: "{{ shading_tilt_position | int }}"
-                          update_values:
-                            # Activate shading
-                            shd: 1
-                            man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
-                            ts:
-                              shd: "now"
-                              shs: 0
-                              she: 0
-                      - if: "{{ force_allows_shade }}"
+                      - if:
+                          - condition: !input auto_shading_start_condition
+                          - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
                         then:
-                          - delay:
-                              seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
-                          - choose: []
-                            default: !input auto_shading_start_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_shading_start_action
-                      - *helper_update
-                      - stop: "Shading Start executed"
+                          - choose:
+                              ##################################################
+                              # Consider lockout protection when shading starts
+                              ##################################################
+                              - alias: "Consider lockout protection when shading starts"
+                                conditions:
+                                  - "{{ is_ventilation_enabled }}"
+                                  - or:
+                                      - and:
+                                          - "{{ contact_window_opened != [] }}"
+                                          - "{{ states(contact_window_opened) in ['true', 'on'] }}"
+                                      - and:
+                                          - "{{ lockout_tilted_when_shading_starts }}"
+                                          - "{{ contact_window_tilted != [] }}"
+                                          - "{{ states(contact_window_tilted) in ['true', 'on'] }}"
+                                sequence:
+                                  - variables:
+                                      update_values:
+                                        # Shading blocked by lockout, record window state, store shading intent
+                                        shd: 1
+                                        win: "opn"
+                                        ts:
+                                          shd: "now"
+                                          win: "now"
+                                          shs: 0
+                                          she: 0
+                                  - *helper_update
+                                  - stop: "Shading Start skipped: Lockout enabled"
 
-                  ####################################
-                  # Save shading state for the future
-                  ####################################
-                  - alias: "Save shading state for the future"
-                    conditions:
-                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_state_pending_start }}" # Only when it comes back from pending status
-                      - "{{ effective_state == 'cls' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
-                    sequence:
-                      - variables:
-                          update_values:
-                            # Store shading intent for future (cover is closed)
-                            shd: 1
-                            ts:
-                              shd: "now"
-                              shs: 0
-                              she: 0
-                      - *helper_update
-                      - stop: "Shading Start skipped: State saved"
+                              ###################################
+                              # Start Shading
+                              ###################################
+                              - alias: "Start Shading"
+                                conditions:
+                                  - or: # Position check
+                                      - and:
+                                          - "{{ not is_cover_tilt_enabled_and_possible }}"
+                                          - "{{ position_comparisons.current_above_shading }}"
+                                      - and:
+                                          - "{{ is_cover_tilt_enabled_and_possible }}"
+                                          - "{{ position_comparisons.current_above_shading or current_position == shading_position }}"
+                                  - "{{ is_shading_allowed_window }}" # Shading during daytime window
+                                  - "{{ resident_flags.allow_shade }}"
+                                sequence:
+                                  - variables:
+                                      target_position: !input shading_position
+                                      target_tilt_position: "{{ shading_tilt_position | int }}"
+                                      update_values:
+                                        # Activate shading
+                                        shd: 1
+                                        man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
+                                        ts:
+                                          shd: "now"
+                                          shs: 0
+                                          she: 0
+                                  - if: "{{ force_allows_shade }}"
+                                    then:
+                                      - delay:
+                                          seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
+                                      - choose: []
+                                        default: !input auto_shading_start_action_before
+                                      - *cover_move_action
+                                      - *tilt_move_action
+                                      - choose: []
+                                        default: !input auto_shading_start_action
+                                  - *helper_update
+                                  - stop: "Shading Start executed"
+
+                              ####################################
+                              # Save shading state for the future
+                              ####################################
+                              - alias: "Save shading state for the future"
+                                conditions:
+                                  - "{{ effective_state == 'cls' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                                sequence:
+                                  - variables:
+                                      update_values:
+                                        # Store shading intent for future (cover is closed)
+                                        shd: 1
+                                        ts:
+                                          shd: "now"
+                                          shs: 0
+                                          she: 0
+                                  - *helper_update
+                                  - stop: "Shading Start skipped: State saved"
+
+                        else: # Blocked by additional condition or manual override - retry or abort
+                          - choose:
+                              - alias: "Shading start blocked by additional condition or manual override - check if we should continue"
+                                conditions:
+                                  - "{{ shading_start_max_duration > 0 }}"
+                                  - "{{ is_shading_allowed_window }}" # Continue only within time window
+                                  - "{{ (as_timestamp(now()) - helper_ts_shade) <= shading_start_max_duration }}"
+                                sequence:
+                                  - variables:
+                                      update_values:
+                                        # Continue waiting with new pending time
+                                        shd: 0
+                                        ts:
+                                          shd: "now"
+                                          shs: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                                          she: 0
+                                  - *helper_update
+                                  - stop: "Shading Start Pending: Continue waiting (blocked by user condition or override)"
+
+                              - alias: "Shading start blocked - stop retry"
+                                conditions: []
+                                sequence:
+                                  - variables:
+                                      update_values:
+                                        # Abort shading start, clear pending
+                                        shd: 0
+                                        ts:
+                                          shd: "now"
+                                          shs: 0
+                                          she: 0
+                                  - *helper_update
+                                  - stop: "Shading Start aborted: Timeout or invalid (blocked)"
 
             else: # Shading conditions were no longer met or not met again.
               - choose:
