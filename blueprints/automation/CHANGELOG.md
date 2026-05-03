@@ -76,6 +76,17 @@ The helper stores all relevant state information: the current base state, shadin
 
 ## 🔧 Bug Fixes
 
+### Shading never starts when using `weather_attributes` forecast mode ([#399](https://github.com/hvorragend/ha-blueprints/issues/399))
+In `shading_forecast_type: weather_attributes` mode, the current weather condition was read from the `condition` attribute of the weather entity. Most modern Home Assistant weather integrations expose the current condition as the entity **state**, not as an attribute, so this lookup returned `None` permanently. The resulting always-false `forecast_weather_valid` blocked the AND result and prevented shading from ever starting. The lookup now uses the entity state, which matches the Home Assistant weather entity contract.
+
+A diagnostic variable `diag_forecast_weather_attribute_mode` was added to the trace; it is populated only in `weather_attributes` mode and exposes the attribute value, the configured allow-list, and whether the current value is in that list.
+
+### Pending shading-start trigger no longer exits silently when conditions are not met
+When a `t_shading_start_pending_*` trigger fired but the combined start conditions evaluated false (e.g. due to a transient invalid sensor state), control fell into an inner `choose:` whose two options both required `t_shading_start_execution`. Without a `default:` branch, the run terminated silently and the trace ended on an irrelevant trigger-id regex check. A `default:` branch with an explicit `stop:` was added so the trace clearly reports the actual termination reason.
+
+### Brightness, temp1 and temp2 conditions trust their pending trigger
+The individual `*_valid` evaluations previously flipped to false if the source sensor was in `invalid_states` at the moment the action ran, even when the corresponding pending trigger had just fired (i.e. the value_template — which is identical — had evaluated true on that very sensor). This was a frequent cause of shading not starting when users had derived (template/min/max) sensors whose source briefly went unavailable. When the matching pending trigger is the active trigger, a transient `invalid_states` no longer overrides it.
+
 ### Cover stuck in shading position when conditions change rapidly ([#395](https://github.com/hvorragend/ha-blueprints/issues/395))
 On days with rapidly changing luminosity (e.g. alternating sun and clouds), the cover could remain stuck in the shading position for the rest of the day instead of opening when the sun moved past `shading_azimuth_end`. The internal shading-end pending state was never cleared if conditions recovered between the pending and execution phase, blocking all subsequent shading-end attempts until the midnight reset. The pending state is now cleared correctly so the next trigger can re-arm the shading-end flow.
 

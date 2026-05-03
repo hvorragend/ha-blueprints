@@ -4063,11 +4063,23 @@ actions:
         {% if weather == [] or states(weather) in invalid_states %}
           {{ None }}
         {% elif 'weather_attributes' in shading_forecast_type %}
-          {{ state_attr(weather, 'condition') }}
+          {{ states(weather) }}
         {% elif weather_forecast is defined and weather in weather_forecast %}
           {{ weather_forecast[weather].forecast[0].condition | default(None) }}
         {% else %}
           {{ None }}
+        {% endif %}
+
+      diag_forecast_weather_attribute_mode: >-
+        {% if forecast_source.prevent_service %}
+          {{
+            {
+              'attribute_value': forecast_weather_condition_raw,
+              'in_configured_list': (forecast_weather_condition_raw in shading_weather_conditions)
+                                    if forecast_weather_condition_raw is not none else none,
+              'configured_list': shading_weather_conditions
+            }
+          }}
         {% endif %}
 
       # SHADING START - Individual Condition Evaluations
@@ -4099,6 +4111,10 @@ actions:
             not shading_start_condition_enabled.brightness or
             shading_brightness_sensor == [] or
             (
+              states(shading_brightness_sensor) in invalid_states and
+              trigger is defined and trigger.id == 't_shading_start_pending_2'
+            ) or
+            (
               states(shading_brightness_sensor) not in invalid_states and
               states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis)
             )
@@ -4109,6 +4125,10 @@ actions:
             not shading_start_condition_enabled.temp1 or
             shading_temperatur_sensor1 == [] or
             (
+              states(shading_temperatur_sensor1) in invalid_states and
+              trigger is defined and trigger.id == 't_shading_start_pending_3'
+            ) or
+            (
               states(shading_temperatur_sensor1) not in invalid_states and
               states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) > (shading_min_temperatur1 + shading_temperature_hysteresis1)
             )
@@ -4118,6 +4138,10 @@ actions:
             not is_shading_enabled or
             not shading_start_condition_enabled.temp2 or
             shading_temperatur_sensor2 == [] or
+            (
+              states(shading_temperatur_sensor2) in invalid_states and
+              trigger is defined and trigger.id == 't_shading_start_pending_4'
+            ) or
             (
               states(shading_temperatur_sensor2) not in invalid_states and
               states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) > (shading_min_temperatur2 + shading_temperature_hysteresis2)
@@ -5164,6 +5188,9 @@ actions:
                               she: 0
                       - *helper_update
                       - stop: "Shading Start aborted: Timeout or invalid"
+
+                default:
+                  - stop: "Shading start skipped: Pending trigger fired but combined start conditions evaluated false."
 
       ############################################################
       # BRANCH (3): SHADING Tilt
