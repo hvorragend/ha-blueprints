@@ -141,6 +141,9 @@ Resident control was completely redesigned. A single smart trigger now handles b
 ### Automatic return to background state after force ends
 When a force function is deactivated, the cover automatically returns to the state the automation would have applied at that moment — open, closed, shading, or ventilation — without any manual intervention.
 
+### Keep cover at open position when window goes from fully opened to tilted ([#405](https://github.com/hvorragend/ha-blueprints/issues/405))
+New ventilation option `ventilation_keep_open_on_full_to_tilt`. By default, when the window changes from fully opened to tilted, the cover is lowered from the open position down to the partial ventilation position. With this option enabled, the cover stays at the open position instead — useful e.g. for terrace doors where you come back inside, tilt the door, and don't want the cover moving down. The helper window state is still updated to `tlt` so all downstream logic stays consistent.
+
 ### Force Pause — suspend all movements with immediate resume
 A new `force_pause` input (optional `input_boolean` or `switch`) allows suspending all automatic cover movements while keeping the background state fully up to date.
 
