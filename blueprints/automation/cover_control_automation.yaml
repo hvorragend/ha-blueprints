@@ -1188,6 +1188,13 @@ blueprint:
                 Normally, the cover would be fully opened when the shading is ended.
                 <br />
                 To be honest, it makes no sense to switch to the ventilation position during the day if more air can flow in when the cover is open.
+                <br /><br />
+              - <ins>Keep cover at open position when window goes from fully opened to tilted:</ins>
+                <br />
+                When the window was previously fully opened (cover at the open position) and is then tilted, the cover would normally
+                be lowered to the partial ventilation position. Enable this option to keep the cover at the open position in that case.
+                <br />
+                Useful e.g. for a terrace door: after coming back inside and tilting the door, the cover stays up instead of moving down.
 
             </details>
           default: []
@@ -1200,6 +1207,8 @@ blueprint:
                   value: "ventilation_if_lower_enabled"
                 - label: "💨 Using the ventilation position when the sun shading is ended (instead of opening it completely)"
                   value: "ventilation_after_shading_end"
+                - label: "💨 Keep cover at open position when window goes from fully opened to tilted"
+                  value: "ventilation_keep_open_on_full_to_tilt"
               multiple: true
               sort: false
               custom_value: false
@@ -3244,6 +3253,7 @@ variables:
     delay_enabled: "{{ 'ventilation_delay_enabled' in auto_ventilate_options }}"
     if_lower_enabled: "{{ 'ventilation_if_lower_enabled' in auto_ventilate_options }}"
     after_shading_end: "{{ 'ventilation_after_shading_end' in auto_ventilate_options }}"
+    keep_open_on_full_to_tilt: "{{ 'ventilation_keep_open_on_full_to_tilt' in auto_ventilate_options }}"
 
   # Individual configuration
   prevent_config: !input individual_config
@@ -5653,6 +5663,7 @@ actions:
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
                       - and:
+                          - "{{ not ventilation_flags.keep_open_on_full_to_tilt }}"
                           - "{{ helper_state_window == 'opn' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
                       # Cover is above ventilate position but system is in privacy-close mode (resident present):
@@ -5704,6 +5715,27 @@ actions:
                           win: "now"
                   - *helper_update
                   - stop: "Ventilation (partial): cover already at ventilate position, win updated"
+
+              ###################################
+              # VENTILATION START: Window tilted, transition from fully opened
+              # Option ventilation_keep_open_on_full_to_tilt enabled:
+              # keep cover at open position, only update win in helper
+              ###################################
+              - alias: "Window tilted - Keep cover at open position (full → tilt opt-out)"
+                conditions:
+                  - "{{ contact_tilted_now }}"
+                  - "{{ not contact_opened_now }}"
+                  - "{{ ventilation_flags.keep_open_on_full_to_tilt }}"
+                  - "{{ helper_state_window == 'opn' }}"
+                  - "{{ position_comparisons.current_above_ventilate }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        win: "tlt"
+                        ts:
+                          win: "now"
+                  - *helper_update
+                  - stop: "Ventilation (partial): keep open on full→tilt, win updated"
 
               ###################################
               # VENTILATION END: Window closed - Return to SHADING
