@@ -12,7 +12,7 @@ State is persisted as a JSON string in an `input_text` helper:
 
 ```json
 {"bas":"opn","shd":1,"win":"opn","frc":"non","res":1,"man":0,
- "ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"win":0,"man":0,"res":0},
+ "ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"shr":0,"man":0},
  "v":6,"t":0}
 ```
 
@@ -29,9 +29,10 @@ State is persisted as a JSON string in an `input_text` helper:
 | `ts.shd` | Unix timestamp | Last time shading state changed (0↔1) |
 | `ts.shs` | Unix timestamp | Shading pending start: when pending-start was armed |
 | `ts.she` | Unix timestamp | Shading pending end: when pending-end was armed |
-| `ts.win` | Unix timestamp | Last window state change |
+| `ts.shr` | Unix timestamp | Shading retry anchor: when current retry sequence (start OR end) began |
 | `ts.man` | Unix timestamp | Last manual override event |
-| `ts.res` | Unix timestamp | Last resident status change |
+
+> Note: `ts.win` and `ts.res` were removed during v6 beta. Existing helpers retain those keys until the next helper write, which silently drops them.
 
 ---
 
@@ -146,6 +147,26 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 **ts.shs / ts.she (shading pending timestamps):**
 - These must not be reset in win-only helper updates (when only `win` is updated without a drive)
 
+**ts.shr (shading retry anchor):**
+- Single field shared by both shading-start and shading-end retry sequences (mutually exclusive in normal operation, guarded by Invariant 11)
+- Set to `"now"` exactly once when either retry sequence begins (in "Shading detected. Save next execution time and pending status" for start, "Shading end detected. Save next execution time and pending status" for end)
+- Preserved across all retry-continuation branches (do not include `shr` in `update_values.ts` there — `helper_update` keeps the existing value)
+- Reset to `0` in every terminal branch of either sequence:
+  - Start: Drive, Lockout-skip, Save-for-future, both Abort branches
+  - End: Tilt-only, Lockout, Ventilation, Move-cover (both then/else), Stop retry, stale-pending cleanup (#395)
+- Read by both `shading_start_max_duration` and `shading_end_max_duration` checks via `helper_ts_shade_retry` — gives a stable retry-window anchor independent of the Invariant-8 guard on `ts.shd`
+
+### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
+
+Pending-start (`ts.shs > 0`) and pending-end (`ts.she > 0`) must never both be active simultaneously. With sane configuration (hysteresis > 0 between start and end thresholds), this state is unreachable. With misconfigured conditions it could otherwise produce ping-pong: start fires → end fires → start fires → …
+
+**Guard:** Both pending-establishment branches gate on the opposite pending state:
+
+- "Shading detected" (start) requires `not helper_state_pending_end`
+- "Shading end detected" requires `not helper_state_pending_start`
+
+This also keeps the shared `ts.shr` retry anchor unambiguous (Invariant 8).
+
 ### ⚠️ Invariant 9: `ts_now` must be evaluated at the point of use
 
 `ts_now` (`as_timestamp(now()) | round(0)`) must **never** be defined as a single global variable at the top of the automation action. It must be set locally — directly in the block where the current timestamp is needed.
@@ -249,6 +270,14 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 **Cause B:** `ts.shs/ts.she` are reset in win-only helper updates.
 
 **Fix:** Guard in `helper_update` — only apply `ts.shd` when `new_shd != current.shd`. Do not reset `ts.shs/ts.she` in win-only updates.
+
+### Bug Pattern I: Shading-start retry aborts on fresh day (Issue #416)
+
+**Symptom:** First retry attempt of the day aborts immediately when the start conditions are blocked by additional conditions or manual override; the `shading_start_max_duration` window is effectively zero on a fresh helper.
+
+**Cause:** The duration check used `helper_ts_shade` (= `ts.shd`) as anchor. Pending establishment does not transition `shd`, so the Invariant-8 guard preserves `ts.shd` at its previous value (yesterday's shading-end or `0`). `now() - ts.shd` is therefore much larger than `shading_start_max_duration` → check fails → retry aborts.
+
+**Fix:** Dedicated `ts.shr` field that records the retry-sequence start. Set in "Shading detected" (start) and "Shading end detected" (end), preserved across continues, cleared in all terminal branches of both sequences. Duration checks for both `shading_start_max_duration` and `shading_end_max_duration` now use `helper_ts_shade_retry`. The same field serves both directions because the sequences are mutually exclusive (Invariant 11).
 
 ### Bug Pattern G: `helper_state_window` instead of realtime sensor in `resident_arriving` handler
 
