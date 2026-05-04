@@ -2720,7 +2720,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.03-beta"
+  version: "2026.05.04-beta"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -2956,7 +2956,7 @@ variables:
   # Cover Status Helper – JSON parsing with v5 → v6 migration
   # ═══════════════════════════════════════════════════════════════════════════
   # v6 Compact Schema (stored in input_text, max 208 chars):
-  # {"bas":"opn","shd":0,"win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"win":0,"man":0},"v":6,"t":0}
+  # {"bas":"opn","shd":0,"win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"shr":0,"man":0},"v":6,"t":0}
   #
   # Field mapping (compact → internal):
   #   bas → base (opn/cls → open/close)
@@ -2967,7 +2967,8 @@ variables:
   #   man → manual (1/0)
   #   ts.opn → ts.open, ts.cls → ts.close, ts.shd → ts.shade
   #   ts.shs → ts.shade_start, ts.she → ts.shade_end
-  #   ts.win → ts.window, ts.man → ts.manual
+  #   ts.shr → ts.shade_retry (anchor for shading-start retry duration)
+  #   ts.man → ts.manual
   #
   # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
   #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
@@ -3009,9 +3010,8 @@ variables:
             'shd': helper_raw.shading.t | default(0) if v5_current == 'shade' else 0,
             'shs': helper_raw.shading.p | default(0),
             'she': helper_raw.shading.q | default(0),
-            'win': helper_raw.vpart.t | default(helper_raw.vfull.t | default(0)),
-            'man': helper_raw.manual.t | default(0),
-            'res': 0
+            'shr': 0,
+            'man': helper_raw.manual.t | default(0)
           },
           'v': 6,
           't': ts_now
@@ -3033,9 +3033,8 @@ variables:
             'shd': raw_ts.shd | default(0) | int,
             'shs': raw_ts.shs | default(0) | int,
             'she': raw_ts.she | default(0) | int,
-            'win': raw_ts.win | default(0) | int,
-            'man': raw_ts.man | default(0) | int,
-            'res': raw_ts.res | default(0) | int
+            'shr': raw_ts.shr | default(0) | int,
+            'man': raw_ts.man | default(0) | int
           },
           'v': 6,
           't': helper_raw.t | default(ts_now) | int
@@ -3056,9 +3055,8 @@ variables:
             'shd': 0,
             'shs': 0,
             'she': 0,
-            'win': 0,
-            'man': 0,
-            'res': 0
+            'shr': 0,
+            'man': 0
           },
           'v': 6,
           't': ts_now
@@ -3140,6 +3138,7 @@ variables:
   helper_ts_open: "{{ helper_json.ts.opn | default(0) | int }}"
   helper_ts_close: "{{ helper_json.ts.cls | default(0) | int }}"
   helper_ts_shade: "{{ helper_json.ts.shd | default(0) | int }}"
+  helper_ts_shade_retry: "{{ helper_json.ts.shr | default(0) | int }}"
   helper_ts_man: "{{ helper_json.ts.man | default(0) | int }}"
 
   # SHADED STATUS - Is cover currently shaded (not pending)?
@@ -3878,7 +3877,7 @@ actions:
       # Uses v6 compact schema names directly (no internal name conversion)
       #
       # Fields: bas, shd (1/0), win, frc, res (1/0), man (1/0)
-      # Timestamps: ts.opn, ts.cls, ts.shd, ts.shs, ts.she, ts.win, ts.man
+      # Timestamps: ts.opn, ts.cls, ts.shd, ts.shs, ts.she, ts.shr, ts.man
       #
       # Template logic:
       #   1. Apply field updates (compact names directly)
@@ -3904,7 +3903,7 @@ actions:
               {% set current_ts = current.ts | default({}) %}
 
               {% set merged_ts = namespace(data={}) %}
-              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'win', 'man', 'res'] %}
+              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'shr', 'man'] %}
                 {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
               {% endfor %}
               {% if 'ts' in updates %}
@@ -3929,9 +3928,8 @@ actions:
                   'shd': merged_ts.data.shd | default(0) | int,
                   'shs': merged_ts.data.shs | default(0) | int,
                   'she': merged_ts.data.she | default(0) | int,
-                  'win': merged_ts.data.win | default(0) | int,
-                  'man': merged_ts.data.man | default(0) | int,
-                  'res': merged_ts.data.res | default(0) | int
+                  'shr': merged_ts.data.shr | default(0) | int,
+                  'man': merged_ts.data.man | default(0) | int
                 },
                 'v': 6,
                 't': ts_now | int
@@ -3965,9 +3963,8 @@ actions:
                 'shd': 0,
                 'shs': 0,
                 'she': 0,
-                'win': 0,
-                'man': 0,
-                'res': 0
+                'shr': 0,
+                'man': 0
               },
               'v': 6,
               't': ts_now | int
@@ -5065,6 +5062,7 @@ actions:
                               shd: "now"
                               shs: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
                               she: 0
+                              shr: "now" # Anchor for max-duration retry window
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
 
@@ -5103,9 +5101,9 @@ actions:
                                         win: "opn"
                                         ts:
                                           shd: "now"
-                                          win: "now"
                                           shs: 0
                                           she: 0
+                                          shr: 0 # Clear retry anchor (sequence ended)
                                   - *helper_update
                                   - stop: "Shading Start skipped: Lockout enabled"
 
@@ -5135,6 +5133,7 @@ actions:
                                           shd: "now"
                                           shs: 0
                                           she: 0
+                                          shr: 0 # Clear retry anchor (sequence ended)
                                   - if: "{{ force_allows_shade }}"
                                     then:
                                       - delay:
@@ -5163,6 +5162,7 @@ actions:
                                           shd: "now"
                                           shs: 0
                                           she: 0
+                                          shr: 0 # Clear retry anchor (sequence ended)
                                   - *helper_update
                                   - stop: "Shading Start skipped: State saved"
 
@@ -5172,7 +5172,7 @@ actions:
                                 conditions:
                                   - "{{ shading_start_max_duration > 0 }}"
                                   - "{{ is_shading_allowed_window }}" # Continue only within time window
-                                  - "{{ (as_timestamp(now()) - helper_ts_shade) <= shading_start_max_duration }}"
+                                  - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_start_max_duration }}"
                                 sequence:
                                   - variables:
                                       update_values:
@@ -5196,6 +5196,7 @@ actions:
                                           shd: "now"
                                           shs: 0
                                           she: 0
+                                          shr: 0 # Clear retry anchor (sequence ended)
                                   - *helper_update
                                   - stop: "Shading Start aborted: Timeout or invalid (blocked)"
 
@@ -5210,7 +5211,7 @@ actions:
                       - "{{ helper_state_pending_start }}"
                       - "{{ shading_start_max_duration > 0 }}"
                       - "{{ is_shading_allowed_window }}" # Continue only within time window
-                      - "{{ (as_timestamp(now()) - helper_ts_shade) <= shading_start_max_duration }}"
+                      - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
                           update_values:
@@ -5239,6 +5240,7 @@ actions:
                               shd: "now"
                               shs: 0
                               she: 0
+                              shr: 0 # Clear retry anchor (sequence ended)
                       - *helper_update
                       - stop: "Shading Start aborted: Timeout or invalid"
 
