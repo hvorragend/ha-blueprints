@@ -1178,9 +1178,12 @@ blueprint:
                 <br /><br />
                 The "Fixed Drive Delay" and "Random Drive Delay" settings which are already used everywhere are then used.
                 <br /><br />
-              - <ins>Allow ventilation even if cover is already in a higher position:</ins>
+              - <ins>Lower cover to the ventilation position when the window tilts and cover is above:</ins>
                 <br />
-                Activate ventilation mode even if the current position of the cover is already higher than the ventilation position.
+                When the window is tilted and the cover is currently above the ventilation position, drive it <strong>down</strong> to the ventilation position.
+                Without this option, the cover stays where it is in that case.
+                <br />
+                Note: This option takes effect for any cover position above the ventilation position. The dedicated full → tilt transition has its own opt-out below.
                 <br /><br />
               - <ins>Using the ventilation position when the sun shade is ended:</ins>
                 <br />
@@ -1203,7 +1206,7 @@ blueprint:
               options:
                 - label: "💨 Enables a calculated delay after the window is closed"
                   value: "ventilation_delay_enabled"
-                - label: "💨 Allow ventilation even if cover is already in a higher position"
+                - label: "💨 Lower cover to ventilation position when window tilts and cover is above"
                   value: "ventilation_if_lower_enabled"
                 - label: "💨 Using the ventilation position when the sun shading is ended (instead of opening it completely)"
                   value: "ventilation_after_shading_end"
@@ -5660,6 +5663,8 @@ actions:
                   - "{{ force_allows_ventilate }}" # TODO
                   - "{{ 'resident_allow_ventilation' in resident_config or not resident_now }}"
                   - condition: !input auto_ventilate_condition
+                  # Top-level opt-out: full → tilt with keep-open flag set
+                  - "{{ not (ventilation_flags.keep_open_on_full_to_tilt and helper_state_window == 'opn' and position_comparisons.current_above_ventilate) }}"
                   # Position check: Only move if cover is below ventilation position (or option enabled)
                   - or:
                       # Standard: Cover is below ventilate position
@@ -5673,7 +5678,6 @@ actions:
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
                       - and:
-                          - "{{ not ventilation_flags.keep_open_on_full_to_tilt }}"
                           - "{{ helper_state_window == 'opn' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
                       # Cover is above ventilate position but system is in privacy-close mode (resident present):
@@ -5691,7 +5695,6 @@ actions:
                         win: "tlt"
                         man: 0
                         ts:
-                          win: "now"
                           shs: 0
                           she: 0
                   - if: "{{ force_allows_ventilate }}"
@@ -5709,43 +5712,28 @@ actions:
 
               ###################################
               # VENTILATION START: Window tilted
-              # Cover already at/above ventilate position — just update win in helper
+              # No drive needed — sync helper window state only.
+              # Covers two cases:
+              #   a) Cover already at ventilate position
+              #   b) Cover above ventilate position with keep_open_on_full_to_tilt opt-out
               ###################################
-              - alias: "Window tilted - Cover already at ventilate position, update win"
+              - alias: "Window tilted - No drive, sync helper window state"
                 conditions:
                   - "{{ contact_tilted_now }}"
                   - "{{ not contact_opened_now }}"
-                  - "{{ in_ventilate_position }}" # Only update win state if cover is actually at ventilate position
                   - "{{ helper_state_window != 'tlt' }}"
+                  - or:
+                      - "{{ in_ventilate_position }}"
+                      - and:
+                          - "{{ ventilation_flags.keep_open_on_full_to_tilt }}"
+                          - "{{ helper_state_window == 'opn' }}"
+                          - "{{ position_comparisons.current_above_ventilate }}"
                 sequence:
                   - variables:
                       update_values:
                         win: "tlt"
-                        ts:
-                          win: "now"
                   - *helper_update
-                  - stop: "Ventilation (partial): cover already at ventilate position, win updated"
-
-              ###################################
-              # VENTILATION START: Window tilted, transition from fully opened
-              # Option ventilation_keep_open_on_full_to_tilt enabled:
-              # keep cover at open position, only update win in helper
-              ###################################
-              - alias: "Window tilted - Keep cover at open position (full → tilt opt-out)"
-                conditions:
-                  - "{{ contact_tilted_now }}"
-                  - "{{ not contact_opened_now }}"
-                  - "{{ ventilation_flags.keep_open_on_full_to_tilt }}"
-                  - "{{ helper_state_window == 'opn' }}"
-                  - "{{ position_comparisons.current_above_ventilate }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        win: "tlt"
-                        ts:
-                          win: "now"
-                  - *helper_update
-                  - stop: "Ventilation (partial): keep open on full→tilt, win updated"
+                  - stop: "Ventilation (partial): no drive, helper window state synced"
 
               ###################################
               # VENTILATION END: Window closed - Return to SHADING

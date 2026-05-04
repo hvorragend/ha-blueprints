@@ -880,3 +880,298 @@ class TestInvariant8TsShdGuard:
             "current_shd": 0,
         })
         assert result is False, "Guard should not fire (allow ts.shd update) when shd changes"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: window-tilted contact handler — keep-open opt-out (Issue #405)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Verifies the choose-block ordering and conditions for the contact handler
+# branches "Window tilted - Partial ventilation" (drives cover) and
+# "Window tilted - No drive, sync helper window state" (helper-only).
+#
+# Regression guard for the bug where ventilation_keep_open_on_full_to_tilt
+# was overridden by ventilation_if_lower_enabled because the if_lower OR-clause
+# in the partial-ventilation branch still matched the full→tilt scenario.
+
+WIN_TILT_DRIVE_BRANCH = {
+    "name": "partial_ventilation_drive",
+    "conditions": [
+        "{{ contact_tilted_now }}",
+        "{{ not contact_opened_now }}",
+        "{{ force_allows_ventilate }}",
+        "{{ 'resident_allow_ventilation' in resident_config or not resident_now }}",
+        "{{ not (ventilation_flags.keep_open_on_full_to_tilt and helper_state_window == 'opn' and position_comparisons.current_above_ventilate) }}",
+        # OR-block flattened into one Jinja expression
+        "{{ position_comparisons.current_below_ventilate"
+        " or (is_cover_tilt_enabled_and_possible"
+        "     and (position_comparisons.current_below_ventilate or current_position == ventilate_position)"
+        "     and current_tilt_position <= ventilate_tilt_position)"
+        " or (ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position))"
+        " or (helper_state_window == 'opn' and position_comparisons.current_above_ventilate)"
+        " or (position_comparisons.current_above_ventilate and effective_state == 'cls') }}",
+    ],
+}
+
+WIN_TILT_NO_DRIVE_BRANCH = {
+    "name": "no_drive_helper_only",
+    "conditions": [
+        "{{ contact_tilted_now }}",
+        "{{ not contact_opened_now }}",
+        "{{ helper_state_window != 'tlt' }}",
+        "{{ in_ventilate_position"
+        " or (ventilation_flags.keep_open_on_full_to_tilt"
+        "     and helper_state_window == 'opn'"
+        "     and position_comparisons.current_above_ventilate) }}",
+    ],
+}
+
+WIN_TILT_BRANCHES = [WIN_TILT_DRIVE_BRANCH, WIN_TILT_NO_DRIVE_BRANCH]
+
+
+def _make_tilt_vars(
+    *,
+    keep_open_on_full_to_tilt: bool = False,
+    if_lower_enabled: bool = False,
+    helper_state_window: str = "cls",
+    current_above_ventilate: bool = False,
+    current_below_ventilate: bool = False,
+    in_ventilate_position: bool = False,
+    is_cover_tilt_enabled_and_possible: bool = False,
+    current_position: int = 100,
+    ventilate_position: int = 50,
+    current_tilt_position: int = 100,
+    ventilate_tilt_position: int = 50,
+    effective_state: str = "vnt",
+    force_allows_ventilate: bool = True,
+    resident_now: bool = False,
+    resident_config: list | None = None,
+    contact_tilted_now: bool = True,
+    contact_opened_now: bool = False,
+) -> dict:
+    return {
+        "contact_tilted_now": contact_tilted_now,
+        "contact_opened_now": contact_opened_now,
+        "force_allows_ventilate": force_allows_ventilate,
+        "resident_now": resident_now,
+        "resident_config": resident_config or [],
+        "ventilation_flags": {
+            "keep_open_on_full_to_tilt": keep_open_on_full_to_tilt,
+            "if_lower_enabled": if_lower_enabled,
+        },
+        "helper_state_window": helper_state_window,
+        "position_comparisons": {
+            "current_above_ventilate": current_above_ventilate,
+            "current_below_ventilate": current_below_ventilate,
+        },
+        "in_ventilate_position": in_ventilate_position,
+        "is_cover_tilt_enabled_and_possible": is_cover_tilt_enabled_and_possible,
+        "current_position": current_position,
+        "ventilate_position": ventilate_position,
+        "current_tilt_position": current_tilt_position,
+        "ventilate_tilt_position": ventilate_tilt_position,
+        "effective_state": effective_state,
+    }
+
+
+class TestKeepOpenOnFullToTilt:
+    """
+    Issue #405: opt-out for the full → tilt cover-lowering transition.
+
+    Verifies that when ventilation_keep_open_on_full_to_tilt is enabled,
+    the cover stays at the open position regardless of other ventilation
+    options (in particular ventilation_if_lower_enabled).
+    """
+
+    def test_keep_open_disabled_full_to_tilt_drives_to_vent(self):
+        """
+        Default behaviour: opt-out off, full → tilt → cover lowers (drive branch).
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            keep_open_on_full_to_tilt=False,
+            helper_state_window="opn",
+            current_above_ventilate=True,
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive", (
+            "With opt-out disabled, the full → tilt transition must drive the cover."
+        )
+
+    def test_keep_open_enabled_full_to_tilt_no_drive(self):
+        """
+        Opt-out enabled, full → tilt → no drive, only helper sync.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            keep_open_on_full_to_tilt=True,
+            helper_state_window="opn",
+            current_above_ventilate=True,
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "no_drive_helper_only", (
+            "With opt-out enabled, the full → tilt transition must NOT drive the cover."
+        )
+
+    def test_keep_open_enabled_with_if_lower_enabled_no_drive(self):
+        """
+        Regression: both opt-out AND if_lower_enabled set.
+
+        Before fix: if_lower OR-clause matched first → cover lowered → opt-out ignored.
+        After fix: top-level guard skips drive branch → no-drive branch fires.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            keep_open_on_full_to_tilt=True,
+            if_lower_enabled=True,
+            helper_state_window="opn",
+            current_above_ventilate=True,
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "no_drive_helper_only", (
+            "Opt-out must take precedence over if_lower_enabled in the full → tilt scenario."
+        )
+
+    def test_if_lower_enabled_above_vent_without_full_state_drives(self):
+        """
+        if_lower_enabled fires for the generic 'cover above ventilate' case
+        (not full → tilt) — opt-out must not interfere here.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            keep_open_on_full_to_tilt=True,
+            if_lower_enabled=True,
+            helper_state_window="cls",  # not 'opn' → not the full → tilt scenario
+            current_above_ventilate=True,
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive", (
+            "if_lower_enabled must still drive when the helper window state is not 'opn'."
+        )
+
+    def test_keep_open_enabled_helper_state_not_opn_falls_through(self):
+        """
+        Opt-out is scoped to helper_state_window == 'opn'. With helper=cls
+        and cover below vent, the standard drive path applies.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            keep_open_on_full_to_tilt=True,
+            helper_state_window="cls",
+            current_below_ventilate=True,
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive"
+
+    def test_at_vent_position_helper_stale_uses_no_drive_branch(self):
+        """
+        Cover already at ventilate position, helper not yet synced → helper-only branch.
+        Independent of the keep_open option.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            keep_open_on_full_to_tilt=False,
+            helper_state_window="cls",
+            in_ventilate_position=True,
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "no_drive_helper_only"
+
+    def test_at_vent_position_helper_already_tlt_no_match(self):
+        """
+        Cover at vent, helper already 'tlt' → no branch matches (no-op).
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            keep_open_on_full_to_tilt=False,
+            helper_state_window="tlt",
+            in_ventilate_position=True,
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch is None
+
+
+class TestKeepOpenBlueprintWiring:
+    """
+    Static checks that the blueprint YAML correctly wires the new option.
+    """
+
+    def _load_blueprint(self) -> dict:
+        return _load_blueprint_yaml(BLUEPRINT_PATH)
+
+    def test_top_level_guard_present_in_partial_ventilation_branch(self):
+        """
+        The partial-ventilation branch must contain the top-level
+        keep_open_on_full_to_tilt guard so the opt-out cannot be bypassed
+        by the if_lower_enabled OR-clause.
+        """
+        blueprint = self._load_blueprint()
+
+        def walk(node):
+            if isinstance(node, dict):
+                if node.get("alias") == "Window tilted - Partial ventilation":
+                    return node
+                for v in node.values():
+                    result = walk(v)
+                    if result is not None:
+                        return result
+            elif isinstance(node, list):
+                for item in node:
+                    result = walk(item)
+                    if result is not None:
+                        return result
+            return None
+
+        branch = walk(blueprint)
+        assert branch is not None, "Could not find 'Window tilted - Partial ventilation' branch"
+        conditions = branch.get("conditions", [])
+        guard_marker = "ventilation_flags.keep_open_on_full_to_tilt"
+        assert any(
+            isinstance(c, str) and guard_marker in c and "not (" in c
+            for c in conditions
+        ), (
+            "Top-level keep_open_on_full_to_tilt guard missing from "
+            "'Window tilted - Partial ventilation' branch."
+        )
+
+    def test_no_drive_branch_present_after_partial_ventilation(self):
+        """
+        The unified 'no drive, sync helper window state' branch must exist
+        and come AFTER 'Partial ventilation' in the choose-block.
+        """
+        blueprint = self._load_blueprint()
+
+        def find_choose_with_aliases(node, aliases):
+            if isinstance(node, dict):
+                if "choose" in node and isinstance(node["choose"], list):
+                    found_aliases = [b.get("alias") for b in node["choose"] if isinstance(b, dict)]
+                    if all(a in found_aliases for a in aliases):
+                        return node["choose"], found_aliases
+                for v in node.values():
+                    result = find_choose_with_aliases(v, aliases)
+                    if result is not None:
+                        return result
+            elif isinstance(node, list):
+                for item in node:
+                    result = find_choose_with_aliases(item, aliases)
+                    if result is not None:
+                        return result
+            return None
+
+        target = find_choose_with_aliases(
+            blueprint,
+            [
+                "Window tilted - Partial ventilation",
+                "Window tilted - No drive, sync helper window state",
+            ],
+        )
+        assert target is not None, (
+            "Could not find a choose-block containing both the partial-ventilation "
+            "and the no-drive helper-sync branches."
+        )
+        _, aliases = target
+        idx_drive = aliases.index("Window tilted - Partial ventilation")
+        idx_no_drive = aliases.index("Window tilted - No drive, sync helper window state")
+        assert idx_drive < idx_no_drive, (
+            "Drive branch must come before no-drive helper-sync branch in choose-block."
+        )
