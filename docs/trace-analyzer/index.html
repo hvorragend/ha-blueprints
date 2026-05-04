@@ -1962,149 +1962,209 @@
         }
 
         // FEATURE 2: Shading Condition Deep-Dive
+        //
+        // Renders only the conditions the user actually selected in the blueprint
+        // (shading_conditions_start_and / _start_or / _end_and / _end_or) and that
+        // have the corresponding sensor configured. Pass/fail comes from the
+        // blueprint's own evaluation (shading_start_condition_states.*_valid and
+        // shading_end_condition_states.*_invalid) so the analyzer agrees with the
+        // automation's runtime decision.
         function renderShadingConditionDeepDive(variables, innerTrace) {
+            // True when an HA optional input is unset. HA serializes empty inputs
+            // as []; defensively treat null/undefined/'' the same.
+            const isSensorConfigured = (v) => {
+                if (v === undefined || v === null || v === '') return false;
+                if (Array.isArray(v) && v.length === 0) return false;
+                return true;
+            };
+
+            const isList = (v) => Array.isArray(v) ? v : [];
+
+            // Token → display + sensor + state-key mapping. The sensor-variable
+            // names match the blueprint (see shading_*_condition_states templates).
+            const CONDITION_DEFS = {
+                cond_azimuth: {
+                    label: 'Sun Azimuth', icon: '📐',
+                    sensorVar: 'default_sun_sensor',
+                    valueFn: (v) => {
+                        if (v.current_sun_azimuth === undefined) return '';
+                        const s = v.shading_azimuth_start, e = v.shading_azimuth_end;
+                        return `${(+v.current_sun_azimuth).toFixed(1)}° (range: ${s ?? '?'}–${e ?? '?'}°)`;
+                    },
+                },
+                cond_elevation: {
+                    label: 'Sun Elevation', icon: '☀️',
+                    sensorVar: 'default_sun_sensor',
+                    valueFn: (v) => {
+                        if (v.current_sun_elevation === undefined) return '';
+                        const lo = v.shading_elevation_min, hi = v.shading_elevation_max;
+                        return `${(+v.current_sun_elevation).toFixed(1)}° (range: ${lo ?? '?'}–${hi ?? '?'}°)`;
+                    },
+                },
+                cond_brightness: {
+                    label: 'Brightness', icon: '🔆',
+                    sensorVar: 'shading_brightness_sensor',
+                    valueFn: (v) => `start ≥ ${v.shading_sun_brightness_start ?? '?'} lux / end < ${v.shading_sun_brightness_end ?? '?'} lux`,
+                },
+                cond_temp1: {
+                    label: 'Temperature 1', icon: '1️⃣',
+                    sensorVar: 'shading_temperatur_sensor1',
+                    valueFn: (v) => `start ≥ ${v.shading_min_temperatur1 ?? '?'}°C`,
+                },
+                cond_temp2: {
+                    label: 'Temperature 2', icon: '2️⃣',
+                    sensorVar: 'shading_temperatur_sensor2',
+                    valueFn: (v) => `start ≥ ${v.shading_min_temperatur2 ?? '?'}°C`,
+                },
+                cond_forecast_temp: {
+                    label: 'Forecast Temperature', icon: '📊',
+                    sensorVar: 'shading_forecast_temp',
+                    valueFn: (v) => `start ≥ ${v.shading_forecast_temp ?? '?'}°C`,
+                },
+                cond_forecast_weather: {
+                    label: 'Forecast Weather', icon: '🌦️',
+                    sensorVar: 'shading_weather_conditions',
+                    valueFn: () => 'Matches configured weather conditions',
+                },
+            };
+
+            // Token order in the rendered list — matches the blueprint UI.
+            const TOKEN_ORDER = [
+                'cond_azimuth', 'cond_elevation', 'cond_brightness',
+                'cond_temp1', 'cond_temp2',
+                'cond_forecast_temp', 'cond_forecast_weather',
+            ];
+
+            // Map token → state key in the *_valid / *_invalid dicts.
+            const STATE_KEY = {
+                cond_azimuth: 'azimuth',
+                cond_elevation: 'elevation',
+                cond_brightness: 'brightness',
+                cond_temp1: 'temp1',
+                cond_temp2: 'temp2',
+                cond_forecast_temp: 'forecast_temp',
+                cond_forecast_weather: 'forecast_weather',
+            };
+
+            const startStates = variables.shading_start_condition_states || {};
+            const endStates = variables.shading_end_condition_states || {};
+
+            // Render one block (AND or OR) for a given phase (start | end).
+            // selected: list of tokens the user picked for this AND/OR group.
+            // operator: 'AND' | 'OR'
+            // phase: 'start' | 'end'
+            const renderGroup = (selected, operator, phase) => {
+                const tokens = isList(selected);
+                if (tokens.length === 0) return '';
+
+                const operatorDescription = operator === 'AND'
+                    ? (phase === 'start' ? 'All selected must be valid' : 'All selected must become invalid')
+                    : (phase === 'start' ? 'At least one selected must be valid' : 'At least one selected must become invalid');
+
+                let block = `<div class="hierarchy-title" style="margin-top: 0.75rem; margin-bottom: 0.5rem;">`
+                    + `<span class="hierarchy-operator">${operator}</span> ${operatorDescription}:</div>`;
+
+                let renderedAny = false;
+                let skippedNoSensor = [];
+
+                for (const token of TOKEN_ORDER) {
+                    if (!tokens.includes(token)) continue;
+                    const def = CONDITION_DEFS[token];
+                    if (!def) continue;
+
+                    const sensorValue = variables[def.sensorVar];
+                    if (!isSensorConfigured(sensorValue)) {
+                        skippedNoSensor.push(def.label);
+                        continue;
+                    }
+
+                    const stateKey = STATE_KEY[token];
+                    const stateDict = phase === 'start' ? startStates : endStates;
+                    const stateField = phase === 'start' ? `${stateKey}_valid` : `${stateKey}_invalid`;
+                    const stateVal = stateDict[stateField];
+                    // Treat undefined as "unknown"; render as fail to be visible without claiming pass.
+                    const pass = stateVal === true;
+                    const cls = pass ? 'pass' : 'fail';
+                    const mark = pass ? '✓' : '✗';
+
+                    block += `
+                        <div class="condition-leaf ${cls}">
+                            <span class="condition-leaf-icon">${def.icon}</span>
+                            <span class="condition-leaf-name">${def.label}</span>
+                            <span class="condition-leaf-value">${def.valueFn(variables) || ''}</span>
+                            <span class="condition-leaf-result ${cls}">${mark}</span>
+                        </div>
+                    `;
+                    renderedAny = true;
+                }
+
+                if (skippedNoSensor.length > 0) {
+                    block += `
+                        <div class="condition-leaf" style="opacity:0.7;">
+                            <span class="condition-leaf-icon">ℹ️</span>
+                            <span class="condition-leaf-name">Skipped (no sensor)</span>
+                            <span class="condition-leaf-value">${skippedNoSensor.join(', ')} — selected but no sensor configured, ignored by automation.</span>
+                        </div>
+                    `;
+                }
+
+                if (!renderedAny && skippedNoSensor.length === 0) return '';
+                return block;
+            };
+
+            const startAnd = isList(variables.shading_conditions_start_and);
+            const startOr = isList(variables.shading_conditions_start_or);
+            const endAnd = isList(variables.shading_conditions_end_and);
+            const endOr = isList(variables.shading_conditions_end_or);
+
             let html = '';
 
-            // Check if shading start conditions exist
-            if (variables.shading_conditions_start_and || variables.shading_conditions_start_or) {
+            const hasStart = startAnd.length > 0 || startOr.length > 0;
+            if (hasStart) {
                 html += '<div class="hierarchy-level">';
-                html += '<div class="hierarchy-title"><span class="hierarchy-operator">SHADING START</span> Sun Position + Thresholds</div>';
-
-                const startAnd = variables.shading_conditions_start_and || {};
-                const startOr = variables.shading_conditions_start_or || {};
-
+                html += '<div class="hierarchy-title"><span class="hierarchy-operator">SHADING START</span> User-selected conditions</div>';
                 html += '<div class="condition-tree">';
+                html += renderGroup(startAnd, 'AND', 'start');
+                html += renderGroup(startOr, 'OR', 'start');
 
-                // AND conditions for shading start
-                if (Object.keys(startAnd).length > 0) {
-                    html += `<div class="hierarchy-title" style="margin-top: 0.5rem; margin-bottom: 0.5rem;"><span class="hierarchy-operator">AND</span> All must be true:</div>`;
-
-                    // Azimuth range check
-                    if (variables.shading_azimuth_start !== undefined && variables.shading_azimuth_end !== undefined && variables.current_sun_azimuth !== undefined) {
-                        const azStart = variables.shading_azimuth_start;
-                        const azEnd = variables.shading_azimuth_end;
-                        const azCurrent = variables.current_sun_azimuth;
-                        const inRange = (azCurrent >= azStart && azCurrent <= azEnd) ||
-                            (azStart > azEnd && (azCurrent >= azStart || azCurrent <= azEnd));
-
-                        html += `
-                            <div class="condition-leaf ${inRange ? 'pass' : 'fail'}">
-                                <span class="condition-leaf-icon">☀️</span>
-                                <span class="condition-leaf-name">Azimuth Range</span>
-                                <span class="condition-leaf-value">${azCurrent.toFixed(1)}° (range: ${azStart}-${azEnd}°)</span>
-                                <span class="condition-leaf-result ${inRange ? 'pass' : 'fail'}">${inRange ? '✓' : '✗'}</span>
-                            </div>
-                        `;
-                    }
-
-                    // Sun elevation check
-                    if (variables.shading_elevation_min !== undefined && variables.shading_elevation_max !== undefined && variables.current_sun_elevation !== undefined) {
-                        const elMin = variables.shading_elevation_min;
-                        const elMax = variables.shading_elevation_max;
-                        const elCurrent = variables.current_sun_elevation;
-                        const inRange = elCurrent >= elMin && elCurrent <= elMax;
-
-                        html += `
-                            <div class="condition-leaf ${inRange ? 'pass' : 'fail'}">
-                                <span class="condition-leaf-icon">📐</span>
-                                <span class="condition-leaf-name">Elevation Range</span>
-                                <span class="condition-leaf-value">${elCurrent.toFixed(1)}° (range: ${elMin}-${elMax}°)</span>
-                                <span class="condition-leaf-result ${inRange ? 'pass' : 'fail'}">${inRange ? '✓' : '✗'}</span>
-                            </div>
-                        `;
-                    }
-
-                    // Brightness check
-                    if (variables.shading_sun_brightness_start !== undefined && variables.default_brightness_sensor !== undefined) {
-                        const brightness = startAnd.brightness_check ?? null;
-                        html += `
-                            <div class="condition-leaf ${brightness ? 'pass' : 'fail'}">
-                                <span class="condition-leaf-icon">💡</span>
-                                <span class="condition-leaf-name">Brightness Threshold</span>
-                                <span class="condition-leaf-value">Minimum: ${variables.shading_sun_brightness_start} lux</span>
-                                <span class="condition-leaf-result ${brightness ? 'pass' : 'fail'}">${brightness ? '✓' : '✗'}</span>
-                            </div>
-                        `;
-                    }
-
-                    // Temperature checks
-                    if (variables.shading_min_temperatur1 !== undefined) {
-                        const temp1 = startAnd.temp1_check ?? null;
-                        html += `
-                            <div class="condition-leaf ${temp1 ? 'pass' : 'fail'}">
-                                <span class="condition-leaf-icon">🌡️</span>
-                                <span class="condition-leaf-name">Temperature 1</span>
-                                <span class="condition-leaf-value">Minimum: ${variables.shading_min_temperatur1}°C</span>
-                                <span class="condition-leaf-result ${temp1 ? 'pass' : 'fail'}">${temp1 ? '✓' : '✗'}</span>
-                            </div>
-                        `;
-                    }
-
-                    if (variables.shading_min_temperatur2 !== undefined) {
-                        const temp2 = startAnd.temp2_check ?? null;
-                        html += `
-                            <div class="condition-leaf ${temp2 ? 'pass' : 'fail'}">
-                                <span class="condition-leaf-icon">🌡️</span>
-                                <span class="condition-leaf-name">Temperature 2</span>
-                                <span class="condition-leaf-value">Minimum: ${variables.shading_min_temperatur2}°C</span>
-                                <span class="condition-leaf-result ${temp2 ? 'pass' : 'fail'}">${temp2 ? '✓' : '✗'}</span>
-                            </div>
-                        `;
-                    }
-                }
-
-                // OR conditions for shading start (optional additional conditions)
-                if (Object.keys(startOr).length > 0) {
-                    html += `<div class="hierarchy-title" style="margin-top: 1rem; margin-bottom: 0.5rem;"><span class="hierarchy-operator">OR</span> At least one must be true:</div>`;
-                    const forecast = startOr.forecast_check ?? null;
+                const startAndResult = variables.shading_start_and_result;
+                const startOrResult = variables.shading_start_or_result;
+                const startMet = variables.shading_start_conditions_met;
+                if (startAndResult !== undefined || startOrResult !== undefined || startMet !== undefined) {
                     html += `
-                        <div class="condition-leaf ${forecast ? 'pass' : 'fail'}">
-                            <span class="condition-leaf-icon">🌦️</span>
-                            <span class="condition-leaf-name">Weather Forecast</span>
-                            <span class="condition-leaf-value">Matches configured condition</span>
-                            <span class="condition-leaf-result ${forecast ? 'pass' : 'fail'}">${forecast ? '✓' : '✗'}</span>
+                        <div class="condition-leaf ${startMet ? 'pass' : 'fail'}" style="margin-top:0.5rem;">
+                            <span class="condition-leaf-icon">🎯</span>
+                            <span class="condition-leaf-name">Combined result</span>
+                            <span class="condition-leaf-value">AND=${startAndResult ?? 'n/a'} • OR=${startOrResult ?? 'n/a'} → start_conditions_met=${startMet ?? 'n/a'}</span>
+                            <span class="condition-leaf-result ${startMet ? 'pass' : 'fail'}">${startMet ? '✓' : '✗'}</span>
                         </div>
                     `;
                 }
-
-                html += '</div>';
-                html += '</div>';
+                html += '</div></div>';
             }
 
-            // Shading end conditions
-            if (variables.shading_conditions_end_and || variables.shading_conditions_end_or) {
+            const hasEnd = endAnd.length > 0 || endOr.length > 0;
+            if (hasEnd) {
                 html += '<div class="hierarchy-level">';
-                html += '<div class="hierarchy-title"><span class="hierarchy-operator">SHADING END</span> Sun Position + Thresholds</div>';
-
-                const endAnd = variables.shading_conditions_end_and || {};
-                const endOr = variables.shading_conditions_end_or || {};
-
+                html += '<div class="hierarchy-title"><span class="hierarchy-operator">SHADING END</span> User-selected conditions</div>';
                 html += '<div class="condition-tree">';
+                html += renderGroup(endAnd, 'AND', 'end');
+                html += renderGroup(endOr, 'OR', 'end');
 
-                if (Object.keys(endAnd).length > 0) {
-                    html += `<div class="hierarchy-title" style="margin-top: 0.5rem;"><span class="hierarchy-operator">AND</span></div>`;
-
-                    const elevation = endAnd.elevation_check ?? null;
-                    const brightness = endAnd.brightness_check ?? null;
-
+                const endAndResult = variables.shading_end_and_result;
+                const endOrResult = variables.shading_end_or_result;
+                const endMet = variables.shading_end_conditions_met;
+                if (endAndResult !== undefined || endOrResult !== undefined || endMet !== undefined) {
                     html += `
-                        <div class="condition-leaf ${elevation ? 'pass' : 'fail'}">
-                            <span class="condition-leaf-icon">📐</span>
-                            <span class="condition-leaf-name">Sun Below Minimum</span>
-                            <span class="condition-leaf-value">Minimum: ${variables.shading_elevation_min || 'N/A'}°</span>
-                            <span class="condition-leaf-result ${elevation ? 'pass' : 'fail'}">${elevation ? '✓' : '✗'}</span>
-                        </div>
-                        <div class="condition-leaf ${brightness ? 'pass' : 'fail'}">
-                            <span class="condition-leaf-icon">💡</span>
-                            <span class="condition-leaf-name">Brightness Below Threshold</span>
-                            <span class="condition-leaf-value">Maximum: ${variables.shading_sun_brightness_end || 'N/A'} lux</span>
-                            <span class="condition-leaf-result ${brightness ? 'pass' : 'fail'}">${brightness ? '✓' : '✗'}</span>
+                        <div class="condition-leaf ${endMet ? 'pass' : 'fail'}" style="margin-top:0.5rem;">
+                            <span class="condition-leaf-icon">🎯</span>
+                            <span class="condition-leaf-name">Combined result</span>
+                            <span class="condition-leaf-value">AND=${endAndResult ?? 'n/a'} • OR=${endOrResult ?? 'n/a'} → end_conditions_met=${endMet ?? 'n/a'}</span>
+                            <span class="condition-leaf-result ${endMet ? 'pass' : 'fail'}">${endMet ? '✓' : '✗'}</span>
                         </div>
                     `;
                 }
-
-                html += '</div>';
-                html += '</div>';
+                html += '</div></div>';
             }
 
             if (!html) {
@@ -3414,7 +3474,11 @@
                 'Shading Conditions': [
                     'shading_conditions_start_and', 'shading_conditions_start_or',
                     'shading_conditions_end_and', 'shading_conditions_end_or',
-                    'shading_start_condition_enabled', 'shading_end_condition_enabled'
+                    'shading_start_condition_enabled', 'shading_end_condition_enabled',
+                    'shading_start_condition_states', 'shading_end_condition_states',
+                    'shading_start_and_result', 'shading_start_or_result',
+                    'shading_end_and_result', 'shading_end_or_result',
+                    'shading_start_conditions_met', 'shading_end_conditions_met'
                 ],
                 'Helper Status': [
                     'helper_status', 'helper_json', 'helper_ts'
