@@ -20,10 +20,7 @@ class CCAValidator {
             'blind', 'cover_type', 'auto_options', 'individual_config',
 
             // Helper
-            'cover_status_options', 'cover_status_helper', 'drive_time',
-
-            // Background State Tracking (since 2025.12.27)
-            'enable_background_state_tracking',
+            'cover_status_helper', 'drive_time',
 
             // Positions
             'position_source', 'custom_position_sensor',
@@ -183,7 +180,6 @@ class CCAValidator {
             this.validateDynamicSunElevation();
             this.validateCalendarConfiguration();
             this.validatePositionSource();
-            this.validateHelperConfiguration();
             this.validateTiltFeatures();
             this.validateTimingValues();
             this.validateForceEntities();
@@ -295,14 +291,16 @@ class CCAValidator {
             }
         }
 
-        if (this.config.enable_background_state_tracking === false || this.config.enable_background_state_tracking === undefined) {
-            this.addInfo('ℹ️ Background state tracking is disabled (default). Enable enable_background_state_tracking for automatic return to target state after force functions.');
-        } else if (this.config.enable_background_state_tracking === true) {
-            if (!this.config.cover_status_helper || this.config.cover_status_helper.length === 0) {
-                this.addWarning('🦮 Background state tracking is enabled but no cover_status_helper configured. This feature requires a helper.');
-            } else {
-                this.addInfo('✅ Background state tracking enabled — cover returns to target state after force functions are disabled.');
-            }
+        const recover = this.config.auto_recover_after_force;
+        const recoverEnabled = typeof recover === 'string'
+            ? recover === 'auto_recover_enabled'
+            : Array.isArray(recover) && recover.includes('auto_recover_enabled');
+        if (!recoverEnabled) {
+            this.addInfo('ℹ️ Force recovery is disabled (default). Set auto_recover_after_force to "auto_recover_enabled" so the cover returns to its target state after a force function is disabled.');
+        } else if (!this.config.cover_status_helper || this.config.cover_status_helper.length === 0) {
+            this.addWarning('🦮 Force recovery (auto_recover_after_force) is enabled but no cover_status_helper configured. This feature requires a helper.');
+        } else {
+            this.addInfo('✅ Force recovery enabled — cover returns to target state after force functions are disabled.');
         }
     }
 
@@ -616,20 +614,6 @@ class CCAValidator {
         const c = this.config;
         if (c.position_source === 'custom_sensor' && (!c.custom_position_sensor || c.custom_position_sensor.length === 0)) {
             this.addError('Custom position sensor selected but not configured');
-        }
-    }
-
-    validateHelperConfiguration() {
-        const c = this.config;
-        const autoOptions = c.auto_options || [];
-        const needsHelper = autoOptions.includes('auto_shading_enabled') || autoOptions.includes('auto_ventilate_enabled');
-
-        if (needsHelper && c.cover_status_options !== 'cover_helper_enabled') {
-            this.addWarning('🦮 Shading or Ventilation requires a cover status helper. Set cover_status_options to "cover_helper_enabled" and configure cover_status_helper.');
-        }
-
-        if (c.cover_status_options === 'cover_helper_enabled' && (!c.cover_status_helper || c.cover_status_helper.length === 0)) {
-            this.addError('❌ Helper enabled (cover_status_options) but cover_status_helper entity not configured.');
         }
     }
 
@@ -1039,7 +1023,6 @@ auto_options:
   - auto_sun_enabled
 
 # Helper required for shading
-cover_status_options: cover_helper_enabled
 cover_status_helper: input_text.example_cover_status
 
 # Sun sensor for shading
