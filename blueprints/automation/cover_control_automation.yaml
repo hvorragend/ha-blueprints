@@ -2720,7 +2720,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.04-beta"
+  version: "2026.05.04.1-beta"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5053,6 +5053,7 @@ actions:
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
                       - "{{ not helper_state_pending_start }}" # Not if a pending is already active
+                      - "{{ not helper_state_pending_end }}" # Mutual-exclusivity guard against misconfigured conditions
                     sequence:
                       - variables:
                           update_values:
@@ -5312,6 +5313,7 @@ actions:
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_pending)') }}"
                       - "{{ not helper_state_pending_end }}"
+                      - "{{ not helper_state_pending_start }}" # Mutual-exclusivity guard against misconfigured conditions
                     sequence:
                       - variables:
                           local_waitingtime_end: >
@@ -5327,6 +5329,7 @@ actions:
                               shd: "now"
                               shs: 0
                               she: "{{ (as_timestamp(now()) + local_waitingtime_end | int) | int }}"
+                              shr: "now" # Anchor for max-duration retry window
                       - *helper_update
                       - stop: "Shading End Pending: Waiting"
 
@@ -5350,6 +5353,7 @@ actions:
                               shd: "now"
                               shs: 0
                               she: 0
+                              shr: 0 # Clear retry anchor (sequence ended)
                       - if:
                           - "{{ not is_forced }}"
                         then:
@@ -5381,10 +5385,10 @@ actions:
                             shd: 0
                             win: "opn"
                             ts:
-                              win: "now"
                               shd: "now"
                               shs: 0
                               she: 0
+                              shr: 0 # Clear retry anchor (sequence ended)
                       - *helper_update
                       - stop: "Shading End skipped: Lockout enabled"
 
@@ -5416,10 +5420,10 @@ actions:
                             win: "tlt"
                             man: "{{ 0 if force_allows_ventilate else helper_json.man | default(0) | int }}"
                             ts:
-                              win: "now"
                               shd: "now"
                               shs: 0
                               she: 0
+                              shr: 0 # Clear retry anchor (sequence ended)
                       - if: "{{ force_allows_ventilate }}"
                         then:
                           - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
@@ -5463,6 +5467,7 @@ actions:
                                   shd: "now"
                                   shs: 0
                                   she: 0
+                                  shr: 0 # Clear retry anchor (sequence ended)
                           - if: "{{ force_allows_open }}"
                             then:
                               - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
@@ -5488,6 +5493,7 @@ actions:
                                       shd: "now"
                                       shs: 0
                                       she: 0
+                                      shr: 0 # Clear retry anchor (sequence ended)
                               - *helper_update
                       - stop: "Shading End (Opening after shading) executed"
 
@@ -5500,7 +5506,7 @@ actions:
                       - "{{ helper_state_pending_end }}"
                       - "{{ shading_end_max_duration > 0 }}"
                       - "{{ is_shading_allowed_window }}" # Continue only within time window
-                      - "{{ (as_timestamp(now()) - helper_ts_shade) <= shading_end_max_duration }}"
+                      - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
                           update_values:
@@ -5529,6 +5535,7 @@ actions:
                               shd: "now"
                               shs: 0
                               she: 0
+                              shr: 0 # Clear retry anchor (sequence ended)
                       - *helper_update
                       - stop: "Shading End aborted: Timeout or invalid"
             # Issue #395: Execution trigger fires but end conditions are no longer met
@@ -5546,6 +5553,7 @@ actions:
                         shd: 1
                         ts:
                           she: 0
+                          shr: 0 # Clear retry anchor (sequence ended)
                   - *helper_update
                   - stop: "Shading End: cleared stale pending (conditions no longer met)"
 
