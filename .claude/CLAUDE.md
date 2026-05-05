@@ -210,6 +210,29 @@ variables:
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
 ```
 
+### ⚠️ Invariant 12: `enable_logbook` and `helper_update`
+
+The `helper_update` anchor wraps two steps in a `choose: [] default: [...]`
+group: (a) `input_text.set_value` that persists the helper JSON, and (b) a
+conditional `logbook.log` gated by `enable_logbook`. The logbook message
+dumps `trigger.id`, `effective_state`, position, sensor states, and the raw
+`update_values` JSON — it deliberately does **not** derive a human-readable
+reason. The combination of `trigger.id` (which is sprechend, e.g.
+`t_open_1`, `t_shading_start_pending_2`) and the `update_values` diff is
+sufficient for retrospective debugging.
+
+**Optional `log_extra` parameter:** branches that have additional context
+(e.g. shading start/end pending and retry: time-window, elapsed time, block
+reason, next retry interval) may set a free-form `log_extra: "..."` string
+in their local `variables:` block. The template prints it as one extra line
+when defined. Do **not** add `log_extra` to every branch — only where the
+bare `trigger.id + update_values` is genuinely insufficient for debugging.
+
+**Rule:** Do not reintroduce a reason-inference table into the template.
+`trigger.id` is the source of truth for "which path ran". Adding new fields
+to `update_values` requires no logbook changes — they are dumped automatically
+via `to_json`.
+
 ---
 
 ## Design Decisions (intentional deviations from the general patterns)
