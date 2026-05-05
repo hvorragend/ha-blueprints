@@ -2556,6 +2556,27 @@ blueprint:
                 - "info"
                 - "warning"
 
+    logging_section:
+      name: "Logging"
+      description: >-
+        Optional logbook output for retrospective debugging. Each automation
+        run writes one combined logbook entry containing the trigger, the
+        resulting effective state, and a snapshot of all relevant sensor
+        values. Useful when the 5-trace history is not enough to understand
+        a cover's behavior over the day.
+      icon: mdi:notebook-outline
+      collapsed: true
+      input:
+        enable_logbook:
+          name: "📓 Enable Logbook entries"
+          description: >-
+            When enabled, every automation run writes a single logbook entry
+            with full context. Disabled by default to avoid noise in the
+            Activities view. Toggle on while debugging a configuration.
+          default: false
+          selector:
+            boolean: {}
+
 ################################################################################
 # TRIGGER VARIABLES
 ################################################################################
@@ -3278,6 +3299,9 @@ variables:
   check_config_debuglevel: !input check_config_debuglevel
   check_status_helper_length: "{{ state_attr(cover_status_helper, 'max') if cover_status_helper != [] else None }}"
 
+  # Logbook
+  enable_logbook: !input enable_logbook
+
 # CCA uses 'queued' mode to prevent race conditions when multiple sensors
 # change state simultaneously (e.g., window sensor + lock sensor).
 # - If automation is running, new triggers are queued (max 10)
@@ -3899,55 +3923,70 @@ actions:
       #   4. Build final v6 compact JSON structure
       # ═══════════════════════════════════════════════════════════════════════════
       helper_update: &helper_update
-        action: input_text.set_value
-        data:
-          entity_id: !input cover_status_helper
-          value: |-
-              {% set current = helper_json %}
-              {% set updates = update_values | default({}) %}
-              {% set ts_now = as_timestamp(now()) | round(0) %}
+        choose: []
+        default:
+          - action: input_text.set_value
+            data:
+              entity_id: !input cover_status_helper
+              value: |-
+                  {% set current = helper_json %}
+                  {% set updates = update_values | default({}) %}
+                  {% set ts_now = as_timestamp(now()) | round(0) %}
 
-              {% set new_bas = updates.bas | default(current.bas | default('opn')) %}
-              {% set new_shd = updates.shd | default(current.shd | default(0)) | int %}
-              {% set new_win = updates.win | default(current.win | default('cls')) %}
-              {% set new_frc = updates.frc | default(current.frc | default('non')) %}
-              {% set new_res = updates.res | default(current.res | default(0)) | int %}
-              {% set new_man = updates.man | default(current.man | default(0)) | int %}
-              {% set current_ts = current.ts | default({}) %}
+                  {% set new_bas = updates.bas | default(current.bas | default('opn')) %}
+                  {% set new_shd = updates.shd | default(current.shd | default(0)) | int %}
+                  {% set new_win = updates.win | default(current.win | default('cls')) %}
+                  {% set new_frc = updates.frc | default(current.frc | default('non')) %}
+                  {% set new_res = updates.res | default(current.res | default(0)) | int %}
+                  {% set new_man = updates.man | default(current.man | default(0)) | int %}
+                  {% set current_ts = current.ts | default({}) %}
 
-              {% set merged_ts = namespace(data={}) %}
-              {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'shr', 'man'] %}
-                {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
-              {% endfor %}
-              {% if 'ts' in updates %}
-                {% for key, value in updates.ts.items() %}
-                  {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
-                {% endfor %}
-              {% endif %}
-              {% if new_shd == (current.shd | default(0) | int) and 'ts' in updates and 'shd' in updates.ts %}
-                {% set merged_ts.data = dict(merged_ts.data, **{'shd': current_ts.shd | default(0) | int}) %}
-              {% endif %}
+                  {% set merged_ts = namespace(data={}) %}
+                  {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'shr', 'man'] %}
+                    {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
+                  {% endfor %}
+                  {% if 'ts' in updates %}
+                    {% for key, value in updates.ts.items() %}
+                      {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
+                    {% endfor %}
+                  {% endif %}
+                  {% if new_shd == (current.shd | default(0) | int) and 'ts' in updates and 'shd' in updates.ts %}
+                    {% set merged_ts.data = dict(merged_ts.data, **{'shd': current_ts.shd | default(0) | int}) %}
+                  {% endif %}
 
-              {% set dict_new = {
-                'bas': new_bas,
-                'shd': new_shd | int,
-                'win': new_win,
-                'frc': new_frc,
-                'res': new_res | int,
-                'man': new_man | int,
-                'ts': {
-                  'opn': merged_ts.data.opn | default(0) | int,
-                  'cls': merged_ts.data.cls | default(0) | int,
-                  'shd': merged_ts.data.shd | default(0) | int,
-                  'shs': merged_ts.data.shs | default(0) | int,
-                  'she': merged_ts.data.she | default(0) | int,
-                  'shr': merged_ts.data.shr | default(0) | int,
-                  'man': merged_ts.data.man | default(0) | int
-                },
-                'v': 6,
-                't': ts_now | int
-              } %}
-              {{ dict_new | to_json }}
+                  {% set dict_new = {
+                    'bas': new_bas,
+                    'shd': new_shd | int,
+                    'win': new_win,
+                    'frc': new_frc,
+                    'res': new_res | int,
+                    'man': new_man | int,
+                    'ts': {
+                      'opn': merged_ts.data.opn | default(0) | int,
+                      'cls': merged_ts.data.cls | default(0) | int,
+                      'shd': merged_ts.data.shd | default(0) | int,
+                      'shs': merged_ts.data.shs | default(0) | int,
+                      'she': merged_ts.data.she | default(0) | int,
+                      'shr': merged_ts.data.shr | default(0) | int,
+                      'man': merged_ts.data.man | default(0) | int
+                    },
+                    'v': 6,
+                    't': ts_now | int
+                  } %}
+                  {{ dict_new | to_json }}
+          - if: "{{ enable_logbook }}"
+            then:
+              - action: logbook.log
+                data:
+                  name: "Cover Control Automation"
+                  entity_id: "{{ blind_entities[0] if blind_entities else cover_status_helper }}"
+                  message: |-
+                    trigger={{ trigger.id | default('manual') }} effective={{ effective_state }} pos={{ current_position }}%/{{ current_tilt_position }}%
+                    win=helper:{{ helper_state_window }} opn:{{ states(contact_window_opened) if contact_window_opened != [] else '-' }} tlt:{{ states(contact_window_tilted) if contact_window_tilted != [] else '-' }}
+                    res={{ state_resident }} sun_elev={{ sun_elevation_up_current | float(default=0) | round(1) }}°/{{ sun_elevation_down_current | float(default=0) | round(1) }}° azim={{ current_sun_azimuth | float(default=0) | round(1) }}°
+                    bri={{ states(default_brightness_sensor) if default_brightness_sensor != [] else '-' }} t1={{ states(shading_temperatur_sensor1) if shading_temperatur_sensor1 != [] else '-' }} t2={{ states(shading_temperatur_sensor2) if shading_temperatur_sensor2 != [] else '-' }}
+                    update={{ update_values | default({}) | to_json }}{% if log_extra is defined %}
+                    extra={{ log_extra }}{% endif %}
 
   # ════════════════════════════════════════════════════════════════════════════
   # Initialise empty helper with JSON default values
@@ -5067,6 +5106,7 @@ actions:
                       - "{{ not helper_state_pending_end }}" # Mutual-exclusivity guard against misconfigured conditions
                     sequence:
                       - variables:
+                          log_extra: "shading start pending armed; wait={{ shading_waitingtime_start | int }}s; max_duration={{ shading_start_max_duration | int }}s"
                           update_values:
                             # Set shade pending timestamp
                             shd: 0
@@ -5187,6 +5227,7 @@ actions:
                                   - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_start_max_duration }}"
                                 sequence:
                                   - variables:
+                                      log_extra: "blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
                                       update_values:
                                         # Continue waiting with new pending time
                                         shd: 0
@@ -5201,6 +5242,7 @@ actions:
                                 conditions: []
                                 sequence:
                                   - variables:
+                                      log_extra: "abort: blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
                                       update_values:
                                         # Abort shading start, clear pending
                                         shd: 0
@@ -5226,6 +5268,7 @@ actions:
                       - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
+                          log_extra: "shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
                           update_values:
                             # Continue waiting with new pending time
                             shd: 0
@@ -5245,6 +5288,7 @@ actions:
                       - "{{ helper_state_pending_start }}"
                     sequence:
                       - variables:
+                          log_extra: "abort: shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
                           update_values:
                             # Abort shading start, clear pending
                             shd: 0
@@ -5334,6 +5378,7 @@ actions:
                             {% set local_waitingtime_end = 20 %}
                             {% endif %}
                             {{ local_waitingtime_end }}
+                          log_extra: "shading end pending armed; wait={{ local_waitingtime_end | int }}s; immediate_by_sun={{ (is_shading_end_immediate_by_sun_position | default(false)) | bool }}"
                           update_values:
                             # Set shading end pending timestamp
                             shd: 1
@@ -5520,6 +5565,7 @@ actions:
                       - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
+                          log_extra: "shading_end_conditions_met=false (after exec); elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s/{{ shading_end_max_duration | int }}s; next_retry_in={{ shading_waitingtime_end | int }}s"
                           update_values:
                             # Continue waiting with new end pending time
                             shd: 1
@@ -5539,6 +5585,7 @@ actions:
                       - "{{ helper_state_pending_end }}"
                     sequence:
                       - variables:
+                          log_extra: "abort: shading_end_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s; max_duration={{ shading_end_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
                           update_values:
                             # Abort shading end retry, keep shading active
                             shd: 1
@@ -5560,6 +5607,7 @@ actions:
                   - "{{ helper_state_pending_end }}"
                 then:
                   - variables:
+                      log_extra: "stale pending cleared (end conditions recovered); elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s"
                       update_values:
                         shd: 1
                         ts:
@@ -7190,4 +7238,15 @@ actions:
                         message: "CCA Config issue: {{ repeat.item.message }} - {{ this.entity_id }}"
                         logger: "blueprints.hvorragend.cca"
 
+      - if: "{{ enable_logbook }}"
+        then:
+          - action: logbook.log
+            data:
+              name: "Cover Control Automation"
+              entity_id: "{{ blind_entities[0] if blind_entities else cover_status_helper }}"
+              message: |-
+                Branch: No operational branch matched
+                Trigger: {{ trigger.id | default('manual') }}
+                Effective: {{ effective_state }} | Position: {{ current_position }}% / tilt {{ current_tilt_position }}%
+                Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }}
       - stop: "No operational branch matched (Opening, Closing, Shading, etc. conditions not met for current trigger)"
