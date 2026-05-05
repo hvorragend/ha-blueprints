@@ -154,6 +154,7 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 - Reset to `0` in every terminal branch of either sequence:
   - Start: Drive, Lockout-skip, Save-for-future, both Abort branches
   - End: Tilt-only, Lockout, Ventilation, Move-cover (both then/else), Stop retry, stale-pending cleanup (#395)
+  - Midnight reset (BRANCH 11, "Reset shading status"): clears `shs`/`she`, must therefore also clear `shr`
 - Read by both `shading_start_max_duration` and `shading_end_max_duration` checks via `helper_ts_shade_retry` — gives a stable retry-window anchor independent of the Invariant-8 guard on `ts.shd`
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
@@ -208,6 +209,24 @@ trigger_variables:
 variables:
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
 ```
+
+---
+
+## Design Decisions (intentional deviations from the general patterns)
+
+### Resident handler bypasses `helper_state_manual` / `override_flags.*`
+
+The resident sensor handler (`resident_leaving` / `resident_arriving`) does **not** check `not (helper_state_manual and override_flags.X)` in any of its branches. All other handlers (Open, Close, Shading-Start, Shading-End, Contact, Manual) do.
+
+**Rationale:** Presence transitions are treated as a hard reset of any earlier manual intent — when the resident leaves or arrives, the cover should follow the new presence-derived target regardless of an active manual override. The `ignore_*_after_manual` configuration only governs scheduled / environment-driven triggers, not presence transitions.
+
+This is intentional. Do not "harmonize" by adding the override gate to the resident handler.
+
+### Midnight reset (BRANCH 11) sets `man: 0` without driving
+
+The "Reset shading status that is no longer required" branch writes `man: 0` even though it does not drive the cover. This is an intentional exception to Invariant 7.
+
+**Rationale:** Midnight is the natural reset point for the daily automation cycle. Clearing `man` here ensures stale manual overrides do not block the next day's automation. In practice the branch only fires when shading was active (or pending) at midnight — and in those scenarios the user typically did not override manually, so `man` is already `0`. The explicit reset is a defensive safeguard and is documented as a deliberate exception.
 
 ---
 
