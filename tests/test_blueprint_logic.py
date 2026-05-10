@@ -823,6 +823,88 @@ class TestInvariant1ShadingOpenCloseConsumed:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tests: Open-handler shading sub-branch must respect effective_state (Bug B)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestOpenHandlerShadingRespectsEffectiveState:
+    """
+    Regression for issue #430 (Bug B):
+    The open-handler sub-branch 'Shading detected. Move to shading position'
+    matched on helper_state_is_shaded / pending_start / helper_state_shade
+    without checking effective_state. With Lockout/Vent/Privacy/Force active
+    (effective_state != 'shd') it still drove the cover into the shading
+    position, overriding the priority cascade.
+
+    Fix per Invariant 1 (CLAUDE.md): branch conditions stay unchanged so the
+    branch is always consumed (helper update runs). The drive is gated by an
+    inner if: that requires force_allows_shade AND effective_state == 'shd'.
+    """
+
+    BRANCH_ALIAS = "Shading detected. Move to shading position"
+
+    def _load_branch(self) -> dict:
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        branch = _find_branch_by_alias(blueprint, self.BRANCH_ALIAS)
+        assert branch is not None, f"Could not find branch {self.BRANCH_ALIAS!r}"
+        return branch
+
+    def test_branch_conditions_do_not_gate_on_effective_state(self):
+        """
+        Per Invariant 1, effective_state must NOT appear in the branch
+        conditions (would cause fall-through to 'Normal opening').
+        """
+        branch = self._load_branch()
+        for cond in branch.get("conditions", []):
+            cond_str = cond if isinstance(cond, str) else yaml.safe_dump(cond)
+            assert "effective_state" not in cond_str, (
+                f"Branch condition must not reference effective_state "
+                f"(would violate Invariant 1): {cond!r}"
+            )
+
+    def test_drive_guard_gates_on_effective_state_shd(self):
+        """
+        The inner if: that wraps the drive must require effective_state == 'shd'
+        in addition to force_allows_shade.
+        """
+        branch = self._load_branch()
+        seq = branch.get("sequence", [])
+        if_step = next(
+            (s for s in seq if isinstance(s, dict) and "if" in s and "then" in s),
+            None,
+        )
+        assert if_step is not None, "Drive guard 'if/then' step missing"
+        guard = if_step["if"]
+        guard_str = guard if isinstance(guard, str) else yaml.safe_dump(guard)
+        assert "force_allows_shade" in guard_str, (
+            f"Drive guard must include force_allows_shade: {guard!r}"
+        )
+        assert "effective_state == 'shd'" in guard_str, (
+            f"Drive guard must include effective_state == 'shd' so Lockout/Vent/"
+            f"Privacy suppress the drive: {guard!r}"
+        )
+
+    def test_man_expression_matches_drive_guard(self):
+        """
+        Per Invariant 7, man may only be cleared when the cover actually moves.
+        The man expression must therefore include the same effective_state == 'shd'
+        gate as the drive guard.
+        """
+        branch = self._load_branch()
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s),
+            None,
+        )
+        assert variables_step is not None, "variables: step missing"
+        update_values = variables_step["variables"].get("update_values", {})
+        man_expr = update_values.get("man", "")
+        assert "force_allows_shade" in man_expr and "effective_state == 'shd'" in man_expr, (
+            f"man expression must clear only when force_allows_shade and "
+            f"effective_state == 'shd': got {man_expr!r}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tests: Invariant 7 — man:0 only when drive happens
 # ─────────────────────────────────────────────────────────────────────────────
 
