@@ -905,6 +905,57 @@ class TestOpenHandlerShadingRespectsEffectiveState:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tests: Shading-start outer if must gate execution on shading window (Bug A)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestShadingStartOuterIfGatesOnWindow:
+    """
+    Regression for issue #430 (Bug A — stuck pending):
+    The outer if: in 'Check for shading start' originally evaluated only the
+    shading-condition disjunction (independent_temp + forecast_valid OR
+    shading_start_conditions_met). If a forecast-temp pending-arm fired at
+    night, the inner choose at the 'Shading start execution' branch had no
+    matching sub-branch and no default — pending stayed armed forever, and
+    the next morning t_open_1 incorrectly drove into shading.
+
+    Fix: outer if additionally requires that the trigger is a pending-arm
+    OR is_shading_allowed_window is true. Pending-arm at night still works
+    (logs the arm), but execution outside the window falls through to the
+    else branch ('Stop retry') and clears the pending.
+    """
+
+    BRANCH_ALIAS = "Check for shading start"
+
+    def _load_outer_if(self) -> dict:
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        branch = _find_branch_by_alias(blueprint, self.BRANCH_ALIAS)
+        assert branch is not None, f"Could not find branch {self.BRANCH_ALIAS!r}"
+        seq = branch.get("sequence", [])
+        if_step = next(
+            (s for s in seq if isinstance(s, dict) and "if" in s and "then" in s),
+            None,
+        )
+        assert if_step is not None, "Outer if/then step missing"
+        return if_step
+
+    def test_outer_if_gates_on_window_or_pending_trigger(self):
+        if_step = self._load_outer_if()
+        if_conditions = if_step["if"]
+        assert isinstance(if_conditions, list), (
+            f"Outer if must be a list of conditions, got {type(if_conditions).__name__}"
+        )
+        flat = yaml.safe_dump(if_conditions)
+        assert "is_shading_allowed_window" in flat, (
+            "Outer if must include is_shading_allowed_window so execution "
+            "outside the window falls through to else (Stop retry)."
+        )
+        assert "t_shading_start_pending" in flat, (
+            "Outer if must allow pending-arm triggers (regex on t_shading_start_pending) "
+            "so pending arming at night still records the attempt."
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tests: Invariant 7 — man:0 only when drive happens
 # ─────────────────────────────────────────────────────────────────────────────
 
