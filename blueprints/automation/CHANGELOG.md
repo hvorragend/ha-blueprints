@@ -76,6 +76,11 @@ The helper stores all relevant state information: the current base state, shadin
 
 ## 🔧 Bug Fixes
 
+### Cover opens at early time without waiting for the configured sun elevation ([#436](https://github.com/hvorragend/ha-blueprints/issues/436))
+When only one of *Brightness* or *Sun Elevation* was enabled and the operator was set to **OR** (the default), the disabled sensor short-circuited the combined check to `true`. The result: a configured early opening time fired the cover up even though the single active sensor's threshold had not yet been reached — e.g. cover opens at 05:00 although the sun elevation is still well below the configured `-3°`. The same asymmetry symmetrically blocked the early *closing* time for users who relied on pure time control (no environment sensors): only the late closing time would fire, never the early one.
+
+Both `environment_allows_opening` and `environment_allows_closing` now branch explicitly on which sensors are enabled. With one sensor enabled, only that sensor's check decides — regardless of the OR/AND operator. With both sensors disabled, the gate is transparent, so pure time-based setups now behave consistently for opening **and** closing. This matches the documented contract *"Has no effect when only one of the two conditions is enabled."*
+
 ### Shading never starts when using `weather_attributes` forecast mode ([#399](https://github.com/hvorragend/ha-blueprints/issues/399))
 In `shading_forecast_type: weather_attributes` mode, the current weather condition was read from the `condition` attribute of the weather entity. Most modern Home Assistant weather integrations expose the current condition as the entity **state**, not as an attribute, so this lookup returned `None` permanently. The resulting always-false `forecast_weather_valid` blocked the AND result and prevented shading from ever starting. The lookup now uses the entity state, which matches the Home Assistant weather entity contract.
 
