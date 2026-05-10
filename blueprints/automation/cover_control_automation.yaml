@@ -4660,16 +4660,22 @@ actions:
       # Environmental conditions: configurable AND/OR logic between brightness and sun elevation
       environment_allows_opening: >-
         {%- set brightness_ok = (
-          not is_brightness_enabled or
           default_brightness_sensor == [] or
           states(default_brightness_sensor) | float(default=brightness_up) > (brightness_up + brightness_hysteresis)
         ) -%}
         {%- set sun_ok = (
-          not is_sun_elevation_enabled or
           default_sun_sensor == [] or
           current_sun_elevation | float(default=sun_elevation_up_current) > sun_elevation_up_current
         ) -%}
-        {{ (brightness_ok and sun_ok) if use_and_operator else (brightness_ok or sun_ok) }}
+        {%- if is_brightness_enabled and is_sun_elevation_enabled -%}
+          {{ (brightness_ok and sun_ok) if use_and_operator else (brightness_ok or sun_ok) }}
+        {%- elif is_brightness_enabled -%}
+          {{ brightness_ok }}
+        {%- elif is_sun_elevation_enabled -%}
+          {{ sun_ok }}
+        {%- else -%}
+          true
+        {%- endif -%}
 
       environment_allows_closing: >-
         {%- set brightness_close = (
