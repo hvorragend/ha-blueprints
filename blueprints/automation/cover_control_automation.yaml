@@ -440,6 +440,18 @@ blueprint:
               max: 20.0
               unit_of_measurement: "%"
 
+        position_random_offset:
+          name: "🎲 Random Position Offset"
+          description: >-
+            Adds a random variation (+/- this percentage) to any target position that is not 0% or 100%.
+            This makes the automated movements look more natural. (It automatically expands the tolerance to match).
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 20.0
+              unit_of_measurement: "%"
+
     tilt_position_section:
       name: "Cover Tilt Position Settings"
       icon: mdi:image-filter-tilt-shift
@@ -2580,6 +2592,7 @@ trigger_variables:
   ventilate_position: !input ventilate_position
   shading_position: !input shading_position
   position_tolerance: !input position_tolerance
+  position_random_offset: !input position_random_offset
 
   # Tilt positions
   open_tilt_position: !input open_tilt_position
@@ -2885,26 +2898,28 @@ variables:
     }}
 
   in_shading_position: >-
-    {% set min = shading_position - position_tolerance %}
-    {% set max = shading_position + position_tolerance %}
+    {% set eff_tol = (position_tolerance | int) + (position_random_offset | int if (0 < (shading_position | int) < 100) else 0) %}
+    {% set min = (shading_position | int) - eff_tol %}
+    {% set max = (shading_position | int) + eff_tol %}
     {{
       is_shading_enabled
       and (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position == shading_tilt_position | int)
+        (current_tilt_position >= (shading_tilt_position | int) - eff_tol and current_tilt_position <= (shading_tilt_position | int) + eff_tol)
       )
     }}
 
   in_ventilate_position: >-
-    {% set min = ventilate_position - position_tolerance %}
-    {% set max = ventilate_position + position_tolerance %}
+    {% set eff_tol = (position_tolerance | int) + (position_random_offset | int if (0 < (ventilate_position | int) < 100) else 0) %}
+    {% set min = (ventilate_position | int) - eff_tol %}
+    {% set max = (ventilate_position | int) + eff_tol %}
     {{
       is_ventilation_enabled
       and (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position == ventilate_tilt_position | int)
+        (current_tilt_position >= (ventilate_tilt_position | int) - eff_tol and current_tilt_position <= (ventilate_tilt_position | int) + eff_tol)
       )
     }}
 
@@ -3600,7 +3615,16 @@ actions:
                       sequence:
                         - service: cover.set_cover_position
                           data:
-                            position: "{{ target_position | default(101) | int }}"
+                            position: >-
+                              {% set base = target_position | default(101) | int %}
+                              {% set offset = position_random_offset | int(0) %}
+                              {% if offset > 0 %}
+                                {% set min_val = [1, base - offset] | max %}
+                                {% set max_val = [99, base + offset] | min %}
+                                {{ range(min_val, max_val + 1) | random }}
+                              {% else %}
+                                {{ base }}
+                              {% endif %}
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
@@ -3649,7 +3673,16 @@ actions:
                     # Set target tilt position
                     - service: cover.set_cover_tilt_position
                       data:
-                        tilt_position: "{{ target_tilt_position | default(101) }}"
+                        tilt_position: >-
+                          {% set base = target_tilt_position | default(101) | int %}
+                          {% set offset = position_random_offset | int(0) %}
+                          {% if 0 < base < 100 and offset > 0 %}
+                            {% set min_val = [0, base - offset] | max %}
+                            {% set max_val = [100, base + offset] | min %}
+                            {{ range(min_val, max_val + 1) | random }}
+                          {% else %}
+                            {{ base }}
+                          {% endif %}
                       target:
                         entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
