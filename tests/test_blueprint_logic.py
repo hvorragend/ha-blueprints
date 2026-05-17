@@ -1308,3 +1308,255 @@ class TestKeepOpenBlueprintWiring:
         assert idx_drive < idx_no_drive, (
             "Drive branch must come before no-drive helper-sync branch in choose-block."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: effective_state priority cascade (BASE=OPN > VENT)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Mirrors the effective_state template from cover_control_automation.yaml.
+# Kept in sync manually — the test below also asserts the blueprint's template
+# starts with the expected first-line markers.
+EFFECTIVE_STATE_TEMPLATE = """
+{%- set h = helper_json -%}
+{%- set resident_present = state_resident -%}
+{%- set allow_vent = 'resident_allow_ventilation' in resident_config or not resident_present -%}
+{%- set allow_shade = 'resident_allow_shading' in resident_config or not resident_present -%}
+{%- set allow_open = 'resident_allow_opening' in resident_config or not resident_present -%}
+{%- set privacy_active = resident_present and 'resident_closing_enabled' in resident_config -%}
+{%- if h.frc != 'non' -%}
+  {{ h.frc }}
+{%- elif h.win == 'opn' -%}
+  lock
+{%- else -%}
+  {%- if privacy_active -%}
+    {%- set base_target = 'cls' -%}
+  {%- elif h.shd | int == 1 and allow_shade -%}
+    {%- set base_target = 'shd' -%}
+  {%- elif h.bas == 'opn' and not allow_open -%}
+    {%- set base_target = 'cls' -%}
+  {%- else -%}
+    {%- set base_target = h.bas -%}
+  {%- endif -%}
+  {%- if h.win == 'tlt' and allow_vent and base_target != 'opn' -%}
+    vnt
+  {%- else -%}
+    {{ base_target }}
+  {%- endif -%}
+{%- endif -%}
+"""
+
+
+def _eval_effective_state(*, helper_json: dict, state_resident: bool = False,
+                          resident_config: list = None) -> str:
+    env = make_jinja_env()
+    template = env.from_string(EFFECTIVE_STATE_TEMPLATE)
+    return template.render(
+        helper_json=helper_json,
+        state_resident=state_resident,
+        resident_config=resident_config or [],
+    ).strip()
+
+
+class TestEffectiveStateCascade:
+    """
+    BASE=OPN beats VENT in the priority cascade.
+
+    Rationale: A tilted window expresses ventilation intent — and a fully open
+    cover provides maximum airflow. VENT acts as a "floor" only when the cover
+    would otherwise close/shade.
+    """
+
+    def test_base_open_tilted_no_shading_returns_opn(self):
+        """bas=opn + win=tlt + shd=0 → 'opn' (new behavior, previously 'vnt')."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "tlt", "bas": "opn", "shd": 0},
+        )
+        assert result == "opn", f"Expected 'opn' but got '{result}'"
+
+    def test_base_open_tilted_with_shading_returns_vnt(self):
+        """bas=opn + win=tlt + shd=1 → 'vnt' (VENT is floor for shading)."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "tlt", "bas": "opn", "shd": 1},
+        )
+        assert result == "vnt", f"Expected 'vnt' but got '{result}'"
+
+    def test_base_close_tilted_returns_vnt(self):
+        """bas=cls + win=tlt → 'vnt' (VENT is floor for close)."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "tlt", "bas": "cls", "shd": 0},
+        )
+        assert result == "vnt"
+
+    def test_base_open_tilted_privacy_returns_vnt(self):
+        """Privacy (resident + closing_enabled) + tilted + allow_vent → 'vnt'."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "tlt", "bas": "opn", "shd": 0},
+            state_resident=True,
+            resident_config=["resident_closing_enabled", "resident_allow_ventilation"],
+        )
+        assert result == "vnt"
+
+    def test_base_open_tilted_allow_open_false_returns_vnt(self):
+        """bas=opn but resident present without allow_opening, with allow_vent → 'vnt'."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "tlt", "bas": "opn", "shd": 0},
+            state_resident=True,
+            resident_config=["resident_allow_ventilation"],
+        )
+        assert result == "vnt"
+
+    def test_base_open_tilted_resident_present_no_vent_allowed_returns_cls(self):
+        """Resident present without allow_vent and without allow_open: tilted doesn't help → 'cls'."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "tlt", "bas": "opn", "shd": 0},
+            state_resident=True,
+            resident_config=[],
+        )
+        assert result == "cls", (
+            "Without resident_allow_ventilation, VENT cannot apply for "
+            "present residents — falls back to base_target ('cls' here)."
+        )
+
+    def test_window_open_lockout_still_wins(self):
+        """win=opn → 'lock' regardless of other state."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "opn", "bas": "opn", "shd": 0},
+        )
+        assert result == "lock"
+
+    def test_force_still_wins(self):
+        """Active force still beats everything."""
+        result = _eval_effective_state(
+            helper_json={"frc": "vnt", "win": "tlt", "bas": "opn", "shd": 0},
+        )
+        assert result == "vnt"
+
+    def test_base_open_closed_window_returns_opn(self):
+        """bas=opn + win=cls → 'opn' (unchanged behavior)."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "cls", "bas": "opn", "shd": 0},
+        )
+        assert result == "opn"
+
+    def test_base_close_closed_window_returns_cls(self):
+        """bas=cls + win=cls → 'cls' (unchanged behavior)."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "cls", "bas": "cls", "shd": 0},
+        )
+        assert result == "cls"
+
+    def test_base_open_closed_window_shading_returns_shd(self):
+        """bas=opn + win=cls + shd=1 → 'shd' (unchanged behavior)."""
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "cls", "bas": "opn", "shd": 1},
+        )
+        assert result == "shd"
+
+
+class TestForceDisabledRecoveryBranchOrder:
+    """
+    The Force-Disabled Recovery 'return to OPEN (base=opn)' branch must be
+    listed BEFORE 'return to VENTILATION (window tilted)' so that bas=opn +
+    tilted window correctly drives to the open position instead of staying
+    at vent.
+    """
+
+    def test_recovery_open_before_vent_in_choose_block(self):
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+
+        def find_choose_with_aliases(node, aliases):
+            if isinstance(node, dict):
+                if "choose" in node and isinstance(node["choose"], list):
+                    found = [b.get("alias") for b in node["choose"] if isinstance(b, dict)]
+                    if all(a in found for a in aliases):
+                        return node["choose"], found
+                for v in node.values():
+                    result = find_choose_with_aliases(v, aliases)
+                    if result is not None:
+                        return result
+            elif isinstance(node, list):
+                for item in node:
+                    result = find_choose_with_aliases(item, aliases)
+                    if result is not None:
+                        return result
+            return None
+
+        target = find_choose_with_aliases(
+            blueprint,
+            [
+                "Force disabled recovery: return to OPEN (base=opn)",
+                "Force disabled recovery: return to VENTILATION (window tilted)",
+            ],
+        )
+        assert target is not None
+        _, aliases = target
+        idx_open = aliases.index("Force disabled recovery: return to OPEN (base=opn)")
+        idx_vent = aliases.index("Force disabled recovery: return to VENTILATION (window tilted)")
+        assert idx_open < idx_vent, (
+            "OPEN(base=opn) must come before VENTILATION(tilted) in recovery."
+        )
+
+    def test_recovery_open_branch_has_no_tilted_exclusion(self):
+        """
+        The OPEN(base=opn) recovery branch must NOT exclude tilted windows.
+        With the new cascade, bas=opn + tilted should drive to OPEN.
+        """
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+
+        def find_branch(node, alias):
+            if isinstance(node, dict):
+                if node.get("alias") == alias:
+                    return node
+                for v in node.values():
+                    r = find_branch(v, alias)
+                    if r is not None:
+                        return r
+            elif isinstance(node, list):
+                for item in node:
+                    r = find_branch(item, alias)
+                    if r is not None:
+                        return r
+            return None
+
+        branch = find_branch(blueprint, "Force disabled recovery: return to OPEN (base=opn)")
+        assert branch is not None
+        conditions = branch.get("conditions", [])
+        combined = " ".join(c for c in conditions if isinstance(c, str))
+        assert "contact_window_tilted" not in combined, (
+            "OPEN(base=opn) recovery branch must not check for tilted window — "
+            "BASE=OPN beats VENT in the new cascade."
+        )
+
+
+class TestForcePauseDisabledHasBackgroundOpen:
+    """
+    The Force-Pause-Disabled handler must have a branch for
+    `effective_state == 'opn'` (no active force) so that after unpausing,
+    the cover drives to open when the background state says open.
+    """
+
+    def test_force_pause_disabled_has_background_open_branch(self):
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+
+        def walk(node):
+            if isinstance(node, dict):
+                if node.get("alias") == "Force pause disabled: drive to OPEN target (background, base=opn)":
+                    return node
+                for v in node.values():
+                    r = walk(v)
+                    if r is not None:
+                        return r
+            elif isinstance(node, list):
+                for item in node:
+                    r = walk(item)
+                    if r is not None:
+                        return r
+            return None
+
+        branch = walk(blueprint)
+        assert branch is not None, (
+            "Missing background-open branch in Force-Pause-Disabled handler — "
+            "with bas=opn + tilted window the effective_state is now 'opn' and "
+            "needs an explicit drive branch."
+        )

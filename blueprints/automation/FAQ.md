@@ -1685,7 +1685,7 @@ Result: Cover won't open automatically
 
 ### Q: How does the state hierarchy work?
 
-**A:** CCA uses a **6-layer state hierarchy** where higher layers override lower layers. This ensures that critical functions (like window protection) always take priority over convenience features (like schedules).
+**A:** CCA uses a **7-layer state hierarchy** where higher layers override lower layers. This ensures that critical functions (like window protection) always take priority over convenience features (like schedules).
 
 **State Hierarchy (Priority Order):**
 
@@ -1701,25 +1701,34 @@ Result: Cover won't open automatically
 │  ├─ Purpose: Prevent closing on open windows                    │
 │  └─ Variable: state_window == "open"                            │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 3: VENTILATION                                           │
-│  ├─ window == "tilted" AND allow_ventilate → return "vent"      │
-│  ├─ Purpose: Allow air flow through tilted windows              │
+│  Layer 3: BASE=OPEN                                             │
+│  ├─ base == "open" AND no shading/privacy/restriction → "open"  │
+│  ├─ Purpose: When the schedule says open, opening wins —        │
+│  │           a fully open cover gives maximum airflow when      │
+│  │           the window is tilted                               │
+│  └─ Variable: state_base == "open" + allow_open                 │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 4: VENTILATION (floor)                                   │
+│  ├─ window == "tilted" AND allow_ventilate AND base would       │
+│  │  close/shade/privacy-close → return "vent"                   │
+│  ├─ Purpose: Floor that keeps the cover at vent position when   │
+│  │           anything below would lower it further              │
 │  └─ Variable: state_window == "tilted" + resident_allow_vent    │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 4: PRIVACY                                               │
+│  Layer 5: PRIVACY                                               │
 │  ├─ resident == 1 AND closing_trigger → return "close"          │
 │  ├─ Purpose: Privacy / darkness when resident is sleeping       │
 │  └─ Variable: state_resident + resident_closing_enabled         │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 5: SHADING                                               │
+│  Layer 6: SHADING                                               │
 │  ├─ shade == true AND allow_shade → return "shade"              │
 │  ├─ Purpose: Sun protection during hot periods                  │
 │  └─ Variable: state_shade + resident_allow_shading              │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 6: BASE                                                  │
-│  ├─ return base ("open" or "close")                             │
-│  ├─ Purpose: Time-based schedule (morning/evening)              │
-│  └─ Variable: state_base + resident_allow_opening (for "open")  │
+│  Layer 7: BASE=CLOSE                                            │
+│  ├─ return base ("close")                                       │
+│  ├─ Purpose: Time-based schedule (evening)                      │
+│  └─ Variable: state_base                                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1740,30 +1749,38 @@ Result: Cover won't open automatically
                    │ window != "open"                      │
                    ▼                                       │
           ┌─────────────────┐                              │
+          │   base="open"   │                              │
+          │ AND no shading  │──────────────────────────────┤
+          │ AND allow_open  │                              │
+          │ 3. BASE=OPEN    │  → 100% open                 │
+          └────────┬────────┘                              │
+                   │ base would close/shade/privacy        │
+                   ▼                                       │
+          ┌─────────────────┐                              │
           │window="tilted"  │──────────────────────────────┤
           │ AND allow_vent  │                              │
-          │ 3. VENTILATION  │  → 30% open (ventilate)      │
+          │ 4. VENTILATION  │  → 30% open (floor)          │
           └────────┬────────┘                              │
                    │ window = "closed" / vent blocked      │
                    ▼                                       │
           ┌─────────────────┐                              │
           │  resident==1    │──────────────────────────────┤
           │AND closing_trig │                              │
-          │   4. PRIVACY    │  → 100% closed (privacy)     │
+          │   5. PRIVACY    │  → 100% closed (privacy)     │
           └────────┬────────┘                              │
                    │ no resident / trigger disabled        │
                    ▼                                       │
           ┌─────────────────┐                              │
           │shade=true AND   │──────────────────────────────┤
           │  allow_shade    │                              │
-          │   5. SHADING    │  → 25% closed (shade)        │
+          │   6. SHADING    │  → 25% closed (shade)        │
           └────────┬────────┘                              │
                    │ shade = false / shade blocked         │
                    ▼                                       │
           ┌─────────────────┐                              │
-          │    6. BASE      │◄─────────────────────────────┘
-          │  (open/close)   │  → Scheduled position
-          └─────────────────┘       (open blocked if !allow_open)
+          │  7. BASE=CLOSE  │◄─────────────────────────────┘
+          │                 │  → Scheduled close position
+          └─────────────────┘
 ```
 
 **Examples:**
@@ -1772,17 +1789,19 @@ Result: Cover won't open automatically
 |----------|-------------|---------|---------|
 | Heavy rain | Layer 1 (Force) | Close completely | Emergency protection |
 | Window fully open | Layer 2 (Lockout) | Stay 100% open | Prevent damage |
-| Window tilted, resident awake | Layer 3 (Ventilation) | Move to 30% | Allow ventilation |
-| Window tilted, resident sleeping, vent blocked | Layer 4 (Privacy) | Close completely | Privacy overrides ventilation |
-| Resident sleeping | Layer 4 (Privacy) | Close completely | Privacy / darkness |
-| Hot summer, resident absent | Layer 5 (Shading) | Move to 25% | Sun protection |
-| Normal evening | Layer 6 (Base) | Close | Time schedule |
+| Window tilted, daytime (base=open) | Layer 3 (Base=Open) | Move to 100% | Open beats vent — more airflow |
+| Window tilted at night (base=close) | Layer 4 (Ventilation) | Move to 30% | Vent floor over close |
+| Window tilted during shading hours | Layer 4 (Ventilation) | Move to 30% | Vent floor over shade |
+| Window tilted, resident sleeping, vent blocked | Layer 5 (Privacy) | Close completely | Privacy overrides ventilation |
+| Resident sleeping | Layer 5 (Privacy) | Close completely | Privacy / darkness |
+| Hot summer, resident absent, window closed | Layer 6 (Shading) | Move to 25% | Sun protection |
+| Normal evening, window closed | Layer 7 (Base=Close) | Close | Time schedule |
 | Window open + rain | Layer 1 (Force) | Close completely | Force overrides lockout! |
 
 **Key Points:**
 - ✅ Higher layers **always override** lower layers
 - ✅ Each layer is **independent** and can be checked separately
-- ✅ Resident presence is a **first-class layer** (Layer 4: PRIVACY)
+- ✅ Resident presence is a **first-class layer** (Layer 5: PRIVACY)
 - ✅ `allow_ventilate`, `allow_shade`, `allow_open` gate their respective layers directly
 - ✅ Manual overrides are tracked separately and respected
 - ✅ Force functions (Layer 1) can override even window protection
@@ -2387,9 +2406,16 @@ Likely causes: Manual override active OR time values incorrect
 **Priority Cascade (highest first):**
 1. **FORCE** → `force != "none"` → Force position
 2. **LOCK** → `window == "open"` → Open position (lockout protection)
-3. **VENT** → `window == "tilted"` → Ventilate position
-4. **SHADE** → `shade == 1` → Shading position
-5. **BASE** → `base` → Open or Close position
+3. **BASE=OPEN** → `base == "open"` AND no shading/privacy/restriction → Open position
+4. **VENT** → `window == "tilted"` AND base would close/shade/privacy → Ventilate position (floor)
+5. **PRIVACY** → `resident == 1` AND closing trigger → Close position
+6. **SHADE** → `shade == 1` → Shading position
+7. **BASE=CLOSE** → `base == "close"` → Close position
+
+> A tilted window expresses ventilation intent — and a fully open cover gives maximum airflow.
+> So when the schedule says "open" and nothing else lowers the cover, opening wins over the
+> tilted-vent floor. VENT acts as a *floor* only when the cover would otherwise close, shade,
+> or privacy-close.
 
 ---
 
