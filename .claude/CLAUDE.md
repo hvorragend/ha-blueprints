@@ -39,15 +39,20 @@ State is persisted as a JSON string in an `input_text` helper:
 ## Priority Cascade (`effective_state`)
 
 ```
-1. FORCE    → frc != "non"          → Force position
-2. LOCKOUT  → win == "opn"          → Open position (lockout protection)
-3. VENT     → win == "tlt"          → Ventilation position
-4. PRIVACY  → resident && closing   → Close position
-5. SHADING  → shd == 1 && allow     → Shading position
-6. BASE     → bas                   → Base position (opn/cls)
+1. FORCE    → frc != "non"                                       → Force position
+2. LOCKOUT  → win == "opn"                                       → Open position
+3. BASE=OPN → bas == "opn" AND no privacy/shading/restriction    → Open position
+4. VENT     → win == "tlt" AND base would close/shade/privacy    → Ventilation position
+5. PRIVACY  → resident && closing                                → Close position
+6. SHADING  → shd == 1 && allow_shade                            → Shading position
+7. BASE=CLS → bas                                                → Close position
 ```
 
-The variable `effective_state` returns the currently active state from this cascade (`lock`, `vnt`, `cls`, `shd`, `opn`).
+The variable `effective_state` returns the currently active state from this cascade (`lock`, `opn`, `vnt`, `cls`, `shd`).
+
+**Rationale for BASE=OPN before VENT:** A tilted window signals ventilation intent — and a fully open cover provides maximum airflow. So when the time schedule says "open" (`bas=opn`) and nothing else lowers the cover, opening wins over the tilted-vent floor. VENT is a *floor* only when the cover would otherwise go below ventilation position (close, shading, privacy-close, or base=opn with `allow_open=false`).
+
+Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT only when `win == 'tlt'` and `base_target != 'opn'`.
 
 ---
 

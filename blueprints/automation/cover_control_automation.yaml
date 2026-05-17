@@ -3107,10 +3107,16 @@ variables:
   # Priority Order (highest first):
   # 1. FORCE    → force != "none" → Force-Position
   # 2. LOCKOUT  → window == "open" → Open-Position (prevent lockout)
-  # 3. VENT     → window == "tilted" AND allow_ventilate → Ventilate-Position
-  # 4. PRIVACY  → resident == 1 AND closing_trigger → Close-Position
-  # 5. SHADING  → shade == 1 AND allow_shade → Shading-Position
-  # 6. BASE     → base (respects allow_open for "open" state)
+  # 3. BASE=OPN → base == "open" AND no shading/privacy/close-restriction → Open-Position
+  # 4. VENT     → window == "tilted" AND allow_ventilate AND base would close/shade → Ventilate-Position
+  # 5. PRIVACY  → resident == 1 AND closing_trigger → Close-Position
+  # 6. SHADING  → shade == 1 AND allow_shade → Shading-Position
+  # 7. BASE=CLS → base (respects allow_open for "open" state)
+  #
+  # Rationale: A tilted window expresses ventilation intent. With base=opn the
+  # cover should fully open (maximum airflow). VENT acts as a "floor" only when
+  # the cover would otherwise go below ventilate position (close, shading,
+  # privacy-close, base=opn but allow_open=false).
   #
   # ═══════════════════════════════════════════════════════════════════════════
 
@@ -3133,16 +3139,21 @@ variables:
       {{ h.frc }}
     {% elif h.win == 'opn' %}
       lock
-    {% elif h.win == 'tlt' and allow_vent %}
-      vnt
-    {% elif privacy_active %}
-      cls
-    {% elif h.shd | int == 1 and allow_shade %}
-      shd
-    {% elif h.bas == 'opn' and not allow_open %}
-      cls
     {% else %}
-      {{ h.bas }}
+      {% if privacy_active %}
+        {% set base_target = 'cls' %}
+      {% elif h.shd | int == 1 and allow_shade %}
+        {% set base_target = 'shd' %}
+      {% elif h.bas == 'opn' and not allow_open %}
+        {% set base_target = 'cls' %}
+      {% else %}
+        {% set base_target = h.bas %}
+      {% endif %}
+      {% if h.win == 'tlt' and allow_vent and base_target != 'opn' %}
+        vnt
+      {% else %}
+        {{ base_target }}
+      {% endif %}
     {% endif %}
 
   # STATE FORCE - Which force function is currently active? (from helper)
@@ -6365,6 +6376,22 @@ actions:
                     default: !input auto_ventilate_action
                   - *helper_update
 
+              - alias: "Force pause disabled: drive to OPEN target (background, base=opn)"
+                conditions: "{{ effective_state == 'opn' }}"
+                sequence:
+                  - variables:
+                      target_position: !input open_position
+                      target_tilt_position: "{{ open_tilt_position | int }}"
+                      update_values:
+                        man: 0
+                  - choose: []
+                    default: !input auto_up_action_before
+                  - *cover_move_action
+                  - *tilt_move_action
+                  - choose: []
+                    default: !input auto_up_action
+                  - *helper_update
+
               - alias: "Force pause disabled: drive to VENTILATION target (window tilted)"
                 conditions: "{{ effective_state == 'vnt' }}"
                 sequence:
@@ -6668,6 +6695,35 @@ actions:
                               - *helper_update
                               - stop: "Return to Open (window open - lockout protection)"
 
+                          - alias: "Force disabled recovery: return to OPEN (base=opn)"
+                            conditions:
+                              - "{{ helper_state_base == 'opn' }}"
+                              - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}"
+                              - "{{ not helper_state_shade }}"
+                              - "{{ resident_flags.allow_open }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input open_position
+                                  target_tilt_position: "{{ open_tilt_position | int }}"
+                                  update_values:
+                                    # Force ended, return to open base state
+                                    frc: "non"
+                                    man: 0
+                                    ts:
+                                      opn: "now"
+                                      shs: 0
+                                      she: 0
+                              - if: "{{ force_allows_open }}"
+                                then:
+                                  - choose: []
+                                    default: !input auto_up_action_before
+                                  - *cover_move_action
+                                  - *tilt_move_action
+                                  - choose: []
+                                    default: !input auto_up_action
+                              - *helper_update
+                              - stop: "Return to Open executed"
+
                           - alias: "Force disabled recovery: return to VENTILATION (window tilted)"
                             conditions:
                               - "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
@@ -6694,35 +6750,6 @@ actions:
                                     default: !input auto_ventilate_action
                               - *helper_update
                               - stop: "Return to Ventilation executed"
-
-                          - alias: "Force disabled recovery: return to OPEN (base=opn)"
-                            conditions:
-                              - "{{ helper_state_base == 'opn' }}"
-                              - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
-                              - "{{ not helper_state_shade }}"
-                              - "{{ resident_flags.allow_open }}"
-                            sequence:
-                              - variables:
-                                  target_position: !input open_position
-                                  target_tilt_position: "{{ open_tilt_position | int }}"
-                                  update_values:
-                                    # Force ended, return to open base state
-                                    frc: "non"
-                                    man: 0
-                                    ts:
-                                      opn: "now"
-                                      shs: 0
-                                      she: 0
-                              - if: "{{ force_allows_open }}"
-                                then:
-                                  - choose: []
-                                    default: !input auto_up_action_before
-                                  - *cover_move_action
-                                  - *tilt_move_action
-                                  - choose: []
-                                    default: !input auto_up_action
-                              - *helper_update
-                              - stop: "Return to Open executed"
                         default:
                           # No matching recovery condition (e.g., resident restrictions)
                           # Still clear the force flag to avoid it getting stuck
