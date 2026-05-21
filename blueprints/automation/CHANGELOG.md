@@ -76,6 +76,11 @@ The helper stores all relevant state information: the current base state, shadin
 
 ## 🔧 Bug Fixes
 
+### Manual override ignored when shading state is stale ([#447](https://github.com/hvorragend/ha-blueprints/issues/447))
+After a manual cover movement to a position that does not match any defined position (open / close / shading / ventilation), the JSON helper preserved a previously set `shd=1` from earlier shading state (e.g. shading-start that was held back by lockout protection or saved for later). A subsequent shading-end pending could then arm and fire, overriding the manual move long before the configured `reset_override_timeout` elapsed.
+
+The "Manual: position cannot be assigned (unknown)" branch now clears `shd`, pending counters (`shs`, `she`) and the retry anchor (`shr`) on the manual move — consistent with the "Manual: opened" and "Manual: closed" branches. A manual move to a free position thereby reliably cancels any pending shading automation.
+
 ### Cover opens at early time without waiting for the configured sun elevation ([#436](https://github.com/hvorragend/ha-blueprints/issues/436))
 When only one of *Brightness* or *Sun Elevation* was enabled and the operator was set to **OR** (the default), the disabled sensor short-circuited the combined check to `true`. The result: a configured early opening time fired the cover up even though the single active sensor's threshold had not yet been reached — e.g. cover opens at 05:00 although the sun elevation is still well below the configured `-3°`. The same asymmetry symmetrically blocked the early *closing* time for users who relied on pure time control (no environment sensors): only the late closing time would fire, never the early one.
 
