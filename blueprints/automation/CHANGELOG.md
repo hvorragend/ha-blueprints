@@ -1,6 +1,6 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
-# 🚀 CCA 2026.03.alpha – New State Machine & Mandatory JSON Helper
+# 🚀 CCA 2026.05.23 – New State Machine & Mandatory JSON Helper
 
 ## ⚠️ Configuration Changes — Automation Options Consolidated
 
