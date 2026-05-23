@@ -52,9 +52,9 @@
 
 | Tool | Description |
 |------|-------------|
-| [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/) | Validate your YAML configuration for errors and deprecated parameters |
-| [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/) | Analyze automation traces to understand what happened |
-| [Trace Compare](https://hvorragend.github.io/ha-blueprints/trace-compare/) | Compare multiple traces side-by-side |
+| [Configuration Validator](validator/) | Validate your YAML configuration for errors and deprecated parameters |
+| [Trace Analyzer](trace-analyzer/) | Analyze automation traces to understand what happened |
+| [Trace Compare](trace-compare/) | Compare multiple traces side-by-side |
 
 ## Community & Support
 
