@@ -1,3 +1,4 @@
+{% raw %}
 # Dynamic Sun Elevation Configuration
 
 ## 🌍 The Problem
@@ -748,4 +749,5 @@ entities:
   - sun.sun
 hours_to_show: 168  # 1 week
 ```
+{% endraw %}
 

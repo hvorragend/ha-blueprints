@@ -1,3 +1,4 @@
+{% raw %}
 # Changelog
 
 2024.01.29-01:
@@ -447,3 +448,4 @@
 
 2025.08.15:
   - Fixed: In rare cases, global conditions prevented the helper from being pre-filled #270
+{% endraw %}
