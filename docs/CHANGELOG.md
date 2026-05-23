@@ -1,3 +1,5 @@
+**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/docs/CHANGELOG_OLD.md).
+
 # 🚀 CCA 2026.05.23 — New State Machine, Priority Cascade, Force Pause & 30+ Bug Fixes
 
 This is the biggest CCA update since the initial release — a **complete architecture overhaul** of the automation engine, combined with powerful new features and months of stability fixes.
@@ -7,14 +9,8 @@ This is the biggest CCA update since the initial release — a **complete archit
 - 📦 **Mandatory JSON Helper v6** with automatic migration from v5
 - ⏸️ **Force Pause** — suspend all movements while keeping state in sync
 - ⚙️ **AND/OR operators** for brightness & sun elevation conditions
-- ☀️ **Flexible Shading Logic** — AND/OR condition builder with independent START/END configuration
-- 📅 **Calendar Integration** — schedule covers via Home Assistant calendars
-- 🛝 **Awning & Sunshade Support** — inverted position logic for awnings
 - 📝 **Optional Logbook** entries for debugging without trace limits
 - 🪟 **Keep Cover Open** on full-to-tilt window transition
-- 🔌 **Flexible Position Source** — support for alternative position attributes and external sensors
-- 🧱 **Tilt Wait Until Idle** — reliable tilt control for Z-Wave devices
-- ✨ **Dynamic Sun Elevation** — seasonal auto-adjustment via template sensors
 - 🔧 **30+ bug fixes** across shading, force functions, ventilation, manual override & more
 - ⚠️ **Behavior change**: BASE=OPN now beats VENT in the priority cascade
 
@@ -45,28 +41,7 @@ All enable/disable decisions are now centrally located in the **Automation Optio
 | `time_control: time_control_disabled` | Uncheck `time_control_enabled` in `auto_options` | ⚠️ Legacy (still works, but deprecated) |
 | Brightness & Sun Elevation operator in Sun Elevation section | Moved to Automation Options section | ✅ No |
 
-New `auto_options` values:
-```yaml
-auto_options:
-  - auto_up_enabled          # Morning opening (existing)
-  - auto_down_enabled        # Evening closing (existing)
-  - time_control_enabled     # NEW — enables time-based triggers
-  - auto_brightness_enabled  # Brightness-based opening/closing
-  - auto_sun_enabled         # Sun elevation-based opening/closing
-  - auto_ventilate_enabled   # Ventilation mode (existing)
-  - auto_shading_enabled     # Sun protection / shading (existing)
-```
-
 **Backward compatible:** Existing automations without `time_control_enabled` in `auto_options` continue to work as before.
-
-### Removed Parameters
-
-The following parameters have been removed — please update your configuration:
-
-- `shading_start_behavior` → replaced by `shading_start_max_duration` (in seconds, e.g. 3600)
-- `shading_end_behavior` → covers now always return to `open_position` when shading ends
-- `is_shading_end_immediate_by_sun_position` → removed
-- `time_schedule_helper` → removed
 
 ### Helper Schema Cleanup
 
@@ -115,15 +90,6 @@ A new optional `force_pause` input (`input_boolean` or `switch`) allows suspendi
 
 **Use case:** A manual/automatic toggle switch. Flip it off to pause, flip it back on → instant correct position.
 
-### ☀️ Flexible Shading Logic — AND/OR Condition Builder
-
-A powerful AND/OR condition builder for shading start and end conditions:
-
-- **Independent START and END logic**: Separate configuration paths for starting and ending shading
-- **Per-condition on/off switches**: Each individual shading trigger (azimuth, elevation, brightness, temperatures, weather) can be enabled or disabled independently
-- **Unified retry behavior**: Both shading start and end use a unified retry loop with configurable timeout protection
-- **Maximum duration settings**: Prevent endless "waiting for conditions" states
-
 ### ⚙️ AND/OR Operator for Brightness & Sun Elevation
 
 The combination of *Brightness* and *Sun Elevation* conditions is now configurable via `brightness_sun_operator`:
@@ -132,24 +98,6 @@ The combination of *Brightness* and *Sun Elevation* conditions is now configurab
 - **AND:** Cover opens/closes only when **both** conditions cross their thresholds — useful to avoid premature triggers
 
 When only one sensor is enabled, the operator is irrelevant.
-
-### 📅 Calendar Integration for Time Control
-
-Use Home Assistant calendars for flexible cover scheduling:
-
-- **Calendar Control Mode**: Select "Use a Home Assistant calendar" in Time Control Configuration
-- **Simple Event Titles**: Create calendar events with titles "Open Cover" / "Close Cover"
-- **Instant Response**: Automation reacts immediately when events start or end
-- **Benefits over Time Scheduler**: Different times per weekday, holiday/vacation schedules, visual planning in calendar view, family-friendly
-
-### 🛝 Awning & Sunshade Support
-
-CCA now supports **awnings and sunshades** with inverted position logic:
-
-- **Blinds/Roller Shutters (Standard)**: 0% = closed down, 100% = open up
-- **Awnings/Sunshades (Inverted)**: 0% = retracted, 100% = extended
-- Automatic position logic adaptation based on cover type
-- Transparent for end users: position values work intuitively for each cover type
 
 ### 📝 Optional Logbook Entries
 
@@ -166,46 +114,9 @@ A new opt-in **Logging** section (`enable_logbook`) writes a structured logbook 
 
 New option `ventilation_keep_open_on_full_to_tilt`: when a window changes from fully opened to tilted, the cover stays at the open position instead of lowering to the ventilation position. Useful for terrace doors where you come back inside, tilt the door, and don't want the cover moving down.
 
-### 🔌 Flexible Position Source Support
-
-CCA now supports covers that don't use the standard `current_position` attribute:
-
-- **Position Source Type**: Choose between `current_position`, `position` attribute, or external sensor
-- **Custom Position Sensor**: Use any sensor for position tracking
-- Automatic detection and graceful handling of missing attributes
-
-### 🧱 Tilt Position Control — Wait Until Idle Mode
-
-New optional mode for reliable tilt control on Z-Wave devices (e.g., Shelly Qubino Wave Shutter):
-
-- **Wait Until Idle**: Monitors cover state before sending tilt commands
-- **Tilt Wait Timeout**: Maximum wait time (default: 30s) with warning logs
-- Fully backward compatible — existing "Fixed Delay" mode remains the default
-
-### ✨ Dynamic Sun Elevation Adaptation
-
-Optional template sensors automatically adapt sun elevation thresholds to the season:
-
-- **Three modes**: Fixed (default), Dynamic (sensor-only), Hybrid (sensor + offset)
-- **No more DST adjustments**: Covers open/close at consistent solar times year-round
-- **Set and forget**: Configure once, works automatically forever
-
-See the [Dynamic Sun Elevation Guide](DYNAMIC_SUN_ELEVATION.md) for setup instructions.
-
-### ⏰ Identical Early and Late Times
-
-Both Early and Late times can now be set to the same value (e.g., Time Up Early and Time Up Late both at 07:00) to guarantee opening/closing at that exact time, regardless of environmental conditions.
-
 ### 🏠 Resident Handling Redesign
 
 Resident control was completely redesigned. A single smart trigger now handles both arrival and departure, including all environment checks and resident flags. When a force function is deactivated, the cover automatically returns to the correct state (open, closed, shading, or ventilation) without manual intervention.
-
-### 🌡️ Forecast & Temperature Intelligence
-
-- **Dedicated forecast inputs**: Separated fields for standard weather entities (`weather.*`) and direct forecast temperature sensors (`sensor.*`)
-- **Smart source priority**: When both are configured, the direct sensor is preferred
-- **Configurable forecast mode**: Daily, hourly, or live (current weather attributes)
-- **Forecast temperature triggers**: Dedicated state-change triggers (`t_shading_start_pending_6` / `t_shading_end_pending_6`) for immediate reaction
 
 ---
 
@@ -213,9 +124,9 @@ Resident control was completely redesigned. A single smart trigger now handles b
 
 ### Force Functions
 
-- **Force features blocking themselves** ([#339](https://github.com/hvorragend/ha-blueprints/issues/339)): Force Open/Close/Ventilation/Shading failed to move the cover because `is_cover_movement_blocked.any` was already `true`. Force triggers now bypass this check.
-- **Covers closing during ventilation despite active force** ([#337](https://github.com/hvorragend/ha-blueprints/issues/337)): Ventilation recovery now properly respects active force features. Force checks centralized via YAML anchors.
-- **Force recovery ignoring resident sensor** ([#332](https://github.com/hvorragend/ha-blueprints/issues/332)): Force recovery now validates resident conditions before returning to background state.
+- **Force features blocking themselves** ([#339](https://github.com/hvorragend/ha-blueprints/issues/339)): Force triggers now bypass the `is_cover_movement_blocked.any` check.
+- **Covers closing during ventilation despite active force** ([#337](https://github.com/hvorragend/ha-blueprints/issues/337)): Ventilation recovery now respects active force features.
+- **Force recovery ignoring resident sensor** ([#332](https://github.com/hvorragend/ha-blueprints/issues/332)): Force recovery now validates resident conditions.
 - **Force operations incorrectly updating helper** ([#318](https://github.com/hvorragend/ha-blueprints/issues/318)): Force operations now preserve the background helper state.
 - **Force priority: "Last Wins"** ([#342](https://github.com/hvorragend/ha-blueprints/pull/342), [#377](https://github.com/hvorragend/ha-blueprints/pull/377)): When multiple forces are active, the last activated one wins. Disabling one force correctly falls back to the remaining active force.
 - **Cover incorrectly closes when window closes during Force-Ventilation** ([#445](https://github.com/hvorragend/ha-blueprints/issues/445)): The contact handler now respects the active force.
@@ -240,8 +151,6 @@ Resident control was completely redesigned. A single smart trigger now handles b
 - **Lockout works independently of `resident_allow_ventilation`**: Lockout is now a standalone safety feature. Only the tilted sub-branch requires `resident_allow_ventilation`.
 - **Incorrect open status when window tilted during closing time**: The tilted-closing branch now correctly sets the base state to closed.
 - **Base state not updated when closing trigger fires with tilted window**: The CLOSE handler now always records the base-state change, fixing `prevent_multiple_times` for the next day.
-- **Contact sensor race condition** ([#225](https://github.com/hvorragend/ha-blueprints/issues/225)): When multiple contact sensors changed state simultaneously, `mode: single` could block the second trigger, causing incorrect lockout behavior. Fixed.
-- **Window-tilted ventilation: missing guards added**: Several tilt-related branches now include guards preventing redundant or conflicting cover moves.
 - **Ventilation-after-shading blocked by stale lockout gate** ([#426](https://github.com/hvorragend/ha-blueprints/issues/426)): Removed incorrect guard.
 
 ### Manual Override
@@ -261,24 +170,19 @@ Resident control was completely redesigned. A single smart trigger now handles b
 - **Resident leaving correctly restores shading/ventilation position**: Previously the cover sometimes closed instead.
 - **Resident leaving with window open no longer falls through to shading** (lockout takes priority).
 - **Resident handler reads live sensor state**, not the helper's stale `res` value — eliminating race conditions.
-- **Cover opens correctly after resident leaves** ([#174](https://github.com/hvorragend/ha-blueprints/issues/174)): Cover now evaluates time window and environmental conditions when resident leaves.
 
 ### Other Fixes
 
 - **Redundant cover movements prevented** ([#344](https://github.com/hvorragend/ha-blueprints/issues/344)): Cover no longer moves when already at target position.
 - **Dead helper write in Force-Shade activation** ([#427](https://github.com/hvorragend/ha-blueprints/issues/427)): Removed unused `ts.shd` write.
 - **Silent failures after v5 → v6 upgrade**: Fixed manual override timeout, shading start pending, and shading end conditions.
-- **`current_tilt_position` errors** ([#284](https://github.com/hvorragend/ha-blueprints/issues/284)): Roller blind setups with tilt no longer produce errors.
-- **`prevent_multiple_times` flags respect manual intervention**: Automation will not retry if the user manually changed the cover position.
 - **Opening incorrectly blocked** ([#354](https://github.com/hvorragend/ha-blueprints/issues/354)): A single permissive condition is now sufficient to allow opening.
 
 ---
 
-## 🧱 Stability & Hysteresis Improvements
+## 📦 Helper Schema Update — `ts.arm`
 
-- **Brightness hysteresis**: New brightness hysteresis value prevents flicker when light levels hover near thresholds.
-- **Consistent hysteresis on start and end**: Temperature hysteresis now applied to both start and end conditions for all sensors.
-- **Smarter shading end detection**: Conditions checked periodically until stable over the waiting period, preventing premature shading end.
+The v6 JSON helper schema gained one additional field: **`ts.arm`** — a dedicated retry-sequence anchor timestamp used by the shading-start and shading-end retry logic. Automatically initialized on first run; no manual action required.
 
 ---
 
@@ -288,7 +192,6 @@ Resident control was completely redesigned. A single smart trigger now handles b
 - Recognizes all new parameters (`sun_elevation_mode`, `force_pause`, `auto_options`, `brightness_sun_operator`, `enable_logbook`, `ventilation_keep_open_on_full_to_tilt`, etc.)
 - Sun elevation validation rewritten with full mode-aware support (Fixed / Dynamic / Hybrid)
 - New check: warns when required elevation sensors are missing for Dynamic/Hybrid mode
-- 80+ validation checks organized into 19 logical sections with clear headers
 
 ### Trace Analyzer v2.0
 Fully updated for the new Branch 0–11 structure and v6 helper format. Supports v6 internal, v6 compact, and v5 legacy display. Includes new runtime variables and an aligned shading deep-dive view.
@@ -312,22 +215,166 @@ New dashboard card examples (in [`examples/`](https://github.com/hvorragend/ha-b
 - **CCA Status Tile Card** — compact tile-style visualization
 - **Flex-Table-Card** — full-row visualization of all helper fields
 
-New guides:
-- **[Dynamic Sun Elevation Guide](DYNAMIC_SUN_ELEVATION.md)** — seasonal adaptation with template sensors
-- **[Window-Sun-Angle Aware Shading](WINDOW_SUN_ANGLE.md)** — window-orientation-aware shading via Force Shading
+New guide:
+- **[Window-Sun-Angle Aware Shading](WINDOW_SUN_ANGLE.md)** — step-by-step guide for window-orientation-aware shading via Force Shading
 
 ---
 
-## 📦 Helper Schema Update — `ts.arm`
 
-The v6 JSON helper schema gained one additional field: **`ts.arm`** — a dedicated retry-sequence anchor timestamp used by the shading-start and shading-end retry logic. Automatically initialized on first run; no manual action required.
+# 🚀 CCA 2026.01.26 - Force Features Self-Blocking Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed Force features blocking themselves** (#339): Force Open/Close/Ventilation/Shading features can now execute properly. Previously, these features failed to move the cover because `cover_move_action` and `tilt_move_action` checked `is_cover_movement_blocked.any`, which was already `true` when the force feature was active. The movement blocking condition now allows Force triggers to bypass the check using regex pattern `trigger.id is match('^t_force_')`, enabling force features to work as intended while maintaining protection for background automations.
+
 
 ---
 
-## 🛠️ Internal Improvements
 
-- **Variables refactoring**: Consolidated 80+ flag variables into maintainable dictionaries
-- **Reduced internal duplication**: Shared `ts_now` variable replaces repeated `as_timestamp(now()) | round(0)` calls
-- **Stronger force trigger safeguards**: Cross-checked with internal `_force_disabled` flags
-- **More robust JSON initialization**: Added `|default` values for shading and status fields
-- **Cleaner midnight reset**: Nightly reset also clears pending and end-pending shading states
+# 🚀 CCA 2026.01.23 - Force Features & Ventilation Recovery Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed covers closing during ventilation despite active force features** (#337): Ventilation recovery now properly respects force features (force-open, force-close, etc.). Previously, covers would close when windows closed even when force-open was still active. Force feature checks are now centralized in YAML anchors for consistent behavior across all branches.
+
+
+---
+
+
+# 🚀 CCA 2026.01.22 - Force Recovery Resident Sensor Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed force recovery ignoring resident sensor status** (#332): Force recovery (BRANCH 12) now validates resident sensor conditions before returning to background state. Previously, when a force function was disabled, the cover could execute an invalid action if the resident sensor status had changed while the force function was active.
+
+---
+
+
+# 🚀 CCA 2026.01.14 - Force State Preservation Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed force operations incorrectly updating helper status** (#318): Force operations (force-open, force-close, force-ventilate, force-shading) now preserve the background helper state instead of updating it. 
+
+---
+
+
+# 🚀 CCA 2026.01.12 - Window Tilted Closing Time Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed incorrect open status when window is tilted during closing time**: The "Window tilted - Move to ventilation position" branch (inside BRANCH 1: CLOSE) now correctly sets `open=0, close=1` to reflect that this is a closing action redirected to ventilation position. Previously, it incorrectly set `open=1, close=0`, causing shutters to open instead of close when the window was closed in the morning after being tilted during evening hours.
+
+- **Fixed shading state persistence**: The shading state is now correctly saved to the helper. Previously, this state was lost, preventing the cover from directly entering shading mode when opening the following morning.
+
+---
+
+
+# 🚀 CCA 2026.01.11 - Manual Position Trigger Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed manual position detection trigger** (#326): Replaced non-functional template trigger with separate state triggers for each position source (current_position, position, custom sensor). Manual position changes are now reliably detected within 60 seconds.
+
+---
+
+
+# 🚀 CCA 2026.01.09 - Shading Trigger Fix
+
+## 🔧 Bug Fixes
+
+- **Fixed shading not triggering automatically after cover opens** (#325): Shading conditions are now correctly re-evaluated when covers open, ensuring shading activates when all conditions are met.
+
+---
+
+
+# 🚀 CCA 2026.01.06 - Forecast Temperature Trigger Coverage
+
+## ✨ New Features
+
+- **Added missing state triggers for Forecast Temperature condition**: The `cond_forecast_temp` condition now has dedicated state-change triggers (`t_shading_start_pending_6` and `t_shading_end_pending_6`) for immediate reaction when forecast temperature sensor values change. Previously, forecast temperature was only evaluated via time-based trigger or when other conditions triggered, which caused incomplete AND/OR logic evaluation.
+
+- **Note for Weather Entity Users**: When using a weather entity for forecast temperature (without a dedicated sensor), the existing weather condition trigger (`t_shading_start_pending_5` / `t_shading_end_pending_4`) will fire on weather entity updates. The forecast temperature is then loaded and evaluated in the action sequence, providing indirect coverage for weather entity-based forecast temperature.
+
+---
+
+
+# 🚀 CCA 2026.01.02 - Sun Elevation Trigger Mode Support
+
+## 🔧 Bug Fixes
+
+- **Fixed sun elevation triggers to respect fixed/dynamic/hybrid modes**: Triggers `t_open_5` and `t_close_5` now correctly implement all three sun elevation modes (fixed, dynamic, hybrid) ensuring consistent threshold calculation across the automation.
+
+---
+
+
+# 🚀 CCA 2025.12.31 - Force Recovery Environment Check
+
+## 🔧 Bug Fixes
+
+- **Fixed helper status update during force-disabled states** (#312): Helper status is now correctly updated even when force functions (e.g., force-close) are active. This ensures the background state is properly tracked during forced states, allowing covers to return to the correct position when force functions are deactivated. Previously, the helper update condition was stricter than the cover movement condition, causing inconsistent state tracking.
+
+- **Fixed force-disabled recovery respecting environmental conditions** (#310): Covers now check sun elevation and brightness before reopening after force-disabled state ends (e.g., rain protection). Time-based triggers at `time_up_late`/`time_down_late` continue to work as ultimate fallback regardless of conditions.
+
+---
+
+
+# 🚀 CCA 2025.12.30 - Sun Elevation Modes (Fixed/Dynamic/Hybrid)
+
+## ☀️ Three Sun Elevation Modes
+
+- **Flexible threshold calculation with three distinct modes**
+  Choose how sun elevation thresholds are determined based on your needs and setup complexity.
+
+### 🔒 Fixed Mode (Default)
+- **Simple and straightforward**
+  Uses only the configured fixed values for sun elevation thresholds. Perfect for users who don't need seasonal adaptation or prefer manual configuration.
+
+- **Sensors are ignored**
+  Even if elevation sensors are configured, they will be ignored in this mode. This ensures predictable behavior and prevents confusion.
+
+- **Backward compatible**
+  All existing configurations without the mode field automatically use Fixed mode, ensuring seamless upgrades.
+
+### 📊 Dynamic Mode
+- **Seasonal adaptation**
+  Uses only sensor values for threshold calculation. The fixed values are completely ignored. Ideal for automatic seasonal adjustments using template sensors.
+
+- **Sensors required**
+  Both up and down sensors must be configured and provide valid numeric values. Config check validates this requirement.
+
+- **Year-round automation**
+  Perfect for users who want fully automated seasonal adaptation without manual intervention. Use with the [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md).
+
+### 🔄 Hybrid Mode
+- **Best of both worlds**
+  Combines sensor value + fixed value as offset. Allows seasonal adaptation with manual fine-tuning capability.
+
+- **Additive calculation**
+  Final threshold = Sensor value + Fixed value. Example: Sensor 2.0° + Fixed 1.5° = Threshold 3.5°.
+
+- **Flexible fine-tuning**
+  Use the sensor for seasonal base values and adjust the fixed offset for per-cover tweaking (e.g., different orientations).
+
+### 🔧 Configuration & Validation
+- **New sun_elevation_mode selector**
+  Easy-to-understand dropdown with clear descriptions for each mode in the Sun Elevation Settings section.
+
+- **Updated field descriptions**
+  All sun elevation fields now explain their behavior in each mode, making configuration intuitive.
+
+### 💡 Use Cases
+- **Fixed Mode**: Simple setups, manual control preference, no seasonal needs
+- **Dynamic Mode**: Full automation, seasonal adaptation, template sensor enthusiasts
+- **Hybrid Mode**: Seasonal base + manual offset, multi-cover setups with different orientations
+
+---
+
+## 🔧 Bug Fixes
+
+- **Fixed prevent_multiple_times flags respecting manual intervention**: The
+  `prevent_opening_multiple_times`, `prevent_closing_multiple_times`, and
+  `prevent_shading_multiple_times` flags now correctly respect manual user
+  intervention. Automation will not retry if the user manually changed the
+  cover position after an automation attempt, ensuring user decisions are
+  always respected.
