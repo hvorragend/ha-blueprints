@@ -1,4 +1,4 @@
-# :rocket: CCA 2026.05.23 — New State Machine, Priority Cascade, Force Pause & 30+ Bug Fixes
+# :rocket: CCA 2026.05.24 — New State Machine, Priority Cascade, Force Pause & 30+ Bug Fixes
 
 This is the biggest CCA update since the initial release — a **complete architecture overhaul** of the automation engine, combined with powerful new features and months of stability fixes.
 
