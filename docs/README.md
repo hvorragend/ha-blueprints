@@ -46,7 +46,7 @@
 | [Dynamic Sun Elevation Guide](DYNAMIC_SUN_ELEVATION.md) | Seasonal sun angle adaptation with template sensors |
 | [Time Control Visualization](TIME_CONTROL_VISUALIZATION.md) | Time scheduling configuration guide |
 | [Window Sun Angle](WINDOW_SUN_ANGLE.md) | Sun angle calculation reference |
-| [Card Examples](https://github.com/hvorragend/ha-blueprints/tree/dev/examples) | Home Assistant dashboard card templates |
+| [Card Examples](https://github.com/hvorragend/ha-blueprints/tree/main/examples) | Home Assistant dashboard card templates |
 
 ## Online Tools
 
