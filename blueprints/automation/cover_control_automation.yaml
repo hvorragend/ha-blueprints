@@ -4049,17 +4049,22 @@ actions:
             {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Persist migration (v5 → v6)
+  # Persist migration (v5 → v6) and stale-schema cleanup
   # ════════════════════════════════════════════════════════════════════════════
-  # Migration is computed in helper_json variable. If the STORED version differs
-  # from 6, we need to persist the migrated data back to the helper in compact format.
-  # Note: We check the raw helper state, not helper_json (which always has v:6 after migration)
+  # Migration is computed in helper_json variable. Persist back to the helper when:
+  #   - the stored version is not 6 (v5 → v6 conversion), OR
+  #   - the stored ts.* contains keys that the current schema no longer recognizes
+  #     (defensive cleanup; preserves all live state, resets pending to idle).
+  # We check the raw helper state, not helper_json (which always has v:6 after migration).
   - if:
       - condition: template
         value_template: >-
           {% set helper_state = states(cover_status_helper) %}
           {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states else {} %}
-          {{ helper_raw.v | default(0) != 6 }}
+          {% set raw_ts = helper_raw.ts | default({}) %}
+          {% set known_ts_keys = ['opn', 'cls', 'shd', 'due', 'arm', 'man'] %}
+          {% set has_unknown_ts = raw_ts.keys() | reject('in', known_ts_keys) | list | count > 0 %}
+          {{ helper_raw.v | default(0) != 6 or has_unknown_ts }}
     then:
       - variables:
           update_values: {}
