@@ -2989,19 +2989,23 @@ variables:
   # Cover Status Helper – JSON parsing with v5 → v6 migration
   # ═══════════════════════════════════════════════════════════════════════════
   # v6 Compact Schema (stored in input_text, max 208 chars):
-  # {"bas":"opn","shd":0,"win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"shr":0,"man":0},"v":6,"t":0}
+  # {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0}
   #
   # Field mapping (compact → internal):
   #   bas → base (opn/cls → open/close)
   #   shd → shade (1/0)
+  #   pnd → pending phase (non/beg/end → none/start-armed/end-armed)
   #   win → window (cls/tlt/opn → closed/tilted/open)
   #   frc → force (non/opn/cls/shd/vnt → none/open/close/shade/vent)
   #   res → resident (1/0)
   #   man → manual (1/0)
   #   ts.opn → ts.open, ts.cls → ts.close, ts.shd → ts.shade
-  #   ts.shs → ts.shade_start, ts.she → ts.shade_end
-  #   ts.shr → ts.shade_retry (anchor for shading-start retry duration)
+  #   ts.due → fire time of armed pending (used together with pnd)
+  #   ts.arm → first-arming anchor of current retry sequence
   #   ts.man → ts.manual
+  #
+  # Beta-tester migration: the read block tolerates old keys (shs/she/shr) and
+  # maps them to pnd/due/arm on first write. Old keys then silently drop.
   #
   # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
   #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
@@ -3029,10 +3033,13 @@ variables:
         'none'
       %}
 
+      {% set v5_shs = helper_raw.shading.p | default(0) | int %}
+      {% set v5_she = helper_raw.shading.q | default(0) | int %}
       {{
         {
           'bas': 'cls' if v5_current == 'close' else 'opn',
           'shd': 1 if v5_current == 'shade' else 0,
+          'pnd': 'beg' if v5_shs > 0 else ('end' if v5_she > 0 else 'non'),
           'win': 'opn' if v5_current == 'vfull' else ('tlt' if v5_current == 'vpart' else 'cls'),
           'frc': 'non',
           'res': 0,
@@ -3041,9 +3048,8 @@ variables:
             'opn': helper_raw.open.t | default(0),
             'cls': helper_raw.close.t | default(0),
             'shd': helper_raw.shading.t | default(0) if v5_current == 'shade' else 0,
-            'shs': helper_raw.shading.p | default(0),
-            'she': helper_raw.shading.q | default(0),
-            'shr': 0,
+            'due': v5_shs if v5_shs > 0 else v5_she,
+            'arm': 0,
             'man': helper_raw.manual.t | default(0)
           },
           'v': 6,
@@ -3052,10 +3058,23 @@ variables:
       }}
     {% elif is_v6_compact %}
       {% set raw_ts = helper_raw.ts | default({}) %}
+      {% set old_shs = raw_ts.shs | default(0) | int %}
+      {% set old_she = raw_ts.she | default(0) | int %}
+      {% set raw_pnd = helper_raw.pnd | default(none) %}
+      {% if raw_pnd is none %}
+        {% set pnd = 'beg' if old_shs > 0 else ('end' if old_she > 0 else 'non') %}
+        {% set due = old_shs if old_shs > 0 else old_she %}
+        {% set arm = raw_ts.shr | default(0) | int %}
+      {% else %}
+        {% set pnd = raw_pnd %}
+        {% set due = raw_ts.due | default(0) | int %}
+        {% set arm = raw_ts.arm | default(0) | int %}
+      {% endif %}
       {{
         {
           'bas': helper_raw.bas | default('opn'),
           'shd': helper_raw.shd | default(0) | int,
+          'pnd': pnd,
           'win': helper_raw.win | default('cls'),
           'frc': helper_raw.frc | default('non'),
           'res': helper_raw.res | default(0) | int,
@@ -3064,9 +3083,8 @@ variables:
             'opn': raw_ts.opn | default(0) | int,
             'cls': raw_ts.cls | default(0) | int,
             'shd': raw_ts.shd | default(0) | int,
-            'shs': raw_ts.shs | default(0) | int,
-            'she': raw_ts.she | default(0) | int,
-            'shr': raw_ts.shr | default(0) | int,
+            'due': due,
+            'arm': arm,
             'man': raw_ts.man | default(0) | int
           },
           'v': 6,
@@ -3078,6 +3096,7 @@ variables:
         {
           'bas': 'opn',
           'shd': 0,
+          'pnd': 'non',
           'win': 'cls',
           'frc': 'non',
           'res': 0,
@@ -3086,9 +3105,8 @@ variables:
             'opn': 0,
             'cls': 0,
             'shd': 0,
-            'shs': 0,
-            'she': 0,
-            'shr': 0,
+            'due': 0,
+            'arm': 0,
             'man': 0
           },
           'v': 6,
@@ -3182,18 +3200,19 @@ variables:
   helper_ts_open: "{{ helper_json.ts.opn | default(0) | int }}"
   helper_ts_close: "{{ helper_json.ts.cls | default(0) | int }}"
   helper_ts_shade: "{{ helper_json.ts.shd | default(0) | int }}"
-  helper_ts_shade_retry: "{{ helper_json.ts.shr | default(0) | int }}"
+  helper_ts_pending_due: "{{ helper_json.ts.due | default(0) | int }}"
+  helper_ts_pending_arm: "{{ helper_json.ts.arm | default(0) | int }}"
   helper_ts_man: "{{ helper_json.ts.man | default(0) | int }}"
 
   # SHADED STATUS - Is cover currently shaded (not pending)?
-  # True when shade == 1 AND no pending start time active
-  helper_state_is_shaded: "{{ helper_json.shd | default(0) | int == 1 and helper_json.ts.shs | default(0) | int == 0 }}"
+  # True when shade == 1 AND no pending start armed
+  helper_state_is_shaded: "{{ helper_json.shd | default(0) | int == 1 and helper_json.pnd | default('non') != 'beg' }}"
 
   # PENDING START - Is shading start pending?
-  helper_state_pending_start: "{{ helper_json.ts.shs | default(0) | int > 0 }}"
+  helper_state_pending_start: "{{ helper_json.pnd | default('non') == 'beg' }}"
 
   # PENDING END - Is shading end pending?
-  helper_state_pending_end: "{{ helper_json.ts.she | default(0) | int > 0 }}"
+  helper_state_pending_end: "{{ helper_json.pnd | default('non') == 'end' }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # COMPUTED FLAGS - Simplified Movement Permissions
@@ -3587,8 +3606,9 @@ triggers:
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_ts = as_timestamp(now()) | int %}
-        {% set pending = helper.ts.shs | default(0) | int %}
-        {{ pending > 0 and now_ts >= pending }}
+        {% set pending = helper.ts.due | default(helper.ts.shs | default(0)) | int %}
+        {% set phase = helper.pnd | default('beg' if (helper.ts.shs | default(0) | int > 0) else 'non') %}
+        {{ phase == 'beg' and pending > 0 and now_ts >= pending }}
       {% else %}
         {{
           helper | regex_search('shading') and
@@ -3713,8 +3733,9 @@ triggers:
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_ts = as_timestamp(now()) | int %}
-        {% set pending = helper.ts.she | default(0) | int %}
-        {{ pending > 0 and now_ts >= pending }}
+        {% set pending = helper.ts.due | default(helper.ts.she | default(0)) | int %}
+        {% set phase = helper.pnd | default('end' if (helper.ts.she | default(0) | int > 0) else 'non') %}
+        {{ phase == 'end' and pending > 0 and now_ts >= pending }}
       {% else %}
         {{
           helper | regex_search('shading') and
@@ -3924,8 +3945,8 @@ actions:
       # Example: update_values: { bas: 'cls', ts: { opn: ts_now } }
       # Uses v6 compact schema names directly (no internal name conversion)
       #
-      # Fields: bas, shd (1/0), win, frc, res (1/0), man (1/0)
-      # Timestamps: ts.opn, ts.cls, ts.shd, ts.shs, ts.she, ts.shr, ts.man
+      # Fields: bas, shd (1/0), pnd (non/beg/end), win, frc, res (1/0), man (1/0)
+      # Timestamps: ts.opn, ts.cls, ts.shd, ts.due, ts.arm, ts.man
       #
       # Template logic:
       #   1. Apply field updates (compact names directly)
@@ -3946,6 +3967,7 @@ actions:
 
                   {% set new_bas = updates.bas | default(current.bas | default('opn')) %}
                   {% set new_shd = updates.shd | default(current.shd | default(0)) | int %}
+                  {% set new_pnd = updates.pnd | default(current.pnd | default('non')) %}
                   {% set new_win = updates.win | default(current.win | default('cls')) %}
                   {% set new_frc = updates.frc | default(current.frc | default('non')) %}
                   {% set new_res = updates.res | default(current.res | default(0)) | int %}
@@ -3953,7 +3975,7 @@ actions:
                   {% set current_ts = current.ts | default({}) %}
 
                   {% set merged_ts = namespace(data={}) %}
-                  {% for key in ['opn', 'cls', 'shd', 'shs', 'she', 'shr', 'man'] %}
+                  {% for key in ['opn', 'cls', 'shd', 'due', 'arm', 'man'] %}
                     {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
                   {% endfor %}
                   {% if 'ts' in updates %}
@@ -3968,6 +3990,7 @@ actions:
                   {% set dict_new = {
                     'bas': new_bas,
                     'shd': new_shd | int,
+                    'pnd': new_pnd,
                     'win': new_win,
                     'frc': new_frc,
                     'res': new_res | int,
@@ -3976,9 +3999,8 @@ actions:
                       'opn': merged_ts.data.opn | default(0) | int,
                       'cls': merged_ts.data.cls | default(0) | int,
                       'shd': merged_ts.data.shd | default(0) | int,
-                      'shs': merged_ts.data.shs | default(0) | int,
-                      'she': merged_ts.data.she | default(0) | int,
-                      'shr': merged_ts.data.shr | default(0) | int,
+                      'due': merged_ts.data.due | default(0) | int,
+                      'arm': merged_ts.data.arm | default(0) | int,
                       'man': merged_ts.data.man | default(0) | int
                     },
                     'v': 6,
@@ -3995,7 +4017,7 @@ actions:
                     Trigger: {{ trigger.id | default('manual') }} | 
                     Effective: {{ effective_state }} | 
                     Position: {{ current_position }}% {% if is_cover_tilt_enabled %} / Tilt: {{ current_tilt_position }}%{% endif %} | 
-                    Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
+                    Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
                     States: 
                     opn={{ states(contact_window_opened) if contact_window_opened != [] else '-' }} 
                     tlt={{ states(contact_window_tilted) if contact_window_tilted != [] else '-' }}
@@ -4025,6 +4047,7 @@ actions:
             {% set dict_new = {
               'bas': 'opn',
               'shd': 0,
+              'pnd': 'non',
               'win': 'cls',
               'frc': 'non',
               'res': 0,
@@ -4033,9 +4056,8 @@ actions:
                 'opn': 0,
                 'cls': 0,
                 'shd': 0,
-                'shs': 0,
-                'she': 0,
-                'shr': 0,
+                'due': 0,
+                'arm': 0,
                 'man': 0
               },
               'v': 6,
@@ -4044,17 +4066,20 @@ actions:
             {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Persist migration (v5 → v6)
+  # Persist migration (v5 → v6, plus v6-beta shs/she/shr → pnd/due/arm)
   # ════════════════════════════════════════════════════════════════════════════
-  # Migration is computed in helper_json variable. If the STORED version differs
-  # from 6, we need to persist the migrated data back to the helper in compact format.
+  # Migration is computed in helper_json variable. If the STORED format differs
+  # from current v6 (wrong version OR legacy pending keys present), persist the
+  # migrated data back to the helper in compact format.
   # Note: We check the raw helper state, not helper_json (which always has v:6 after migration)
   - if:
       - condition: template
         value_template: >-
           {% set helper_state = states(cover_status_helper) %}
           {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states else {} %}
-          {{ helper_raw.v | default(0) != 6 }}
+          {% set raw_ts = helper_raw.ts | default({}) %}
+          {% set has_legacy_keys = raw_ts.shs is defined or raw_ts.she is defined or raw_ts.shr is defined %}
+          {{ helper_raw.v | default(0) != 6 or has_legacy_keys }}
     then:
       - variables:
           update_values: {}
@@ -4856,10 +4881,11 @@ actions:
                         bas: "opn"
                         shd: 1
                         man: "{{ 0 if force_allows_shade and effective_state == 'shd' else helper_json.man | default(0) | int }}"
+                        pnd: 'non'
                         ts:
                           shd: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_shade and effective_state == 'shd' }}"
                     then:
                       - delay:
@@ -4888,10 +4914,11 @@ actions:
                         bas: "opn"
                         shd: 0
                         man: "{{ 0 if resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) else helper_json.man | default(0) | int }}"
+                        pnd: 'non'
                         ts:
                           opn: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - if: "{{ resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) }}"
@@ -4964,10 +4991,11 @@ actions:
                         bas: "cls"
                         shd: 0
                         win: "opn"
+                        pnd: 'non'
                         ts:
                           cls: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - *helper_update
                   - stop: "Closing skipped: Lockout enabled"
 
@@ -4992,10 +5020,11 @@ actions:
                         shd: 0
                         win: "tlt"
                         man: "{{ 0 if force_allows_ventilate else helper_json.man | default(0) | int }}"
+                        pnd: 'non'
                         ts:
                           cls: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - delay:
@@ -5054,10 +5083,11 @@ actions:
                         # Set base state to close, clear shading
                         bas: "cls"
                         shd: 0
+                        pnd: 'non'
                         ts:
                           cls: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - *helper_update
                   - stop: "Closing skipped: Cover is shaded and lowering blocked by settings"
 
@@ -5073,10 +5103,11 @@ actions:
                     bas: "cls"
                     shd: 0
                     man: "{{ 0 if force_allows_close else helper_json.man | default(0) | int }}"
+                    pnd: 'non'
                     ts:
                       cls: "now"
-                      shs: 0
-                      she: 0
+                      due: 0
+                      arm: 0
               - if: "{{ force_allows_close }}"
                 then:
                   - delay:
@@ -5141,11 +5172,11 @@ actions:
                           update_values:
                             # Set shade pending timestamp
                             shd: 0
+                            pnd: 'beg'
                             ts:
                               shd: "now"
-                              shs: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
-                              she: 0
-                              shr: "now" # Anchor for max-duration retry window
+                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                              arm: "now" # Anchor for max-duration retry window
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
 
@@ -5182,11 +5213,11 @@ actions:
                                         # Shading blocked by lockout, record window state, store shading intent
                                         shd: 1
                                         win: "opn"
+                                        pnd: 'non'
                                         ts:
                                           shd: "now"
-                                          shs: 0
-                                          she: 0
-                                          shr: 0 # Clear retry anchor (sequence ended)
+                                          due: 0
+                                          arm: 0 # Clear retry anchor (sequence ended)
                                   - *helper_update
                                   - stop: "Shading Start skipped: Lockout enabled"
 
@@ -5212,11 +5243,11 @@ actions:
                                         # Activate shading
                                         shd: 1
                                         man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
+                                        pnd: 'non'
                                         ts:
                                           shd: "now"
-                                          shs: 0
-                                          she: 0
-                                          shr: 0 # Clear retry anchor (sequence ended)
+                                          due: 0
+                                          arm: 0 # Clear retry anchor (sequence ended)
                                   - if: "{{ force_allows_shade }}"
                                     then:
                                       - delay:
@@ -5241,11 +5272,11 @@ actions:
                                       update_values:
                                         # Store shading intent for future (cover is closed)
                                         shd: 1
+                                        pnd: 'non'
                                         ts:
                                           shd: "now"
-                                          shs: 0
-                                          she: 0
-                                          shr: 0 # Clear retry anchor (sequence ended)
+                                          due: 0
+                                          arm: 0 # Clear retry anchor (sequence ended)
                                   - *helper_update
                                   - stop: "Shading Start skipped: State saved"
 
@@ -5255,17 +5286,17 @@ actions:
                                 conditions:
                                   - "{{ shading_start_max_duration > 0 }}"
                                   - "{{ is_shading_allowed_window }}" # Continue only within time window
-                                  - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_start_max_duration }}"
+                                  - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_start_max_duration }}"
                                 sequence:
                                   - variables:
-                                      log_extra: "blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
+                                      log_extra: "blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
                                       update_values:
                                         # Continue waiting with new pending time
                                         shd: 0
+                                        pnd: 'beg'
                                         ts:
                                           shd: "now"
-                                          shs: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
-                                          she: 0
+                                          due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
                                   - *helper_update
                                   - stop: "Shading Start Pending: Continue waiting (blocked by user condition or override)"
 
@@ -5273,15 +5304,15 @@ actions:
                                 conditions: []
                                 sequence:
                                   - variables:
-                                      log_extra: "abort: blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
+                                      log_extra: "abort: blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
                                       update_values:
                                         # Abort shading start, clear pending
                                         shd: 0
+                                        pnd: 'non'
                                         ts:
                                           shd: "now"
-                                          shs: 0
-                                          she: 0
-                                          shr: 0 # Clear retry anchor (sequence ended)
+                                          due: 0
+                                          arm: 0 # Clear retry anchor (sequence ended)
                                   - *helper_update
                                   - stop: "Shading Start aborted: Timeout or invalid (blocked)"
 
@@ -5296,17 +5327,17 @@ actions:
                       - "{{ helper_state_pending_start }}"
                       - "{{ shading_start_max_duration > 0 }}"
                       - "{{ is_shading_allowed_window }}" # Continue only within time window
-                      - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_start_max_duration }}"
+                      - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
-                          log_extra: "shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
+                          log_extra: "shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
                           update_values:
                             # Continue waiting with new pending time
                             shd: 0
+                            pnd: 'beg'
                             ts:
                               shd: "now"
-                              shs: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
-                              she: 0
+                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
                       - *helper_update
                       - stop: "Shading Start Pending: Continue waiting"
 
@@ -5319,15 +5350,15 @@ actions:
                       - "{{ helper_state_pending_start }}"
                     sequence:
                       - variables:
-                          log_extra: "abort: shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
+                          log_extra: "abort: shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
                           update_values:
                             # Abort shading start, clear pending
                             shd: 0
+                            pnd: 'non'
                             ts:
                               shd: "now"
-                              shs: 0
-                              she: 0
-                              shr: 0 # Clear retry anchor (sequence ended)
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
                       - *helper_update
                       - stop: "Shading Start aborted: Timeout or invalid"
 
@@ -5413,11 +5444,11 @@ actions:
                           update_values:
                             # Set shading end pending timestamp
                             shd: 1
+                            pnd: 'end'
                             ts:
                               shd: "now"
-                              shs: 0
-                              she: "{{ (as_timestamp(now()) + local_waitingtime_end | int) | int }}"
-                              shr: "now" # Anchor for max-duration retry window
+                              due: "{{ (as_timestamp(now()) + local_waitingtime_end | int) | int }}"
+                              arm: "now" # Anchor for max-duration retry window
                       - *helper_update
                       - stop: "Shading End Pending: Waiting"
 
@@ -5437,11 +5468,11 @@ actions:
                             # Clear shading, tilt only
                             shd: 0
                             man: "{{ 0 if not is_forced else helper_json.man | default(0) | int }}"
+                            pnd: 'non'
                             ts:
                               shd: "now"
-                              shs: 0
-                              she: 0
-                              shr: 0 # Clear retry anchor (sequence ended)
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
                       - if:
                           - "{{ not is_forced }}"
                         then:
@@ -5472,11 +5503,11 @@ actions:
                             # Shading end blocked by lockout, window is open
                             shd: 0
                             win: "opn"
+                            pnd: 'non'
                             ts:
                               shd: "now"
-                              shs: 0
-                              she: 0
-                              shr: 0 # Clear retry anchor (sequence ended)
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
                       - *helper_update
                       - stop: "Shading End skipped: Lockout enabled"
 
@@ -5506,11 +5537,11 @@ actions:
                             shd: 0
                             win: "tlt"
                             man: "{{ 0 if force_allows_ventilate else helper_json.man | default(0) | int }}"
+                            pnd: 'non'
                             ts:
                               shd: "now"
-                              shs: 0
-                              she: 0
-                              shr: 0 # Clear retry anchor (sequence ended)
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
                       - if: "{{ force_allows_ventilate }}"
                         then:
                           - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
@@ -5549,12 +5580,12 @@ actions:
                                 bas: "opn"
                                 shd: 0
                                 man: 0
+                                pnd: 'non'
                                 ts:
                                   opn: "now"
                                   shd: "now"
-                                  shs: 0
-                                  she: 0
-                                  shr: 0 # Clear retry anchor (sequence ended)
+                                  due: 0
+                                  arm: 0 # Clear retry anchor (sequence ended)
                           - if: "{{ force_allows_open }}"
                             then:
                               - delay: # TODO: I can no longer recognize the original trigger here. That might be a bad idea here.
@@ -5576,11 +5607,11 @@ actions:
                                   update_values:
                                     # Just clear shading state when forced
                                     shd: 0
+                                    pnd: 'non'
                                     ts:
                                       shd: "now"
-                                      shs: 0
-                                      she: 0
-                                      shr: 0 # Clear retry anchor (sequence ended)
+                                      due: 0
+                                      arm: 0 # Clear retry anchor (sequence ended)
                               - *helper_update
                       - stop: "Shading End (Opening after shading) executed"
 
@@ -5593,17 +5624,17 @@ actions:
                       - "{{ helper_state_pending_end }}"
                       - "{{ shading_end_max_duration > 0 }}"
                       - "{{ is_shading_allowed_window }}" # Continue only within time window
-                      - "{{ (as_timestamp(now()) - helper_ts_shade_retry) <= shading_end_max_duration }}"
+                      - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
-                          log_extra: "shading_end_conditions_met=false (after exec); elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s/{{ shading_end_max_duration | int }}s; next_retry_in={{ shading_waitingtime_end | int }}s"
+                          log_extra: "shading_end_conditions_met=false (after exec); elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_end_max_duration | int }}s; next_retry_in={{ shading_waitingtime_end | int }}s"
                           update_values:
                             # Continue waiting with new end pending time
                             shd: 1
+                            pnd: 'end'
                             ts:
                               shd: "now"
-                              shs: 0
-                              she: "{{ (as_timestamp(now()) + shading_waitingtime_end | int) | int }}"
+                              due: "{{ (as_timestamp(now()) + shading_waitingtime_end | int) | int }}"
                       - *helper_update
                       - stop: "Shading End Pending: Continue waiting"
 
@@ -5616,34 +5647,36 @@ actions:
                       - "{{ helper_state_pending_end }}"
                     sequence:
                       - variables:
-                          log_extra: "abort: shading_end_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s; max_duration={{ shading_end_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
+                          log_extra: "abort: shading_end_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_end_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
                           update_values:
                             # Abort shading end retry, keep shading active
                             shd: 1
+                            pnd: 'non'
                             ts:
                               shd: "now"
-                              shs: 0
-                              she: 0
-                              shr: 0 # Clear retry anchor (sequence ended)
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
                       - *helper_update
                       - stop: "Shading End aborted: Timeout or invalid"
             # Issue #395: Execution trigger fires but end conditions are no longer met
-            # (e.g. brightness recovered after a brief cloud). Without clearing 'she'
-            # the template trigger stays true forever (now() >= she always holds for a
-            # past timestamp), so it never re-fires and new pending triggers are blocked
-            # by helper_state_pending_end — cover gets stuck on the shading position.
+            # (e.g. brightness recovered after a brief cloud). Without clearing the
+            # pending state, the template trigger stays true forever (now() >= due
+            # always holds for a past timestamp), so it never re-fires and new pending
+            # triggers are blocked by helper_state_pending_end — cover gets stuck on
+            # the shading position.
             else:
               - if:
                   - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                   - "{{ helper_state_pending_end }}"
                 then:
                   - variables:
-                      log_extra: "stale pending cleared (end conditions recovered); elapsed={{ (as_timestamp(now()) - helper_ts_shade_retry) | int }}s"
+                      log_extra: "stale pending cleared (end conditions recovered); elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s"
                       update_values:
                         shd: 1
+                        pnd: 'non'
                         ts:
-                          she: 0
-                          shr: 0 # Clear retry anchor (sequence ended)
+                          due: 0
+                          arm: 0 # Clear retry anchor (sequence ended)
                   - *helper_update
                   - stop: "Shading End: cleared stale pending (conditions no longer met)"
 
@@ -5694,9 +5727,10 @@ actions:
                         # Window is fully open (lockout)
                         win: "opn"
                         man: "{{ 0 if force_allows_open else helper_json.man | default(0) | int }}"
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_open }}"
                     then:
                       - delay:
@@ -5768,9 +5802,10 @@ actions:
                         # Window is tilted
                         win: "tlt"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - delay:
@@ -5832,9 +5867,10 @@ actions:
                         shd: 1
                         win: "cls"
                         man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_shade }}"
                     then:
                       - if: # Optional delay if enabled
@@ -5873,9 +5909,10 @@ actions:
                         # Window closed, return to open base state
                         win: "cls"
                         man: "{{ 0 if not prevent_flags.opening_after_ventilation_end and force_allows_open else helper_json.man | default(0) | int }}"
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ not prevent_flags.opening_after_ventilation_end and force_allows_open }}"
                     then:
                       - if: # Optional delay if enabled
@@ -5915,9 +5952,10 @@ actions:
                         # Window closed, return to close base state
                         win: "cls"
                         man: "{{ 0 if force_allows_close else helper_json.man | default(0) | int }}"
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_close }}"
                     then:
                       - if: # Optional delay if enabled
@@ -6193,9 +6231,10 @@ actions:
                         # Force open activated
                         frc: "opn"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_open }}"
                     then:
                       - choose: []
@@ -6218,9 +6257,10 @@ actions:
                         # Force close activated
                         frc: "cls"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_close }}"
                     then:
                       - choose: []
@@ -6243,9 +6283,10 @@ actions:
                         # Force ventilate activated
                         frc: "vnt"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - choose: []
@@ -6268,9 +6309,10 @@ actions:
                         # Force shading activated
                         frc: "shd"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_shade }}"
                     then:
                       - choose: []
@@ -6515,9 +6557,10 @@ actions:
                         # Switch to force open
                         frc: "opn"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_open }}"
                     then:
                       - choose: []
@@ -6540,9 +6583,10 @@ actions:
                         # Switch to force close
                         frc: "cls"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_close }}"
                     then:
                       - choose: []
@@ -6565,10 +6609,11 @@ actions:
                         # Switch to force shading
                         frc: "shd"
                         man: 0
+                        pnd: 'non'
                         ts:
                           shd: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_shade }}"
                     then:
                       - choose: []
@@ -6591,9 +6636,10 @@ actions:
                         # Switch to force ventilate
                         frc: "vnt"
                         man: 0
+                        pnd: 'non'
                         ts:
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - if: "{{ force_allows_ventilate }}"
                     then:
                       - choose: []
@@ -6625,9 +6671,10 @@ actions:
                                     # Force ended, return to close base state
                                     frc: "non"
                                     man: 0
+                                    pnd: 'non'
                                     ts:
-                                      shs: 0
-                                      she: 0
+                                      due: 0
+                                      arm: 0
                               - if: "{{ force_allows_close }}"
                                 then:
                                   - choose: []
@@ -6652,10 +6699,11 @@ actions:
                                     # Force ended, return to shading
                                     frc: "non"
                                     man: 0
+                                    pnd: 'non'
                                     ts:
                                       shd: "now"
-                                      shs: 0
-                                      she: 0
+                                      due: 0
+                                      arm: 0
                               - if: "{{ force_allows_shade }}"
                                 then:
                                   - choose: []
@@ -6681,9 +6729,10 @@ actions:
                                     frc: "non"
                                     win: "opn"
                                     man: 0
+                                    pnd: 'non'
                                     ts:
-                                      shs: 0
-                                      she: 0
+                                      due: 0
+                                      arm: 0
                               - if: "{{ force_allows_ventilate }}"
                                 then:
                                   - choose: []
@@ -6709,10 +6758,11 @@ actions:
                                     # Force ended, return to open base state
                                     frc: "non"
                                     man: 0
+                                    pnd: 'non'
                                     ts:
                                       opn: "now"
-                                      shs: 0
-                                      she: 0
+                                      due: 0
+                                      arm: 0
                               - if: "{{ force_allows_open }}"
                                 then:
                                   - choose: []
@@ -6737,9 +6787,10 @@ actions:
                                     # Force ended, return to ventilation (tilted)
                                     frc: "non"
                                     man: 0
+                                    pnd: 'non'
                                     ts:
-                                      shs: 0
-                                      she: 0
+                                      due: 0
+                                      arm: 0
                               - if: "{{ force_allows_ventilate }}"
                                 then:
                                   - choose: []
@@ -6852,12 +6903,13 @@ actions:
                         bas: "opn"
                         shd: 0
                         man: 1
+                        pnd: 'non'
                         ts:
                           opn: "now"
                           man: "now"
                           shd: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6873,10 +6925,11 @@ actions:
                       update_values:
                         # Manual ventilation detected (position only, window state unchanged)
                         man: 1
+                        pnd: 'non'
                         ts:
                           man: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6892,11 +6945,12 @@ actions:
                         # Manual shading detected
                         shd: 1
                         man: 1
+                        pnd: 'non'
                         ts:
                           shd: "now"
                           man: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6917,12 +6971,13 @@ actions:
                         bas: "cls"
                         shd: 0
                         man: 1
+                        pnd: 'non'
                         ts:
                           cls: "now"
                           man: "now"
                           shd: "now"
-                          shs: 0
-                          she: 0
+                          due: 0
+                          arm: 0
                   - *helper_update
                   - choose: []
                     default: !input auto_manual_action
@@ -6986,11 +7041,11 @@ actions:
                 # Midnight reset - clear shading status
                 shd: 0
                 man: 0
+                pnd: 'non'
                 ts:
                   shd: "now"
-                  shs: 0
-                  she: 0
-                  shr: 0
+                  due: 0
+                  arm: 0
           - *helper_update
           - stop: "Midnight Reset executed"
 
@@ -7296,7 +7351,7 @@ actions:
                 Trigger: {{ trigger.id | default('manual') }} | 
                 Effective: {{ effective_state }} | 
                 Position: {{ current_position }}% {% if is_cover_tilt_enabled %} / Tilt: {{ current_tilt_position }}%{% endif %} | 
-                Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
+                Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
                 States: 
                 opn={{ states(contact_window_opened) if contact_window_opened != [] else '-' }} 
                 tlt={{ states(contact_window_tilted) if contact_window_tilted != [] else '-' }}

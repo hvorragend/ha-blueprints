@@ -11,8 +11,8 @@
 State is persisted as a JSON string in an `input_text` helper:
 
 ```json
-{"bas":"opn","shd":1,"win":"opn","frc":"non","res":1,"man":0,
- "ts":{"opn":0,"cls":0,"shd":0,"shs":0,"she":0,"shr":0,"man":0},
+{"bas":"opn","shd":1,"pnd":"non","win":"opn","frc":"non","res":1,"man":0,
+ "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},
  "v":6,"t":0}
 ```
 
@@ -20,6 +20,7 @@ State is persisted as a JSON string in an `input_text` helper:
 |-------|--------|---------|
 | `bas` | `opn`/`cls` | Base state (time-based: open / closed) |
 | `shd` | `1`/`0` | Shading active |
+| `pnd` | `non`/`beg`/`end` | Shading pending phase (none / start-armed / end-armed) |
 | `win` | `cls`/`tlt`/`opn` | Window state (closed / tilted / open) |
 | `frc` | `non`/`opn`/`cls`/`shd`/`vnt` | Active force function |
 | `res` | `1`/`0` | Resident present |
@@ -27,12 +28,19 @@ State is persisted as a JSON string in an `input_text` helper:
 | `ts.opn` | Unix timestamp | Last time base state switched to open |
 | `ts.cls` | Unix timestamp | Last time base state switched to closed |
 | `ts.shd` | Unix timestamp | Last time shading state changed (0↔1) |
-| `ts.shs` | Unix timestamp | Shading pending start: when pending-start was armed |
-| `ts.she` | Unix timestamp | Shading pending end: when pending-end was armed |
-| `ts.shr` | Unix timestamp | Shading retry anchor: when current retry sequence (start OR end) began |
+| `ts.due` | Unix timestamp | Fire time of armed pending (used together with `pnd`; `0` when `pnd == 'non'`) |
+| `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (preserved across retries; `0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
 
-> Note: `ts.win` and `ts.res` were removed during v6 beta. Existing helpers retain those keys until the next helper write, which silently drops them.
+> Notes:
+> - `ts.win` and `ts.res` were removed during v6 beta.
+> - During v6 beta the pending state was held in `ts.shs` / `ts.she` (fire times)
+>   and `ts.shr` (retry anchor). Those three timestamp keys plus a derived
+>   "which phase?" check were consolidated into the type-safe `pnd` enum
+>   (`non`/`beg`/`end`) + `ts.due` (fire time) + `ts.arm` (retry anchor).
+>   Existing beta helpers are migrated on the next helper write: the read
+>   block tolerates the legacy keys and the migration trigger fires whenever
+>   `shs`/`she`/`shr` are still present, persisting the new format.
 
 ---
 
@@ -149,29 +157,29 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 - `ts.shd` may only be set when `shd` actually changes (guard in `helper_update`: only when `new_shd != current.shd`)
 - In the SHADED branch of the `resident_leaving` handler: `shd` was already `1` (precondition) → do **not** set `ts.shd` to `now`, preserve the original activation timestamp
 
-**ts.shs / ts.she (shading pending timestamps):**
-- These must not be reset in win-only helper updates (when only `win` is updated without a drive)
-
-**ts.shr (shading retry anchor):**
-- Single field shared by both shading-start and shading-end retry sequences (mutually exclusive in normal operation, guarded by Invariant 11)
-- Set to `"now"` exactly once when either retry sequence begins (in "Shading detected. Save next execution time and pending status" for start, "Shading end detected. Save next execution time and pending status" for end)
-- Preserved across all retry-continuation branches (do not include `shr` in `update_values.ts` there — `helper_update` keeps the existing value)
-- Reset to `0` in every terminal branch of either sequence:
+**pnd / ts.due / ts.arm (pending phase + timestamps):**
+- The top-level `pnd` enum encodes which phase is pending: `'non'` (idle), `'beg'` (start armed), `'end'` (end armed). Only one value at a time is representable — Invariant 11 is enforced by the schema.
+- `ts.due` is the **fire time** of the armed pending (when the execution trigger should fire). Re-armed on every retry to `now + waiting_time`.
+- `ts.arm` is the **retry anchor**: when the current pending sequence first armed. Set once at the start of the sequence, **preserved across all retries**, read by `shading_start_max_duration` and `shading_end_max_duration` checks via `helper_ts_pending_arm`.
+- These three keys must not be reset in win-only helper updates (when only `win` is updated without a drive).
+- `pnd: 'non'` always implies `ts.due == 0` and `ts.arm == 0`. Terminal branches must set all three together.
+- Retry-continuation branches must set `pnd: 'beg'` (or `'end'`) and the new `ts.due`, but **not** `ts.arm` — `helper_update` preserves the existing value automatically when a key is omitted.
+- Terminal branches that clear pending:
   - Start: Drive, Lockout-skip, Save-for-future, both Abort branches
   - End: Tilt-only, Lockout, Ventilation, Move-cover (both then/else), Stop retry, stale-pending cleanup (#395)
-  - Midnight reset (BRANCH 11, "Reset shading status"): clears `shs`/`she`, must therefore also clear `shr`
-- Read by both `shading_start_max_duration` and `shading_end_max_duration` checks via `helper_ts_shade_retry` — gives a stable retry-window anchor independent of the Invariant-8 guard on `ts.shd`
+  - Midnight reset (BRANCH 11, "Reset shading status")
+  - Incidental clears in non-shading branches (force, manual, contact handlers) — also clear all three for hygiene.
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
 
-Pending-start (`ts.shs > 0`) and pending-end (`ts.she > 0`) must never both be active simultaneously. With sane configuration (hysteresis > 0 between start and end thresholds), this state is unreachable. With misconfigured conditions it could otherwise produce ping-pong: start fires → end fires → start fires → …
+`pnd` is a single enum field, so two phases cannot be pending simultaneously by construction. With misconfigured conditions (no hysteresis between start and end thresholds), the only failure mode is ping-pong (start fires → end fires → start fires → …), not double-pending.
 
-**Guard:** Both pending-establishment branches gate on the opposite pending state:
+**Guard:** Both pending-establishment branches gate on the opposite pending state to prevent ping-pong:
 
 - "Shading detected" (start) requires `not helper_state_pending_end`
 - "Shading end detected" requires `not helper_state_pending_start`
 
-This also keeps the shared `ts.shr` retry anchor unambiguous (Invariant 8).
+The historical double-state risk (both `ts.shs > 0` and `ts.she > 0` simultaneously, pre-`pnd` design) is structurally eliminated.
 
 ### ⚠️ Invariant 9: `ts_now` must be evaluated at the point of use
 
@@ -314,9 +322,9 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 **Symptom:** `ts.shd` shows incorrect timestamp; shading pending state is unexpectedly reset.
 
 **Cause A:** `ts.shd: "now"` is set in sequences that do not change `shd` from 0→1.
-**Cause B:** `ts.shs/ts.she` are reset in win-only helper updates.
+**Cause B:** `pnd` / `ts.due` / `ts.arm` are reset in win-only helper updates.
 
-**Fix:** Guard in `helper_update` — only apply `ts.shd` when `new_shd != current.shd`. Do not reset `ts.shs/ts.she` in win-only updates.
+**Fix:** Guard in `helper_update` — only apply `ts.shd` when `new_shd != current.shd`. Do not reset `pnd`/`ts.due`/`ts.arm` in win-only updates.
 
 ### Bug Pattern I: Shading-start retry aborts on fresh day (Issue #416)
 
@@ -324,7 +332,7 @@ if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_pos
 
 **Cause:** The duration check used `helper_ts_shade` (= `ts.shd`) as anchor. Pending establishment does not transition `shd`, so the Invariant-8 guard preserves `ts.shd` at its previous value (yesterday's shading-end or `0`). `now() - ts.shd` is therefore much larger than `shading_start_max_duration` → check fails → retry aborts.
 
-**Fix:** Dedicated `ts.shr` field that records the retry-sequence start. Set in "Shading detected" (start) and "Shading end detected" (end), preserved across continues, cleared in all terminal branches of both sequences. Duration checks for both `shading_start_max_duration` and `shading_end_max_duration` now use `helper_ts_shade_retry`. The same field serves both directions because the sequences are mutually exclusive (Invariant 11).
+**Fix:** Dedicated `ts.arm` field that records the retry-sequence start. Set in "Shading detected" (start) and "Shading end detected" (end), preserved across continues, cleared in all terminal branches of both sequences. Duration checks for both `shading_start_max_duration` and `shading_end_max_duration` now use `helper_ts_pending_arm`. The same field serves both directions because the sequences are mutually exclusive (Invariant 11, structurally enforced by `pnd`).
 
 ### Bug Pattern G: `helper_state_window` instead of realtime sensor in `resident_arriving` handler
 

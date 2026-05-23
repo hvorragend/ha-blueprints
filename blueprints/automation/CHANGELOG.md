@@ -72,6 +72,39 @@ The helper stores all relevant state information: the current base state, shadin
 - If you were already using the helper, it will be **automatically migrated** from the old format (v5) to v6 on the first run — no manual action needed.
 - If you were not using a helper yet, you now need to create one. See the blueprint documentation for setup instructions.
 
+### 🔁 Pending-state fields renamed for clarity (`pnd` / `ts.due` / `ts.arm`)
+
+The way a *pending* shading transition is recorded in the helper has been
+consolidated to a single, type-safe representation.
+
+**Before** (v6 beta): three timestamps encoded the pending state — `ts.shs`
+(start fire time), `ts.she` (end fire time), `ts.shr` (retry anchor). Whether
+a start or end was pending had to be inferred from "which of the two
+timestamps is non-zero", and code had to guard against both being set at
+the same time.
+
+**Now**: one top-level enum `pnd` (`non` / `beg` / `end`) plus two
+timestamps — `ts.due` (when the pending fires) and `ts.arm` (when the retry
+sequence started). The "which phase?" answer comes directly from `pnd`,
+so two phases pending simultaneously is no longer representable.
+
+| Old key  | New equivalent                  |
+|----------|----------------------------------|
+| `ts.shs` | `pnd: "beg"` + `ts.due`         |
+| `ts.she` | `pnd: "end"` + `ts.due`         |
+| `ts.shr` | `ts.arm`                        |
+
+**Migration:** Beta helpers carrying `shs`/`she`/`shr` are silently migrated
+on the next helper update. The read block accepts both formats, and a
+one-shot migration trigger persists the new layout whenever legacy keys are
+detected. No user action required.
+
+**Why this matters:** Card examples, the trace analyzer, and any custom
+templates that read the helper directly need to use the new keys. See the
+updated **Cover Status Card** examples in `docs/card-examples/` for
+copy-pasteable replacements. The helper schema version (`v: 6`) is
+unchanged; this is a key rename within v6.
+
 ---
 
 ## 🔧 Bug Fixes

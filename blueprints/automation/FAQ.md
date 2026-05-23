@@ -1299,6 +1299,12 @@ The global condition blocks the entire action block — including helper state u
 | `v` | Version | Number | Helper schema version (current: 6) |
 | `t` | Global Time | Timestamp | Last overall helper update timestamp |
 
+**Top-level field — pending phase:**
+
+| Field | Values | Meaning |
+|-------|--------|---------|
+| `pnd` | `non` / `beg` / `end` | Shading pending phase (none / start armed / end armed) |
+
 **Timestamp sub-keys (`ts`):**
 
 | Key | Meaning |
@@ -1306,23 +1312,23 @@ The global condition blocks the entire action block — including helper state u
 | `opn` | Timestamp of last automatic opening |
 | `cls` | Timestamp of last automatic closing |
 | `shd` | Timestamp when shading became active |
-| `shs` | Shading **start** pending timestamp (0 = not pending) |
-| `she` | Shading **end** pending timestamp (0 = not pending) |
-| `win` | Timestamp of last window sensor change |
+| `due` | Fire time of the armed pending (0 when `pnd == "non"`) |
+| `arm` | First-arming timestamp of the current pending retry sequence (0 when `pnd == "non"`) |
 | `man` | Timestamp of last manual intervention |
 
 **Common State Scenarios:**
 
-| Scenario | bas | shd | win | frc | man | Description |
-|----------|-----|-----|-----|-----|-----|-------------|
-| Cover is open | opn | 0 | cls | non | 0 | Normal daytime state |
-| Cover is closed | cls | 0 | cls | non | 0 | Normal nighttime state |
-| Shading active | opn | 1 | cls | non | 0 | Sun protection engaged |
-| Shading start pending | opn | 0 | cls | non | 0 | ts.shs > 0, waiting for conditions to stabilize |
-| Window tilted (ventilation) | opn | 0 | tlt | non | 0 | Partial opening for air flow |
-| Window fully open (lockout) | opn | 0 | opn | non | 0 | Lockout: prevents closing |
-| Force close active | cls | 0 | cls | cls | 0 | Forced closed via external entity |
-| Manual override | * | * | * | * | 1 | Physical push button used |
+| Scenario | bas | shd | pnd | win | frc | man | Description |
+|----------|-----|-----|-----|-----|-----|-----|-------------|
+| Cover is open | opn | 0 | non | cls | non | 0 | Normal daytime state |
+| Cover is closed | cls | 0 | non | cls | non | 0 | Normal nighttime state |
+| Shading active | opn | 1 | non | cls | non | 0 | Sun protection engaged |
+| Shading start pending | opn | 0 | beg | cls | non | 0 | Waiting for start conditions to stabilize |
+| Shading end pending | opn | 1 | end | cls | non | 0 | Waiting for end conditions to stabilize |
+| Window tilted (ventilation) | opn | 0 | non | tlt | non | 0 | Partial opening for air flow |
+| Window fully open (lockout) | opn | 0 | non | opn | non | 0 | Lockout: prevents closing |
+| Force close active | cls | 0 | non | cls | cls | 0 | Forced closed via external entity |
+| Manual override | * | * | * | * | * | 1 | Physical push button used |
 
 ---
 
@@ -1345,6 +1351,7 @@ The global condition blocks the entire action block — including helper state u
 {
   "bas": "opn",
   "shd": 0,
+  "pnd": "non",
   "win": "cls",
   "frc": "non",
   "res": 0,
@@ -1353,10 +1360,8 @@ The global condition blocks the entire action block — including helper state u
     "opn": 1703250600,
     "cls": 1703164200,
     "shd": 1703237000,
-    "shs": 0,
-    "she": 0,
-    "win": 1703150600,
-    "frc": 1703150600,
+    "due": 0,
+    "arm": 0,
     "man": 1703150600
   },
   "v": 6,
@@ -2429,12 +2434,12 @@ Trigger → Pending (timestamp set) → Execution Trigger → Re-evaluation → 
 
 **Phase 1 - Pending (Condition Detection):**
 1. A shading start/end condition trigger fires (brightness, temperature, sun position, etc.)
-2. CCA writes a **pending timestamp** into the JSON helper (`ts.shs` for start, `ts.she` for end)
-3. The timestamp = `now() + waiting_time` (configurable delay)
+2. CCA arms the pending in the JSON helper by setting `pnd` to `"beg"` (start) or `"end"` (end), writing the fire time into `ts.due` and the retry anchor into `ts.arm`
+3. The fire time = `now() + waiting_time` (configurable delay)
 4. No cover movement happens yet
 
 **Phase 2 - Execution (Verification & Action):**
-1. When `now()` reaches the pending timestamp, the **execution trigger** fires
+1. When `now()` reaches `ts.due`, the **execution trigger** fires
 2. CCA **re-evaluates all shading conditions** at this point
 3. Three possible outcomes:
 
