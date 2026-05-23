@@ -3004,9 +3004,6 @@ variables:
   #   ts.arm → first-arming anchor of current retry sequence
   #   ts.man → ts.manual
   #
-  # Beta-tester migration: the read block tolerates old keys (shs/she/shr) and
-  # maps them to pnd/due/arm on first write. Old keys then silently drop.
-  #
   # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
   #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
   #   lt  → last_trigger  (+6 chars) – Which trigger caused last action (debug)
@@ -3058,23 +3055,11 @@ variables:
       }}
     {% elif is_v6_compact %}
       {% set raw_ts = helper_raw.ts | default({}) %}
-      {% set old_shs = raw_ts.shs | default(0) | int %}
-      {% set old_she = raw_ts.she | default(0) | int %}
-      {% set raw_pnd = helper_raw.pnd | default(none) %}
-      {% if raw_pnd is none %}
-        {% set pnd = 'beg' if old_shs > 0 else ('end' if old_she > 0 else 'non') %}
-        {% set due = old_shs if old_shs > 0 else old_she %}
-        {% set arm = raw_ts.shr | default(0) | int %}
-      {% else %}
-        {% set pnd = raw_pnd %}
-        {% set due = raw_ts.due | default(0) | int %}
-        {% set arm = raw_ts.arm | default(0) | int %}
-      {% endif %}
       {{
         {
           'bas': helper_raw.bas | default('opn'),
           'shd': helper_raw.shd | default(0) | int,
-          'pnd': pnd,
+          'pnd': helper_raw.pnd | default('non'),
           'win': helper_raw.win | default('cls'),
           'frc': helper_raw.frc | default('non'),
           'res': helper_raw.res | default(0) | int,
@@ -3083,8 +3068,8 @@ variables:
             'opn': raw_ts.opn | default(0) | int,
             'cls': raw_ts.cls | default(0) | int,
             'shd': raw_ts.shd | default(0) | int,
-            'due': due,
-            'arm': arm,
+            'due': raw_ts.due | default(0) | int,
+            'arm': raw_ts.arm | default(0) | int,
             'man': raw_ts.man | default(0) | int
           },
           'v': 6,
@@ -3606,9 +3591,8 @@ triggers:
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_ts = as_timestamp(now()) | int %}
-        {% set pending = helper.ts.due | default(helper.ts.shs | default(0)) | int %}
-        {% set phase = helper.pnd | default('beg' if (helper.ts.shs | default(0) | int > 0) else 'non') %}
-        {{ phase == 'beg' and pending > 0 and now_ts >= pending }}
+        {% set pending = helper.ts.due | default(0) | int %}
+        {{ (helper.pnd | default('non')) == 'beg' and pending > 0 and now_ts >= pending }}
       {% else %}
         {{
           helper | regex_search('shading') and
@@ -3733,9 +3717,8 @@ triggers:
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_ts = as_timestamp(now()) | int %}
-        {% set pending = helper.ts.due | default(helper.ts.she | default(0)) | int %}
-        {% set phase = helper.pnd | default('end' if (helper.ts.she | default(0) | int > 0) else 'non') %}
-        {{ phase == 'end' and pending > 0 and now_ts >= pending }}
+        {% set pending = helper.ts.due | default(0) | int %}
+        {{ (helper.pnd | default('non')) == 'end' and pending > 0 and now_ts >= pending }}
       {% else %}
         {{
           helper | regex_search('shading') and
@@ -4066,20 +4049,17 @@ actions:
             {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Persist migration (v5 → v6, plus v6-beta shs/she/shr → pnd/due/arm)
+  # Persist migration (v5 → v6)
   # ════════════════════════════════════════════════════════════════════════════
-  # Migration is computed in helper_json variable. If the STORED format differs
-  # from current v6 (wrong version OR legacy pending keys present), persist the
-  # migrated data back to the helper in compact format.
+  # Migration is computed in helper_json variable. If the STORED version differs
+  # from 6, we need to persist the migrated data back to the helper in compact format.
   # Note: We check the raw helper state, not helper_json (which always has v:6 after migration)
   - if:
       - condition: template
         value_template: >-
           {% set helper_state = states(cover_status_helper) %}
           {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states else {} %}
-          {% set raw_ts = helper_raw.ts | default({}) %}
-          {% set has_legacy_keys = raw_ts.shs is defined or raw_ts.she is defined or raw_ts.shr is defined %}
-          {{ helper_raw.v | default(0) != 6 or has_legacy_keys }}
+          {{ helper_raw.v | default(0) != 6 }}
     then:
       - variables:
           update_values: {}

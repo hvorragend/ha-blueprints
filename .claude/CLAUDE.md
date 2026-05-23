@@ -32,16 +32,6 @@ State is persisted as a JSON string in an `input_text` helper:
 | `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (preserved across retries; `0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
 
-> Notes:
-> - `ts.win` and `ts.res` were removed during v6 beta.
-> - During v6 beta the pending state was held in `ts.shs` / `ts.she` (fire times)
->   and `ts.shr` (retry anchor). Those three timestamp keys plus a derived
->   "which phase?" check were consolidated into the type-safe `pnd` enum
->   (`non`/`beg`/`end`) + `ts.due` (fire time) + `ts.arm` (retry anchor).
->   Existing beta helpers are migrated on the next helper write: the read
->   block tolerates the legacy keys and the migration trigger fires whenever
->   `shs`/`she`/`shr` are still present, persisting the new format.
-
 ---
 
 ## Priority Cascade (`effective_state`)
@@ -178,8 +168,6 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 
 - "Shading detected" (start) requires `not helper_state_pending_end`
 - "Shading end detected" requires `not helper_state_pending_start`
-
-The historical double-state risk (both `ts.shs > 0` and `ts.she > 0` simultaneously, pre-`pnd` design) is structurally eliminated.
 
 ### ⚠️ Invariant 9: `ts_now` must be evaluated at the point of use
 
