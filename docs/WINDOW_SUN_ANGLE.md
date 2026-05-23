@@ -1,3 +1,4 @@
+{% raw %}
 # Window-Sun-Angle Aware Shading
 
 > **Recipe — no blueprint changes required.** Uses the existing **Force Shading** input to drive shading from a user-built helper sensor that knows your window's orientation.
@@ -280,3 +281,4 @@ CCA only allows one force function per automation. If you also use Force Open / 
 - [FAQ: What is "Return to Target State After Force Disable"?](FAQ.md#q-what-is-return-to-target-state-after-force-disable)
 - [Issue #187 — Account for Sun-Window angle for sun triggers](https://github.com/hvorragend/ha-blueprints/issues/187)
 - [Issue #245 — Roof window shading (closed as duplicate)](https://github.com/hvorragend/ha-blueprints/issues/245)
+{% endraw %}
