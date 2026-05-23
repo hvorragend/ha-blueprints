@@ -1,6 +1,98 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
-# 🚀 CCA 2026.03.alpha – New State Machine & Mandatory JSON Helper
+# 🚀 CCA 2026.05.17 Beta — Priority Cascade Update & Force-Ventilation Timing
+
+## ⚠️ Behavior Change — BASE=OPN now beats VENT in the priority cascade
+
+When the time schedule is in the *open* window (`bas=opn`) and a window is tilted, the cover now **opens fully** instead of stopping at the ventilation position.
+
+| Situation | Before | After |
+|-----------|--------|-------|
+| Daytime (`bas=opn`), window tilted, no shading/privacy/restriction | Cover at ventilation position (e.g. 50%) | **Cover fully open (100%)** |
+| Closing time (`bas=cls`), window tilted | Cover at ventilation position | Cover at ventilation position (unchanged) |
+| Shading active, window tilted | Cover at ventilation position | Cover at ventilation position (unchanged) |
+| Privacy active (resident + closing trigger), window tilted | Cover at ventilation position | Cover at ventilation position (unchanged) |
+
+**Rationale:** A tilted window expresses ventilation intent — and a fully open cover provides the maximum possible airflow. VENT therefore acts as a *floor*: it only kicks in when the cover would otherwise close, shade, or be restricted from opening.
+
+### Updated priority cascade (7 layers)
+
+| Priority | State | When active |
+|----------|-------|-------------|
+| 1 – highest | **FORCE** | Any force function is active (Force Open/Close/Shade/Ventilate) |
+| 2 | **LOCKOUT** | Window is fully open — cover must not close |
+| 3 | **BASE=OPN** | Time schedule = open, no privacy/shading/restriction → fully open |
+| 4 | **VENT** | Window tilted **and** cover would otherwise be below ventilation height |
+| 5 | **PRIVACY** | Resident present + closing trigger configured → close |
+| 6 | **SHADING** | Sun shading active |
+| 7 – lowest | **BASE=CLS** | Time schedule = close |
+
+If you relied on tilted windows pinning the cover at the ventilation position during the day, you can restore the previous behavior by closing the window or by removing the time schedule (so `bas` never reaches `opn`).
+
+## 🔧 Bug Fixes
+
+- **Manual override ignored when shading state is stale** ([#447](https://github.com/hvorragend/ha-blueprints/issues/447)): After a manual cover movement to a position that does not match any defined position (open / close / shading / ventilation), the JSON helper preserved a previously set `shd=1` from earlier shading state (e.g. shading-start that was held back by lockout protection or saved for later). A subsequent shading-end pending could then arm and fire, overriding the manual move long before the configured `reset_override_timeout` elapsed. The "Manual: position cannot be assigned (unknown)" branch now clears `shd`, pending counters (`shs`, `she`) and the retry anchor (`shr`) on the manual move — consistent with the "Manual: opened" and "Manual: closed" branches.
+
+- **Cover incorrectly closes when window closes during active Force-Ventilation** ([#445](https://github.com/hvorragend/ha-blueprints/issues/445)): When Force-Ventilate was active and the window subsequently closed (ending the ventilation phase), the cover drove to the close position instead of remaining at the ventilation position dictated by Force-Ventilate. The contact handler now respects the active force.
+
+- **Early closing time does not fire without environment sensors** ([#436 follow-up](https://github.com/hvorragend/ha-blueprints/issues/436)): Symmetric counterpart to the opening-side fix from 2026.05.10 V2. `environment_allows_closing` now branches explicitly on which sensors are enabled, so pure time-controlled setups (no brightness/sun elevation) reliably fire the early closing trigger.
+
+## ✨ Improvements
+
+- **Richer logbook entries**: Logbook output (see Logbook feature in 2026.05.10) now includes the effective state, current position, sensor states and a structured `update_values` snapshot. Selected branches (shading start/end pending, retry attempts) attach extra context lines for retrospective debugging.
+
+---
+
+# 🚀 CCA 2026.05.10 V2 Beta — Single-Sensor OR-Operator Fix
+
+## 🔧 Bug Fixes
+
+- **Cover opens at early time without waiting for sun elevation / brightness** ([#436](https://github.com/hvorragend/ha-blueprints/issues/436)): With only one of *Brightness* or *Sun Elevation* enabled and the operator set to **OR** (the default), the disabled sensor short-circuited the combined check to `true`. The result: a configured early opening time fired the cover up even though the single active sensor's threshold had not been reached (e.g. cover opens at 05:00 although sun elevation is still well below `-3°`).
+  `environment_allows_opening` now branches explicitly on which sensors are enabled. With one sensor enabled, only that sensor's check decides — regardless of the OR/AND operator. With both sensors disabled, the gate is transparent.
+
+  *A diagnostic variable `diag_forecast_weather_attribute_mode` was added to the trace for related debugging.*
+
+  *(The matching closing-side fix follows in 2026.05.17 Beta.)*
+
+---
+
+# 🚀 CCA 2026.05.10 Beta — Optional Logbook & Stuck-Pending Fix
+
+## ✨ New Feature: Optional Logbook entries ([#414](https://github.com/hvorragend/ha-blueprints/issues/414))
+
+A new opt-in **Logging** section adds the `enable_logbook` input. When enabled, every automation run writes a single combined logbook entry containing:
+
+- Trigger ID (e.g. `t_open_1`, `t_shading_start_pending_2`, `t_force_open_enabled`)
+- Effective state (`opn` / `cls` / `shd` / `vnt` / `lock`)
+- Current cover position
+- Window / resident / force sensor states
+- The full `update_values` JSON written to the helper
+
+**Default: off.** Toggle on while debugging a configuration; switch off again when finished. The 5-trace limit in Home Assistant no longer caps your ability to reconstruct what the cover did over the course of a day.
+
+## 🔧 Bug Fixes
+
+- **Shading-start pending remains stuck outside the shading window** ([#430](https://github.com/hvorragend/ha-blueprints/issues/430)): If pending was armed inside the shading window and the time / sun moved out of the window before the pending-execution trigger fired, the pending state was never cleared. The cover stayed in "waiting for shading" indefinitely, blocking subsequent shading starts the next day. Additionally, the open-handler's shading sub-branch did not respect the priority cascade, allowing stale pending to drive the cover even when force/lockout/vent should have taken precedence. Both paths are fixed.
+
+---
+
+# 🚀 CCA 2026.05.05 Beta — Logic Review Follow-ups
+
+Correctness fixes from an internal review of edge-case branches.
+
+## 🔧 Bug Fixes
+
+- **Manual override flag not cleared after auto-driven tilt** ([#425](https://github.com/hvorragend/ha-blueprints/issues/425)): In the shading-tilt branch, the `man` flag (manual-override marker) was not reset even when the automation itself drove the cover. The next scheduled trigger could therefore be falsely suppressed as "user changed it manually". The flag is now cleared whenever the automation moves the cover.
+
+- **Ventilation-after-shading-ends blocked by stale lockout-tilted gate** ([#426](https://github.com/hvorragend/ha-blueprints/issues/426)): The "Ventilation after shading ends" branch incorrectly required the lockout-tilted gate, which prevented the cover from moving to the ventilation position in otherwise valid configurations. The gate was wrong here and has been removed.
+
+- **Internal: dead helper write in Force-Shade activation** ([#427](https://github.com/hvorragend/ha-blueprints/issues/427)): Force-Shade activation wrote a `ts.shd` timestamp that was never read and could confuse the trace analyzer's shading view. Removed.
+
+---
+
+# 🚀 CCA 2026.05.03 Beta — New State Machine v6, Mandatory JSON Helper, Force Pause, AND/OR Operators
+
+This is the first shipped beta after the long internal redesign. It bundles a **major architectural overhaul** of the automation engine plus several new user-facing features.
 
 ## ⚠️ Configuration Changes — Automation Options Consolidated
 
@@ -50,17 +142,21 @@ This release brings a **major internal overhaul** of the Cover Control Automatio
 
 ### 🔄 New State Machine with Priority Cascade
 
-The automation now resolves the cover's target state through a clearly defined **5-level priority cascade**, evaluated on every run. Higher-priority states always win over lower ones:
+The automation now resolves the cover's target state through a clearly defined **priority cascade**, evaluated on every run. Higher-priority states always win over lower ones:
 
 | Priority | State | When active |
 |----------|-------|-------------|
-| 1 – highest | **Force** | Any force function is active (Force Open/Close/Shade/Ventilate) |
-| 2 | **Lockout** | Window is fully open — cover must not close |
-| 3 | **Ventilation** | Window is tilted — cover moves to ventilation position |
-| 4 | **Shading** | Sun shading is active |
-| 5 – lowest | **Base** | Time-based schedule (open/close time) |
+| 1 – highest | **FORCE** | Any force function is active (Force Open/Close/Shade/Ventilate) |
+| 2 | **LOCKOUT** | Window is fully open — cover must not close |
+| 3 | **VENT** | Window is tilted — cover moves to ventilation position |
+| 4 | **PRIVACY** | Resident present + closing trigger configured → close |
+| 5 | **SHADING** | Sun shading is active |
+| 6 | **BASE=OPN restricted** | Time schedule = open but `resident_allow_opening` blocks it → close |
+| 7 – lowest | **BASE** | Time-based schedule (open/close time) |
 
 This replaces the previous implicit state resolution that mixed multiple variables without a guaranteed evaluation order. The new cascade makes the cover's behavior predictable in every situation, including when multiple states are active at the same time.
+
+*Note: The relative order of BASE=OPN and VENT was changed in 2026.05.17 Beta — see that release for details.*
 
 ### 📦 New JSON Helper v6 Schema — Now Mandatory
 
@@ -74,28 +170,34 @@ The helper stores all relevant state information: the current base state, shadin
 
 ---
 
+## ✨ New Configuration Feature: AND/OR operator for Brightness & Sun Elevation
+
+The previously hard-wired combination of *Brightness* and *Sun Elevation* conditions is now **configurable** via the `brightness_sun_operator` input (in the Automation Options section).
+
+- **OR (default)**: Cover opens / closes as soon as **either** brightness **or** sun elevation crosses the threshold. Matches previous default behavior.
+- **AND**: Cover opens / closes only when **both** brightness **and** sun elevation cross their thresholds. Stricter — useful for setups that want to avoid premature opening on overcast bright days, or premature closing in late autumn.
+
+This applies independently to the opening and closing decisions. When only one of the two sensors is enabled, the operator is irrelevant (the active sensor decides alone).
+
 ## 🔧 Bug Fixes
-
-### Manual override ignored when shading state is stale ([#447](https://github.com/hvorragend/ha-blueprints/issues/447))
-After a manual cover movement to a position that does not match any defined position (open / close / shading / ventilation), the JSON helper preserved a previously set `shd=1` from earlier shading state (e.g. shading-start that was held back by lockout protection or saved for later). A subsequent shading-end pending could then arm and fire, overriding the manual move long before the configured `reset_override_timeout` elapsed.
-
-The "Manual: position cannot be assigned (unknown)" branch now clears `shd`, pending counters (`shs`, `she`) and the retry anchor (`shr`) on the manual move — consistent with the "Manual: opened" and "Manual: closed" branches. A manual move to a free position thereby reliably cancels any pending shading automation.
-
-### Cover opens at early time without waiting for the configured sun elevation ([#436](https://github.com/hvorragend/ha-blueprints/issues/436))
-When only one of *Brightness* or *Sun Elevation* was enabled and the operator was set to **OR** (the default), the disabled sensor short-circuited the combined check to `true`. The result: a configured early opening time fired the cover up even though the single active sensor's threshold had not yet been reached — e.g. cover opens at 05:00 although the sun elevation is still well below the configured `-3°`. The same asymmetry symmetrically blocked the early *closing* time for users who relied on pure time control (no environment sensors): only the late closing time would fire, never the early one.
-
-Both `environment_allows_opening` and `environment_allows_closing` now branch explicitly on which sensors are enabled. With one sensor enabled, only that sensor's check decides — regardless of the OR/AND operator. With both sensors disabled, the gate is transparent, so pure time-based setups now behave consistently for opening **and** closing. This matches the documented contract *"Has no effect when only one of the two conditions is enabled."*
 
 ### Shading never starts when using `weather_attributes` forecast mode ([#399](https://github.com/hvorragend/ha-blueprints/issues/399))
 In `shading_forecast_type: weather_attributes` mode, the current weather condition was read from the `condition` attribute of the weather entity. Most modern Home Assistant weather integrations expose the current condition as the entity **state**, not as an attribute, so this lookup returned `None` permanently. The resulting always-false `forecast_weather_valid` blocked the AND result and prevented shading from ever starting. The lookup now uses the entity state, which matches the Home Assistant weather entity contract.
 
 A diagnostic variable `diag_forecast_weather_attribute_mode` was added to the trace; it is populated only in `weather_attributes` mode and exposes the attribute value, the configured allow-list, and whether the current value is in that list.
 
-### Pending shading-start trigger no longer exits silently when conditions are not met
-When a `t_shading_start_pending_*` trigger fired but the combined start conditions evaluated false (e.g. due to a transient invalid sensor state), control fell into an inner `choose:` whose two options both required `t_shading_start_execution`. Without a `default:` branch, the run terminated silently and the trace ended on an irrelevant trigger-id regex check. A `default:` branch with an explicit `stop:` was added so the trace clearly reports the actual termination reason.
+### Shading-start retry aborts immediately on a fresh day ([#408](https://github.com/hvorragend/ha-blueprints/issues/408), [#416](https://github.com/hvorragend/ha-blueprints/issues/416))
+When the shading-start retry sequence was blocked by an additional condition or by manual override, the retry would either abort immediately or fail to honor the configured `shading_start_max_duration`. Root cause: the duration check used `ts.shd` (last shading-state change) as anchor, which on a fresh day was still yesterday's value (or zero) — pushing `now() - ts.shd` past the configured maximum on the first attempt.
+
+A dedicated **retry anchor timestamp** `ts.shr` was introduced. It records the start of the current retry sequence (start *or* end), is preserved across retry attempts, and is cleared in every terminal branch. The duration check now uses this anchor, so the configured retry window is honored correctly regardless of helper state from previous days.
+
+A mutual-exclusion guard ensures shading-start-pending and shading-end-pending can never both be active at the same time.
+
+### Pending shading-start no longer exits silently when conditions are not met
+When a `t_shading_start_pending_*` trigger fired but the combined start conditions evaluated false (e.g. due to a transient invalid sensor state), the inner `choose:` had no `default:` branch and the run terminated silently on an irrelevant trigger-id regex check. A `default:` branch with an explicit `stop:` was added so the trace clearly reports the actual termination reason.
 
 ### Brightness, temp1 and temp2 conditions trust their pending trigger
-The individual `*_valid` evaluations previously flipped to false if the source sensor was in `invalid_states` at the moment the action ran, even when the corresponding pending trigger had just fired (i.e. the value_template — which is identical — had evaluated true on that very sensor). This was a frequent cause of shading not starting when users had derived (template/min/max) sensors whose source briefly went unavailable. When the matching pending trigger is the active trigger, a transient `invalid_states` no longer overrides it.
+The individual `*_valid` evaluations previously flipped to false if the source sensor was in `invalid_states` at the moment the action ran, even when the corresponding pending trigger had just fired on that very sensor. This was a frequent cause of shading not starting when users had derived (template/min/max) sensors whose source briefly went unavailable. When the matching pending trigger is the active trigger, a transient `invalid_states` no longer overrides it.
 
 ### Cover stuck in shading position when conditions change rapidly ([#395](https://github.com/hvorragend/ha-blueprints/issues/395))
 On days with rapidly changing luminosity (e.g. alternating sun and clouds), the cover could remain stuck in the shading position for the rest of the day instead of opening when the sun moved past `shading_azimuth_end`. The internal shading-end pending state was never cleared if conditions recovered between the pending and execution phase, blocking all subsequent shading-end attempts until the midnight reset. The pending state is now cleared correctly so the next trigger can re-arm the shading-end flow.
@@ -114,32 +216,37 @@ Several automation paths were silently broken after the helper format was upgrad
 
 All three issues are now fixed.
 
-### Shading timestamp always saved correctly
-The timestamp of the last shading event was not being stored in the tilt-based shading path. This is now resolved across all code paths.
+### Window-opened sensor now always takes priority over window-tilted
+When both the opened and tilted contact sensors reported active simultaneously (briefly during transitions, or when the configured sensors overlap), the tilted branch could win and drive the cover to ventilation position (e.g. 50%) instead of the open position (lockout, 100%). Every branch that handles both sensors now explicitly checks that *opened* is not active before processing *tilted*. This is a safety fix: lockout must always beat ventilation.
 
-### Spurious shading end prevented
-An issue where an invalid weather forecast could unintentionally trigger the end of sun shading has been fixed. Only valid conditions will now end shading.
+### Lockout works independently of `resident_allow_ventilation`
+Previously the entire contact-sensor handler was gated by the resident "allow ventilation" flag. As a side effect, users who did not configure `resident_allow_ventilation` lost lockout protection — a fully open window would no longer drive the cover to the open position. Lockout is now evaluated independently and always runs, regardless of the resident-ventilation configuration. Only the *tilted* sub-branch still requires `resident_allow_ventilation`.
 
-### Shading state preserved during ventilation ([#338](https://github.com/hvorragend/ha-blueprints/issues/338))
-When a window was tilted while shading was active, the shading state was lost and the cover would not return to shading after the window closed. The shading state is now correctly preserved throughout the ventilation phase.
+### Manual override flag (`man`) no longer cleared in non-movement blocks
+The `man` flag (manual-override marker) was previously reset to `0` in several blocks that updated the helper but did **not** actually move the cover (pending timers, lockout-only blocks, pure state updates). This could prematurely clear a user's manual override after a trigger that did not even drive the cover. `man: 0` is now written only when the automation actually drives the cover to a defined position.
 
-### Force recovery respects resident status ([#332](https://github.com/hvorragend/ha-blueprints/issues/332))
-When a force function was deactivated and the cover returned to its background state, the resident sensor status was sometimes ignored. This is now always checked before executing the recovery movement.
+### Base state correctly updated when closing time fires with a tilted window
+When the closing trigger fired while a window was tilted, the cover correctly stayed at the ventilation position — but the base state (`bas`) and its timestamp (`ts.cls`) were not updated. The next day, the `prevent_multiple_times` mechanism then incorrectly suppressed the closing trigger because `ts.cls` was still from the day before. The CLOSE handler now always records the base-state change, regardless of whether the cover physically moves.
 
-### Resident sensor race condition eliminated
-When multiple simultaneous sensor signals (resident arriving and leaving) fired at the same time, actions were sometimes skipped entirely. A single intelligent trigger now handles both arrival and departure reliably in one unified flow.
+### Force priority: "Last Wins" with multiple simultaneous forces ([PR #342](https://github.com/hvorragend/ha-blueprints/pull/342), [PR #377](https://github.com/hvorragend/ha-blueprints/pull/377))
+When multiple force functions were active at the same time, the system behaved inconsistently. The rule is now clearly defined: **the last activated force function takes precedence.** A follow-up fix in PR #377 corrects the toggle logic when one of several active forces is disabled — the cover now switches to the remaining active force instead of falling back to the background state.
 
-### Cover no longer closes during active Force function
-When a window closed (ending a ventilation phase), the cover could close even if Force Open was still active. This is now correctly prevented.
+### Background state always kept up to date during force functions
+Even when force functions are active, the automation continues to track what it *would* be doing in the background — e.g. "close at 18:00" while Force Open is running. This ensures a correct return to the scheduled state after the force ends.
 
-### Ventilation end respects resident presence
-When auto-ventilation ends (window closes), the automation now checks for resident presence before deciding whether to close.
+### Resident handler: ventilation, shading and lockout positions correctly restored
+A series of fixes around resident arrival/leaving:
+- Resident leaving correctly restores the shading or ventilation position when the conditions still apply (previously the cover sometimes closed instead).
+- Resident leaving with the window fully open no longer falls through to the shading branch (lockout takes priority).
+- Resident privacy (closing trigger) correctly outranks shading when the window closes.
+- Resident closing is prevented when the cover is already at the ventilation position (no redundant move).
+- The handler reads the **live** resident sensor state, not the helper's stale `res` value — eliminating a class of race conditions during transitions.
 
-### Background state always kept up to date
-Even when force functions are active, the automation continues to track what it *would* be doing in the background — e.g. "close at 18:00" while Force Open is running. This ensures a correct return to the scheduled state after force ends.
+### Defensive fallback for missing weather forecast configuration
+When `shading_forecast_type` was set to `weather_attributes` but the configured weather entity was missing, unavailable, or did not expose the expected attribute, the automation could log Jinja2 template errors. A defensive fallback now treats the missing data as "no forecast available" and the AND/OR logic resolves accordingly.
 
-### Force priority: "Last Wins" for multiple simultaneous forces ([PR #342](https://github.com/hvorragend/ha-blueprints/pull/342))
-When multiple force functions were active at the same time, the system behaved inconsistently. The rule is now clearly defined: **the last activated force function takes precedence**.
+### Window-tilted ventilation: missing guards added
+Several window-tilted ventilation branches missed guards that prevented redundant or conflicting cover moves (cover already at target, conflicting force active). These guards have been added uniformly across all tilt-related branches.
 
 ---
 
@@ -169,26 +276,39 @@ The global condition blocks the entire action block, including helper state upda
 
 ---
 
+## 📦 Helper Schema Update — New Field `ts.shr`
+
+The v6 JSON helper schema gained one additional field: **`ts.shr`** — a dedicated retry-sequence anchor timestamp used by the shading-start and shading-end retry logic (see bug fix above). The field is automatically initialized on first run; no manual action required. If you use a Flex-Table-Card to visualize helper fields, you can optionally add a row for `ts.shr` (see updated card example).
+
 ## 📚 Documentation
 
 New sections added to the FAQ:
 - **Force State Architecture** — explains when the persisted helper state vs. real-time entity state is used for force decisions.
 - **State Transition Matrix** — maps every trigger to its branch and the resulting helper state changes.
 - **Shading Pending Mechanism** — documents the two-phase trigger flow for delayed shading start.
-- **Flex-Table-Card Visualization** — complete dashboard card configuration to display all internal helper fields.
-- **State Hierarchy** — detailed explanation of the five state layers and how `effective_state` is resolved through the priority cascade.
+- **State Hierarchy** — detailed explanation of the state layers and how `effective_state` is resolved through the priority cascade.
+- **Window Sensor Priority** — clarifies why *opened* always beats *tilted* (added to the Ventilation chapter).
+- **How does a force function work?** — moved from inline help into the FAQ for easier reference.
+
+New dashboard card examples (in the `card-examples/` directory):
+- **CCA Status Tile Card** — compact tile-style visualization of the v6 compact JSON helper schema.
+- **Flex-Table-Card** — full-row visualization of all internal helper fields, including the new `ts.shr` retry anchor and the resident sensor.
+
+New shading recipe:
+- **Window-sun-angle aware shading via Force Shading** ([#187](https://github.com/hvorragend/ha-blueprints/issues/187), [#245](https://github.com/hvorragend/ha-blueprints/issues/245)) — step-by-step guide for using dynamic sun-elevation sensors together with Force Shading to obtain a window-orientation-aware shading strategy without changing the blueprint itself.
 
 ---
 
 ## 🛠️ Tool Updates
 
 ### CCA Validator
-- Now recognizes `sun_elevation_mode` and `enable_background_state_tracking` (previously flagged as unknown parameters).
+- Now recognizes `sun_elevation_mode`, `enable_background_state_tracking`, `force_pause`, `auto_options`, `brightness_sun_operator`, `enable_logbook`, `auto_recover_after_force` and `ventilation_keep_open_on_full_to_tilt` (previously flagged as unknown parameters).
 - Sun elevation validation rewritten with full mode-aware support (Fixed / Dynamic / Hybrid).
 - **New check:** The validator now explicitly checks if the required elevation sensors exist when using Dynamic or Hybrid sun elevation mode, warning you before deployment if they are missing.
+- Stale legacy parameters dropped from the validator's known list.
 
 ### Trace Analyzer v2.0
-Fully updated to match the new Branch 0–11 structure and the v6 helper format. Supports v6 internal, v6 compact, and v5 legacy display.
+Fully updated to match the new Branch 0–11 structure and the v6 helper format. Supports v6 internal, v6 compact, and v5 legacy display. Includes the new runtime variables added during this development cycle and an aligned shading deep-dive view.
 
 ### Trace Compare v2.0
 Updated to Branch 0–11 structure, extended trigger explanations, and same v6/v5 multi-format support as the Trace Analyzer.
