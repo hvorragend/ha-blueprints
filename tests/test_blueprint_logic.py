@@ -717,6 +717,77 @@ class TestLockoutClosingBaseStateUpdate:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tests: Manual unknown position clears stale shading state (#447)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestManualUnknownClearsShadingState:
+    """
+    Regression for #447: When the user manually moves the cover to a position
+    that does not match any defined position (open/close/shading/ventilate),
+    the helper must clear `shd`, pending counters (`shs`, `she`) and the retry
+    anchor (`shr`). Otherwise a stale `shd=1` (e.g. set by a prior lockout-
+    blocked shading-start) lets shading-end later override the manual move
+    before reset_override_timeout elapses.
+    """
+
+    def _load_blueprint(self) -> dict:
+        return _load_blueprint_yaml(BLUEPRINT_PATH)
+
+    def _get_update_values(self) -> dict:
+        blueprint = self._load_blueprint()
+        branch = _find_branch_by_alias(
+            blueprint, "Manual: position cannot be assigned (unknown)"
+        )
+        assert branch is not None, (
+            "Could not find 'Manual: position cannot be assigned (unknown)' branch"
+        )
+        seq = branch.get("sequence", [])
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+        )
+        assert variables_step is not None, (
+            "No 'variables:' step found in manual-unknown sequence"
+        )
+        return variables_step["variables"].get("update_values", {})
+
+    def test_clears_shd(self):
+        update_values = self._get_update_values()
+        assert update_values.get("shd") == 0, (
+            f"Expected update_values.shd == 0 but got {update_values.get('shd')!r}. "
+            "Stale shd=1 lets shading-end later override the manual move."
+        )
+
+    def test_sets_man(self):
+        update_values = self._get_update_values()
+        assert update_values.get("man") == 1
+
+    def test_clears_pending_and_retry_anchor(self):
+        update_values = self._get_update_values()
+        ts = update_values.get("ts", {})
+        assert ts.get("shs") == 0, (
+            f"Expected ts.shs == 0 but got {ts.get('shs')!r}. "
+            "Pending shading-start must be cancelled by manual move."
+        )
+        assert ts.get("she") == 0, (
+            f"Expected ts.she == 0 but got {ts.get('she')!r}. "
+            "Pending shading-end must be cancelled by manual move."
+        )
+        assert ts.get("shr") == 0, (
+            f"Expected ts.shr == 0 but got {ts.get('shr')!r}. "
+            "Retry anchor must be reset when manual move cancels the sequence."
+        )
+
+    def test_sets_ts_man_and_shd(self):
+        update_values = self._get_update_values()
+        ts = update_values.get("ts", {})
+        assert ts.get("man") == "now"
+        assert ts.get("shd") == "now", (
+            "ts.shd must be touched so the helper_update guard can refresh it "
+            "when shd transitions from 1 to 0."
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tests: Invariant 1 — position checks in if-guard, not conditions
 #   Regression for SHADED/OPEN/CLOSE branches in resident_leaving
 # ─────────────────────────────────────────────────────────────────────────────

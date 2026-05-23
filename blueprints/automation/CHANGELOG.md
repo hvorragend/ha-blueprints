@@ -31,6 +31,8 @@ If you relied on tilted windows pinning the cover at the ventilation position du
 
 ## 🔧 Bug Fixes
 
+- **Manual override ignored when shading state is stale** ([#447](https://github.com/hvorragend/ha-blueprints/issues/447)): After a manual cover movement to a position that does not match any defined position (open / close / shading / ventilation), the JSON helper preserved a previously set `shd=1` from earlier shading state (e.g. shading-start that was held back by lockout protection or saved for later). A subsequent shading-end pending could then arm and fire, overriding the manual move long before the configured `reset_override_timeout` elapsed. The "Manual: position cannot be assigned (unknown)" branch now clears `shd`, pending counters (`shs`, `she`) and the retry anchor (`shr`) on the manual move — consistent with the "Manual: opened" and "Manual: closed" branches.
+
 - **Cover incorrectly closes when window closes during active Force-Ventilation** ([#445](https://github.com/hvorragend/ha-blueprints/issues/445)): When Force-Ventilate was active and the window subsequently closed (ending the ventilation phase), the cover drove to the close position instead of remaining at the ventilation position dictated by Force-Ventilate. The contact handler now respects the active force.
 
 - **Early closing time does not fire without environment sensors** ([#436 follow-up](https://github.com/hvorragend/ha-blueprints/issues/436)): Symmetric counterpart to the opening-side fix from 2026.05.10 V2. `environment_allows_closing` now branches explicitly on which sensors are enabled, so pure time-controlled setups (no brightness/sun elevation) reliably fire the early closing trigger.
