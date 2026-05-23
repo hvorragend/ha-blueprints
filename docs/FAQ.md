@@ -1844,7 +1844,7 @@ Result: Cover won't open automatically
 - ✅ Set once, works forever
 
 **Setup Guide:**
-📚 [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md)
+📚 [Dynamic Sun Elevation Guide](https://hvorragend.github.io/ha-blueprints/DYNAMIC_SUN_ELEVATION)
 
 ---
 
@@ -2115,9 +2115,9 @@ Disables default cover commands for custom integrations
 - Check existing issues before creating new ones
 
 **Documentation:**
-- 📚 [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md)
-- 📊 [Time Control Visualization](https://github.com/hvorragend/ha-blueprints/blob/main/docs/TIME_CONTROL_VISUALIZATION.md)
-- 📋 [Full Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/docs/CHANGELOG.md)
+- 📚 [Dynamic Sun Elevation Guide](https://hvorragend.github.io/ha-blueprints/DYNAMIC_SUN_ELEVATION)
+- 📊 [Time Control Visualization](https://hvorragend.github.io/ha-blueprints/TIME_CONTROL_VISUALIZATION)
+- 📋 [Full Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG)
 
 **Tools:**
 - � [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
@@ -2462,9 +2462,9 @@ Trigger → Pending (timestamp set) → Execution Trigger → Re-evaluation → 
 
 **Official Documentation:**
 - [GitHub Repository](https://github.com/hvorragend/ha-blueprints)
-- [Full Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/docs/CHANGELOG.md)
-- [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md)
-- [Time Control Visualization](https://github.com/hvorragend/ha-blueprints/blob/main/docs/TIME_CONTROL_VISUALIZATION.md)
+- [Full Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG)
+- [Dynamic Sun Elevation Guide](https://hvorragend.github.io/ha-blueprints/DYNAMIC_SUN_ELEVATION)
+- [Time Control Visualization](https://hvorragend.github.io/ha-blueprints/TIME_CONTROL_VISUALIZATION)
 
 **Tools:**
 - [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)

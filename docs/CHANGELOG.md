@@ -1,4 +1,4 @@
-**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/docs/CHANGELOG_OLD.md).
+**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
 # 🚀 CCA 2026.05.24 — New State Machine, Priority Cascade, Force Pause & 30+ Bug Fixes
 
@@ -344,7 +344,7 @@ New guide:
   Both up and down sensors must be configured and provide valid numeric values. Config check validates this requirement.
 
 - **Year-round automation**
-  Perfect for users who want fully automated seasonal adaptation without manual intervention. Use with the [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md).
+  Perfect for users who want fully automated seasonal adaptation without manual intervention. Use with the [Dynamic Sun Elevation Guide](https://hvorragend.github.io/ha-blueprints/DYNAMIC_SUN_ELEVATION).
 
 ### 🔄 Hybrid Mode
 - **Best of both worlds**
