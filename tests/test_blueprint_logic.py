@@ -724,10 +724,10 @@ class TestManualUnknownClearsShadingState:
     """
     Regression for #447: When the user manually moves the cover to a position
     that does not match any defined position (open/close/shading/ventilate),
-    the helper must clear `shd`, pending counters (`shs`, `she`) and the retry
-    anchor (`shr`). Otherwise a stale `shd=1` (e.g. set by a prior lockout-
-    blocked shading-start) lets shading-end later override the manual move
-    before reset_override_timeout elapses.
+    the helper must clear `shd`, the pending phase (`pnd`), the pending fire
+    time (`ts.due`) and the retry anchor (`ts.arm`). Otherwise a stale `shd=1`
+    (e.g. set by a prior lockout-blocked shading-start) lets shading-end later
+    override the manual move before reset_override_timeout elapses.
     """
 
     def _load_blueprint(self) -> dict:
@@ -763,17 +763,17 @@ class TestManualUnknownClearsShadingState:
 
     def test_clears_pending_and_retry_anchor(self):
         update_values = self._get_update_values()
+        assert update_values.get("pnd") == "non", (
+            f"Expected pnd == 'non' but got {update_values.get('pnd')!r}. "
+            "Pending phase must be cleared by manual move."
+        )
         ts = update_values.get("ts", {})
-        assert ts.get("shs") == 0, (
-            f"Expected ts.shs == 0 but got {ts.get('shs')!r}. "
-            "Pending shading-start must be cancelled by manual move."
+        assert ts.get("due") == 0, (
+            f"Expected ts.due == 0 but got {ts.get('due')!r}. "
+            "Pending fire time must be cleared by manual move."
         )
-        assert ts.get("she") == 0, (
-            f"Expected ts.she == 0 but got {ts.get('she')!r}. "
-            "Pending shading-end must be cancelled by manual move."
-        )
-        assert ts.get("shr") == 0, (
-            f"Expected ts.shr == 0 but got {ts.get('shr')!r}. "
+        assert ts.get("arm") == 0, (
+            f"Expected ts.arm == 0 but got {ts.get('arm')!r}. "
             "Retry anchor must be reset when manual move cancels the sequence."
         )
 

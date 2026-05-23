@@ -1,6 +1,6 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
 
-# 🚀 CCA 2026.05.17 Beta — Priority Cascade Update & Force-Ventilation Timing
+# 🚀 CCA 2026.05.23 — Priority Cascade Update, Force-Ventilation Timing & Helper Schema Cleanup
 
 ## ⚠️ Behavior Change — BASE=OPN now beats VENT in the priority cascade
 
@@ -29,9 +29,17 @@ When the time schedule is in the *open* window (`bas=opn`) and a window is tilte
 
 If you relied on tilted windows pinning the cover at the ventilation position during the day, you can restore the previous behavior by closing the window or by removing the time schedule (so `bas` never reaches `opn`).
 
+## 🧹 Helper Schema Cleanup — Pending state now type-safe
+
+The shading-pending state is now represented by a single top-level enum `pnd` (`non` / `beg` / `end`) plus `ts.due` (fire time) and `ts.arm` (retry anchor). Mutual exclusivity of start-pending and end-pending is now guaranteed by the schema rather than by code guards. Helper version (`v: 6`) is unchanged.
+
+The v5 → v6 migration produces the new layout directly. A defensive cleanup also fires whenever the stored `ts.*` contains keys that are no longer part of the schema — this preserves all live state (base, shading, window, force, resident, manual, recognized timestamps) and resets any pending to idle.
+
+**Heads-up for tooling:** custom card templates, the trace analyzer, and any external code reading the helper directly should use the new keys (`pnd` / `ts.due` / `ts.arm`). See the updated card examples in `docs/card-examples/`.
+
 ## 🔧 Bug Fixes
 
-- **Manual override ignored when shading state is stale** ([#447](https://github.com/hvorragend/ha-blueprints/issues/447)): After a manual cover movement to a position that does not match any defined position (open / close / shading / ventilation), the JSON helper preserved a previously set `shd=1` from earlier shading state (e.g. shading-start that was held back by lockout protection or saved for later). A subsequent shading-end pending could then arm and fire, overriding the manual move long before the configured `reset_override_timeout` elapsed. The "Manual: position cannot be assigned (unknown)" branch now clears `shd`, pending counters (`shs`, `she`) and the retry anchor (`shr`) on the manual move — consistent with the "Manual: opened" and "Manual: closed" branches.
+- **Manual override ignored when shading state is stale** ([#447](https://github.com/hvorragend/ha-blueprints/issues/447)): After a manual cover movement to a position that does not match any defined position (open / close / shading / ventilation), the JSON helper preserved a previously set `shd=1` from earlier shading state (e.g. shading-start that was held back by lockout protection or saved for later). A subsequent shading-end pending could then arm and fire, overriding the manual move long before the configured `reset_override_timeout` elapsed. The "Manual: position cannot be assigned (unknown)" branch now clears the shading state and any pending on the manual move — consistent with the "Manual: opened" and "Manual: closed" branches.
 
 - **Cover incorrectly closes when window closes during active Force-Ventilation** ([#445](https://github.com/hvorragend/ha-blueprints/issues/445)): When Force-Ventilate was active and the window subsequently closed (ending the ventilation phase), the cover drove to the close position instead of remaining at the ventilation position dictated by Force-Ventilate. The contact handler now respects the active force.
 
@@ -189,7 +197,7 @@ A diagnostic variable `diag_forecast_weather_attribute_mode` was added to the tr
 ### Shading-start retry aborts immediately on a fresh day ([#408](https://github.com/hvorragend/ha-blueprints/issues/408), [#416](https://github.com/hvorragend/ha-blueprints/issues/416))
 When the shading-start retry sequence was blocked by an additional condition or by manual override, the retry would either abort immediately or fail to honor the configured `shading_start_max_duration`. Root cause: the duration check used `ts.shd` (last shading-state change) as anchor, which on a fresh day was still yesterday's value (or zero) — pushing `now() - ts.shd` past the configured maximum on the first attempt.
 
-A dedicated **retry anchor timestamp** `ts.shr` was introduced. It records the start of the current retry sequence (start *or* end), is preserved across retry attempts, and is cleared in every terminal branch. The duration check now uses this anchor, so the configured retry window is honored correctly regardless of helper state from previous days.
+A dedicated **retry anchor timestamp** `ts.arm` was introduced. It records the start of the current retry sequence (start *or* end), is preserved across retry attempts, and is cleared in every terminal branch. The duration check now uses this anchor, so the configured retry window is honored correctly regardless of helper state from previous days.
 
 A mutual-exclusion guard ensures shading-start-pending and shading-end-pending can never both be active at the same time.
 
@@ -276,9 +284,9 @@ The global condition blocks the entire action block, including helper state upda
 
 ---
 
-## 📦 Helper Schema Update — New Field `ts.shr`
+## 📦 Helper Schema Update — New Field `ts.arm`
 
-The v6 JSON helper schema gained one additional field: **`ts.shr`** — a dedicated retry-sequence anchor timestamp used by the shading-start and shading-end retry logic (see bug fix above). The field is automatically initialized on first run; no manual action required. If you use a Flex-Table-Card to visualize helper fields, you can optionally add a row for `ts.shr` (see updated card example).
+The v6 JSON helper schema gained one additional field: **`ts.arm`** — a dedicated retry-sequence anchor timestamp used by the shading-start and shading-end retry logic (see bug fix above). The field is automatically initialized on first run; no manual action required. If you use a Flex-Table-Card to visualize helper fields, you can optionally add a row for `ts.arm` (see updated card example).
 
 ## 📚 Documentation
 
@@ -292,7 +300,7 @@ New sections added to the FAQ:
 
 New dashboard card examples (in the `card-examples/` directory):
 - **CCA Status Tile Card** — compact tile-style visualization of the v6 compact JSON helper schema.
-- **Flex-Table-Card** — full-row visualization of all internal helper fields, including the new `ts.shr` retry anchor and the resident sensor.
+- **Flex-Table-Card** — full-row visualization of all internal helper fields, including the new `ts.arm` retry anchor and the resident sensor.
 
 New shading recipe:
 - **Window-sun-angle aware shading via Force Shading** ([#187](https://github.com/hvorragend/ha-blueprints/issues/187), [#245](https://github.com/hvorragend/ha-blueprints/issues/245)) — step-by-step guide for using dynamic sun-elevation sensors together with Force Shading to obtain a window-orientation-aware shading strategy without changing the blueprint itself.
