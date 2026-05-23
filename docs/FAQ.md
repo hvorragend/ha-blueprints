@@ -1443,7 +1443,7 @@ Sharing breaks functionality completely
 
 **Dashboard Card Configuration:**
 
-📄 [`examples/cover-status-flex-table.yaml`](../examples/cover-status-flex-table.yaml)
+📄 [`examples/cover-status-flex-table.yaml`](https://github.com/hvorragend/ha-blueprints/blob/dev/examples/cover-status-flex-table.yaml)
 
 **What you see:**
 - **Cover**: Cover name (without "Rollo Status" prefix)
