@@ -222,13 +222,13 @@ New guide:
 
 ## :link: Resources
 
-- :book: [Full Changelog](https://github.com/hvorragend/ha-blueprints/blob/main/docs/CHANGELOG.md)
-- :question: [FAQ & Troubleshooting](https://github.com/hvorragend/ha-blueprints/blob/main/docs/FAQ.md)
+- :book: [Full Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG)
+- :question: [FAQ & Troubleshooting](https://hvorragend.github.io/ha-blueprints/FAQ)
 - :wrench: [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
 - :mag: [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/)
 - :chart_with_upwards_trend: [Trace Compare](https://hvorragend.github.io/ha-blueprints/trace-compare/)
-- :sunny: [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md)
-- :clock1: [Time Control Visualization](https://github.com/hvorragend/ha-blueprints/blob/main/docs/TIME_CONTROL_VISUALIZATION.md)
+- :sunny: [Dynamic Sun Elevation Guide](https://hvorragend.github.io/ha-blueprints/DYNAMIC_SUN_ELEVATION)
+- :clock1: [Time Control Visualization](https://hvorragend.github.io/ha-blueprints/TIME_CONTROL_VISUALIZATION)
 - :bug: [Report Issues](https://github.com/hvorragend/ha-blueprints/issues)
 
 ---
