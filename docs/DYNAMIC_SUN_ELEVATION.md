@@ -42,7 +42,7 @@ The sensors provide **dynamic threshold values** that change throughout the year
 
 ### Visual Comparison
 
-![Annual Threshold Curve](../../docs/images/threshold_curve_annual.png)
+![Annual Threshold Curve](images/threshold_curve_annual.png)
 
 The graph above shows how the dynamic sun elevation threshold changes throughout the year, comparing sinusoidal interpolation (recommended) with linear interpolation.
 
@@ -234,7 +234,7 @@ After setting up your sensors, verify the values in Developer Tools:
 
 ## 📊 How It Works
 
-![Both Sensors Throughout Year](../../docs/images/both_sensors_annual.png)
+![Both Sensors Throughout Year](images/both_sensors_annual.png)
 
 The graph above visualizes how both opening and closing sensors work together throughout the year, creating different "open window" durations in summer vs winter.
 
@@ -277,7 +277,7 @@ The sensors use these baseline values for **50°N latitude** (Central Europe):
 
 ### Values at Different Latitudes
 
-![Latitude Comparison](../../docs/images/latitude_comparison.png)
+![Latitude Comparison](images/latitude_comparison.png)
 
 The graph above shows how the opening sensor thresholds automatically adjust for different latitudes across Europe.
 
@@ -416,7 +416,7 @@ Create asymmetric behavior:
 
 ## 📐 Mathematical Background
 
-![Sine Wave Explanation](../../docs/images/sine_wave_explanation.png)
+![Sine Wave Explanation](images/sine_wave_explanation.png)
 
 The diagram above shows how the sine function transforms the seasonal cycle into smooth threshold values.
 

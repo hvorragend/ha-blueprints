@@ -17,7 +17,7 @@ Located in [`blueprints/automation/`](blueprints/automation/), **Cover Control A
 - **⚙️ Highly Configurable** — Fine-tune hysteresis, delays, thresholds, and conditions to match your exact needs
 
 **→ Full documentation, changelog, and debugging tools:**
-- 📖 [Go to CCA README](blueprints/automation/README.md)
+- 📖 [Go to CCA Documentation](docs/README.md)
 - 📦 [Configuration Validator](https://hvorragend.github.io/ha-blueprints/validator/)
 - 🔍 [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/)
 - 🔄 [Trace Compare](https://hvorragend.github.io/ha-blueprints/trace-compare/)

@@ -1,4 +1,4 @@
-**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/CHANGELOG_OLD.md).
+**Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://github.com/hvorragend/ha-blueprints/blob/main/docs/CHANGELOG_OLD.md).
 
 # 🚀 CCA 2026.05.23 — Priority Cascade Update, Force-Ventilation Timing & Helper Schema Cleanup
 
@@ -35,7 +35,7 @@ The shading-pending state is now represented by a single top-level enum `pnd` (`
 
 The v5 → v6 migration produces the new layout directly. A defensive cleanup also fires whenever the stored `ts.*` contains keys that are no longer part of the schema — this preserves all live state (base, shading, window, force, resident, manual, recognized timestamps) and resets any pending to idle.
 
-**Heads-up for tooling:** custom card templates, the trace analyzer, and any external code reading the helper directly should use the new keys (`pnd` / `ts.due` / `ts.arm`). See the updated card examples in `docs/card-examples/`.
+**Heads-up for tooling:** custom card templates, the trace analyzer, and any external code reading the helper directly should use the new keys (`pnd` / `ts.due` / `ts.arm`). See the updated card examples in `examples/`.
 
 ## 🔧 Bug Fixes
 
@@ -298,7 +298,7 @@ New sections added to the FAQ:
 - **Window Sensor Priority** — clarifies why *opened* always beats *tilted* (added to the Ventilation chapter).
 - **How does a force function work?** — moved from inline help into the FAQ for easier reference.
 
-New dashboard card examples (in the `card-examples/` directory):
+New dashboard card examples (in the `examples/` directory):
 - **CCA Status Tile Card** — compact tile-style visualization of the v6 compact JSON helper schema.
 - **Flex-Table-Card** — full-row visualization of all internal helper fields, including the new `ts.arm` retry anchor and the resident sensor.
 
@@ -447,7 +447,7 @@ Updated to Branch 0–11 structure, extended trigger explanations, and same v6/v
   Both up and down sensors must be configured and provide valid numeric values. Config check validates this requirement.
 
 - **Year-round automation**
-  Perfect for users who want fully automated seasonal adaptation without manual intervention. Use with the [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md).
+  Perfect for users who want fully automated seasonal adaptation without manual intervention. Use with the [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md).
 
 ### 🔄 Hybrid Mode
 - **Best of both worlds**
@@ -617,7 +617,7 @@ This feature is particularly useful for emergency and weather-based scenarios wh
     - Cover closes when **current sun elevation is lower** than the sensor value
     - Example: Sensor = 0.5° → Closes when sun sets below 0.5°
 
-- New guide with step-by-step instructions: [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/DYNAMIC_SUN_ELEVATION.md)
+- New guide with step-by-step instructions: [Dynamic Sun Elevation Guide](https://github.com/hvorragend/ha-blueprints/blob/main/docs/DYNAMIC_SUN_ELEVATION.md)
 
 - **Benefits**:
   - No more DST adjustments – No manual changes needed when clocks shift

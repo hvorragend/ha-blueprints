@@ -39,10 +39,10 @@ pip3 install numpy matplotlib
 
 ## Usage in Documentation
 
-Images are referenced in `blueprints/automation/DYNAMIC_SUN_ELEVATION.md` using relative paths:
+Images are referenced in `docs/DYNAMIC_SUN_ELEVATION.md` using relative paths:
 
 ```markdown
-![Description](../../docs/images/image_name.png)
+![Description](images/image_name.png)
 ```
 
 ## License
