@@ -354,26 +354,6 @@ ts:
   cls: 'now'
 ```
 
-### Bug Pattern J: Manual move to free position preserves stale shading state (Issue #447)
-
-**Symptom:** User manually moves the cover to a position that does not match any defined position (e.g. 79 with open=100, shading=65, close=0). A short time later the automation opens the cover via shading-end and clears `man=0`, even though `reset_override_timeout` has not elapsed.
-
-**Cause:** The "Manual: position cannot be assigned (unknown)" branch sets `man: 1` but preserves the existing `shd`, `shs`, `she` and `shr`. If `shd=1` was set earlier (e.g. by "Consider lockout protection when shading starts" or "Save shading state for the future") without the cover ever reaching the shading position, that stale flag — together with `helper_state_is_shaded` in the shading-end gate — lets shading-end arm and fire over the manual move.
-
-**Rule:** Manual moves to a position not assignable to any defined state are terminal events for any pending shading sequence. The branch must clear `shd`, `shs`, `she` and `shr` consistent with "Manual: opened" and "Manual: closed".
-
-**Fix:** In the "Manual: position cannot be assigned (unknown)" `update_values`:
-```yaml
-shd: 0
-man: 1
-ts:
-  shd: 'now'
-  man: 'now'
-  shs: 0
-  she: 0
-  shr: 0
-```
-
 ---
 
 ## Language & Style Conventions
