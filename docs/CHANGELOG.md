@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.25
+
+- 🐛 **Fix:** Shading start pending blocked when status helper is uninitialized (e.g. after fresh setup)
+
+---
+
 # 🚀 CCA 2026.05.24 — New State Machine, Priority Cascade, Force Pause & 30+ Bug Fixes
 
 This is the biggest CCA update since the initial release — a **complete architecture overhaul** of the automation engine, combined with powerful new features and months of stability fixes.
