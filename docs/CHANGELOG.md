@@ -4,6 +4,7 @@
 
 - 🐛 **Fix:** Contact handler incorrectly lowered cover to ventilation position when base state was open (`bas=opn`) and window transitioned from fully open to tilted ([#460](https://github.com/hvorragend/ha-blueprints/issues/460))
 - 🔧 **Improvement:** `effective_state` now reads the window state from **live contact sensors** instead of the stale helper field — eliminates an entire class of stale-state bugs where `effective_state` returned `lock` instead of the correct cascade result during contact handler execution
+- 🐛 **Fix:** Shading condition regex `"shd"\s*:\s*1` falsely matched the `ts.shd` timestamp (e.g. `"shd":1779701945`) inside the nested `ts` object, blocking all `t_shading_start_pending_*` triggers even when shading was inactive ([#467](https://github.com/hvorragend/ha-blueprints/issues/467))
 
 ---
 

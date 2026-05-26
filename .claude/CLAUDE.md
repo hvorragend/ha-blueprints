@@ -361,6 +361,14 @@ ts:
 
 **Root fix:** `effective_state` was changed to derive `win` from **live contact sensors** instead of the stale `h.win` helper field. When sensors are configured, the live sensor value takes priority; when no sensors are configured, it falls back to `h.win`. This means `effective_state` now correctly returns `'opn'` (not `'lock'`) when the window transitions from open → tilted and `bas == 'opn'`. The tilted-drive branch guards with `{{ effective_state != 'opn' }}`, and the no-drive branch catches `{{ effective_state == 'opn' }}`.
 
+### Bug Pattern K: `regex_search('"shd"\s*:\s*1')` matches `ts.shd` timestamp (Issue #467)
+
+**Symptom:** All `t_shading_start_pending_*` triggers are blocked by condition/3 even though `shd == 0` (shading inactive). The automation stops despite valid shading conditions.
+
+**Cause:** The regex `"shd"\s*:\s*1` is intended to check if the top-level `shd` field is `1`, but the helper JSON contains a nested `ts.shd` timestamp (e.g. `"shd":1779701945`) whose value starts with `1`. The regex matches this nested timestamp, making the condition think shading is already active.
+
+**Fix:** Change all 6 occurrences of the regex to `"shd"\s*:\s*1\s*[,}]` — requiring a comma or closing brace after the `1` ensures it matches only the top-level `"shd":1,` and not a multi-digit timestamp value.
+
 ---
 
 ## Language & Style Conventions
