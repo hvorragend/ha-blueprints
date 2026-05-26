@@ -1027,6 +1027,87 @@ class TestShadingStartOuterIfGatesOnWindow:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tests: Independent temperature mode bypasses all conditions (#459)
+# ─────────────────────────────────────────────────────────────────────────────
+
+INDEPENDENT_TEMP_CONDITION = (
+    "'shading_temp_comparison_independent' in shading_config and "
+    "shading_start_condition_states.forecast_temp_valid"
+)
+
+INDEPENDENT_OR_STANDARD = (
+    "(" + INDEPENDENT_TEMP_CONDITION + ") or shading_start_conditions_met"
+)
+
+
+def _make_independent_temp_vars(
+    *,
+    independent_enabled: bool = True,
+    forecast_temp_valid: bool = True,
+    conditions_met: bool = False,
+) -> dict:
+    return {
+        "shading_config": (
+            ["shading_temp_comparison_independent"] if independent_enabled else []
+        ),
+        "shading_start_condition_states": {
+            "forecast_temp_valid": forecast_temp_valid,
+        },
+        "shading_start_conditions_met": conditions_met,
+    }
+
+
+class TestIndependentTempBypassesConditions:
+    """
+    Issue #459: Independent temperature mode bypasses ALL start conditions
+    (including azimuth) by design. This is correct behavior — the user must
+    disable independent mode if they don't want temperature-only shading.
+
+    The Trace Analyzer was updated to make this bypass visible.
+    """
+
+    def test_independent_temp_valid_starts_shading(self):
+        """Independent mode + forecast_temp_valid → shading starts."""
+        env = make_jinja_env()
+        v = _make_independent_temp_vars(forecast_temp_valid=True, conditions_met=False)
+        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is True
+
+    def test_independent_temp_invalid_no_shading(self):
+        """Independent mode + forecast_temp_valid=false → no shading (unless standard conditions met)."""
+        env = make_jinja_env()
+        v = _make_independent_temp_vars(forecast_temp_valid=False, conditions_met=False)
+        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is False
+
+    def test_standard_conditions_still_work(self):
+        """Standard conditions can start shading even when independent mode is off."""
+        env = make_jinja_env()
+        v = _make_independent_temp_vars(independent_enabled=False, conditions_met=True)
+        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is True
+
+    def test_independent_disabled_and_conditions_false(self):
+        """Both paths false → no shading."""
+        env = make_jinja_env()
+        v = _make_independent_temp_vars(independent_enabled=False, conditions_met=False)
+        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is False
+
+    def test_blueprint_yaml_independent_path_exists(self):
+        """Verify the independent temperature path exists in the blueprint."""
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        branch = _find_branch_by_alias(blueprint, "Check for shading start")
+        assert branch is not None
+        seq = branch.get("sequence", [])
+        if_step = next(
+            (s for s in seq if isinstance(s, dict) and "if" in s and "then" in s),
+            None,
+        )
+        assert if_step is not None
+        flat = yaml.safe_dump(if_step["if"])
+        assert "shading_temp_comparison_independent" in flat, (
+            "Independent temperature path must exist in the outer if."
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Tests: Invariant 7 — man:0 only when drive happens
 # ─────────────────────────────────────────────────────────────────────────────
 

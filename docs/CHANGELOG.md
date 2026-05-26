@@ -10,6 +10,7 @@
 # CCA 2026.05.25
 
 - 🐛 **Fix:** Shading start pending blocked when status helper is uninitialized (e.g. after fresh setup)
+- 🔧 **Trace Analyzer:** Shading Conditions Deep-Dive now shows independent temperature mode status — displays whether the temperature bypass is active and the effective start decision. This makes it visible when independent mode overrides the standard AND/OR conditions. ([#459](https://github.com/hvorragend/ha-blueprints/issues/459))
 
 ---
 
