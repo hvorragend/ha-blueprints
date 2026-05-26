@@ -1284,6 +1284,37 @@ blueprint:
           <br />
           All these settings are optional / The attributes of default sun sensor (configured above) is used.
         </small></p></center>
+
+        <details>
+        <summary><code><strong>CLICK HERE:</strong> How the shading process works (two phases)</code></summary>
+
+
+        **Phase 1 — Pending (trigger):**
+
+        When ANY configured shading trigger fires (sun azimuth, elevation, brightness, temperature, forecast), the automation arms a "pending" timer. This sets the status to <em>t_shading_start_pending</em> and starts the waiting time.
+
+
+        **Phase 2 — Execution (after waiting time):**
+
+        After the waiting time expires, the automation re-evaluates ALL configured conditions. Only if they are <strong>still valid</strong> at this point, the cover actually moves to the shading position.
+
+
+        **Common reasons why shading stays stuck at "pending":**
+
+        - <strong>Forecast temperature sensor misconfigured:</strong> If using a weather entity, make sure it provides temperature data (check Developer Tools → States). If the forecast returns "unavailable" or "unknown", the condition fails.
+
+        - <strong>Time window mismatch:</strong> Shading only executes within the configured daytime window (between earliest opening time and latest closing time). If no time control is configured, enable "Disable Time Control" or configure valid times.
+
+        - <strong>"Additional Condition" blocks execution:</strong> The "Additional Condition When Activating Sun Shading" is checked at execution time. If configured, it must be true for the cover to move.
+
+        - <strong>Cover already at/below shading position:</strong> If the cover is already at or below the shading position, no movement occurs (but the state is saved).
+
+        - <strong>Helper shows stale data:</strong> Check the input_text helper entity in Developer Tools → States. Look for <code>"pnd":"beg"</code> and verify that <code>"ts.due"</code> is a valid future timestamp.
+
+
+        **Debugging tip:** Enable the Logbook option and check the automation trace after the waiting time expires. Look for the <em>t_shading_start_execution</em> trigger — if it doesn't appear, the template trigger may not be evaluating correctly. If it appears but the trace shows "conditions not met", check which specific condition fails using Developer Tools → Template.
+
+        </details>
       icon: mdi:shield-sun-outline
       collapsed: true
       input:
@@ -1320,6 +1351,9 @@ blueprint:
             - Leave others for OR list
 
             - Result: Sun must be in range, plus other criteria
+
+
+            **Important:** Conditions without a configured sensor are automatically satisfied (skipped). You can safely leave all conditions selected — only those with a matching sensor configured below will actually be evaluated. However, if a sensor IS configured but returns "unavailable" or "unknown", the condition will FAIL.
 
             </details>
           default:
@@ -1813,6 +1847,9 @@ blueprint:
 
                 - Temperature Sensor 2 (e.g. outdoor) (can be enabled via the checkbox in the next configuration field)
 
+
+                <strong>Troubleshooting:</strong> If this condition is in your AND list, the forecast source (weather entity or temperature sensor above) MUST provide a valid numeric temperature value. Check Developer Tools → States that your weather entity or sensor shows a numeric temperature, not "unavailable" or "unknown". If the forecast returns no data, this condition will fail and block shading execution.
+
               </details>
           default: []
           selector:
@@ -1923,9 +1960,12 @@ blueprint:
         shading_waitingtime_start:
           name: "🥵 Sun Shading - Start Waiting Time"
           description: >-
-            To avoid overloading the motor, a waiting time can be defined here for the start of shading.
-            The shade will only start if <ins>all</ins> mandatory conditions are fulfilled for the entire waiting time.
+            Waiting time between the initial shading trigger and the actual cover movement.
+            After this time expires, <ins>all</ins> configured start conditions (AND + OR) are re-checked.
+            The cover only moves if conditions are <strong>still valid</strong> at execution time.
             This waiting time is also used for the periodic condition checks within the retry loop.
+            <br /><br />
+            <strong>If shading stays at "pending" and never executes:</strong> The conditions were no longer met after the waiting time expired. Check the automation trace for <em>t_shading_start_execution</em>.
           default: 300
           selector:
             number:
