@@ -11,7 +11,7 @@
 State is persisted as a JSON string in an `input_text` helper:
 
 ```json
-{"bas":"opn","shd":1,"pnd":"non","win":"opn","frc":"non","res":1,"man":0,
+{"bas":"opn","shd":1,"pnd":"non","win":"opn","frc":"non","prt":"non","res":1,"man":0,
  "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},
  "v":6,"t":0}
 ```
@@ -23,6 +23,7 @@ State is persisted as a JSON string in an `input_text` helper:
 | `pnd` | `non`/`beg`/`end` | Shading pending phase (none / start-armed / end-armed) |
 | `win` | `cls`/`tlt`/`opn` | Window state (closed / tilted / open) |
 | `frc` | `non`/`opn`/`cls`/`shd`/`vnt` | Active force function |
+| `prt` | `non`/`blk`/`sfe` | Damage protection mode (none / block / safe) |
 | `res` | `1`/`0` | Resident present |
 | `man` | `1`/`0` | Manual override active |
 | `ts.opn` | Unix timestamp | Last time base state switched to open |
@@ -37,6 +38,8 @@ State is persisted as a JSON string in an `input_text` helper:
 ## Priority Cascade (`effective_state`)
 
 ```
+0a. PROTECT-BLOCK → prt == "blk"                                    → Freeze (no movement)
+0b. PROTECT-SAFE  → prt == "sfe"                                    → Safe position
 1. FORCE    → frc != "non"                                       → Force position
 2. LOCKOUT  → win == "opn"                                       → Open position
 3. BASE=OPN → bas == "opn" AND no privacy/shading/restriction    → Open position
@@ -236,6 +239,20 @@ bare `trigger.id + update_values` is genuinely insufficient for debugging.
 `trigger.id` is the source of truth for "which path ran". Adding new fields
 to `update_values` requires no logbook changes — they are dumped automatically
 via `to_json`.
+
+### ⚠️ Invariant 13: Damage Protection (`prt` field and guard branch)
+
+**`prt` field values:** `'non'` (no protection), `'blk'` (block — freeze), `'sfe'` (safe — at safe position).
+
+**Protection Guard:** The first branch in the main `choose:` block catches ALL non-protection triggers when `is_protected` is true. This branch always runs `*helper_update` (background state tracking continues), then stops. This ensures no lower-priority branch can fire during active protection.
+
+**Block > Safe priority:** When both block and safe entities are active, block wins — the cover stays frozen. When block clears but safe is still active, the cover drives to the safe position. When safe clears but block is still active, the cover stays frozen.
+
+**Entity list semantics:** Both `protection_block_entities` and `protection_safe_entities` accept multiple entities. Protection is active when ANY entity in the list is `on`. Protection clears when ALL entities in the list are `off`. The `_disabled` trigger fires per entity; the handler checks the realtime `is_protection_block` / `is_protection_safe` variable to determine if other entities are still active.
+
+**Movement blocking:** `is_protection_block` is added to `cover_move_action` and `tilt_move_action` conditions (alongside `is_paused`). This ensures block mode freezes the cover even if a branch somehow reaches the move action. Safe mode does NOT block `cover_move_action` — the safe handler itself uses it for the initial drive.
+
+**Recovery:** When all protection clears (`prt: 'non'`), the handler uses the same recovery pattern as `force_pause_disabled` (BRANCH 8a): a `choose:` keyed on `effective_state` with before/after custom actions for each target state.
 
 ---
 

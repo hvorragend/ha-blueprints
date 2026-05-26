@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.05.26
+    **Version**: 2026.05.27
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2461,6 +2461,96 @@ blueprint:
                 - binary_sensor
                 - switch
 
+    protection_section:
+      name: "Damage Protection"
+      description: >-
+        <center><p><small>
+          Protect your covers from weather damage (frost, wind, hail, rain, snow).
+          <br />
+          Use external binary sensors or template helpers to define when protection is needed — the blueprint only reads on/off.
+          <br />
+          No thresholds are configured here — create your own <code>binary_sensor</code> templates with the conditions you need.
+          <br />
+          <br />
+          All settings in this section are optional
+        </small></p></center>
+      icon: mdi:shield-alert
+      collapsed: true
+      input:
+        protection_block_entities:
+          name: "🧊 Damage Protection: Block All Movement"
+          description: >-
+            When **any** of these entities is on, ALL cover movement is blocked immediately.
+            The cover freezes in its current position — no drive commands are sent, not even force functions.
+
+            Use this for conditions where the mechanism itself should not move
+            (e.g. frozen rails, iced-up motor).
+
+            The automation continues tracking the background state, so when protection clears,
+            the cover returns to the correct position automatically.
+
+            💡 **Tip:** Create a `binary_sensor` template that turns on when
+            the outside temperature drops below your frost threshold.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              domain:
+                - input_boolean
+                - binary_sensor
+                - switch
+
+        protection_safe_entities:
+          name: "🌪️ Damage Protection: Move to Safe Position"
+          description: >-
+            When **any** of these entities is on, the cover drives ONCE to the configured
+            safe position and stays there until all protection entities clear.
+
+            All other automation (shading, force, manual) is suspended while active.
+
+            If block protection is also active, block takes priority — the cover stays frozen
+            and will drive to the safe position only after block clears.
+
+            💡 **Tip:** Create `binary_sensor` templates for high wind, hail, heavy rain, or
+            snow conditions.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              domain:
+                - input_boolean
+                - binary_sensor
+                - switch
+
+        protection_safe_position:
+          name: "🎯 Safe Position"
+          description: >-
+            The cover position to drive to when safe-mode protection is active.
+            0 = fully closed, 100 = fully open.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        protection_safe_tilt:
+          name: "🎯 Safe Tilt Position"
+          description: >-
+            The tilt position when safe-mode protection is active.
+            Only relevant for covers with tilt support.
+            0 = fully closed, 100 = fully open.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
     actions_section:
       name: "Additional Actions"
       description: >-
@@ -2774,6 +2864,10 @@ trigger_variables:
   # Force pause
   force_pause: !input force_pause
 
+  # Protection entities
+  protection_block_entities: !input protection_block_entities
+  protection_safe_entities: !input protection_safe_entities
+
   # Cover status helper configuration
   cover_status_helper: !input cover_status_helper
 
@@ -2793,10 +2887,19 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.26"
+  version: "2026.05.27"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
+
+  # Protection
+  is_protection_block: >-
+    {{ protection_block_entities != [] and
+       expand(protection_block_entities) | selectattr('state', 'in', ['on', 'true']) | list | count > 0 }}
+  is_protection_safe: >-
+    {{ protection_safe_entities != [] and
+       expand(protection_safe_entities) | selectattr('state', 'in', ['on', 'true']) | list | count > 0 }}
+  is_protected: "{{ is_protection_block or is_protection_safe }}"
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3079,6 +3182,7 @@ variables:
           'pnd': 'beg' if v5_shs > 0 else ('end' if v5_she > 0 else 'non'),
           'win': 'opn' if v5_current == 'vfull' else ('tlt' if v5_current == 'vpart' else 'cls'),
           'frc': 'non',
+          'prt': 'non',
           'res': 0,
           'man': helper_raw.manual.a | default(0),
           'ts': {
@@ -3102,6 +3206,7 @@ variables:
           'pnd': helper_raw.pnd | default('non'),
           'win': helper_raw.win | default('cls'),
           'frc': helper_raw.frc | default('non'),
+          'prt': helper_raw.prt | default('non'),
           'res': helper_raw.res | default(0) | int,
           'man': helper_raw.man | default(0) | int,
           'ts': {
@@ -3124,6 +3229,7 @@ variables:
           'pnd': 'non',
           'win': 'cls',
           'frc': 'non',
+          'prt': 'non',
           'res': 0,
           'man': 0,
           'ts': {
@@ -3205,6 +3311,10 @@ variables:
   # STATE FORCE - Which force function is currently active? (from helper)
   # Values: non|opn|cls|shd|vnt
   helper_state_force: "{{ helper_json.frc | default('non') }}"
+
+  # PROTECTION STATE - Which protection mode is active? (from helper)
+  # Values: non|blk|sfe
+  helper_state_protection: "{{ helper_json.prt | default('non') }}"
 
   # RESIDENT STATUS - Is someone present? (from helper, synced with sensor)
   helper_state_resident: "{{ helper_json.res | default(0) | int == 1 }}"
@@ -3669,6 +3779,36 @@ triggers:
     id: "t_force_pause_disabled"
 
   ########################################
+  # Triggers for damage protection
+  ########################################
+
+  - trigger: state
+    entity_id: !input protection_block_entities
+    to: "on"
+    enabled: "{{ protection_block_entities != [] }}"
+    id: "t_protection_block_enabled"
+
+  - trigger: state
+    entity_id: !input protection_block_entities
+    from: "on"
+    to: "off"
+    enabled: "{{ protection_block_entities != [] }}"
+    id: "t_protection_block_disabled"
+
+  - trigger: state
+    entity_id: !input protection_safe_entities
+    to: "on"
+    enabled: "{{ protection_safe_entities != [] }}"
+    id: "t_protection_safe_enabled"
+
+  - trigger: state
+    entity_id: !input protection_safe_entities
+    from: "on"
+    to: "off"
+    enabled: "{{ protection_safe_entities != [] }}"
+    id: "t_protection_safe_disabled"
+
+  ########################################
   # Triggers for shading tilt
   ########################################
 
@@ -3883,7 +4023,7 @@ actions:
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - condition: template
-            value_template: "{{ not is_paused }}"
+            value_template: "{{ not is_paused and not is_protection_block }}"
           - condition: template
             value_template: "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
           - repeat:
@@ -3919,7 +4059,7 @@ actions:
       tilt_move_action: &tilt_move_action
         sequence:
           - condition: template
-            value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible and not is_paused }}"
+            value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible and not is_paused and not is_protection_block }}"
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
@@ -3996,6 +4136,7 @@ actions:
                   {% set new_pnd = updates.pnd | default(current.pnd | default('non')) %}
                   {% set new_win = updates.win | default(current.win | default('cls')) %}
                   {% set new_frc = updates.frc | default(current.frc | default('non')) %}
+                  {% set new_prt = updates.prt | default(current.prt | default('non')) %}
                   {% set new_res = updates.res | default(current.res | default(0)) | int %}
                   {% set new_man = updates.man | default(current.man | default(0)) | int %}
                   {% set current_ts = current.ts | default({}) %}
@@ -4019,6 +4160,7 @@ actions:
                     'pnd': new_pnd,
                     'win': new_win,
                     'frc': new_frc,
+                    'prt': new_prt,
                     'res': new_res | int,
                     'man': new_man | int,
                     'ts': {
@@ -4043,7 +4185,7 @@ actions:
                     Trigger: {{ trigger.id | default('manual') }} | 
                     Effective: {{ effective_state }} | 
                     Position: {{ current_position }}% {% if is_cover_tilt_enabled %} / Tilt: {{ current_tilt_position }}%{% endif %} | 
-                    Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
+                    Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} prt={{ helper_json.prt | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
                     States: 
                     opn={{ states(contact_window_opened) if contact_window_opened != [] else '-' }} 
                     tlt={{ states(contact_window_tilted) if contact_window_tilted != [] else '-' }}
@@ -4076,6 +4218,7 @@ actions:
               'pnd': 'non',
               'win': 'cls',
               'frc': 'non',
+              'prt': 'non',
               'res': 0,
               'man': 0,
               'ts': {
@@ -4835,6 +4978,254 @@ actions:
           entity_id: "{{ cover_status_helper }}"
 
   - choose:
+
+      ############################################################
+      # PROTECTION GUARD: When damage protection is active, consume
+      # all non-protection triggers. Helper state continues tracking
+      # in the background (like force_pause) so recovery is instant.
+      ############################################################
+
+      - alias: "Protection active: consume non-protection trigger"
+        conditions:
+          - "{{ is_protected }}"
+          - "{{ not (trigger.id is defined and trigger.id.startswith('t_protection_')) }}"
+        sequence:
+          - *helper_update
+          - stop: "Protection active ({{ 'block' if is_protection_block else 'safe' }}), non-protection trigger consumed"
+
+      ############################################################
+      # PROTECTION HANDLERS: Damage protection enable/disable
+      ############################################################
+
+      - alias: "Protection triggered"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id.startswith('t_protection_') }}"
+        sequence:
+          - choose:
+              - alias: "Protection: Block enabled (freeze cover)"
+                conditions:
+                  - "{{ trigger.id == 't_protection_block_enabled' }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        prt: "blk"
+                  - *helper_update
+                  - stop: "Protection Block enabled — cover frozen"
+
+              - alias: "Protection: Safe enabled (drive to safe position)"
+                conditions:
+                  - "{{ trigger.id == 't_protection_safe_enabled' }}"
+                sequence:
+                  - variables:
+                      target_position: !input protection_safe_position
+                      target_tilt_position: !input protection_safe_tilt
+                      update_values:
+                        prt: "sfe"
+                        man: 0
+                  - if: "{{ not is_protection_block and helper_state_protection != 'sfe' }}"
+                    then:
+                      - *cover_move_action
+                      - *tilt_move_action
+                  - *helper_update
+                  - stop: "Protection Safe enabled — cover at safe position"
+
+              - alias: "Protection: Disabled (block or safe cleared)"
+                conditions:
+                  - "{{ trigger.id in ['t_protection_block_disabled', 't_protection_safe_disabled'] }}"
+                sequence:
+                  - choose:
+                      - alias: "Block cleared but other block entities still active"
+                        conditions:
+                          - "{{ trigger.id == 't_protection_block_disabled' and is_protection_block }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                prt: "blk"
+                          - *helper_update
+                          - stop: "Other block entities still active — stay frozen"
+
+                      - alias: "Safe cleared but other safe entities still active"
+                        conditions:
+                          - "{{ trigger.id == 't_protection_safe_disabled' and is_protection_safe }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                prt: "sfe"
+                          - *helper_update
+                          - stop: "Other safe entities still active — stay at safe position"
+
+                      - alias: "Block cleared but safe still active — drive to safe position"
+                        conditions:
+                          - "{{ trigger.id == 't_protection_block_disabled' and is_protection_safe }}"
+                        sequence:
+                          - variables:
+                              target_position: !input protection_safe_position
+                              target_tilt_position: !input protection_safe_tilt
+                              update_values:
+                                prt: "sfe"
+                                man: 0
+                          - if: "{{ helper_state_protection != 'sfe' }}"
+                            then:
+                              - *cover_move_action
+                              - *tilt_move_action
+                          - *helper_update
+                          - stop: "Block cleared, safe still active — drive to safe position"
+
+                      - alias: "Safe cleared but block still active — stay frozen"
+                        conditions:
+                          - "{{ trigger.id == 't_protection_safe_disabled' and is_protection_block }}"
+                        sequence:
+                          - variables:
+                              update_values:
+                                prt: "blk"
+                          - *helper_update
+                          - stop: "Safe cleared, block still active — stay frozen"
+
+                    default:
+                      - variables:
+                          update_values:
+                            prt: "non"
+                            man: 0
+                      - choose:
+                          - alias: "Protection cleared: drive to FORCE OPEN target"
+                            conditions: "{{ effective_state == 'opn' and helper_json.frc == 'opn' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input open_position
+                                  target_tilt_position: "{{ open_tilt_position | int }}"
+                              - choose: []
+                                default: !input auto_up_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_up_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to FORCE CLOSE target"
+                            conditions: "{{ effective_state == 'cls' and helper_json.frc == 'cls' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input close_position
+                                  target_tilt_position: "{{ close_tilt_position | int }}"
+                              - choose: []
+                                default: !input auto_down_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_down_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to FORCE SHADE target"
+                            conditions: "{{ effective_state == 'shd' and helper_json.frc == 'shd' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input shading_position
+                                  target_tilt_position: "{{ shading_tilt_position | int }}"
+                              - choose: []
+                                default: !input auto_shading_start_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_shading_start_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to FORCE VENTILATE target"
+                            conditions: "{{ effective_state == 'vnt' and helper_json.frc == 'vnt' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input ventilate_position
+                                  target_tilt_position: !input ventilate_tilt_position
+                              - choose: []
+                                default: !input auto_ventilate_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_ventilate_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to LOCKOUT (window open)"
+                            conditions: "{{ effective_state == 'lock' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input open_position
+                                  target_tilt_position: "{{ open_tilt_position | int }}"
+                              - choose: []
+                                default: !input auto_ventilate_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_ventilate_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to OPEN (background, base=opn)"
+                            conditions: "{{ effective_state == 'opn' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input open_position
+                                  target_tilt_position: "{{ open_tilt_position | int }}"
+                              - choose: []
+                                default: !input auto_up_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_up_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to VENTILATION (window tilted)"
+                            conditions: "{{ effective_state == 'vnt' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input ventilate_position
+                                  target_tilt_position: !input ventilate_tilt_position
+                              - choose: []
+                                default: !input auto_ventilate_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_ventilate_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to SHADING (background)"
+                            conditions: "{{ effective_state == 'shd' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input shading_position
+                                  target_tilt_position: "{{ shading_tilt_position | int }}"
+                              - choose: []
+                                default: !input auto_shading_start_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_shading_start_action
+                              - *helper_update
+
+                          - alias: "Protection cleared: drive to BASE CLOSE target"
+                            conditions: "{{ effective_state == 'cls' }}"
+                            sequence:
+                              - variables:
+                                  target_position: !input close_position
+                                  target_tilt_position: "{{ close_tilt_position | int }}"
+                              - choose: []
+                                default: !input auto_down_action_before
+                              - *cover_move_action
+                              - *tilt_move_action
+                              - choose: []
+                                default: !input auto_down_action
+                              - *helper_update
+
+                        default:
+                          - variables:
+                              target_position: !input open_position
+                              target_tilt_position: "{{ open_tilt_position | int }}"
+                          - choose: []
+                            default: !input auto_up_action_before
+                          - *cover_move_action
+                          - *tilt_move_action
+                          - choose: []
+                            default: !input auto_up_action
+                          - *helper_update
+                      - stop: "Protection cleared — recovery to effective state"
 
       ############################################################
       # BRANCH (0): OPEN
@@ -7227,6 +7618,20 @@ actions:
                     }}
                   message: "CRITICAL: Multiple force entities are active. Only one force entity can be active at a time. Deactivate conflicting force entities"
 
+                # ========== PROTECTION ENTITY CHECKS ==========
+                - condition: >-
+                    {{
+                      protection_block_entities != [] and
+                      expand(protection_block_entities) | selectattr('state', 'in', ['unknown', 'unavailable']) | list | count > 0
+                    }}
+                  message: "One or more Protection Block entities are unavailable. Check entity configuration"
+                - condition: >-
+                    {{
+                      protection_safe_entities != [] and
+                      expand(protection_safe_entities) | selectattr('state', 'in', ['unknown', 'unavailable']) | list | count > 0
+                    }}
+                  message: "One or more Protection Safe entities are unavailable. Check entity configuration"
+
                 # ========== SUN SENSOR CHECKS ==========
                 - condition: >-
                     {{
@@ -7386,7 +7791,7 @@ actions:
                 Trigger: {{ trigger.id | default('manual') }} | 
                 Effective: {{ effective_state }} | 
                 Position: {{ current_position }}% {% if is_cover_tilt_enabled %} / Tilt: {{ current_tilt_position }}%{% endif %} | 
-                Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
+                Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} prt={{ helper_json.prt | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
                 States: 
                 opn={{ states(contact_window_opened) if contact_window_opened != [] else '-' }} 
                 tlt={{ states(contact_window_tilted) if contact_window_tilted != [] else '-' }}

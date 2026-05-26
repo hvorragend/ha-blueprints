@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.27
+
+- ✨ **Feature:** New **Damage Protection** layer with two modes: **Block** (freeze cover in place, e.g. frost) and **Safe** (drive to safe position, e.g. wind/hail/rain/snow). Highest priority in the cascade — overrides force functions, shading, and manual override. Uses abstract binary sensor inputs (entity lists) — no thresholds in the blueprint; users define conditions externally via template helpers. Background state tracking continues during protection, enabling instant recovery when protection clears. New helper field `prt` (`non`/`blk`/`sfe`), new inputs: `protection_block_entities`, `protection_safe_entities`, `protection_safe_position`, `protection_safe_tilt`. Fully backwards compatible — empty defaults preserve existing behavior.
+
+---
+
 # CCA 2026.05.26
 
 - 🐛 **Fix:** Contact handler incorrectly lowered cover to ventilation position when base state was open (`bas=opn`) and window transitioned from fully open to tilted ([#460](https://github.com/hvorragend/ha-blueprints/issues/460))
