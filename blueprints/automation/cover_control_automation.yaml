@@ -4834,6 +4834,24 @@ actions:
             ⚠️ {{ friendly_name }}: Cover Status Helper invalid - initializing with default structure.
           entity_id: "{{ cover_status_helper }}"
 
+  - if:
+      - "{{ check_status_helper_length is not none and check_status_helper_length | int < 210 }}"
+    then:
+      - action: system_log.write
+        data:
+          message: >-
+            Cover Control Automation ({{ friendly_name }}): CRITICAL CONFIGURATION ERROR - Cover Status Helper max length is {{ check_status_helper_length }} characters but at least 210 are required (recommended: 254).
+            Helper: {{ cover_status_helper }}
+            The automation cannot persist state with the current max length. Increase the 'Maximum length' setting of the input_text helper.
+          level: error
+      - action: logbook.log
+        data:
+          name: "Cover Control Automation"
+          message: >-
+            ❌ {{ friendly_name }}: Cover Status Helper max length too small ({{ check_status_helper_length }}/210). Increase to at least 254.
+          entity_id: "{{ cover_status_helper }}"
+      - stop: "Cover Status Helper max length too small"
+
   - choose:
 
       ############################################################
@@ -7100,6 +7118,8 @@ actions:
 
                 # ========== ENTITY ATTRIBUTE & STATE CHECKS ==========
 
+                - condition: "{{ check_status_helper_length is not none and check_status_helper_length | int < 210 }}"
+                  message: "CRITICAL: Cover Status Helper max length is {{ check_status_helper_length }}. Required: at least 210 characters (recommended: 254). Increase the 'Maximum length' of the input_text helper. Current length causes data truncation and the automation cannot persist state"
                 - condition: "{{ state_attr(blind, 'current_position') is none }}"
                   message: "Cover entity is missing the required 'current_position' attribute"
                 - condition: "{{ state_attr(default_sun_sensor, 'elevation') is none }}"
