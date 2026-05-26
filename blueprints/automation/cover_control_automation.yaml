@@ -5692,6 +5692,14 @@ actions:
               # Live resident check — like contact sensors above, must be read after delay
               # to detect race conditions when both window and resident change quickly
               resident_now: "{{ resident_sensor != [] and states(resident_sensor) in ['on', 'true'] }}"
+              vent_base_target: >-
+                {% set privacy = resident_now and 'resident_closing_enabled' in resident_config %}
+                {% set a_shade = 'resident_allow_shading' in resident_config or not resident_now %}
+                {% set a_open = 'resident_allow_opening' in resident_config or not resident_now %}
+                {% if privacy %}cls
+                {% elif helper_state_shade and a_shade %}shd
+                {% elif helper_state_base == 'opn' and not a_open %}cls
+                {% else %}{{ helper_state_base }}{% endif %}
 
           - choose:
               ###################################
@@ -5758,6 +5766,7 @@ actions:
                   - condition: !input auto_ventilate_condition
                   # Top-level opt-out: full → tilt with keep-open flag set
                   - "{{ not (ventilation_flags.keep_open_on_full_to_tilt and helper_state_window == 'opn' and position_comparisons.current_above_ventilate) }}"
+                  - "{{ vent_base_target != 'opn' }}"
                   # Position check: Only move if cover is below ventilation position (or option enabled)
                   - or:
                       # Standard: Cover is below ventilate position
@@ -5822,6 +5831,7 @@ actions:
                           - "{{ ventilation_flags.keep_open_on_full_to_tilt }}"
                           - "{{ helper_state_window == 'opn' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
+                      - "{{ vent_base_target == 'opn' }}"
                 sequence:
                   - variables:
                       update_values:

@@ -1106,6 +1106,7 @@ WIN_TILT_DRIVE_BRANCH = {
         "{{ force_allows_ventilate }}",
         "{{ 'resident_allow_ventilation' in resident_config or not resident_now }}",
         "{{ not (ventilation_flags.keep_open_on_full_to_tilt and helper_state_window == 'opn' and position_comparisons.current_above_ventilate) }}",
+        "{{ vent_base_target != 'opn' }}",
         # OR-block flattened into one Jinja expression
         "{{ position_comparisons.current_below_ventilate"
         " or (is_cover_tilt_enabled_and_possible"
@@ -1126,7 +1127,8 @@ WIN_TILT_NO_DRIVE_BRANCH = {
         "{{ in_ventilate_position"
         " or (ventilation_flags.keep_open_on_full_to_tilt"
         "     and helper_state_window == 'opn'"
-        "     and position_comparisons.current_above_ventilate) }}",
+        "     and position_comparisons.current_above_ventilate)"
+        " or vent_base_target == 'opn' }}",
     ],
 }
 
@@ -1152,6 +1154,7 @@ def _make_tilt_vars(
     resident_config: list | None = None,
     contact_tilted_now: bool = True,
     contact_opened_now: bool = False,
+    vent_base_target: str = "cls",
 ) -> dict:
     return {
         "contact_tilted_now": contact_tilted_now,
@@ -1175,6 +1178,7 @@ def _make_tilt_vars(
         "current_tilt_position": current_tilt_position,
         "ventilate_tilt_position": ventilate_tilt_position,
         "effective_state": effective_state,
+        "vent_base_target": vent_base_target,
     }
 
 
@@ -1293,6 +1297,114 @@ class TestKeepOpenOnFullToTilt:
         )
         branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
         assert branch is None
+
+
+class TestVentBaseTargetGuard:
+    """
+    Issue #460: when base_target is 'opn' (base state open, no privacy/shading
+    override), tilting the window should NOT lower the cover to ventilation
+    position. VENT is a floor, not a ceiling.
+    """
+
+    def test_base_opn_full_to_tilt_no_drive(self):
+        """
+        bas='opn', window goes from fully open to tilted, no overrides.
+        Cover should stay at open position — no-drive branch fires.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="opn",
+            current_above_ventilate=True,
+            vent_base_target="opn",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "no_drive_helper_only", (
+            "When vent_base_target is 'opn', the drive branch must be skipped."
+        )
+
+    def test_base_cls_full_to_tilt_drives(self):
+        """
+        bas='cls', window goes from fully open to tilted.
+        Cover should lower to ventilation — drive branch fires.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="opn",
+            current_above_ventilate=True,
+            vent_base_target="cls",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive", (
+            "When vent_base_target is 'cls', the drive branch must fire."
+        )
+
+    def test_base_opn_shading_active_full_to_tilt_drives(self):
+        """
+        bas='opn' but shading is active (vent_base_target='shd').
+        VENT applies because base_target != 'opn' — drive branch fires.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="opn",
+            current_above_ventilate=True,
+            vent_base_target="shd",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive", (
+            "When vent_base_target is 'shd', the drive branch must fire."
+        )
+
+    def test_base_opn_privacy_active_full_to_tilt_drives(self):
+        """
+        bas='opn' but privacy is active (vent_base_target='cls').
+        VENT applies because base_target != 'opn' — drive branch fires.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="opn",
+            current_above_ventilate=True,
+            vent_base_target="cls",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive", (
+            "When vent_base_target is 'cls' (privacy), the drive branch must fire."
+        )
+
+    def test_base_opn_if_lower_enabled_no_drive(self):
+        """
+        bas='opn' (vent_base_target='opn'), if_lower_enabled=True.
+        Despite if_lower_enabled, the cover should NOT lower because
+        vent_base_target says the cover should be open.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            if_lower_enabled=True,
+            helper_state_window="cls",
+            current_above_ventilate=True,
+            vent_base_target="opn",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "no_drive_helper_only", (
+            "When vent_base_target is 'opn', if_lower_enabled must not override."
+        )
+
+    def test_base_opn_below_ventilate_still_drives(self):
+        """
+        Even when vent_base_target='opn', if cover is BELOW ventilate the
+        drive branch should... actually NOT fire because vent_base_target
+        guard blocks it. The no-drive branch catches it instead.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="cls",
+            current_below_ventilate=True,
+            current_above_ventilate=False,
+            vent_base_target="opn",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "no_drive_helper_only", (
+            "vent_base_target='opn' blocks the drive branch entirely."
+        )
 
 
 class TestKeepOpenBlueprintWiring:
