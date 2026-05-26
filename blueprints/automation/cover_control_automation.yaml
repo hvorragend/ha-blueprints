@@ -3138,9 +3138,12 @@ variables:
     {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %}
     {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %}
     {% set privacy_active = resident_present and 'resident_closing_enabled' in resident_config %}
+    {% set s_opn = contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
+    {% set s_tlt = contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
+    {% set w = 'opn' if s_opn else 'tlt' if s_tlt else h.win if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' %}
     {% if h.frc != 'non' %}
       {{ h.frc }}
-    {% elif h.win == 'opn' %}
+    {% elif w == 'opn' %}
       lock
     {% else %}
       {% if privacy_active %}
@@ -3152,7 +3155,7 @@ variables:
       {% else %}
         {% set base_target = h.bas %}
       {% endif %}
-      {% if h.win == 'tlt' and allow_vent and base_target != 'opn' %}
+      {% if w == 'tlt' and allow_vent and base_target != 'opn' %}
         vnt
       {% else %}
         {{ base_target }}
@@ -5758,6 +5761,7 @@ actions:
                   - condition: !input auto_ventilate_condition
                   # Top-level opt-out: full → tilt with keep-open flag set
                   - "{{ not (ventilation_flags.keep_open_on_full_to_tilt and helper_state_window == 'opn' and position_comparisons.current_above_ventilate) }}"
+                  - "{{ effective_state != 'opn' }}"
                   # Position check: Only move if cover is below ventilation position (or option enabled)
                   - or:
                       # Standard: Cover is below ventilate position
@@ -5822,6 +5826,7 @@ actions:
                           - "{{ ventilation_flags.keep_open_on_full_to_tilt }}"
                           - "{{ helper_state_window == 'opn' }}"
                           - "{{ position_comparisons.current_above_ventilate }}"
+                      - "{{ effective_state == 'opn' }}"
                 sequence:
                   - variables:
                       update_values:

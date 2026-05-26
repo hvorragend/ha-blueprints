@@ -90,7 +90,10 @@ Implementation: `effective_state` first computes `base_target` (the cover state 
 ### ⚠️ Invariant 3: Realtime sensor vs. helper state
 
 - `state_resident` / sensor checks (`states(contact_window_opened)`) → **Realtime** (current sensor value)
+- `effective_state` → **Realtime** for `win` (reads live contact sensors; falls back to `helper_json.win` only when no sensors are configured)
 - `helper_state_window` / `helper_json.win` → **Helper** (last persisted state)
+
+`effective_state` uses the **live sensor** for the window state (`win`), so it always reflects the physical window position — even when the helper hasn't been updated yet (e.g. during the contact handler before `*helper_update` runs).
 
 In the `resident_arriving`/`resident_leaving` handler: always check realtime sensors, as the helper still holds the old state.
 
@@ -349,6 +352,14 @@ bas: 'cls'
 ts:
   cls: 'now'
 ```
+
+### Bug Pattern J: Contact handler lowers cover to ventilation when base state is open (Issue #460)
+
+**Symptom:** When `bas == 'opn'` (opening time already fired) and the window transitions from fully open to tilted, the cover incorrectly lowers from 100% (open) to 50% (ventilation).
+
+**Cause:** The tilted-drive branch's OR condition at the `helper_state_window == 'opn' and current_above_ventilate` alternative fires unconditionally when the window goes from open → tilted, regardless of whether `base_target == 'opn'`. Per the priority cascade, VENT is a floor — it should NOT lower a cover when `base_target == 'opn'`.
+
+**Root fix:** `effective_state` was changed to derive `win` from **live contact sensors** instead of the stale `h.win` helper field. When sensors are configured, the live sensor value takes priority; when no sensors are configured, it falls back to `h.win`. This means `effective_state` now correctly returns `'opn'` (not `'lock'`) when the window transitions from open → tilted and `bas == 'opn'`. The tilted-drive branch guards with `{{ effective_state != 'opn' }}`, and the no-drive branch catches `{{ effective_state == 'opn' }}`.
 
 ---
 
