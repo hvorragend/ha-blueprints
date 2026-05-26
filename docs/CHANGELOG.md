@@ -1,5 +1,12 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.26
+
+- 🐛 **Fix:** Contact handler incorrectly lowered cover to ventilation position when base state was open (`bas=opn`) and window transitioned from fully open to tilted ([#460](https://github.com/hvorragend/ha-blueprints/issues/460))
+- 🔧 **Improvement:** `effective_state` now reads the window state from **live contact sensors** instead of the stale helper field — eliminates an entire class of stale-state bugs where `effective_state` returned `lock` instead of the correct cascade result during contact handler execution
+
+---
+
 # CCA 2026.05.25
 
 - 🐛 **Fix:** Shading start pending blocked when status helper is uninitialized (e.g. after fresh setup)

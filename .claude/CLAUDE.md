@@ -421,6 +421,17 @@ Do **not** use `{# ... #}` comments inside Jinja2 templates. They clutter the te
 
 ---
 
+## Version Bumping
+
+The version string exists in **two** locations — both must be updated together:
+
+1. **Description** (user-facing): line ~7 → `**Version**: YYYY.MM.DD`
+2. **Variable** (runtime): line ~2756 → `version: "YYYY.MM.DD"`
+
+The **changelog** is at `docs/CHANGELOG.md` (symlinked from `blueprints/automation/CHANGELOG.md`). Add a new `# CCA YYYY.MM.DD` section at the top with the changes. Use the existing emoji/format conventions (🐛 Fix, 🔧 Improvement, ✨ Feature).
+
+---
+
 ## Code Quality Gates
 
 Every change to the blueprint must pass all of the following checks before commit.
