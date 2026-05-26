@@ -3,8 +3,7 @@
 # CCA 2026.05.25
 
 - 🐛 **Fix:** Shading start pending blocked when status helper is uninitialized (e.g. after fresh setup)
-- 🐛 **Fix:** Independent temperature mode now respects azimuth range — shading no longer starts after the sun has passed the configured azimuth window (e.g. east-facing windows in the afternoon). The early-morning preemptive use case continues to work. ([#459](https://github.com/hvorragend/ha-blueprints/issues/459))
-- 🔧 **Trace Analyzer:** Shows independent temperature mode status in Shading Conditions Deep-Dive, including effective start decision when independent mode is enabled
+- 🔧 **Trace Analyzer:** Shading Conditions Deep-Dive now shows independent temperature mode status — displays whether the temperature bypass is active and the effective start decision. This makes it visible when independent mode overrides the standard AND/OR conditions. ([#459](https://github.com/hvorragend/ha-blueprints/issues/459))
 
 ---
 

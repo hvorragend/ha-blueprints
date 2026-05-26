@@ -1027,13 +1027,12 @@ class TestShadingStartOuterIfGatesOnWindow:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tests: Independent temperature mode respects azimuth range (#459)
+# Tests: Independent temperature mode bypasses all conditions (#459)
 # ─────────────────────────────────────────────────────────────────────────────
 
 INDEPENDENT_TEMP_CONDITION = (
     "'shading_temp_comparison_independent' in shading_config and "
-    "shading_start_condition_states.forecast_temp_valid and "
-    "(default_sun_sensor == [] or current_sun_azimuth | float(default=0) < shading_azimuth_end)"
+    "shading_start_condition_states.forecast_temp_valid"
 )
 
 INDEPENDENT_OR_STANDARD = (
@@ -1045,9 +1044,6 @@ def _make_independent_temp_vars(
     *,
     independent_enabled: bool = True,
     forecast_temp_valid: bool = True,
-    sun_sensor: str = "sun.sun",
-    current_azimuth: float = 90.0,
-    azimuth_end: float = 180.0,
     conditions_met: bool = False,
 ) -> dict:
     return {
@@ -1057,75 +1053,45 @@ def _make_independent_temp_vars(
         "shading_start_condition_states": {
             "forecast_temp_valid": forecast_temp_valid,
         },
-        "default_sun_sensor": sun_sensor,
-        "current_sun_azimuth": current_azimuth,
-        "shading_azimuth_end": azimuth_end,
         "shading_start_conditions_met": conditions_met,
     }
 
 
-class TestIndependentTempAzimuthGuard:
+class TestIndependentTempBypassesConditions:
     """
-    Regression for issue #459: Independent temperature mode must not start
-    shading after the sun has passed the configured azimuth end.
+    Issue #459: Independent temperature mode bypasses ALL start conditions
+    (including azimuth) by design. This is correct behavior — the user must
+    disable independent mode if they don't want temperature-only shading.
 
-    The independent temperature path is designed for early-morning decisions
-    (preemptive shading before the sun reaches the window). Once the sun has
-    passed the azimuth window (azimuth >= azimuth_end), independent mode must
-    not re-arm shading — the sun is no longer hitting the window.
+    The Trace Analyzer was updated to make this bypass visible.
     """
 
-    def test_azimuth_before_end_allows_independent_temp(self):
-        """Sun hasn't passed the window yet → independent temp works."""
+    def test_independent_temp_valid_starts_shading(self):
+        """Independent mode + forecast_temp_valid → shading starts."""
         env = make_jinja_env()
-        v = _make_independent_temp_vars(current_azimuth=90.0, azimuth_end=180.0)
+        v = _make_independent_temp_vars(forecast_temp_valid=True, conditions_met=False)
         assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is True
 
-    def test_azimuth_past_end_blocks_independent_temp(self):
-        """Sun has passed the window → independent temp blocked."""
+    def test_independent_temp_invalid_no_shading(self):
+        """Independent mode + forecast_temp_valid=false → no shading (unless standard conditions met)."""
         env = make_jinja_env()
-        v = _make_independent_temp_vars(current_azimuth=200.0, azimuth_end=180.0)
+        v = _make_independent_temp_vars(forecast_temp_valid=False, conditions_met=False)
         assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is False
 
-    def test_azimuth_at_end_blocks_independent_temp(self):
-        """Edge case: azimuth exactly at end → blocked (consistent with < check)."""
+    def test_standard_conditions_still_work(self):
+        """Standard conditions can start shading even when independent mode is off."""
         env = make_jinja_env()
-        v = _make_independent_temp_vars(current_azimuth=180.0, azimuth_end=180.0)
+        v = _make_independent_temp_vars(independent_enabled=False, conditions_met=True)
+        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is True
+
+    def test_independent_disabled_and_conditions_false(self):
+        """Both paths false → no shading."""
+        env = make_jinja_env()
+        v = _make_independent_temp_vars(independent_enabled=False, conditions_met=False)
         assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is False
 
-    def test_no_sun_sensor_allows_independent_temp(self):
-        """No sun sensor configured → azimuth check bypassed."""
-        env = make_jinja_env()
-        v = _make_independent_temp_vars(sun_sensor=[], current_azimuth=200.0, azimuth_end=180.0)
-        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is True
-
-    def test_standard_conditions_still_work_when_independent_blocked(self):
-        """Even when independent is blocked, standard conditions can still pass."""
-        env = make_jinja_env()
-        v = _make_independent_temp_vars(
-            current_azimuth=200.0, azimuth_end=180.0, conditions_met=True
-        )
-        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is True
-
-    def test_independent_disabled_uses_standard_conditions(self):
-        """When independent mode is off, standard conditions are the only path."""
-        env = make_jinja_env()
-        v = _make_independent_temp_vars(
-            independent_enabled=False, conditions_met=False
-        )
-        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is False
-
-    def test_early_morning_before_azimuth_start_works(self):
-        """Typical use case: early morning, sun hasn't entered the range yet."""
-        env = make_jinja_env()
-        v = _make_independent_temp_vars(
-            current_azimuth=50.0,
-            azimuth_end=180.0,
-        )
-        assert eval_condition(env, INDEPENDENT_OR_STANDARD, v) is True
-
-    def test_blueprint_yaml_has_azimuth_guard(self):
-        """Verify the blueprint YAML contains the azimuth guard in the independent temp path."""
+    def test_blueprint_yaml_independent_path_exists(self):
+        """Verify the independent temperature path exists in the blueprint."""
         blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
         branch = _find_branch_by_alias(blueprint, "Check for shading start")
         assert branch is not None
@@ -1136,10 +1102,8 @@ class TestIndependentTempAzimuthGuard:
         )
         assert if_step is not None
         flat = yaml.safe_dump(if_step["if"])
-        assert "shading_azimuth_end" in flat, (
-            "Independent temperature path must include azimuth guard "
-            "(current_sun_azimuth < shading_azimuth_end) to prevent "
-            "afternoon re-shading after the sun has passed the window."
+        assert "shading_temp_comparison_independent" in flat, (
+            "Independent temperature path must exist in the outer if."
         )
 
 
