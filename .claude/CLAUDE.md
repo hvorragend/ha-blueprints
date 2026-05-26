@@ -350,6 +350,16 @@ ts:
   cls: 'now'
 ```
 
+### Bug Pattern J: Contact handler lowers cover to ventilation when base state is open (Issue #460)
+
+**Symptom:** When `bas == 'opn'` (opening time already fired) and the window transitions from fully open to tilted, the cover incorrectly lowers from 100% (open) to 50% (ventilation).
+
+**Cause:** The tilted-drive branch's OR condition at the `helper_state_window == 'opn' and current_above_ventilate` alternative fires unconditionally when the window goes from open → tilted, regardless of whether `base_target == 'opn'`. Per the priority cascade, VENT is a floor — it should NOT lower a cover when `base_target == 'opn'`.
+
+**Key subtlety:** `effective_state` cannot be used directly because the helper still has `win: 'opn'` at contact handler time → `effective_state == 'lock'`. The fix computes `vent_base_target` (what `base_target` would be after updating `win` to `'tlt'`) using the same logic as `effective_state` but with fresh `resident_now` sensor data.
+
+**Fix:** Add `vent_base_target` variable (computed after contact delay) and guard the tilted-drive branch with `{{ vent_base_target != 'opn' }}`. The no-drive branch catches `vent_base_target == 'opn'` to ensure the helper is updated with `win: 'tlt'`.
+
 ---
 
 ## Language & Style Conventions
