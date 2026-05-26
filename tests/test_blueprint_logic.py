@@ -1106,7 +1106,7 @@ WIN_TILT_DRIVE_BRANCH = {
         "{{ force_allows_ventilate }}",
         "{{ 'resident_allow_ventilation' in resident_config or not resident_now }}",
         "{{ not (ventilation_flags.keep_open_on_full_to_tilt and helper_state_window == 'opn' and position_comparisons.current_above_ventilate) }}",
-        "{{ vent_base_target != 'opn' }}",
+        "{{ effective_state != 'opn' }}",
         # OR-block flattened into one Jinja expression
         "{{ position_comparisons.current_below_ventilate"
         " or (is_cover_tilt_enabled_and_possible"
@@ -1128,7 +1128,7 @@ WIN_TILT_NO_DRIVE_BRANCH = {
         " or (ventilation_flags.keep_open_on_full_to_tilt"
         "     and helper_state_window == 'opn'"
         "     and position_comparisons.current_above_ventilate)"
-        " or vent_base_target == 'opn' }}",
+        " or effective_state == 'opn' }}",
     ],
 }
 
@@ -1154,7 +1154,6 @@ def _make_tilt_vars(
     resident_config: list | None = None,
     contact_tilted_now: bool = True,
     contact_opened_now: bool = False,
-    vent_base_target: str = "cls",
 ) -> dict:
     return {
         "contact_tilted_now": contact_tilted_now,
@@ -1178,7 +1177,6 @@ def _make_tilt_vars(
         "current_tilt_position": current_tilt_position,
         "ventilate_tilt_position": ventilate_tilt_position,
         "effective_state": effective_state,
-        "vent_base_target": vent_base_target,
     }
 
 
@@ -1299,111 +1297,95 @@ class TestKeepOpenOnFullToTilt:
         assert branch is None
 
 
-class TestVentBaseTargetGuard:
+class TestContactHandlerEffectiveStateGuard:
     """
-    Issue #460: when base_target is 'opn' (base state open, no privacy/shading
-    override), tilting the window should NOT lower the cover to ventilation
-    position. VENT is a floor, not a ceiling.
+    Issue #460: effective_state now reads live sensors for win, so
+    when base_target is 'opn' (effective_state == 'opn'), tilting the
+    window should NOT lower the cover to ventilation position.
+    VENT is a floor, not a ceiling.
     """
 
-    def test_base_opn_full_to_tilt_no_drive(self):
+    def test_effective_opn_full_to_tilt_no_drive(self):
         """
-        bas='opn', window goes from fully open to tilted, no overrides.
+        effective_state='opn' (bas='opn', no overrides, live sensor: tilted).
         Cover should stay at open position — no-drive branch fires.
         """
         env = make_jinja_env()
         variables = _make_tilt_vars(
             helper_state_window="opn",
             current_above_ventilate=True,
-            vent_base_target="opn",
+            effective_state="opn",
         )
         branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
         assert branch == "no_drive_helper_only", (
-            "When vent_base_target is 'opn', the drive branch must be skipped."
+            "When effective_state is 'opn', the drive branch must be skipped."
         )
 
-    def test_base_cls_full_to_tilt_drives(self):
+    def test_effective_vnt_full_to_tilt_drives(self):
         """
-        bas='cls', window goes from fully open to tilted.
+        effective_state='vnt' (bas='cls', live sensor: tilted).
         Cover should lower to ventilation — drive branch fires.
         """
         env = make_jinja_env()
         variables = _make_tilt_vars(
             helper_state_window="opn",
             current_above_ventilate=True,
-            vent_base_target="cls",
+            effective_state="vnt",
         )
         branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
         assert branch == "partial_ventilation_drive", (
-            "When vent_base_target is 'cls', the drive branch must fire."
+            "When effective_state is 'vnt', the drive branch must fire."
         )
 
-    def test_base_opn_shading_active_full_to_tilt_drives(self):
+    def test_effective_shd_full_to_tilt_drives(self):
         """
-        bas='opn' but shading is active (vent_base_target='shd').
-        VENT applies because base_target != 'opn' — drive branch fires.
+        effective_state='vnt' (bas='opn', shading active, live sensor: tilted).
+        VENT applies because base_target='shd' != 'opn' — drive branch fires.
         """
         env = make_jinja_env()
         variables = _make_tilt_vars(
             helper_state_window="opn",
             current_above_ventilate=True,
-            vent_base_target="shd",
+            effective_state="vnt",
         )
         branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
         assert branch == "partial_ventilation_drive", (
-            "When vent_base_target is 'shd', the drive branch must fire."
+            "When effective_state is 'vnt' (shading+tilt), the drive branch must fire."
         )
 
-    def test_base_opn_privacy_active_full_to_tilt_drives(self):
+    def test_effective_opn_if_lower_enabled_no_drive(self):
         """
-        bas='opn' but privacy is active (vent_base_target='cls').
-        VENT applies because base_target != 'opn' — drive branch fires.
-        """
-        env = make_jinja_env()
-        variables = _make_tilt_vars(
-            helper_state_window="opn",
-            current_above_ventilate=True,
-            vent_base_target="cls",
-        )
-        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
-        assert branch == "partial_ventilation_drive", (
-            "When vent_base_target is 'cls' (privacy), the drive branch must fire."
-        )
-
-    def test_base_opn_if_lower_enabled_no_drive(self):
-        """
-        bas='opn' (vent_base_target='opn'), if_lower_enabled=True.
+        effective_state='opn', if_lower_enabled=True.
         Despite if_lower_enabled, the cover should NOT lower because
-        vent_base_target says the cover should be open.
+        effective_state says the cover should be open.
         """
         env = make_jinja_env()
         variables = _make_tilt_vars(
             if_lower_enabled=True,
             helper_state_window="cls",
             current_above_ventilate=True,
-            vent_base_target="opn",
+            effective_state="opn",
         )
         branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
         assert branch == "no_drive_helper_only", (
-            "When vent_base_target is 'opn', if_lower_enabled must not override."
+            "When effective_state is 'opn', if_lower_enabled must not override."
         )
 
-    def test_base_opn_below_ventilate_still_drives(self):
+    def test_effective_opn_below_ventilate_no_drive(self):
         """
-        Even when vent_base_target='opn', if cover is BELOW ventilate the
-        drive branch should... actually NOT fire because vent_base_target
-        guard blocks it. The no-drive branch catches it instead.
+        effective_state='opn', cover below ventilate.
+        Guard blocks drive branch entirely — no-drive branch catches.
         """
         env = make_jinja_env()
         variables = _make_tilt_vars(
             helper_state_window="cls",
             current_below_ventilate=True,
             current_above_ventilate=False,
-            vent_base_target="opn",
+            effective_state="opn",
         )
         branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
         assert branch == "no_drive_helper_only", (
-            "vent_base_target='opn' blocks the drive branch entirely."
+            "effective_state='opn' blocks the drive branch entirely."
         )
 
 
@@ -1507,9 +1489,13 @@ EFFECTIVE_STATE_TEMPLATE = """
 {%- set allow_shade = 'resident_allow_shading' in resident_config or not resident_present -%}
 {%- set allow_open = 'resident_allow_opening' in resident_config or not resident_present -%}
 {%- set privacy_active = resident_present and 'resident_closing_enabled' in resident_config -%}
+{%- set s_opn = sensor_opened -%}
+{%- set s_tlt = sensor_tilted -%}
+{%- set sensors_configured = has_opened_sensor or has_tilted_sensor -%}
+{%- set w = 'opn' if s_opn else 'tlt' if s_tlt else h.win if not sensors_configured else 'cls' -%}
 {%- if h.frc != 'non' -%}
   {{ h.frc }}
-{%- elif h.win == 'opn' -%}
+{%- elif w == 'opn' -%}
   lock
 {%- else -%}
   {%- if privacy_active -%}
@@ -1521,7 +1507,7 @@ EFFECTIVE_STATE_TEMPLATE = """
   {%- else -%}
     {%- set base_target = h.bas -%}
   {%- endif -%}
-  {%- if h.win == 'tlt' and allow_vent and base_target != 'opn' -%}
+  {%- if w == 'tlt' and allow_vent and base_target != 'opn' -%}
     vnt
   {%- else -%}
     {{ base_target }}
@@ -1531,13 +1517,21 @@ EFFECTIVE_STATE_TEMPLATE = """
 
 
 def _eval_effective_state(*, helper_json: dict, state_resident: bool = False,
-                          resident_config: list = None) -> str:
+                          resident_config: list = None,
+                          sensor_opened: bool = False,
+                          sensor_tilted: bool = False,
+                          has_opened_sensor: bool = False,
+                          has_tilted_sensor: bool = False) -> str:
     env = make_jinja_env()
     template = env.from_string(EFFECTIVE_STATE_TEMPLATE)
     return template.render(
         helper_json=helper_json,
         state_resident=state_resident,
         resident_config=resident_config or [],
+        sensor_opened=sensor_opened,
+        sensor_tilted=sensor_tilted,
+        has_opened_sensor=has_opened_sensor,
+        has_tilted_sensor=has_tilted_sensor,
     ).strip()
 
 
@@ -1635,6 +1629,71 @@ class TestEffectiveStateCascade:
             helper_json={"frc": "non", "win": "cls", "bas": "opn", "shd": 1},
         )
         assert result == "shd"
+
+
+class TestEffectiveStateLiveSensor:
+    """
+    Issue #460: effective_state reads live sensors for win instead of h.win.
+    This ensures the contact handler sees the correct effective_state even
+    when the helper hasn't been updated yet.
+    """
+
+    def test_helper_opn_sensor_tlt_base_opn_returns_opn(self):
+        """
+        Helper still has win='opn' (stale), but live sensor says tilted.
+        With bas='opn' → effective_state should be 'opn' (not 'lock').
+        This is the core fix for issue #460.
+        """
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "opn", "bas": "opn", "shd": 0},
+            has_opened_sensor=True,
+            has_tilted_sensor=True,
+            sensor_opened=False,
+            sensor_tilted=True,
+        )
+        assert result == "opn", (
+            f"Expected 'opn' but got '{result}'. Live sensor should override stale helper."
+        )
+
+    def test_helper_opn_sensor_tlt_base_cls_returns_vnt(self):
+        """
+        Helper has win='opn' (stale), live sensor says tilted, bas='cls'.
+        effective_state should be 'vnt' (VENT applies for cls target).
+        """
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "opn", "bas": "cls", "shd": 0},
+            has_opened_sensor=True,
+            has_tilted_sensor=True,
+            sensor_opened=False,
+            sensor_tilted=True,
+        )
+        assert result == "vnt", (
+            f"Expected 'vnt' but got '{result}'. Live sensor should show VENT for cls target."
+        )
+
+    def test_no_sensors_configured_falls_back_to_helper(self):
+        """
+        No contact sensors configured → falls back to h.win from helper.
+        """
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "opn", "bas": "opn", "shd": 0},
+            has_opened_sensor=False,
+            has_tilted_sensor=False,
+        )
+        assert result == "lock", (
+            f"Expected 'lock' (h.win='opn' fallback) but got '{result}'."
+        )
+
+    def test_sensor_opened_true_returns_lock(self):
+        """
+        Live sensor says window is fully open → lockout regardless of helper.
+        """
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "cls", "bas": "opn", "shd": 0},
+            has_opened_sensor=True,
+            sensor_opened=True,
+        )
+        assert result == "lock"
 
 
 class TestForceDisabledRecoveryBranchOrder:
