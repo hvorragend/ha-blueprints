@@ -3763,12 +3763,19 @@ triggers:
     value_template: >-
       {{
         (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_start) < shading_azimuth_start) or
-        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end) or
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=shading_azimuth_end) > shading_azimuth_end)
+      }}
+    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
+    id: "t_shading_end_pending_5"
+
+  - trigger: template
+    value_template: >-
+      {{
         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_max) > shading_elevation_max) or
         (state_attr(default_sun_sensor, 'elevation') | float(default=shading_elevation_min) < shading_elevation_min)
       }}
     enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
-    id: "t_shading_end_pending_5"
+    id: "t_shading_end_pending_7"
 
   - trigger: template
     value_template: "{{ states(shading_forecast_temp_sensor) not in invalid_states and states(shading_forecast_temp_sensor) | float(default=shading_forecast_temp) < (shading_forecast_temp - shading_forecast_temp_hysteresis) }}"
@@ -3885,7 +3892,7 @@ conditions:
     value_template: >-
       {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
         {{ not (states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]')) }}
-      {% elif trigger.id is match('^t_shading_end_pending_[1-6]$') %}
+      {% elif trigger.id is match('^t_shading_end_pending_[1-7]$') %}
         {{ states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
       {% else %}
         true
@@ -5553,7 +5560,7 @@ actions:
                       - variables:
                           local_waitingtime_end: >
                             {% set local_waitingtime_end = shading_waitingtime_end | int %}
-                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id == 't_shading_end_pending_5' %}
+                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id in ['t_shading_end_pending_5', 't_shading_end_pending_7'] %}
                             {% set local_waitingtime_end = 20 %}
                             {% endif %}
                             {{ local_waitingtime_end }}
