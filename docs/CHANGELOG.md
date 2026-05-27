@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.27
+
+- 🐛 **Fix:** Shading start pending armed before time window opens was permanently aborted at execution time because the retry mechanism required `is_shading_allowed_window` — the execution now re-arms the pending and waits for the time window to open instead of aborting ([#470](https://github.com/hvorragend/ha-blueprints/issues/470))
+
+---
+
 # CCA 2026.05.26
 
 - 🐛 **Fix:** Contact handler incorrectly lowered cover to ventilation position when base state was open (`bas=opn`) and window transitioned from fully open to tilted ([#460](https://github.com/hvorragend/ha-blueprints/issues/460))
