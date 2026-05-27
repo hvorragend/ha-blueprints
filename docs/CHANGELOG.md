@@ -1,5 +1,12 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.27 V2
+
+- 🐛 **Fix:** Contact sensor "window closed" branches no longer destroy active shading pending phase (`pnd`, `ts.due`, `ts.arm`) — briefly opening and closing a door/window during shading-start or shading-end pending no longer prevents shading from executing ([#484](https://github.com/hvorragend/ha-blueprints/issues/484))
+- 🐛 **Fix:** "Window closed" branches no longer fire spuriously when cover is at open position but was never in ventilation mode — removed overly broad `in_open_position` fallback from the "was ventilating before" OR condition ([#484](https://github.com/hvorragend/ha-blueprints/issues/484))
+
+---
+
 # CCA 2026.05.27
 
 - ✨ **Feature:** New ventilation option to disable the drive delay when ventilation starts (window opens/tilts) — useful for setups with many covers where a large fixed delay is needed for staggering, but single-cover ventilation reactions should be instant

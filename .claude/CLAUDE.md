@@ -161,7 +161,8 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
   - Start: Drive, Lockout-skip, Save-for-future, both Abort branches
   - End: Tilt-only, Lockout, Ventilation, Move-cover (both then/else), Stop retry, stale-pending cleanup (#395)
   - Midnight reset (BRANCH 11, "Reset shading status")
-  - Incidental clears in non-shading branches (force, manual, contact handlers) — also clear all three for hygiene.
+  - Incidental clears in non-shading branches (force, manual) — also clear all three for hygiene.
+- **Contact handler branches must NOT reset `pnd`/`ts.due`/`ts.arm`.** Window open/close events are orthogonal to shading pending state. Omit these keys from `update_values` so `helper_update` preserves the existing values (#484).
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
 
@@ -388,6 +389,18 @@ ts:
 - `t_shading_end_pending_7`: elevation only (outside configured range)
 
 Each condition gets its own independent FALSE→TRUE transition. Update condition regex `[1-6]` → `[1-7]` and `is_shading_end_immediate_by_sun_position` check to match both trigger IDs.
+
+### Bug Pattern N: Contact handler destroys active shading pending phase (Issue #484)
+
+**Symptom:** Briefly opening and closing a door/window during a shading-start (or shading-end) pending phase prevents shading from ever executing. The pending timer (`ts.due`) is reset to `0`, and the sun-position trigger doesn't re-fire because the azimuth condition hasn't changed (no FALSE→TRUE transition).
+
+**Cause A:** All "Window closed" sub-branches (`Return to shading`, `Return to open`, `Return to close`) and the "Window opened - Full ventilation (lockout)" branch unconditionally set `pnd: 'non'`, `ts.due: 0`, `ts.arm: 0` in their `update_values`.
+
+**Cause B:** The "was ventilating before" OR condition includes `in_open_position`, which matches whenever the cover happens to be at open position — even when CCA was never in ventilation mode (`win == 'cls'` the entire time). This causes spurious "Window closed" branch matches.
+
+**Fix A:** Remove `pnd`/`ts.due`/`ts.arm` from `update_values` in all contact handler branches. The `helper_update` anchor preserves existing values when keys are omitted.
+
+**Fix B:** Remove `in_open_position` from the "was ventilating before" OR condition in all three "Window closed" branches. The dedicated "No drive, sync" branches already ensure `helper_state_window` is correctly updated when the window opens/tilts.
 
 ---
 
