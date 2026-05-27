@@ -377,6 +377,18 @@ ts:
 
 **Fix:** In the pending arming branch, compute `ts.due` as `max(now + waitingtime, window_start_time)`. When the window is already open, this equals `now + waitingtime` (unchanged). When arming before the window, execution is deferred to the window start. No retry logic changes needed — the execution fires within the window and the normal flow handles it.
 
+### Bug Pattern M: Combined sun-position trigger swallows independent elevation/azimuth end (Issue #483)
+
+**Symptom:** Shading never ends even though the sun elevation drops below the configured end threshold. The trigger fires earlier (when azimuth goes out of range) but the end conditions are not met. When elevation later drops below threshold, no trigger fires.
+
+**Cause:** `t_shading_end_pending_5` combined azimuth and elevation checks in a single template trigger using OR logic. HA template triggers fire on FALSE→TRUE transitions only. When azimuth goes out of range first, the template becomes TRUE and the trigger fires. But `shading_end_conditions_met` is FALSE (user only configured elevation as end condition). When elevation later drops below threshold, the template is already TRUE (from azimuth) → no re-fire → shading end never triggers.
+
+**Fix:** Split `t_shading_end_pending_5` into two independent triggers:
+- `t_shading_end_pending_5`: azimuth only (outside configured range)
+- `t_shading_end_pending_7`: elevation only (outside configured range)
+
+Each condition gets its own independent FALSE→TRUE transition. Update condition regex `[1-6]` → `[1-7]` and `is_shading_end_immediate_by_sun_position` check to match both trigger IDs.
+
 ---
 
 ## Language & Style Conventions
