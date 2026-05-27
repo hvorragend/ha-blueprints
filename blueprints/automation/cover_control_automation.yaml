@@ -5420,6 +5420,10 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ helper_state_pending_start }}"
                       - "{{ shading_start_max_duration > 0 }}"
+                      - >-
+                        {{ is_shading_allowed_window or
+                           (is_time_field_enabled and now() < today_at(time_up_early_today)) or
+                           (is_calendar_enabled and calendar_open_start is not none and now_ts < calendar_open_start) }}
                       - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
@@ -5716,10 +5720,11 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ helper_state_pending_end }}"
                       - "{{ shading_end_max_duration > 0 }}"
+                      - "{{ is_shading_allowed_window }}"
                       - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
-                          log_extra: "conditions_met={{ shading_end_conditions_met }}; in_window={{ is_shading_allowed_window }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_end_max_duration | int }}s; next_retry_in={{ shading_waitingtime_end | int }}s"
+                          log_extra: "shading_end_conditions_met=false (after exec); elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_end_max_duration | int }}s; next_retry_in={{ shading_waitingtime_end | int }}s"
                           update_values:
                             # Continue waiting with new end pending time
                             shd: 1
@@ -5731,7 +5736,7 @@ actions:
                       - stop: "Shading End Pending: Continue waiting"
 
                   ######################################################################
-                  # Shading end / Stop retry (timeout OR max_duration disabled)
+                  # Shading end / Stop retry (timeout OR outside time window OR disabled)
                   ######################################################################
                   - alias: "Shading end / Stop retry"
                     conditions:
