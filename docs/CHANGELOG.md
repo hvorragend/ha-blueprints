@@ -4,6 +4,7 @@
 
 - ✨ **Feature:** New ventilation option to disable the drive delay when ventilation starts (window opens/tilts) — useful for setups with many covers where a large fixed delay is needed for staggering, but single-cover ventilation reactions should be instant
 - 🐛 **Fix:** Shading start pending armed before time window opens no longer aborts immediately — `ts.due` is now set to `max(now + waitingtime, window_start)`, ensuring execution fires after the window opens instead of aborting with only seconds elapsed of a multi-hour `max_duration` budget ([#475](https://github.com/hvorragend/ha-blueprints/issues/475))
+- 🐛 **Fix:** Shading End never executed when using Calendar time control — `t_shading_end` triggers were missing from the `calendar.get_events` performance filter, causing `is_shading_allowed_window` to always evaluate to `false` ([#477](https://github.com/hvorragend/ha-blueprints/issues/477))
 
 ---
 
