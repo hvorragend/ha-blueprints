@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.05.26
+    **Version**: 2026.05.27
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2793,7 +2793,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.26"
+  version: "2026.05.27"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5328,6 +5328,21 @@ actions:
 
                         else: # Blocked by additional condition or manual override - retry or abort
                           - choose:
+                              - alias: "Shading start blocked - waiting for time window"
+                                conditions:
+                                  - "{{ not is_shading_allowed_window }}"
+                                sequence:
+                                  - variables:
+                                      log_extra: "blocked, waiting for time window; next_retry_in={{ shading_waitingtime_start | int }}s"
+                                      update_values:
+                                        shd: 0
+                                        pnd: 'beg'
+                                        ts:
+                                          due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                                          arm: "now"
+                                  - *helper_update
+                                  - stop: "Shading Start Pending: Waiting for time window (blocked)"
+
                               - alias: "Shading start blocked by additional condition or manual override - check if we should continue"
                                 conditions:
                                   - "{{ shading_start_max_duration > 0 }}"
@@ -5364,6 +5379,26 @@ actions:
 
             else: # Shading conditions were no longer met or not met again.
               - choose:
+                  #####################################################################
+                  # Shading start execution - waiting for time window to open
+                  #####################################################################
+                  - alias: "Shading start execution - waiting for time window"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
+                      - "{{ helper_state_pending_start }}"
+                      - "{{ not is_shading_allowed_window }}"
+                    sequence:
+                      - variables:
+                          log_extra: "waiting for time window; next_retry_in={{ shading_waitingtime_start | int }}s"
+                          update_values:
+                            shd: 0
+                            pnd: 'beg'
+                            ts:
+                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                              arm: "now"
+                      - *helper_update
+                      - stop: "Shading Start Pending: Waiting for time window"
+
                   #####################################################################
                   # Shading start conditions not met - check if we should continue
                   #####################################################################

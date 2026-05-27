@@ -369,6 +369,22 @@ ts:
 
 **Fix:** Change all 6 occurrences of the regex to `"shd"\s*:\s*1\s*[,}]` — requiring a comma or closing brace after the `1` ensures it matches only the top-level `"shd":1,` and not a multi-digit timestamp value.
 
+### Bug Pattern L: Shading start pending aborted before time window opens (Issue #470)
+
+**Symptom:** Shading start pending is armed before the opening time (e.g. 06:12 CEST, opening at 07:00 CEST). When the execution trigger fires (after the waiting time), shading is permanently aborted. Shading never starts for the rest of the day.
+
+**Cause:** The `if:` block at the top of the shading start sequence has two AND conditions:
+1. Shading conditions met (OR independent temp mode)
+2. `trigger.id` matches `t_shading_start_pending` OR `is_shading_allowed_window`
+
+Pending triggers bypass `is_shading_allowed_window` via the OR (condition 2). But execution triggers (`t_shading_start_execution`) do NOT bypass it — they require `is_shading_allowed_window` to be true. Before the opening time, `is_shading_allowed_window` is false, so the `if:` fails.
+
+In the `else` branch, the retry mechanism also requires `is_shading_allowed_window`, so retry is blocked too. The abort branch runs and permanently clears the pending. After the time window opens, no new `t_shading_start_pending_*` trigger fires (false→true transition already happened), so shading never starts.
+
+**Masked by Bug Pattern K:** Before the #467 regex fix, all shading start pending triggers were blocked at condition/3 level when `ts.shd` started with `1`. The time window bug was invisible because the triggers never got through.
+
+**Fix:** Add "waiting for time window" branches in both `else` blocks (outer: conditions not met; inner: blocked by condition/override) that re-arm the pending with a new `ts.due` when `is_shading_allowed_window` is false. These branches also reset `ts.arm` to "now" so that `shading_start_max_duration` only counts from when the time window actually opens.
+
 ---
 
 ## Language & Style Conventions
