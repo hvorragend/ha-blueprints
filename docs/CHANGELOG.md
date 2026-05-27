@@ -4,6 +4,7 @@
 
 - 🐛 **Fix:** Contact sensor "window closed" branches no longer destroy active shading pending phase (`pnd`, `ts.due`, `ts.arm`) — briefly opening and closing a door/window during shading-start or shading-end pending no longer prevents shading from executing ([#484](https://github.com/hvorragend/ha-blueprints/issues/484))
 - 🐛 **Fix:** "Window closed" branches no longer fire spuriously when cover is at open position but was never in ventilation mode — removed overly broad `in_open_position` fallback from the "was ventilating before" OR condition ([#484](https://github.com/hvorragend/ha-blueprints/issues/484))
+- 🐛 **Fix:** Shading end never triggered when only elevation (or only azimuth) was configured as end condition — the combined sun-position trigger `t_shading_end_pending_5` used OR logic for azimuth and elevation in a single template, so when azimuth left the range first (without meeting end conditions), the trigger stayed TRUE and never re-fired when elevation later dropped below threshold ([#483](https://github.com/hvorragend/ha-blueprints/issues/483))
 
 ---
 
@@ -12,7 +13,6 @@
 - ✨ **Feature:** New ventilation option to disable the drive delay when ventilation starts (window opens/tilts) — useful for setups with many covers where a large fixed delay is needed for staggering, but single-cover ventilation reactions should be instant
 - 🐛 **Fix:** Shading start pending armed before time window opens no longer aborts immediately — `ts.due` is now set to `max(now + waitingtime, window_start)`, ensuring execution fires after the window opens instead of aborting with only seconds elapsed of a multi-hour `max_duration` budget ([#475](https://github.com/hvorragend/ha-blueprints/issues/475))
 - 🐛 **Fix:** Shading End never executed when using Calendar time control — `t_shading_end` triggers were missing from the `calendar.get_events` performance filter, causing `is_shading_allowed_window` to always evaluate to `false` ([#477](https://github.com/hvorragend/ha-blueprints/issues/477))
-- 🐛 **Fix:** Shading end never triggered when only elevation (or only azimuth) was configured as end condition — the combined sun-position trigger `t_shading_end_pending_5` used OR logic for azimuth and elevation in a single template, so when azimuth left the range first (without meeting end conditions), the trigger stayed TRUE and never re-fired when elevation later dropped below threshold ([#483](https://github.com/hvorragend/ha-blueprints/issues/483))
 
 ---
 
