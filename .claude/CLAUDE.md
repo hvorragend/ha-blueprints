@@ -369,21 +369,13 @@ ts:
 
 **Fix:** Change all 6 occurrences of the regex to `"shd"\s*:\s*1\s*[,}]` — requiring a comma or closing brace after the `1` ensures it matches only the top-level `"shd":1,` and not a multi-digit timestamp value.
 
-### Bug Pattern L: Shading start pending aborted before time window opens (Issue #470)
+### Bug Pattern L: Shading pending arms before time window → execution aborts immediately
 
-**Symptom:** Shading start pending is armed before the opening time (e.g. 06:12 CEST, opening at 07:00 CEST). When the execution trigger fires (after the waiting time), shading is permanently aborted. Shading never starts for the rest of the day.
+**Symptom:** Shading conditions are met shortly before `time_up_early_today` (e.g. 06:55 with window at 07:00). Pending arms successfully, but execution aborts with `"Shading Start aborted: Timeout or invalid"` despite having thousands of seconds of `shading_start_max_duration` remaining.
 
-**Cause:** The `if:` block at the top of the shading start sequence has two AND conditions:
-1. Shading conditions met (OR independent temp mode)
-2. `trigger.id` matches `t_shading_start_pending` OR `is_shading_allowed_window`
+**Cause:** The outer if (line ~5196) allows pending triggers to bypass `is_shading_allowed_window` (via `trigger.id` match on `t_shading_start_pending`), but requires it for execution triggers. When `ts.due` (= `now + waitingtime`) resolves to a time before the window opens, the execution trigger fires too early, fails the outer if, and the retry also requires `is_shading_allowed_window` → abort.
 
-Pending triggers bypass `is_shading_allowed_window` via the OR (condition 2). But execution triggers (`t_shading_start_execution`) do NOT bypass it — they require `is_shading_allowed_window` to be true. Before the opening time, `is_shading_allowed_window` is false, so the `if:` fails.
-
-In the `else` branch, the retry mechanism also requires `is_shading_allowed_window`, so retry is blocked too. The abort branch runs and permanently clears the pending. After the time window opens, no new `t_shading_start_pending_*` trigger fires (false→true transition already happened), so shading never starts.
-
-**Masked by Bug Pattern K:** Before the #467 regex fix, all shading start pending triggers were blocked at condition/3 level when `ts.shd` started with `1`. The time window bug was invisible because the triggers never got through.
-
-**Fix:** Add "waiting for time window" branches in both `else` blocks (outer: conditions not met; inner: blocked by condition/override) that re-arm the pending with a new `ts.due` when `is_shading_allowed_window` is false. These branches also reset `ts.arm` to "now" so that `shading_start_max_duration` only counts from when the time window actually opens.
+**Fix:** In the pending arming branch, compute `ts.due` as `max(now + waitingtime, window_start_time)`. When the window is already open, this equals `now + waitingtime` (unchanged). When arming before the window, execution is deferred to the window start. No retry logic changes needed — the execution fires within the window and the normal flow handles it.
 
 ---
 

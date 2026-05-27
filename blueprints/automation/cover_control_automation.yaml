@@ -5227,14 +5227,25 @@ actions:
                       - "{{ not helper_state_pending_end }}" # Mutual-exclusivity guard against misconfigured conditions
                     sequence:
                       - variables:
-                          log_extra: "shading start pending armed; wait={{ shading_waitingtime_start | int }}s; max_duration={{ shading_start_max_duration | int }}s"
+                          shading_start_due: >-
+                            {% set wait_due = (as_timestamp(now()) + shading_waitingtime_start | int) | int %}
+                            {% if is_time_control_disabled or is_shading_allowed_window %}
+                              {{ wait_due }}
+                            {% elif is_time_field_enabled %}
+                              {{ [wait_due, as_timestamp(today_at(time_up_early_today)) | int + 1] | max }}
+                            {% elif is_calendar_enabled and calendar_open_start is not none %}
+                              {{ [wait_due, calendar_open_start | int + 1] | max }}
+                            {% else %}
+                              {{ wait_due }}
+                            {% endif %}
+                          log_extra: "shading start pending armed; wait={{ shading_waitingtime_start | int }}s; due_in={{ (shading_start_due | int - as_timestamp(now()) | int) }}s; max_duration={{ shading_start_max_duration | int }}s"
                           update_values:
                             # Set shade pending timestamp
                             shd: 0
                             pnd: 'beg'
                             ts:
                               shd: "now"
-                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                              due: "{{ shading_start_due | int }}"
                               arm: "now" # Anchor for max-duration retry window
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
@@ -5420,7 +5431,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
                       - "{{ helper_state_pending_start }}"
                       - "{{ shading_start_max_duration > 0 }}"
-                      - "{{ is_shading_allowed_window }}" # Continue only within time window
+                      - "{{ is_shading_allowed_window }}"
                       - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_start_max_duration }}"
                     sequence:
                       - variables:
@@ -5717,7 +5728,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
                       - "{{ helper_state_pending_end }}"
                       - "{{ shading_end_max_duration > 0 }}"
-                      - "{{ is_shading_allowed_window }}" # Continue only within time window
+                      - "{{ is_shading_allowed_window }}"
                       - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_end_max_duration }}"
                     sequence:
                       - variables:
