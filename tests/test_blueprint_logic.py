@@ -1883,3 +1883,226 @@ class TestForcePauseDisabledHasBackgroundOpen:
             "with bas=opn + tilted window the effective_state is now 'opn' and "
             "needs an explicit drive branch."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: contact "window closed" return respects privacy gate, not bare presence
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The privacy/allow_open suppression of the open base state, as used by the
+# "Return to open" / "Return to close" branches. Mirrors effective_state's
+# `privacy_active` and `allow_open` gates.
+_RESIDENT_BLOCKS_OPEN_EXPR = (
+    "resident_now and (resident_flags.closing_trigger"
+    " or 'resident_allow_opening' not in resident_config)"
+)
+
+# Fixed branches (gate on the privacy/allow_open condition).
+WINDOW_CLOSED_RETURN_BRANCHES = [
+    {
+        "name": "shading",
+        "conditions": [
+            "{{ not contact_opened_now and not contact_tilted_now }}",
+            "{{ helper_state_is_shaded or helper_state_shade }}",
+            "{{ helper_state_window in ['tlt', 'opn'] or in_ventilate_position }}",
+            "{{ not (helper_state_manual and override_flags.ventilation) }}",
+            "{{ not resident_now or 'resident_allow_shading' in resident_config }}",
+        ],
+    },
+    {
+        "name": "open",
+        "conditions": [
+            "{{ not contact_opened_now and not contact_tilted_now }}",
+            "{{ helper_state_base == 'opn' and not (" + _RESIDENT_BLOCKS_OPEN_EXPR + ") }}",
+            "{{ not helper_state_is_shaded and not helper_state_shade }}",
+            "{{ helper_state_window in ['tlt', 'opn'] or in_ventilate_position }}",
+            "{{ not (helper_state_manual and override_flags.ventilation) }}",
+        ],
+    },
+    {
+        "name": "close",
+        "conditions": [
+            "{{ not contact_opened_now and not contact_tilted_now }}",
+            "{{ helper_state_base == 'cls' or (" + _RESIDENT_BLOCKS_OPEN_EXPR + ") }}",
+            "{{ helper_state_window in ['tlt', 'opn'] or in_ventilate_position }}",
+            "{{ not (helper_state_manual and override_flags.ventilation) }}",
+        ],
+    },
+]
+
+# Buggy variant: bare resident_now treated as a privacy-close trigger.
+WINDOW_CLOSED_RETURN_BRANCHES_BUGGY = [
+    WINDOW_CLOSED_RETURN_BRANCHES[0],
+    {
+        "name": "open",
+        "conditions": [
+            "{{ not contact_opened_now and not contact_tilted_now }}",
+            "{{ helper_state_base == 'opn' and not resident_now }}",
+            "{{ not helper_state_is_shaded and not helper_state_shade }}",
+            "{{ helper_state_window in ['tlt', 'opn'] or in_ventilate_position }}",
+            "{{ not (helper_state_manual and override_flags.ventilation) }}",
+        ],
+    },
+    {
+        "name": "close",
+        "conditions": [
+            "{{ not contact_opened_now and not contact_tilted_now }}",
+            "{{ helper_state_base == 'cls' or resident_now }}",
+            "{{ helper_state_window in ['tlt', 'opn'] or in_ventilate_position }}",
+            "{{ not (helper_state_manual and override_flags.ventilation) }}",
+        ],
+    },
+]
+
+
+def _make_window_closed_vars(
+    *,
+    resident_now: bool = False,
+    resident_config: list | None = None,
+    helper_state_base: str = "opn",
+    helper_state_shade: bool = False,
+    helper_state_is_shaded: bool = False,
+    helper_state_window: str = "opn",
+    in_ventilate_position: bool = False,
+    helper_state_manual: bool = False,
+    override_ventilation: bool = False,
+) -> dict:
+    resident_config = resident_config or []
+    return {
+        "contact_opened_now": False,
+        "contact_tilted_now": False,
+        "resident_now": resident_now,
+        "resident_config": resident_config,
+        # closing_trigger mirrors the blueprint: 'resident_closing_enabled' in resident_config
+        "resident_flags": {"closing_trigger": "resident_closing_enabled" in resident_config},
+        "helper_state_base": helper_state_base,
+        "helper_state_shade": helper_state_shade,
+        "helper_state_is_shaded": helper_state_is_shaded,
+        "helper_state_window": helper_state_window,
+        "in_ventilate_position": in_ventilate_position,
+        "helper_state_manual": helper_state_manual,
+        "override_flags": {"ventilation": override_ventilation},
+    }
+
+
+class TestWindowClosedReturnRespectsPrivacy:
+    """
+    Forum trace (cover closes after window is closed at ~10:00):
+
+    After the window closes, the contact handler must return the cover to the
+    state the priority cascade dictates (effective_state) — NOT close it merely
+    because a resident is present. Privacy-close applies only when
+    `resident_closing_enabled` is configured, or when opening is not permitted.
+
+    Root cause: 'Return to open' required `not resident_now` and 'Return to
+    close' fired on bare `resident_now`. Fixed via `resident_blocks_open`.
+    """
+
+    def _expected_from_cascade(self, *, resident_now, resident_config, base, shade=False) -> str:
+        es = _eval_effective_state(
+            helper_json={"frc": "non", "win": "cls", "bas": base, "shd": 1 if shade else 0},
+            state_resident=resident_now,
+            resident_config=resident_config,
+            sensor_opened=False,
+            sensor_tilted=False,
+            has_opened_sensor=True,
+        )
+        return {"opn": "open", "cls": "close", "shd": "shading"}[es]
+
+    def test_present_no_privacy_allow_open_returns_open(self):
+        """Reported bug: resident present, base=opn, allow_opening set, no privacy → OPEN."""
+        env = make_jinja_env()
+        cfg = ["resident_allow_shading", "resident_allow_opening", "resident_allow_ventilation"]
+        v = _make_window_closed_vars(resident_now=True, resident_config=cfg, helper_state_base="opn")
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
+        assert branch == "open", f"Expected 'open' but got '{branch}'"
+        assert branch == self._expected_from_cascade(
+            resident_now=True, resident_config=cfg, base="opn"
+        ), "Contact handler must agree with effective_state cascade."
+
+    def test_buggy_version_wrongly_closes(self):
+        """Locks in the regression: the old bare-resident_now logic closed here."""
+        env = make_jinja_env()
+        cfg = ["resident_allow_shading", "resident_allow_opening", "resident_allow_ventilation"]
+        v = _make_window_closed_vars(resident_now=True, resident_config=cfg, helper_state_base="opn")
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES_BUGGY, v)
+        assert branch == "close", (
+            "Buggy variant is expected to (wrongly) close — this documents the bug "
+            "the fix resolves."
+        )
+
+    def test_present_privacy_returns_close(self):
+        """Resident present WITH resident_closing_enabled → privacy-close still works."""
+        env = make_jinja_env()
+        cfg = ["resident_closing_enabled", "resident_allow_opening"]
+        v = _make_window_closed_vars(resident_now=True, resident_config=cfg, helper_state_base="opn")
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
+        assert branch == "close"
+        assert branch == self._expected_from_cascade(
+            resident_now=True, resident_config=cfg, base="opn"
+        )
+
+    def test_present_no_allow_open_returns_close(self):
+        """Resident present, opening not permitted (no allow_opening) → CLOSE (allow_open gate)."""
+        env = make_jinja_env()
+        cfg = ["resident_allow_ventilation"]  # neither allow_opening nor closing_enabled
+        v = _make_window_closed_vars(resident_now=True, resident_config=cfg, helper_state_base="opn")
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
+        assert branch == "close"
+        assert branch == self._expected_from_cascade(
+            resident_now=True, resident_config=cfg, base="opn"
+        )
+
+    def test_absent_base_open_returns_open(self):
+        """No resident → return to open base state."""
+        env = make_jinja_env()
+        v = _make_window_closed_vars(resident_now=False, resident_config=[], helper_state_base="opn")
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
+        assert branch == "open"
+
+    def test_base_close_returns_close(self):
+        """Base=cls → return to close regardless of presence."""
+        env = make_jinja_env()
+        v = _make_window_closed_vars(resident_now=False, resident_config=[], helper_state_base="cls")
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
+        assert branch == "close"
+
+    def test_shading_active_returns_shading(self):
+        """Shading active and allowed → return to shading (branch precedence intact)."""
+        env = make_jinja_env()
+        cfg = ["resident_allow_shading"]
+        v = _make_window_closed_vars(
+            resident_now=True, resident_config=cfg, helper_state_base="opn", helper_state_shade=True
+        )
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
+        assert branch == "shading"
+
+    def test_blueprint_branches_use_resident_blocks_open(self):
+        """Static wiring: the actual YAML branches gate on resident_blocks_open."""
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+
+        def find_branch(node, alias):
+            if isinstance(node, dict):
+                if node.get("alias") == alias:
+                    return node
+                for value in node.values():
+                    result = find_branch(value, alias)
+                    if result is not None:
+                        return result
+            elif isinstance(node, list):
+                for item in node:
+                    result = find_branch(item, alias)
+                    if result is not None:
+                        return result
+            return None
+
+        for alias in (
+            "Window closed - Return to open position",
+            "Window closed - Return to close position",
+        ):
+            branch = find_branch(blueprint, alias)
+            assert branch is not None, f"Missing branch: {alias}"
+            conds = str(branch.get("conditions", []))
+            assert "resident_blocks_open" in conds, (
+                f"'{alias}' must gate on resident_blocks_open, not bare resident_now."
+            )

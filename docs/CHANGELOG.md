@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.28
+
+- 🐛 **Fix:** Cover no longer closes when the window is closed while a resident is present but privacy-closing is not configured. The contact "window closed" handler treated any resident presence as a privacy-close trigger ("Return to open" required the resident to be absent; "Return to close" fired on mere presence). It now mirrors `effective_state`: privacy-close applies only when `resident_closing_enabled` is configured, or when opening is not permitted (`resident_allow_opening` unset). With `bas=opn` and no shading, the cover correctly returns to the open position after the window closes.
+
+---
+
 # CCA 2026.05.27 V2
 
 - 🐛 **Fix:** Contact sensor "window closed" branches no longer destroy active shading pending phase (`pnd`, `ts.due`, `ts.arm`) — briefly opening and closing a door/window during shading-start or shading-end pending no longer prevents shading from executing ([#484](https://github.com/hvorragend/ha-blueprints/issues/484))
