@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.05.27 V2
+    **Version**: 2026.05.28
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2813,7 +2813,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.27 V2"
+  version: "2026.05.28"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5831,6 +5831,10 @@ actions:
               # Live resident check — like contact sensors above, must be read after delay
               # to detect race conditions when both window and resident change quickly
               resident_now: "{{ resident_sensor != [] and states(resident_sensor) in ['on', 'true'] }}"
+              # Present resident suppresses the open base state only when privacy-closing
+              # is enabled or opening is not permitted (mirrors effective_state's privacy
+              # and allow_open gates). Mere presence does NOT close the cover.
+              resident_blocks_open: "{{ resident_now and (resident_flags.closing_trigger or 'resident_allow_opening' not in resident_config) }}"
 
           - choose:
               ###################################
@@ -6016,7 +6020,7 @@ actions:
               - alias: "Window closed - Return to open position"
                 conditions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
-                  - "{{ helper_state_base == 'opn' and not resident_now }}"  # Use live sensor, not stale helper
+                  - "{{ helper_state_base == 'opn' and not resident_blocks_open }}"
                   - "{{ not helper_state_is_shaded and not helper_state_shade }}"
                   - or: # Was ventilating before
                       - "{{ helper_state_window in ['tlt', 'opn'] }}"
@@ -6055,7 +6059,7 @@ actions:
                   - "{{ not contact_opened_now and not contact_tilted_now }}"
                   - or:
                       - "{{ helper_state_base == 'cls' }}"
-                      - "{{ resident_now }}"  # Use live sensor, not stale helper
+                      - "{{ resident_blocks_open }}"
                   - or: # Was ventilating before
                       - "{{ helper_state_window in ['tlt', 'opn'] }}"
                       - "{{ in_ventilate_position }}"

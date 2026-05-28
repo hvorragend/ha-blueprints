@@ -402,6 +402,20 @@ Each condition gets its own independent FALSE→TRUE transition. Update conditio
 
 **Fix B:** Remove `in_open_position` from the "was ventilating before" OR condition in all three "Window closed" branches. The dedicated "No drive, sync" branches already ensure `helper_state_window` is correctly updated when the window opens/tilts.
 
+### Bug Pattern O: Contact "window closed" handler closes on bare resident presence
+
+**Symptom:** With `bas == 'opn'`, no shading, no force, and a resident present, closing the window lowers the cover from open to close — even though `effective_state == 'opn'` and the user never configured privacy-closing.
+
+**Cause:** The "Window closed" return branches used raw `resident_now` as a privacy proxy. "Return to open" required `helper_state_base == 'opn' and not resident_now`, and "Return to close" fired on `helper_state_base == 'cls' or resident_now`. Any resident presence therefore forced a close, diverging from `effective_state`, whose `privacy_active` requires `'resident_closing_enabled' in resident_config` (and whose `allow_open` gate closes only when `resident_allow_opening` is unset).
+
+**Fix:** Introduce `resident_blocks_open` in the post-delay contact-handler variables:
+```jinja2
+resident_now and (resident_flags.closing_trigger or 'resident_allow_opening' not in resident_config)
+```
+Use `not resident_blocks_open` in "Return to open" and `resident_blocks_open` in "Return to close". This mirrors `effective_state`'s privacy + allow_open gates exactly, so the contact handler agrees with the cascade.
+
+**Rule:** Contact "window closed" return branches must resolve open-vs-close from the same gates as `effective_state` (privacy + allow_open), never from bare presence.
+
 ---
 
 ## Language & Style Conventions
