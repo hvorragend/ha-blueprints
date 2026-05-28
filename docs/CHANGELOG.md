@@ -1,5 +1,12 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.28 V2
+
+- ✨ **Feature:** New input *"Independent Temperature Threshold"* (`shading_independent_temp`) for the *"Independent Shading via Temperature Comparison"* mode — previously this mode shared the same threshold as the normal forecast condition, causing both paths to be blocked simultaneously when the threshold wasn't met. The dedicated threshold can be set lower (e.g. 23 °C) while keeping a stricter value in the AND conditions, without either path interfering with the other ([#491](https://github.com/hvorragend/ha-blueprints/issues/491))
+- 🔧 **Improvement:** Clarified selector label and description for *"Also trigger if Temperature Sensor 2 exceeds Forecast Temperature Value"* — the previous label implied a forecast-vs-sensor comparison but the actual logic checks whether Sensor 2 exceeds the (independent) threshold
+
+---
+
 # CCA 2026.05.28
 
 - 🐛 **Fix:** Cover no longer closes when the window is closed while a resident is present but privacy-closing is not configured. The contact "window closed" handler treated any resident presence as a privacy-close trigger ("Return to open" required the resident to be absent; "Return to close" fired on mere presence). It now mirrors `effective_state`: privacy-close applies only when `resident_closing_enabled` is configured, or when opening is not permitted (`resident_allow_opening` unset). With `bas=opn` and no shading, the cover correctly returns to the open position after the window closes.
