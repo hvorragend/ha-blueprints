@@ -2067,6 +2067,17 @@ class TestWindowClosedReturnRespectsPrivacy:
         branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
         assert branch == "close"
 
+    def test_base_close_resident_present_returns_close(self):
+        """Base=cls with a present resident (no privacy config) → still close via the base=cls arm."""
+        env = make_jinja_env()
+        cfg = ["resident_allow_opening"]  # present, but neither privacy nor a reason to stay open
+        v = _make_window_closed_vars(resident_now=True, resident_config=cfg, helper_state_base="cls")
+        branch = first_matching_branch(env, WINDOW_CLOSED_RETURN_BRANCHES, v)
+        assert branch == "close"
+        assert branch == self._expected_from_cascade(
+            resident_now=True, resident_config=cfg, base="cls"
+        )
+
     def test_shading_active_returns_shading(self):
         """Shading active and allowed → return to shading (branch precedence intact)."""
         env = make_jinja_env()
