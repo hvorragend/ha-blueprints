@@ -71,7 +71,7 @@ class CCAValidator {
 
             // Shading - Forecast
             'shading_forecast_sensor', 'shading_forecast_temp_sensor', 'shading_forecast_type',
-            'shading_forecast_temp', 'shading_forecast_temp_hysteresis',
+            'shading_forecast_temp', 'shading_forecast_temp_hysteresis', 'shading_independent_temp',
             'shading_weather_conditions', 'shading_config',
 
             // Shading - Conditions
