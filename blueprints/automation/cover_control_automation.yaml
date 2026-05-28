@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.05.28
+    **Version**: 2026.05.28 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -1900,6 +1900,26 @@ blueprint:
               mode: slider
               unit_of_measurement: "°C"
 
+        shading_independent_temp:
+          name: "🥵 Sun Shading - Independent Temperature Threshold"
+          description: >-
+            Temperature threshold used exclusively by the <em>"Independent Shading via Temperature Comparison"</em> mode.
+            Shading is activated independently of all other conditions (brightness, sun position, etc.) when either the
+            forecasted temperature or (if enabled) <em>"Temperature Sensor 2"</em> exceeds this value.
+            <br /><br />
+            Set this lower than <em>"Forecast Temperature Value"</em> to allow the independent path to trigger on warmer-than-average
+            days without tightening the normal forecast gate.
+            <br /><br />
+            Only used when <em>"Independent Shading via Temperature Comparison"</em> is selected in the configuration above.
+          default: 25
+          selector:
+            number:
+              min: 0.0
+              max: 50.0
+              step: 0.5
+              mode: slider
+              unit_of_measurement: "°C"
+
         shading_weather_conditions:
           name: "🌦️ Sun Shading - Weather Conditions"
           description: >-
@@ -1941,10 +1961,10 @@ blueprint:
             <summary><code><strong>Independent Shading via Temperature Comparison</strong></code></summary>
 
               Enables shading based solely on temperature — <ins>independently of other conditions</ins> like brightness, sun position, or time.
-              - By default, only the external <em>forecasted temperature</em> is compared with the configured threshold in <em>"Forecast Temperature Value"</em>.
+              - By default, only the external <em>forecasted temperature</em> is compared with the threshold configured in <em>"Independent Temperature Threshold"</em>.
               - You can also enable another comparison by selecting the other checkbox.
 
-              If any value exceeds the threshold, shading will be activated — even if all other shading conditions are false.
+              If any value exceeds the independent threshold, shading will be activated — even if all other shading conditions are false.
 
               This is especially useful in the early morning: the system can already determine whether shading will be needed later in the day. Instead of fully opening the blinds, it can move them directly into the shading position.
 
@@ -1952,16 +1972,16 @@ blueprint:
 
               This allows it to compare the updated forecasted temperature with the configured threshold and make an early shading decision based on the most current data.
 
-              <strong>Note:</strong> This option only provides an advantage if <em>"Forecast Temperature"</em> (<code>cond_forecast_temp</code>) is <ins>not</ins> included in your AND conditions. If it is, the forecast threshold blocks both this independent path and the normal AND/OR path simultaneously — making this option redundant.
+              <strong>Note:</strong> The independent path uses its own <em>"Independent Temperature Threshold"</em>, which is separate from <em>"Forecast Temperature Value"</em> used in the normal AND/OR conditions. Set the independent threshold lower to allow early shading on hot days without loosening the normal forecast gate.
 
             </details>
             <br />
             <details>
             <summary><code><strong>Also trigger if 'Temperature Sensor 2' exceeds 'Forecast Temperature Value'</strong></code></summary>
 
-              This activates an extended comparison, checking not only whether the external forecasted temperature is above the threshold configured in <em>"Forecast Temperature Value"</em>, but also whether the current reading from <em>"Temperature Sensor 2"</em> (e.g. outdoor) is above the threshold configured for it. The shading condition will be true if <em>one</em> of the following conditions is met:
-              - The external forecasted temperature exceeds the configured threshold in <em>"Forecast Temperature Value"</em>, or<br />
-              - the <em>"Temperature Sensor 2"</em> reports a higher temperature than in <em>"Forecast Temperature Value"</em>.
+              This activates an extended comparison for the independent shading path. The shading condition will be true if <em>one</em> of the following conditions is met:
+              - The external forecasted temperature exceeds the <em>"Independent Temperature Threshold"</em>, or<br />
+              - <em>"Temperature Sensor 2"</em> reports a temperature above the <em>"Independent Temperature Threshold"</em>.
 
               This mechanism improves the responsiveness and reliability of the shading system by using real-time sensor input as an optional condition, especially when forecast data is uncertain.
               Note: This function has nothing to do with normal temperature comparison, but is used exclusively in the context of the forecast function.
@@ -2751,6 +2771,7 @@ trigger_variables:
   shading_forecast_type: "{{ shading_forecast_type_raw if shading_forecast_type_raw not in ['', none, []] else 'daily' }}"
   shading_forecast_temp: !input shading_forecast_temp
   shading_forecast_temp_hysteresis: !input shading_forecast_temp_hysteresis
+  shading_independent_temp: !input shading_independent_temp
   shading_weather_conditions: !input shading_weather_conditions
 
   # Shading condition selections
@@ -2815,7 +2836,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.28"
+  version: "2026.05.28 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4316,6 +4337,20 @@ actions:
               (states(shading_temperatur_sensor2) | float(default=0) > (shading_forecast_temp + shading_forecast_temp_hysteresis))
             )
           }}
+        independent_temp_valid: >-
+          {{
+            not is_shading_enabled or
+            shading_independent_temp == [] or
+            (
+              forecast_temp_raw is not none and
+              forecast_temp_raw > (shading_independent_temp + shading_forecast_temp_hysteresis)
+            ) or
+            (
+              'shading_compare_forecast_with_sensor2' in shading_config and
+              shading_temperatur_sensor2 != [] and
+              (states(shading_temperatur_sensor2) | float(default=0) > (shading_independent_temp + shading_forecast_temp_hysteresis))
+            )
+          }}
         forecast_weather_valid: >-
           {{
             not is_shading_enabled or
@@ -5231,7 +5266,7 @@ actions:
               - or:
                   - and: # Independent temperature-based shading
                       - "{{ 'shading_temp_comparison_independent' in shading_config }}"
-                      - "{{ shading_start_condition_states.forecast_temp_valid }}"
+                      - "{{ shading_start_condition_states.independent_temp_valid }}"
                   - "{{ shading_start_conditions_met }}" # Use flexible AND/OR logic
               - or:
                   - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
