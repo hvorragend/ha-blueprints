@@ -1,8 +1,13 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
-# CCA 2026.05.29
+# CCA 2026.05.29 V2
 
 - 🐛 **Fix:** `ts.opn` no longer overwritten by the late opening trigger when the cover was already opened earlier the same day. The "Already in open position" branch now catches all cases where the cover is at open position with `effective_state=opn` — including the case where `bas=opn` and `ts.opn` is already from today. `ts.opn` is only refreshed when there is a real base-state transition or when the timestamp is from a previous day; otherwise the existing value is preserved. Additionally, the late trigger no longer redundantly drives the cover or clears the manual override ([#495](https://github.com/hvorragend/ha-blueprints/issues/495))
+
+---
+
+# CCA 2026.05.29
+
 - 🐛 **Fix:** Shading never executed when pending-start (`pnd=beg`) armed before the opening time window and the opening trigger fired at window-start — the opening handler's "Shading detected" branch matched on `helper_state_pending_start`, cleared the pending state (`pnd=non`, `ts.due=0`) without driving the cover (because `effective_state != 'shd'` while `shd` was still `0`), causing the `t_shading_start_execution` trigger to be silently killed. The opening handler now defers to the execution trigger: a new "Opening skipped: Shading start pending" branch preserves `pnd`, `ts.due`, and `ts.arm`, updates only the base state (`bas=opn`, `ts.opn`), and lets the execution trigger fire 1 second later to handle the drive — including the correct retry/abort logic for manual overrides.
 
 ---
