@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.05.28 V2
+    **Version**: 2026.05.29
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2834,7 +2834,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.28 V2"
+  version: "2026.05.29"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4978,8 +4978,7 @@ actions:
               - alias: "Shading detected. Move to shading position"
                 conditions:
                   - or:
-                      - "{{ helper_state_is_shaded }}" # TODO
-                      - "{{ helper_state_pending_start }}" # Pending-Timestamp
+                      - "{{ helper_state_is_shaded }}"
                       - "{{ helper_state_shade }}" # Check for target(!) marker
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                 sequence:
@@ -5008,6 +5007,21 @@ actions:
                         default: !input auto_shading_start_action
                   - *helper_update
                   - stop: "Opening skipped: Shading detected"
+
+              ###################################
+              # Shading start pending - defer to execution trigger
+              ###################################
+              - alias: "Opening skipped: Shading start pending"
+                conditions:
+                  - "{{ helper_state_pending_start }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        bas: "opn"
+                        ts:
+                          opn: "now"
+                  - *helper_update
+                  - stop: "Opening skipped: Shading start pending"
 
             ###################################
             # Normal opening of the cover
