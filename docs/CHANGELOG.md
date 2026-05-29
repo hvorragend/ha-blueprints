@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.29 V3
+
+- 🐛 **Fix:** When a resident was present and shading conditions became true in the meantime (shading blocked by resident presence because `resident_allow_shading` was not configured), the cover opened normally after the resident left but shading never activated on that day — the sun-position template triggers only fire on FALSE→TRUE transitions and do not re-fire when conditions were already TRUE during residence. `resident_flags.allow_shade` is removed from the top-level "Check for shading start" conditions so the pending mechanism arms normally; the existing "Save shading state for the future" branch in the execution handler is extended with `OR not resident_flags.allow_shade`, so it saves `shd=1` alongside the already-handled `effective_state == 'cls'` case. The existing "Resident leaving: target SHADED" branch then drives to the shading position when the resident leaves.
+
+---
+
 # CCA 2026.05.29 V2
 
 - 🐛 **Fix:** `ts.opn` no longer overwritten by the late opening trigger when the cover was already opened earlier the same day. The "Already in open position" branch now catches all cases where the cover is at open position with `effective_state=opn` — including the case where `bas=opn` and `ts.opn` is already from today. `ts.opn` is only refreshed when there is a real base-state transition or when the timestamp is from a previous day; otherwise the existing value is preserved. Additionally, the late trigger no longer redundantly drives the cover or clears the manual override ([#495](https://github.com/hvorragend/ha-blueprints/issues/495))
