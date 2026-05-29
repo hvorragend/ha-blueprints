@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.05.29 V2
+    **Version**: 2026.05.29 V3
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2834,7 +2834,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.29 V2"
+  version: "2026.05.29 V3"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4955,20 +4955,20 @@ actions:
                   - "{{ not helper_state_is_shaded }}"
                   - "{{ not helper_state_pending_start }}"
                   - "{{ not helper_state_shade }}"
+                  - or:
+                      # Primary: base not yet reflecting current schedule
+                      # (e.g. Force Open is active while closing time has passed,
+                      # or Resident override holds cover open past opening time)
+                      - "{{ helper_state_base != 'opn' }}"
+                      # Secondary: ts.opn is from a previous day
+                      # (needed for prevent_multiple_times to work correctly)
+                      - "{{ now().day != helper_ts_open | timestamp_custom('%-d', true) | int }}"
                 sequence:
-                  - if: "{{ helper_state_base != 'opn' or now().day != helper_ts_open | timestamp_custom('%-d', true) | int }}"
-                    then:
-                      # Real base-state transition or new day: refresh ts.opn
-                      - variables:
-                          update_values:
-                            bas: "opn"
-                            ts:
-                              opn: "now"
-                    else:
-                      # Already open, same day: preserve ts.opn (Issue #495)
-                      - variables:
-                          update_values:
-                            bas: "opn"
+                  - variables:
+                      update_values:
+                        bas: "opn"
+                        ts:
+                          opn: "now"
                   - *helper_update
                   - stop: "Open time: Already in position, base state updated"
 
@@ -5271,7 +5271,6 @@ actions:
               - "{{ not prevent_flags.shading_multiple_times }}"
               - "{{ prevent_flags.shading_multiple_times and ((now().day != helper_ts_shade|timestamp_custom('%-d')|int) or helper_ts_man <= helper_ts_shade) }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
-          - "{{ resident_flags.allow_shade }}"
 
         sequence:
           - if:
@@ -5404,11 +5403,13 @@ actions:
                               ####################################
                               - alias: "Save shading state for the future"
                                 conditions:
-                                  - "{{ effective_state == 'cls' }}" # At this point, the times for shading are not taken into account so that the correct value is available when the cover is opened.
+                                  - or:
+                                      - "{{ effective_state == 'cls' }}" # Cover closed: intent stored until cover opens
+                                      - "{{ not resident_flags.allow_shade }}" # Resident blocking: intent stored until resident leaves
                                 sequence:
                                   - variables:
                                       update_values:
-                                        # Store shading intent for future (cover is closed)
+                                        # Store shading intent for future
                                         shd: 1
                                         pnd: 'non'
                                         ts:
