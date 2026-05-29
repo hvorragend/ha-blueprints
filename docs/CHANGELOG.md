@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.29
+
+- 🐛 **Fix:** Shading never executed when pending-start (`pnd=beg`) armed before the opening time window and the opening trigger fired at window-start — the opening handler's "Shading detected" branch matched on `helper_state_pending_start`, cleared the pending state (`pnd=non`, `ts.due=0`) without driving the cover (because `effective_state != 'shd'` while `shd` was still `0`), causing the `t_shading_start_execution` trigger to be silently killed. The opening handler now defers to the execution trigger: a new "Opening skipped: Shading start pending" branch preserves `pnd`, `ts.due`, and `ts.arm`, updates only the base state (`bas=opn`, `ts.opn`), and lets the execution trigger fire 1 second later to handle the drive — including the correct retry/abort logic for manual overrides.
+
+---
+
 # CCA 2026.05.28 V2
 
 - ✨ **Feature:** New input *"Independent Temperature Threshold"* (`shading_independent_temp`) for the *"Independent Shading via Temperature Comparison"* mode — previously this mode shared the same threshold as the normal forecast condition, causing both paths to be blocked simultaneously when the threshold wasn't met. The dedicated threshold can be set lower (e.g. 23 °C) while keeping a stricter value in the AND conditions, without either path interfering with the other ([#491](https://github.com/hvorragend/ha-blueprints/issues/491))
