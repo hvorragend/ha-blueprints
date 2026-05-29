@@ -250,6 +250,16 @@ The resident sensor handler (`resident_leaving` / `resident_arriving`) does **no
 
 This is intentional. Do not "harmonize" by adding the override gate to the resident handler.
 
+### Opening handler preserves shading-start pending; closing handler discards it
+
+When the opening trigger fires while a shading-start pending is active (`pnd == 'beg'`), the opening handler **preserves** `pnd`, `ts.due`, and `ts.arm` and defers to the `t_shading_start_execution` trigger (which fires 1 second later at `ts.due = window_start + 1`).
+
+When the closing trigger fires while a shading-start pending is active, the closing branches **discard** `pnd`/`ts.due`/`ts.arm` by setting them to `non`/`0`/`0`.
+
+**Rationale:** At closing time, a shading-start intent from earlier in the day is no longer relevant — the cover is about to close regardless. Driving it to the shading position only to immediately close it would be wrong. At opening time, the intent is still valid (the sun is out, conditions are met) and the execution trigger should handle the drive.
+
+This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it.
+
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving
 
 The "Reset shading status that is no longer required" branch writes `man: 0` even though it does not drive the cover. This is an intentional exception to Invariant 7.
