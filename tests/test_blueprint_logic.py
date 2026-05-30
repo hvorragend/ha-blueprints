@@ -2117,3 +2117,84 @@ class TestWindowClosedReturnRespectsPrivacy:
             assert "resident_blocks_open" in conds, (
                 f"'{alias}' must gate on resident_blocks_open, not bare resident_now."
             )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: "Don't end shading if cover is already closed" (Issue #502)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The "or:" guard in the "Check for shading end" branch. Shading end is allowed
+# to continue when this evaluates True; it is blocked (cover stays closed) when
+# it evaluates False.
+SHADING_END_IF_CLOSED_GUARD = (
+    "(not prevent_flags.shading_end_if_closed) or "
+    "(prevent_flags.shading_end_if_closed and not in_close_position "
+    "and not position_comparisons.current_below_close)"
+)
+
+
+def _shading_end_guard_vars(*, enabled, in_close_position, current_below_close):
+    return {
+        "prevent_flags": {"shading_end_if_closed": enabled},
+        "in_close_position": in_close_position,
+        "position_comparisons": {"current_below_close": current_below_close},
+    }
+
+
+class TestShadingEndIfClosedGuard:
+    """
+    Regression for Issue #502: a cover manually closed *further* than the
+    configured close position (e.g. 0% while close_position=15%) must be
+    treated as closed, so shading end does not open it.
+    """
+
+    def test_below_close_position_blocks_shading_end(self):
+        """current_position below close_position → guard False → shading end blocked."""
+        env = make_jinja_env()
+        result = eval_condition(env, SHADING_END_IF_CLOSED_GUARD, _shading_end_guard_vars(
+            enabled=True,
+            in_close_position=False,   # 0% is outside the close-position tolerance window
+            current_below_close=True,  # but it IS below the close position → still "closed"
+        ))
+        assert result is False, (
+            "Cover closed further than close_position must count as closed; "
+            "shading end must not continue (Issue #502)."
+        )
+
+    def test_at_close_position_blocks_shading_end(self):
+        """Cover within close-position tolerance → guard False → shading end blocked."""
+        env = make_jinja_env()
+        result = eval_condition(env, SHADING_END_IF_CLOSED_GUARD, _shading_end_guard_vars(
+            enabled=True,
+            in_close_position=True,
+            current_below_close=False,
+        ))
+        assert result is False
+
+    def test_above_close_position_allows_shading_end(self):
+        """Cover above close_position → guard True → shading end continues normally."""
+        env = make_jinja_env()
+        result = eval_condition(env, SHADING_END_IF_CLOSED_GUARD, _shading_end_guard_vars(
+            enabled=True,
+            in_close_position=False,
+            current_below_close=False,
+        ))
+        assert result is True
+
+    def test_option_disabled_always_allows_shading_end(self):
+        """Option off → guard True regardless of position."""
+        env = make_jinja_env()
+        result = eval_condition(env, SHADING_END_IF_CLOSED_GUARD, _shading_end_guard_vars(
+            enabled=False,
+            in_close_position=False,
+            current_below_close=True,
+        ))
+        assert result is True
+
+    def test_blueprint_guard_checks_current_below_close(self):
+        """Static wiring: the shading-end guard in the YAML uses current_below_close."""
+        text = BLUEPRINT_PATH.read_text()
+        assert "prevent_flags.shading_end_if_closed and not in_close_position and not position_comparisons.current_below_close" in text, (
+            "Shading-end 'if closed' guard must also block when the cover is "
+            "below the close position (Issue #502)."
+        )

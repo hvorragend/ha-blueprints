@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.30
+
+- 🐛 **Fix:** *"Don't end shading if cover is already closed"* no longer ends shading (opening the cover) when the cover was manually closed **further** than the configured close position. The guard checked `in_close_position`, which is a tolerance window centered on the configured close position — a cover driven below that position (e.g. fully closed at 0 % while the close position is 15 %) was treated as "not closed", so shading ended and the cover opened. The condition now also treats a position below the close position (`current_below_close`, awning-aware) as closed ([#502](https://github.com/hvorragend/ha-blueprints/issues/502))
+
+---
+
 # CCA 2026.05.29 V3
 
 - 🐛 **Fix:** When a resident was present and shading conditions became true in the meantime (shading blocked by resident presence because `resident_allow_shading` was not configured), the cover opened normally after the resident left but shading never activated on that day — the sun-position template triggers only fire on FALSE→TRUE transitions and do not re-fire when conditions were already TRUE during residence. `resident_flags.allow_shade` is removed from the top-level "Check for shading start" conditions so the pending mechanism arms normally; the existing "Save shading state for the future" branch in the execution handler is extended with `OR not resident_flags.allow_shade`, so it saves `shd=1` alongside the already-handled `effective_state == 'cls'` case. The existing "Resident leaving: target SHADED" branch then drives to the shading position when the resident leaves.
