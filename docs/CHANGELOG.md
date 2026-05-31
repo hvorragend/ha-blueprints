@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.31
+
+- ✨ **Feature:** New option for reset manual override *"reset in position"*. This option will automatically clear the manual override state and restore automatic control once the cover reaches a specific target position (± configured tolerance) and remains there for the duration of the defined timeout. *Use Case:* Keep the blind in manual mode after lowering it by hand, and only let the automation take over again once the blind is fully reopened to 100%.
+
+---
+
 # CCA 2026.05.30
 
 - 🐛 **Fix:** *"Don't end shading if cover is already closed"* no longer ends shading (opening the cover) when the cover was manually closed **further** than the configured close position. The guard checked `in_close_position`, which is a tolerance window centered on the configured close position — a cover driven below that position (e.g. fully closed at 0 % while the close position is 15 %) was treated as "not closed", so shading ended and the cover opened. The condition now also treats a position below the close position (`current_below_close`, awning-aware) as closed ([#502](https://github.com/hvorragend/ha-blueprints/issues/502))

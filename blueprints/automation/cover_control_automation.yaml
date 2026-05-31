@@ -2199,6 +2199,8 @@ blueprint:
                   value: "reset_fixed_time"
                 - label: "Reset after a timeout in minutes (see below)"
                   value: "reset_timeout"
+                - label: "Reset in position (see below)"
+                  value: "reset_in_position"
               multiple: false
               sort: false
               custom_value: false
@@ -2220,6 +2222,16 @@ blueprint:
               min: 0
               max: 1440
               unit_of_measurement: minutes
+        
+        reset_override_position:
+          name: "🗑️ Position for reset manual override"
+          description: "At which position (+- tolerance) should it be reset? Typically, these are 'open' or 'closed' positions. Note: This position must be maintained for the duration specified by the 'minutes until reset' setting."
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
 
     delay_section:
       description: >-
@@ -2802,9 +2814,11 @@ trigger_variables:
   reset_override_config: !input reset_override_config
   reset_override_time: !input reset_override_time
   reset_override_timeout: !input reset_override_timeout
+  reset_override_position: !input reset_override_position
   is_reset_disabled: "{{ 'reset_disabled' in reset_override_config }}"
   is_reset_fixed_time: "{{ 'reset_fixed_time' in reset_override_config }}"
   is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
+  is_reset_position: "{{ 'reset_in_position' in reset_override_config }}"
 
   # Force entities
   auto_up_force: !input auto_up_force
@@ -3866,6 +3880,7 @@ triggers:
       minutes: 1
     enabled: "{{ is_cover_tilt_enabled }}"
 
+  # Resets
   - trigger: template
     value_template: "{{ now() >= today_at(reset_override_time) }}"
     enabled: "{{ is_reset_fixed_time }}"
@@ -3888,6 +3903,18 @@ triggers:
     id: "t_reset_timeout"
     for:
       seconds: 2
+
+  - trigger: template
+    value_template: >
+      {% set pos = state_attr(blind, 'current_position') | float(-100) %}
+      {% set target_pos = reset_override_position | float(0) %}
+      {% set tol = position_tolerance | float(5) %}
+      {% set min_pos = target_pos - tol %}
+      {% set max_pos = target_pos + tol %}
+      {{ pos >= min_pos and pos <= max_pos }}
+    enabled: "{{ is_reset_position }}"
+    id: "t_reset_position"
+    for: "{{ reset_override_timeout | int(4) * 60 }}"
 
 ################################################################################
 # GLOBAL CONDITIONS
@@ -7182,7 +7209,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ not is_reset_disabled }}"
-          - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout'] }}"
+          - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout', 't_reset_position'] }}"
         sequence:
           - variables:
               update_values:
