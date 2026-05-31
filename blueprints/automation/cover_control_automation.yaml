@@ -3905,18 +3905,16 @@ triggers:
       seconds: 2
 
   - trigger: template
-    value_template: >
+    value_template: >-
       {% set helper_state = states(cover_status_helper) %}
       {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% set pos = state_attr(blind, 'current_position') | float(-100) %}
-      {% set target_pos = reset_override_position | float(0) %}
-      {% set tol = position_tolerance | float(5) %}
-      {% set min_pos = target_pos - tol %}
-      {% set max_pos = target_pos + tol %}
-      {{ helper.man | int == 1 and pos >= min_pos and pos <= max_pos }}
+      {{ helper.man | default(0) | int == 1 and
+         (pos - (reset_override_position | float(0))) | abs <= (position_tolerance | float(5)) }}
     enabled: "{{ is_reset_position }}"
     id: "t_reset_position"
-    for: "{{ reset_override_timeout | int(4) * 60 }}"
+    for:
+      minutes: "{{ reset_override_timeout | int(5) }}"
 
 ################################################################################
 # GLOBAL CONDITIONS
