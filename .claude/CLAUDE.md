@@ -266,6 +266,23 @@ The "Reset shading status that is no longer required" branch writes `man: 0` eve
 
 **Rationale:** Midnight is the natural reset point for the daily automation cycle. Clearing `man` here ensures stale manual overrides do not block the next day's automation. In practice the branch only fires when shading was active (or pending) at midnight — and in those scenarios the user typically did not override manually, so `man` is already `0`. The explicit reset is a defensive safeguard and is documented as a deliberate exception.
 
+### Triggers from/to an invalid sensor state are deliberately ignored
+
+The contact handler ("Contact sensor state changed") gates on **both** the previous and the new trigger state being valid:
+
+```yaml
+- "{{ trigger.from_state.state not in invalid_states }}"
+- "{{ trigger.to_state.state not in invalid_states }}"
+```
+
+(`invalid_states` = `''`, `unavailable`, `unknown`, `none`, `None`.) The global condition additionally rejects any trigger whose `to_state` is invalid.
+
+**Rationale:** A state transition that touches an invalid state is not a real, trustworthy physical event — it is a sensor dropout (connectivity loss, battery, restart) or a recovery from one. Acting on such transitions would move covers based on noise. CCA therefore ignores transitions **into** an invalid state (`on → unavailable`) **and out of** one (`unavailable → off`).
+
+**Known consequence (Issue #505):** If a window contact sensor goes `on → unavailable` (instead of cleanly `on → off`) while CCA holds the cover in the lockout/open position (status `lock`), and the sensor later recovers `unavailable → off`, the recovery transition is ignored. `win` stays `opn` in the helper and a remembered shading (`shd=1`) is not applied until another trigger updates the window state — the cover can stay stuck in `lock`.
+
+**This is intentional, not a bug.** The root cause is an unstable contact sensor reporting `unavailable`. The fix belongs at the sensor (battery / radio range), not in the blueprint. Do **not** remove the `from_state` guard to "process recovery transitions" — that would make CCA act on sensor dropouts. Do not "harmonize" this away.
+
 ---
 
 ## Known Bug Patterns (with cause and fix)

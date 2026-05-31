@@ -242,6 +242,19 @@ Presence transitions are a hard reset — intentional, do not "harmonize".
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving
 Intentional exception to Invariant 7. Clears stale overrides for next day's cycle.
 
+### Triggers from/to an invalid sensor state are deliberately ignored
+The contact handler gates on **both** `trigger.from_state.state not in invalid_states`
+and `trigger.to_state.state not in invalid_states` (`invalid_states` = `''`,
+`unavailable`, `unknown`, `none`, `None`). Transitions touching an invalid state
+are sensor dropouts/recoveries, not real physical events — acting on them would
+move covers on noise.
+
+**Consequence (Issue #505):** a sensor going `on → unavailable` (instead of
+`on → off`) while the cover is in lockout (`lock`) and later recovering
+`unavailable → off` is ignored; `win` stays `opn` and remembered shading
+(`shd=1`) is not applied until another trigger updates the window state. This is
+**intentional** — fix the flaky sensor, do **not** remove the `from_state` guard.
+
 ---
 
 ## Branch Structure (Main choose blocks)
