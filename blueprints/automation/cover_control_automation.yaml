@@ -2199,6 +2199,8 @@ blueprint:
                   value: "reset_fixed_time"
                 - label: "Reset after a timeout in minutes (see below)"
                   value: "reset_timeout"
+                - label: "Reset in position (see below)"
+                  value: "reset_in_position"
               multiple: false
               sort: false
               custom_value: false
@@ -2220,6 +2222,16 @@ blueprint:
               min: 0
               max: 1440
               unit_of_measurement: minutes
+        
+        reset_override_position:
+          name: "🗑️ Position for reset manual override"
+          description: "At which position (+- tolerance) should it be reset? Typically, these are 'open' or 'closed' positions. Note: This position must be maintained for the duration specified by the 'minutes until reset' setting."
+          default: 100
+          selector:
+            number:
+              min: 0
+              max: 100
+              unit_of_measurement: "%"
 
     delay_section:
       description: >-
@@ -2802,9 +2814,11 @@ trigger_variables:
   reset_override_config: !input reset_override_config
   reset_override_time: !input reset_override_time
   reset_override_timeout: !input reset_override_timeout
+  reset_override_position: !input reset_override_position
   is_reset_disabled: "{{ 'reset_disabled' in reset_override_config }}"
   is_reset_fixed_time: "{{ 'reset_fixed_time' in reset_override_config }}"
   is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
+  is_reset_position: "{{ 'reset_in_position' in reset_override_config }}"
 
   # Force entities
   auto_up_force: !input auto_up_force
@@ -3020,6 +3034,11 @@ variables:
         (current_tilt_position == ventilate_tilt_position | int)
       )
     }}
+
+  in_reset_override_position: >-
+    {% set min = reset_override_position - position_tolerance %}
+    {% set max = reset_override_position + position_tolerance %}
+    {{ is_reset_position and current_position >= min and current_position <= max }}
 
   # Brightness and sun configuration
   brightness_time_duration: !input brightness_time_duration
@@ -3866,6 +3885,7 @@ triggers:
       minutes: 1
     enabled: "{{ is_cover_tilt_enabled }}"
 
+  # Resets
   - trigger: template
     value_template: "{{ now() >= today_at(reset_override_time) }}"
     enabled: "{{ is_reset_fixed_time }}"
@@ -3888,6 +3908,18 @@ triggers:
     id: "t_reset_timeout"
     for:
       seconds: 2
+
+  - trigger: template
+    value_template: >-
+      {% set helper_state = states(cover_status_helper) %}
+      {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% set pos = state_attr(blind, 'current_position') | float(-100) %}
+      {{ helper.man | default(0) | int == 1 and
+         (pos - (reset_override_position | float(0))) | abs <= (position_tolerance | float(5)) }}
+    enabled: "{{ is_reset_position }}"
+    id: "t_reset_position"
+    for:
+      minutes: "{{ reset_override_timeout | int(5) }}"
 
 ################################################################################
 # GLOBAL CONDITIONS
@@ -6999,6 +7031,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
+          - "{{ not (trigger.id == 't_manual_position' and in_reset_override_position) }}"
           - "{{ this.attributes.current | int(99) == 0 }}"
           - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}"
           - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
@@ -7189,12 +7222,46 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ not is_reset_disabled }}"
-          - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout'] }}"
+          - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout', 't_reset_position'] }}"
         sequence:
-          - variables:
-              update_values:
-                # Reset manual override
-                man: 0
+          - choose:
+              - alias: "Position reset: restore OPEN base state"
+                conditions:
+                  - "{{ trigger.id == 't_reset_position' and in_open_position }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        # Reset manual override and sync base state to held position
+                        bas: 'opn'
+                        shd: 0
+                        man: 0
+                        pnd: 'non'
+                        ts:
+                          opn: 'now'
+                          shd: 'now'
+                          due: 0
+                          arm: 0
+              - alias: "Position reset: restore CLOSE base state"
+                conditions:
+                  - "{{ trigger.id == 't_reset_position' and in_close_position }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        # Reset manual override and sync base state to held position
+                        bas: 'cls'
+                        shd: 0
+                        man: 0
+                        pnd: 'non'
+                        ts:
+                          cls: 'now'
+                          shd: 'now'
+                          due: 0
+                          arm: 0
+            default:
+              - variables:
+                  update_values:
+                    # Reset manual override
+                    man: 0
           - *helper_update
           - choose: []
             default: !input auto_override_reset_action
