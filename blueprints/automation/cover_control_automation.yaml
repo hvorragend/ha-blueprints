@@ -3035,6 +3035,11 @@ variables:
       )
     }}
 
+  in_reset_override_position: >-
+    {% set min = reset_override_position - position_tolerance %}
+    {% set max = reset_override_position + position_tolerance %}
+    {{ is_reset_position and current_position >= min and current_position <= max }}
+
   # Brightness and sun configuration
   brightness_time_duration: !input brightness_time_duration
   sun_time_duration: !input sun_time_duration
@@ -7026,6 +7031,7 @@ actions:
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
+          - "{{ not (trigger.id == 't_manual_position' and in_reset_override_position) }}"
           - "{{ this.attributes.current | int(99) == 0 }}"
           - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}"
           - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
@@ -7218,10 +7224,44 @@ actions:
           - "{{ not is_reset_disabled }}"
           - "{{ trigger.id in ['t_reset_fixedtime', 't_reset_timeout', 't_reset_position'] }}"
         sequence:
-          - variables:
-              update_values:
-                # Reset manual override
-                man: 0
+          - choose:
+              - alias: "Position reset: restore OPEN base state"
+                conditions:
+                  - "{{ trigger.id == 't_reset_position' and in_open_position }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        # Reset manual override and sync base state to held position
+                        bas: 'opn'
+                        shd: 0
+                        man: 0
+                        pnd: 'non'
+                        ts:
+                          opn: 'now'
+                          shd: 'now'
+                          due: 0
+                          arm: 0
+              - alias: "Position reset: restore CLOSE base state"
+                conditions:
+                  - "{{ trigger.id == 't_reset_position' and in_close_position }}"
+                sequence:
+                  - variables:
+                      update_values:
+                        # Reset manual override and sync base state to held position
+                        bas: 'cls'
+                        shd: 0
+                        man: 0
+                        pnd: 'non'
+                        ts:
+                          cls: 'now'
+                          shd: 'now'
+                          due: 0
+                          arm: 0
+            default:
+              - variables:
+                  update_values:
+                    # Reset manual override
+                    man: 0
           - *helper_update
           - choose: []
             default: !input auto_override_reset_action
