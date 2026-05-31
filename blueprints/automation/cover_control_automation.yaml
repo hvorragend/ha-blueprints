@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.05.30
+    **Version**: 2026.05.31
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2848,7 +2848,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.05.30"
+  version: "2026.05.31"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3906,15 +3906,18 @@ triggers:
 
   - trigger: template
     value_template: >
+      {% set helper_state = states(cover_status_helper) %}
+      {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% set pos = state_attr(blind, 'current_position') | float(-100) %}
       {% set target_pos = reset_override_position | float(0) %}
       {% set tol = position_tolerance | float(5) %}
       {% set min_pos = target_pos - tol %}
       {% set max_pos = target_pos + tol %}
-      {{ pos >= min_pos and pos <= max_pos }}
+      {{ helper.man | int == 1 and pos >= min_pos and pos <= max_pos }}
     enabled: "{{ is_reset_position }}"
     id: "t_reset_position"
-    for: "{{ reset_override_timeout | int(4) * 60 }}"
+    for:
+      minutes: "{{ reset_override_timeout | int(4) }}"
 
 ################################################################################
 # GLOBAL CONDITIONS
@@ -7565,3 +7568,4 @@ actions:
                 update={{ update_values | default({}) | to_json }} 
                 {% if log_extra is defined %} extra={{ log_extra }}{% endif %}
       - stop: "No operational branch matched (Opening, Closing, Shading, etc. conditions not met for current trigger)"
+      
