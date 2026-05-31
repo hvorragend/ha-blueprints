@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.05.31
+
+- 🐛 **Fix:** The *"Additional Condition For Activating Ventilation"* is now honored by **all** ventilation-start branches, not only the window-contact handler. Previously, only a direct change of the window contact respected this condition. When another trigger re-evaluated the situation while the window was already tilted — the late close time firing, the resident sensor leaving/arriving, or a force function ending — the cover was driven to the ventilation position regardless of the configured condition. As a result, a tilted window outside the allowed ventilation window (e.g. at night) could move the cover (which looks like an unintended opening, especially with a high ventilation position). The condition is now also checked in the close handler, the resident leaving/arriving handlers, the force-disabled recovery, and the ventilation-after-shading-end branch ([#504](https://github.com/hvorragend/ha-blueprints/issues/504))
+
+---
+
 # CCA 2026.05.30
 
 - 🐛 **Fix:** *"Don't end shading if cover is already closed"* no longer ends shading (opening the cover) when the cover was manually closed **further** than the configured close position. The guard checked `in_close_position`, which is a tolerance window centered on the configured close position — a cover driven below that position (e.g. fully closed at 0 % while the close position is 15 %) was treated as "not closed", so shading ended and the cover opened. The condition now also treats a position below the close position (`current_below_close`, awning-aware) as closed ([#502](https://github.com/hvorragend/ha-blueprints/issues/502))
