@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.02
+
+- 🐛 **Fix:** The recently added *"reset in position"* trigger (`t_reset_position`) was the only trigger using a Jinja2 template in its `for:` duration (`minutes: "{{ reset_override_timeout | int(5) }}"`). Unlike `!input`, a template is not substituted at blueprint instantiation, so the generated automation kept the raw template string in `for:`. Home Assistant's frontend could not describe this duration and logged *"Error in describing trigger/condition: undefined is not an object (evaluating 'e.includes')"* in the UI and trace. The `for:` now uses `!input reset_override_timeout` like every other CCA trigger, which resolves to a literal integer and is described correctly. Note: this is purely a UI/describe issue — it never affected automation execution ([#512](https://github.com/hvorragend/ha-blueprints/issues/512))
+
+---
+
 # CCA 2026.05.31
 
 - 🔧 **Improvement:** Clarified the description of *"Independent Shading via Temperature Comparison"*. The text now states explicitly that this mode bypasses the sun position (azimuth **and** elevation) and brightness, that shading can therefore start even when the sun is not on the facade, and that the bypass is not limited to the morning but applies all day while the temperature stays above the threshold. Users who want shading to keep respecting the sun position should leave the option unchecked
