@@ -2,7 +2,7 @@
 
 # CCA 2026.06.02
 
-- 🔧 **Improvement:** The reset timer of the *"reset in position"* option now uses the configured number of minutes directly instead of calculating it on the fly. This keeps the trigger consistent with all other triggers and lets the Home Assistant editor display the duration correctly. Note: the *"Error in describing condition"* messages reported in [#512](https://github.com/hvorragend/ha-blueprints/issues/512) come from a Home Assistant frontend issue and are purely cosmetic — they do not affect how the automation runs ([#512](https://github.com/hvorragend/ha-blueprints/issues/512))
+- 🔧 **Improvement:** The reset timer of the *"reset in position"* option now uses the configured minutes directly, so the Home Assistant editor displays it correctly. Note: the *"Error in describing condition"* messages reported in [#512](https://github.com/hvorragend/ha-blueprints/issues/512) are a cosmetic Home Assistant frontend issue and do not affect how the automation runs
 
 ---
 
