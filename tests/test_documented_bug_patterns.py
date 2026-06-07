@@ -255,8 +255,11 @@ class TestPatternMSunPositionEndSplit:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Branches whose fix (#484) removed pnd/ts.due/ts.arm from update_values.
+# "Window tilted - Partial ventilation" was missed by the original #484 fix and
+# is included here so a tilt during a shading pending no longer destroys it.
 N_FIXED_BRANCH_ALIASES = [
     "Window opened - Full ventilation (lockout)",
+    "Window tilted - Partial ventilation",
     "Window closed - Return to shading",
     "Window closed - Return to open position",
     "Window closed - Return to close position",
