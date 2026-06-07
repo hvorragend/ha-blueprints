@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.02
+
+- 🔧 **Improvement:** The reset timer of the *"reset in position"* option now uses the configured minutes directly, so the Home Assistant editor displays it correctly. Note: the *"Error in describing condition"* messages reported in [#512](https://github.com/hvorragend/ha-blueprints/issues/512) are a cosmetic Home Assistant frontend issue and do not affect how the automation runs
+
+---
+
 # CCA 2026.05.31
 
 - 🔧 **Improvement:** Clarified the description of *"Independent Shading via Temperature Comparison"*. The text now states explicitly that this mode bypasses the sun position (azimuth **and** elevation) and brightness, that shading can therefore start even when the sun is not on the facade, and that the bypass is not limited to the morning but applies all day while the temperature stays above the threshold. Users who want shading to keep respecting the sun position should leave the option unchecked
