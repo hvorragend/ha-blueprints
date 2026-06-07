@@ -316,3 +316,63 @@ class TestPatternNContactPreservesPending:
         assert "in_open_position" not in flat, (
             f"{alias}: 'was ventilating' must not gate on in_open_position (#484 Fix B)"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #495: late opening trigger must not overwrite ts.opn / redundantly drive
+#
+# Fixed in 9ba59b0, silently reverted by 3116a92 (no test guarded it), re-applied.
+# The "Already in open position" branch must always be SELECTED when the cover is
+# open (no or-gate in conditions); the ts.opn refresh decision lives inside the
+# sequence as if/then/else.  This is the regression test that was missing.
+# ─────────────────────────────────────────────────────────────────────────────
+
+P_BRANCH_ALIAS = "Already in open position - only update base state"
+
+
+def _update_values_from_steps(steps: list) -> dict:
+    for step in steps or []:
+        if isinstance(step, dict) and "variables" in step:
+            uv = step["variables"].get("update_values")
+            if uv is not None:
+                return uv
+    return {}
+
+
+class TestIssue495AlreadyOpenPreservesTsOpn:
+    """The already-open branch refreshes ts.opn only on a real transition/new day."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), P_BRANCH_ALIAS)
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, f"branch not found: {P_BRANCH_ALIAS!r}"
+
+    def test_conditions_have_no_or_gate(self, branch):
+        # The branch must always be selected when the cover is open — the refresh
+        # decision must NOT live in the conditions (that caused the #495 fall-through).
+        for cond in branch["conditions"]:
+            assert not (isinstance(cond, dict) and "or" in cond), (
+                "conditions must not contain an or-gate (#495 regression)"
+            )
+            assert "helper_state_base != 'opn'" not in str(cond), (
+                "base-transition check must be inside the sequence, not conditions (#495)"
+            )
+
+    def test_refresh_decision_is_if_then_else_in_sequence(self, branch):
+        first = branch["sequence"][0]
+        assert isinstance(first, dict) and "if" in first, (
+            "sequence must start with an if/then/else refresh decision (#495)"
+        )
+        assert "helper_state_base != 'opn'" in first["if"]
+        assert "now().day" in first["if"]
+
+        then_uv = _update_values_from_steps(first.get("then", []))
+        else_uv = _update_values_from_steps(first.get("else", []))
+
+        # then (real transition / new day) → refresh ts.opn
+        assert then_uv.get("ts", {}).get("opn") == "now", "then must refresh ts.opn"
+        # else (already open, same day) → preserve ts.opn by omitting the key
+        assert "ts" not in else_uv, "else must preserve ts.opn (omit it) (#495)"
+        assert else_uv.get("bas") == "opn"

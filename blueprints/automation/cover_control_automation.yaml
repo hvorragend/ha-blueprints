@@ -5000,20 +5000,20 @@ actions:
                   - "{{ not helper_state_is_shaded }}"
                   - "{{ not helper_state_pending_start }}"
                   - "{{ not helper_state_shade }}"
-                  - or:
-                      # Primary: base not yet reflecting current schedule
-                      # (e.g. Force Open is active while closing time has passed,
-                      # or Resident override holds cover open past opening time)
-                      - "{{ helper_state_base != 'opn' }}"
-                      # Secondary: ts.opn is from a previous day
-                      # (needed for prevent_multiple_times to work correctly)
-                      - "{{ now().day != helper_ts_open | timestamp_custom('%-d', true) | int }}"
                 sequence:
-                  - variables:
-                      update_values:
-                        bas: "opn"
-                        ts:
-                          opn: "now"
+                  - if: "{{ helper_state_base != 'opn' or now().day != helper_ts_open | timestamp_custom('%-d', true) | int }}"
+                    then:
+                      # Real base-state transition or new day: refresh ts.opn
+                      - variables:
+                          update_values:
+                            bas: "opn"
+                            ts:
+                              opn: "now"
+                    else:
+                      # Already open, same day: preserve ts.opn (Issue #495)
+                      - variables:
+                          update_values:
+                            bas: "opn"
                   - *helper_update
                   - stop: "Open time: Already in position, base state updated"
 
