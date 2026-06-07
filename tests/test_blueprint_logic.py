@@ -37,6 +37,8 @@ RESIDENT_LEAVING_BRANCHES = [
         "conditions": [
             "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}",
             "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}",
+            # VENT is a floor only — when bas='opn' (effective_state='opn') OPEN must win, not VENT
+            "{{ effective_state == 'vnt' }}",
             "{{ resident_flags.allow_ventilate }}",
             "{{ is_ventilation_enabled }}",
             # NOTE: No position check here — that belongs in the if: guard, not conditions
@@ -261,6 +263,34 @@ class TestResidentLeavingPriority:
         assert branch == "vent_tilted", (
             f"Expected 'vent_tilted' but got '{branch}'. "
             "Ventilation must take priority over shading when window is tilted."
+        )
+
+    def test_window_tilted_base_open_selects_open_not_vent(self):
+        """
+        Regression (Holsteiner-Kiel): Resident leaves, window tilted, bas='opn'.
+        Resident gone → allow_open=true → base_target='opn' → effective_state='opn'.
+        VENT is a floor only when base_target != 'opn', so the cover must OPEN fully,
+        not rest in the ventilation position.
+
+        Before fix: vent_tilted branch fired (only checked the tilted sensor),
+        driving to 50%.
+        After fix: vent_tilted is skipped (effective_state != 'vnt'), open branch wins.
+        """
+        entity_states = make_entity_states(window_opened=False, window_tilted=True)
+        env = make_jinja_env(entity_states)
+        variables = make_vars(
+            window_opened=False,
+            window_tilted=True,
+            effective_state="opn",          # resident gone + bas='opn' → open, not vent
+            helper_state_base="opn",
+            in_ventilate_position=True,      # currently resting at vent (the bug symptom)
+            in_open_position=False,
+            opening_trigger=True,            # 'open when resident leaves' configured
+        )
+        branch = first_matching_branch(env, RESIDENT_LEAVING_BRANCHES, variables)
+        assert branch == "open", (
+            f"Expected 'open' but got '{branch}'. "
+            "With bas='opn' and resident gone, the cover must open fully, not ventilate."
         )
 
     def test_vent_drive_guard_suppresses_drive_when_already_at_position(self):
