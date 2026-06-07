@@ -10,7 +10,7 @@ Run with: pytest tests/ -v
 import pathlib
 import pytest
 import yaml
-from conftest import make_jinja_env, eval_condition, first_matching_branch
+from conftest import make_jinja_env, eval_condition, eval_conditions, first_matching_branch
 
 
 BLUEPRINT_PATH = pathlib.Path(__file__).parent.parent / "blueprints" / "automation" / "cover_control_automation.yaml"
@@ -1054,6 +1054,129 @@ class TestShadingStartOuterIfGatesOnWindow:
             "Outer if must allow pending-arm triggers (regex on t_shading_start_pending) "
             "so pending arming at night still records the attempt."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: Opening must not skip when a shading-start pending is stale (#514)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestOpeningSkippedShadingStartPendingGate:
+    """
+    Regression for issue #514:
+    A shading-start pending can be armed before the opening time when brightness
+    briefly exceeds the threshold. If the conditions then fall back below the
+    threshold (still before opening), the pending is stale: the shading
+    execution trigger will never drive the cover (it only retries/aborts).
+
+    The opening handler's 'Opening skipped: Shading start pending' branch
+    deferred unconditionally whenever pnd == 'beg', so at opening time the
+    cover stayed closed forever ('Opening skipped: Shading start pending').
+
+    Fix: the branch additionally requires shading_start_warranted. When the
+    pending is stale (conditions no longer met), the branch is skipped and
+    execution falls through to 'Normal opening', which drives the cover open
+    and clears the stale pending.
+    """
+
+    BRANCH_ALIAS = "Opening skipped: Shading start pending"
+
+    def _load_branch(self) -> dict:
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        branch = _find_branch_by_alias(blueprint, self.BRANCH_ALIAS)
+        assert branch is not None, f"Could not find branch {self.BRANCH_ALIAS!r}"
+        return branch
+
+    def test_branch_gates_on_pending_and_warranted(self):
+        branch = self._load_branch()
+        flat = yaml.safe_dump(branch.get("conditions", []))
+        assert "helper_state_pending_start" in flat, (
+            "Branch must still require an active shading-start pending."
+        )
+        assert "shading_start_warranted" in flat, (
+            "Branch must additionally require shading_start_warranted so a "
+            "stale pending no longer suppresses the opening."
+        )
+
+    def test_defers_when_warranted(self):
+        """pnd active AND still warranted → branch matches (defer to execution)."""
+        env = make_jinja_env()
+        branch = self._load_branch()
+        variables = {
+            "helper_state_pending_start": True,
+            "shading_start_warranted": True,
+        }
+        assert eval_conditions(env, branch["conditions"], variables) is True
+
+    def test_skips_when_stale(self):
+        """pnd active BUT no longer warranted → branch does NOT match (open)."""
+        env = make_jinja_env()
+        branch = self._load_branch()
+        variables = {
+            "helper_state_pending_start": True,
+            "shading_start_warranted": False,
+        }
+        assert eval_conditions(env, branch["conditions"], variables) is False
+
+    def test_stale_pending_falls_through_to_normal_opening(self):
+        """
+        With a stale pending, the 'Opening skipped' branch is skipped and the
+        next branch 'Normal opening' is selected (its only gate is the cover
+        not already being in the shading position).
+        """
+        env = make_jinja_env()
+        skip_branch = self._load_branch()
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        normal = _find_branch_by_alias(blueprint, "Normal opening of the cover")
+        assert normal is not None, "Could not find 'Normal opening of the cover' branch"
+
+        ordered = [
+            {"name": "skip", "conditions": skip_branch["conditions"]},
+            {"name": "normal", "conditions": normal["conditions"]},
+        ]
+        variables = {
+            "helper_state_pending_start": True,
+            "shading_start_warranted": False,
+            "in_shading_position": False,
+        }
+        assert first_matching_branch(env, ordered, variables) == "normal"
+
+
+class TestShadingStartWarrantedVariable:
+    """The shading_start_warranted variable mirrors the execution gate:
+    standard AND/OR conditions OR the independent-temperature path."""
+
+    SHADING_START_WARRANTED = (
+        "shading_start_conditions_met or "
+        "('shading_temp_comparison_independent' in shading_config and "
+        "shading_start_condition_states.independent_temp_valid)"
+    )
+
+    def test_warranted_when_conditions_met(self):
+        env = make_jinja_env()
+        variables = {
+            "shading_start_conditions_met": True,
+            "shading_config": [],
+            "shading_start_condition_states": {"independent_temp_valid": False},
+        }
+        assert eval_condition(env, self.SHADING_START_WARRANTED, variables) is True
+
+    def test_warranted_via_independent_temp(self):
+        env = make_jinja_env()
+        variables = {
+            "shading_start_conditions_met": False,
+            "shading_config": ["shading_temp_comparison_independent"],
+            "shading_start_condition_states": {"independent_temp_valid": True},
+        }
+        assert eval_condition(env, self.SHADING_START_WARRANTED, variables) is True
+
+    def test_not_warranted_when_nothing_met(self):
+        env = make_jinja_env()
+        variables = {
+            "shading_start_conditions_met": False,
+            "shading_config": [],
+            "shading_start_condition_states": {"independent_temp_valid": False},
+        }
+        assert eval_condition(env, self.SHADING_START_WARRANTED, variables) is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
