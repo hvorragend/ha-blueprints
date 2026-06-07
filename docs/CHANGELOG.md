@@ -2,7 +2,7 @@
 
 # CCA 2026.06.02
 
-- 🔧 **Improvement:** The recently added *"reset in position"* trigger (`t_reset_position`) was the only CCA trigger using a Jinja2 template in its `for:` duration (`minutes: "{{ reset_override_timeout | int(5) }}"`). Every other trigger uses `!input`, which is substituted to a literal integer at blueprint instantiation, whereas a template stays as a raw string in the generated automation. The `for:` now uses `!input reset_override_timeout` for consistency and so the duration is a plain integer the Home Assistant frontend can render. Note: the *"Error in describing condition/trigger: undefined is not an object (evaluating 'e.includes')"* messages reported in [#512](https://github.com/hvorragend/ha-blueprints/issues/512) originate from shorthand template **conditions** and are a Home Assistant frontend bug ([frontend#29585](https://github.com/home-assistant/frontend/issues/29585)); they are purely cosmetic (conditions still evaluate) and are not resolved by this change ([#512](https://github.com/hvorragend/ha-blueprints/issues/512))
+- 🔧 **Improvement:** The reset timer of the *"reset in position"* option now uses the configured number of minutes directly instead of calculating it on the fly. This keeps the trigger consistent with all other triggers and lets the Home Assistant editor display the duration correctly. Note: the *"Error in describing condition"* messages reported in [#512](https://github.com/hvorragend/ha-blueprints/issues/512) come from a Home Assistant frontend issue and are purely cosmetic — they do not affect how the automation runs ([#512](https://github.com/hvorragend/ha-blueprints/issues/512))
 
 ---
 
