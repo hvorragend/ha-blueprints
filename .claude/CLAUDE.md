@@ -250,15 +250,17 @@ The resident sensor handler (`resident_leaving` / `resident_arriving`) does **no
 
 This is intentional. Do not "harmonize" by adding the override gate to the resident handler.
 
-### Opening handler preserves shading-start pending; closing handler discards it
+### Opening handler preserves shading-start pending **only while still warranted**; closing handler discards it
 
-When the opening trigger fires while a shading-start pending is active (`pnd == 'beg'`), the opening handler **preserves** `pnd`, `ts.due`, and `ts.arm` and defers to the `t_shading_start_execution` trigger (which fires 1 second later at `ts.due = window_start + 1`).
+When the opening trigger fires while a shading-start pending is active (`pnd == 'beg'`) **and shading is still warranted**, the opening handler **preserves** `pnd`, `ts.due`, and `ts.arm` and defers to the `t_shading_start_execution` trigger (which fires 1 second later at `ts.due = window_start + 1`). "Still warranted" is the variable `shading_start_warranted` = `shading_start_conditions_met or (independent-temperature path active)` — it mirrors the execution gate exactly.
 
 When the closing trigger fires while a shading-start pending is active, the closing branches **discard** `pnd`/`ts.due`/`ts.arm` by setting them to `non`/`0`/`0`.
 
-**Rationale:** At closing time, a shading-start intent from earlier in the day is no longer relevant — the cover is about to close regardless. Driving it to the shading position only to immediately close it would be wrong. At opening time, the intent is still valid (the sun is out, conditions are met) and the execution trigger should handle the drive.
+**Rationale:** At closing time, a shading-start intent from earlier in the day is no longer relevant — the cover is about to close regardless. Driving it to the shading position only to immediately close it would be wrong. At opening time, the intent is still valid **provided the conditions are still met** — the execution trigger should handle the drive.
 
-This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it.
+**Stale-pending guard (Issue #514):** A pending can be armed before the opening time (brightness briefly exceeds the threshold) and then go stale when the conditions fall back below the threshold *before* the opening time. The `t_shading_start_execution` trigger only ever drives into the shading position or retries/aborts — it **never opens the cover**. So if the opening handler deferred unconditionally, a stale pending would leave the cover stuck closed all morning. The "Opening skipped: Shading start pending" branch therefore gates on `shading_start_warranted`; when the pending is stale the branch is skipped, execution falls through to "Normal opening", which drives the cover open and clears `pnd`/`ts.due`/`ts.arm`.
+
+This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it. Do not remove the `shading_start_warranted` gate from the opening "skip" branch — that reintroduces #514.
 
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving
 
@@ -483,6 +485,14 @@ No drive, no `man: 0` in the already-open case. `helper_update` preserves the ex
 A change only counts as manual when its magnitude *exceeds* `position_tolerance`. With `position_tolerance = 0` the old behaviour (react to every change) is restored. The tilt-detection branch is intentionally left unchanged (no tilt tolerance exists).
 
 **Note — not solved by raising `position_tolerance` alone:** before this fix the detection ignored the tolerance entirely (`!=` only). The tolerance governed *which* branch was chosen (`in_shading_position`), not *whether* manual was detected. The dead-band ties the two together.
+
+### Bug Pattern R: Stale shading-start pending leaves cover stuck closed at opening time (Issue #514)
+
+**Symptom:** Brightness briefly exceeds the shading threshold *before* the opening time → shading-start pending arms (`pnd: 'beg'`, `ts.due` deferred to `window_start + 1` per Bug Pattern L). Brightness then falls back below the threshold, still before the opening time. At the opening time the cover stays closed; the trace shows `"Opening skipped: Shading start pending"`. The cover never opens that morning.
+
+**Cause:** The opening handler's "Opening skipped: Shading start pending" branch gated only on `helper_state_pending_start`, so it deferred to `t_shading_start_execution` unconditionally. But the execution trigger only ever drives into the shading position or retries/aborts — it **never opens the cover**. With the conditions no longer met, execution loops in "Continue waiting" (until `shading_start_max_duration` from `ts.arm`) and then aborts — the cover is never opened, because the opening intent was already consumed (skipped) at the opening trigger.
+
+**Fix:** Add `shading_start_warranted` (new variable, defined next to `shading_start_conditions_met`) to the "Opening skipped: Shading start pending" branch conditions. It mirrors the execution gate: `shading_start_conditions_met or (independent-temperature path active)`. When the pending is stale (`shading_start_warranted == false`), the branch is skipped and execution falls through to "Normal opening", which drives the cover open and clears `pnd`/`ts.due`/`ts.arm`. When still warranted, the defer behavior is unchanged. See the design decision "Opening handler preserves shading-start pending **only while still warranted**".
 
 ---
 
