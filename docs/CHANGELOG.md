@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.07
+
+- 🐛 **Fix:** Manual override (`man:1`) was triggered by tiny hardware position drift. Some covers report their position with ±1 % jitter; if such a drift happened after the drive-settle window (e.g. the cover slipped from 58 % to 59 % a few minutes after shading), the manual-position detection treated it as a manual intervention and locked in the manual override. With `ignore_shading_after_manual` active, this then blocked the shading from ending — the cover stayed in the shading position even after the sun left the facade. The detection now applies a dead-band: a reported position change only counts as manual when it exceeds the configured *position tolerance*. Drift within the tolerance is ignored (set the tolerance to `0` to restore the previous behaviour of reacting to every change)
+
+---
+
 # CCA 2026.06.02
 
 - 🔧 **Improvement:** The reset timer of the *"reset in position"* option now uses the configured minutes directly, so the Home Assistant editor displays it correctly. Note: the *"Error in describing condition"* messages reported in [#512](https://github.com/hvorragend/ha-blueprints/issues/512) are a cosmetic Home Assistant frontend issue and do not affect how the automation runs
