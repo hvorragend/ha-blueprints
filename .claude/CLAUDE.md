@@ -447,31 +447,6 @@ Use `not resident_blocks_open` in "Return to open" and `resident_blocks_open` in
 
 ---
 
-### Bug Pattern P: Late opening trigger overwrites `ts.opn` and redundantly drives (Issue #495)
-
-**Symptom:** Cover opens at the early time (e.g. 07:00, sun condition met) → `ts.opn = 07:00`, `bas = 'opn'`. When the late opening time fires (e.g. 08:00, `is_time_up_late`), the cover is already open but: `ts.opn` is overwritten with 08:00, the cover is redundantly re-driven (`cover_move_action` + `auto_up_action` scripts re-run), and `man` is cleared to `0`.
-
-**Cause:** The "Already in open position" branch gated itself with an `or` in its **conditions**: it only fired when `helper_state_base != 'opn'` **OR** `now().day != ts.opn day`. With `bas == 'opn'` and same day, both are false → the branch is skipped → execution falls through to "Normal opening", which drives and sets `ts.opn: 'now'`, `man: 0`. This is the same class as Bug Pattern A (branch fall-through caused by a check in the conditions) and Bug Pattern F (phantom `ts.opn` update with no real base transition).
-
-**Fix:** Remove the `or`-gate from the branch **conditions** so the branch always fires when `effective_state == 'opn' and in_open_position` (and not shaded/pending). Move the refresh decision **inside** the sequence as `if/then/else`:
-```yaml
-- if: "{{ helper_state_base != 'opn' or now().day != helper_ts_open | timestamp_custom('%-d', true) | int }}"
-  then:   # real base transition or new day → refresh ts.opn
-    - variables: {update_values: {bas: 'opn', ts: {opn: 'now'}}}
-  else:   # already open, same day → preserve ts.opn
-    - variables: {update_values: {bas: 'opn'}}
-- *helper_update
-```
-No drive, no `man: 0` in the already-open case. `helper_update` preserves the existing `ts.opn` when the key is omitted.
-
-**Do NOT guard `ts.opn` globally in `helper_update`** (analogous to the `ts.shd` guard): that would break the legitimate daily `ts.opn` refresh for `prevent_multiple_times` (on a new day `bas` is still `'opn'` from yesterday — no transition, but `ts.opn` MUST be refreshed). The refresh decision is branch-local, not a helper-update invariant.
-
-**Rule:** A branch that "consumes" an already-reached state must always be **selected**; whether it refreshes a timestamp / drives the cover is decided **inside** the sequence (`if/then/else`), never via the branch conditions. Open-state timestamp refresh happens only on a real `bas` transition or a day change.
-
-**Open follow-up:** The CLOSE handler may have the symmetric pattern for `ts.cls`, but note Bug Pattern H — CLOSE must always record the base-state change on a real schedule transition. Any fix there must preserve that, only suppressing the no-op same-day re-fire.
-
----
-
 ### Bug Pattern Q: Hardware position drift triggers false manual override
 
 **Symptom:** Some minutes after the automation drives the cover (e.g. to the shading position 58 %), the cover reports a tiny position drift on its own (58 % → 59 %, stable ≥ the trigger's `for: 60s`). `t_manual_position` fires *outside* the drive-settle window, the "Manual: …" handler sets `man: 1`. With `ignore_shading_after_manual` active, the shading-end branches (gated by `not (helper_state_manual and override_flags.shading)`) are then blocked → the cover stays in the shading position even after the sun leaves the facade, until `reset_override_timeout` clears the override.
