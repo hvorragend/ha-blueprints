@@ -470,6 +470,22 @@ No drive, no `man: 0` in the already-open case. `helper_update` preserves the ex
 
 ---
 
+### Bug Pattern Q: Hardware position drift triggers false manual override
+
+**Symptom:** Some minutes after the automation drives the cover (e.g. to the shading position 58 %), the cover reports a tiny position drift on its own (58 % → 59 %, stable ≥ the trigger's `for: 60s`). `t_manual_position` fires *outside* the drive-settle window, the "Manual: …" handler sets `man: 1`. With `ignore_shading_after_manual` active, the shading-end branches (gated by `not (helper_state_manual and override_flags.shading)`) are then blocked → the cover stays in the shading position even after the sun leaves the facade, until `reset_override_timeout` clears the override.
+
+**Cause:** The manual-detection gate in "Checking for manual position changes" only required `trigger.from_state ... != trigger.to_state ...` — **any** position change after the `now > helper_json.t + drive_time + 60` settle window counted as manual. There was no dead-band, so a ±1 % hardware/integration jitter (even one that keeps the cover *within* `position_tolerance` of where CCA put it, i.e. `in_shading_position` still `True`) was treated as a manual intervention. The trigger's own `for: 60s` confirms the drift is stable, so a transient filter does not help.
+
+**Fix:** Replace the `!=` detection with a dead-band against `position_tolerance` for all three position sources (`custom_sensor` → state value, `current_position_attr`, `position_attr`):
+```yaml
+- "{{ ((trigger.to_state.attributes.current_position | float(0)) - (trigger.from_state.attributes.current_position | float(0))) | abs > position_tolerance }}"
+```
+A change only counts as manual when its magnitude *exceeds* `position_tolerance`. With `position_tolerance = 0` the old behaviour (react to every change) is restored. The tilt-detection branch is intentionally left unchanged (no tilt tolerance exists).
+
+**Note — not solved by raising `position_tolerance` alone:** before this fix the detection ignored the tolerance entirely (`!=` only). The tolerance governed *which* branch was chosen (`in_shading_position`), not *whether* manual was detected. The dead-band ties the two together.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.

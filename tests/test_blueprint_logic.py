@@ -2198,3 +2198,94 @@ class TestShadingEndIfClosedGuard:
             "Shading-end 'if closed' guard must also block when the cover is "
             "below the close position (Issue #502)."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: Manual detection dead-band — hardware position drift is not "manual"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Dead-band expression taken verbatim from the blueprint (current_position_attr).
+MANUAL_DEADBAND_CURRENT_POS = (
+    "((trigger.to_state.attributes.current_position | float(0)) "
+    "- (trigger.from_state.attributes.current_position | float(0))) | abs "
+    "> position_tolerance"
+)
+
+
+def _deadband_env():
+    env = make_jinja_env()
+    # HA registers `abs` as a filter; plain Jinja2 does not.
+    env.filters["abs"] = abs
+    return env
+
+
+def _trigger_vars(from_pos, to_pos, tolerance):
+    return {
+        "trigger": {
+            "from_state": {"attributes": {"current_position": from_pos}},
+            "to_state": {"attributes": {"current_position": to_pos}},
+        },
+        "position_tolerance": tolerance,
+    }
+
+
+class TestManualDetectionDeadband:
+    """
+    Regression: covers that report their position with ±1% jitter must not
+    arm the manual override. A reported position change only counts as manual
+    when it exceeds the configured position_tolerance. Within the tolerance it
+    is treated as hardware drift and ignored.
+    """
+
+    def test_one_percent_drift_within_tolerance_is_not_manual(self):
+        """58 -> 59 with tolerance 1 must NOT be detected as a manual change."""
+        env = _deadband_env()
+        result = eval_condition(env, MANUAL_DEADBAND_CURRENT_POS, _trigger_vars(58, 59, 1))
+        assert result is False, (
+            "A 1% drift within position_tolerance must not trigger manual override."
+        )
+
+    def test_real_move_beyond_tolerance_is_manual(self):
+        """58 -> 70 with tolerance 1 IS a real manual move."""
+        env = _deadband_env()
+        result = eval_condition(env, MANUAL_DEADBAND_CURRENT_POS, _trigger_vars(58, 70, 1))
+        assert result is True
+
+    def test_drift_in_either_direction_is_ignored(self):
+        """The dead-band is symmetric: 59 -> 58 is also ignored."""
+        env = _deadband_env()
+        result = eval_condition(env, MANUAL_DEADBAND_CURRENT_POS, _trigger_vars(59, 58, 1))
+        assert result is False
+
+    def test_tolerance_zero_restores_react_to_every_change(self):
+        """tolerance 0 → any non-zero change counts as manual (legacy behaviour)."""
+        env = _deadband_env()
+        result = eval_condition(env, MANUAL_DEADBAND_CURRENT_POS, _trigger_vars(58, 59, 0))
+        assert result is True
+
+    def test_change_larger_than_tolerance_is_manual(self):
+        """tolerance 1, 58 -> 60 (delta 2 > 1) → manual."""
+        env = _deadband_env()
+        result = eval_condition(env, MANUAL_DEADBAND_CURRENT_POS, _trigger_vars(58, 60, 1))
+        assert result is True
+
+    def test_blueprint_wires_deadband_for_all_position_sources(self):
+        """Static wiring: all three position sources use the position_tolerance dead-band."""
+        text = BLUEPRINT_PATH.read_text()
+        for attr in ("current_position", "position"):
+            expr = (
+                f"((trigger.to_state.attributes.{attr} | float(0)) "
+                f"- (trigger.from_state.attributes.{attr} | float(0))) | abs "
+                f"> position_tolerance"
+            )
+            assert expr in text, f"Dead-band missing for attribute '{attr}'"
+        # custom_sensor uses the state value, not an attribute
+        custom = (
+            "((trigger.to_state.state | float(0)) "
+            "- (trigger.from_state.state | float(0))) | abs > position_tolerance"
+        )
+        assert custom in text, "Dead-band missing for custom_sensor position source"
+        # The old unconditional '!=' detection must be gone.
+        assert "trigger.from_state.attributes.current_position != trigger.to_state.attributes.current_position" not in text, (
+            "Old unconditional '!=' manual detection must be replaced by the dead-band."
+        )
