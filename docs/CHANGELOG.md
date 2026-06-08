@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.08 V2
+
+- 🐛 **Fix:** When a shading-start pending was armed before the opening time and the shading conditions were *still* met when the opening time fired, the cover opened normally instead of staying in shading — but only for setups using **calendar-controlled opening times** (or any opening trigger other than the early time trigger). The opening handler's "Opening skipped: Shading start pending" branch now correctly evaluates whether shading is still warranted, but on a calendar opening the weather forecast was never loaded, so the forecast-based conditions defaulted to *false*, "still warranted" evaluated to *false*, and the cover opened. The forecast is now loaded for every opening-related trigger (early/late time, brightness, sun elevation, calendar start), so the *"defer to shading execution while still warranted"* logic works regardless of which trigger fires the opening ([#514](https://github.com/hvorragend/ha-blueprints/issues/514))
+
+---
+
 # CCA 2026.06.08
 
 - 🔧 **Improvement:** When a shading-start countdown was armed *before* the configured opening time (e.g. the shading conditions were already met at dawn), the maximum retry duration was counted from that early arming moment instead of from when the shading time window actually opens. As a result a large part of the configured "maximum duration for shading start retry loop" was consumed while merely waiting for the window to open, and the retry loop could abort with *"Shading Start aborted: Timeout or invalid"* shortly after the window opened — even though plenty of retry time was supposedly configured. The retry budget is now anchored to the start of the shading time window when arming early, so the configured duration applies *within* the window as intended ([#524](https://github.com/hvorragend/ha-blueprints/issues/524))
