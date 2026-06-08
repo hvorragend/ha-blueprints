@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.08
+
+- 🔧 **Improvement:** When a shading-start countdown was armed *before* the configured opening time (e.g. the shading conditions were already met at dawn), the maximum retry duration was counted from that early arming moment instead of from when the shading time window actually opens. As a result a large part of the configured "maximum duration for shading start retry loop" was consumed while merely waiting for the window to open, and the retry loop could abort with *"Shading Start aborted: Timeout or invalid"* shortly after the window opened — even though plenty of retry time was supposedly configured. The retry budget is now anchored to the start of the shading time window when arming early, so the configured duration applies *within* the window as intended ([#524](https://github.com/hvorragend/ha-blueprints/issues/524))
+
+---
+
 # CCA 2026.06.07
 
 - 🐛 **Fix:** When a resident left (presence `on → off`) or arrived while a window was tilted, the cover stayed in the ventilation position instead of opening fully. With the schedule set to "open" (`bas=opn`) and no shading/privacy active, ventilation is only a *floor* — the cover should open completely because no ventilation is needed at that point. The "Resident leaving: target VENTILATION (window tilted)" and "Resident arriving: window tilted → hold ventilation position" branches only checked the tilted sensor and drove to the ventilation position regardless of the effective target. They now also require `effective_state == 'vnt'`, so when the base state is open the branch is skipped and the cover opens fully; at night (`bas=cls`) ventilation remains the correct floor. This matches the priority cascade (BASE=OPN before VENT) already used by the contact handler ([#460](https://github.com/hvorragend/ha-blueprints/issues/460), [#513](https://github.com/hvorragend/ha-blueprints/issues/513))
