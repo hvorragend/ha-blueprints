@@ -471,6 +471,18 @@ A change only counts as manual when its magnitude *exceeds* `position_tolerance`
 
 ---
 
+### Bug Pattern S: `shading_start_max_duration` budget consumed by pre-window wait (Issue #524)
+
+**Symptom:** Shading-start conditions are met well *before* the opening time (e.g. independent-temperature mode at dawn). The pending arms, `ts.due` is correctly deferred to the window start (Bug Pattern L). Inside the window the start is gated off by an additional condition (`auto_shading_start_condition`) or unstable conditions, so the loop retries. But the retry loop aborts with `"Shading Start aborted: Timeout or invalid (blocked)"` much earlier than the configured `shading_start_max_duration` would suggest — e.g. only ~1 h of in-window retry on a 2 h budget.
+
+**Cause:** The "Shading detected" arming branch set `ts.arm: "now"` at the (pre-window) arming moment, and the max-duration checks compute `now - helper_ts_pending_arm`. When the pending arms an hour before the window opens, that hour is counted against the budget even though no real retry happens during it (the cover only waits for the window). When `ts.due` is deferred directly to the window start, the "waiting for time window" branches (which re-anchor `ts.arm` to `now` on each pre-window retry) never run, so `ts.arm` stays at the early arming time and the budget is silently shortened.
+
+**Fix:** In the "Shading detected" arming branch, anchor `ts.arm` to the start of the shading window when arming early. Compute a `shading_start_arm` variable mirroring `shading_start_due` but without the `+ waitingtime`/`+1`: `max(now, window_start)` where `window_start` is `today_at(time_up_early_today)` (time field) or `calendar_open_start` (calendar), and plain `now` when the window is already open or time control is disabled. The "waiting for time window" retry branches keep `arm: "now"` — they already push the anchor forward to ~window-open by re-arming every `waitingtime` seconds.
+
+**Note:** This is distinct from the underlying *configuration* cause that usually surfaces this symptom: an `auto_shading_start_condition` that stays `false` through the whole window (e.g. "outdoor temp > 14 °C" when it is 13.7 °C) will still abort after the (now correctly-sized) budget. The additional condition is a *gate*, not a trigger — if its entity is not also a shading trigger source, a value that only crosses the threshold later in the day will not re-arm the pending.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.

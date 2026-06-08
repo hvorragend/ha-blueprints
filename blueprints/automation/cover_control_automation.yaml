@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.07
+    **Version**: 2026.06.08
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2850,7 +2850,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.07"
+  version: "2026.06.08"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5353,7 +5353,18 @@ actions:
                             {% else %}
                               {{ wait_due }}
                             {% endif %}
-                          log_extra: "shading start pending armed; wait={{ shading_waitingtime_start | int }}s; due_in={{ (shading_start_due | int - as_timestamp(now()) | int) }}s; max_duration={{ shading_start_max_duration | int }}s"
+                          shading_start_arm: >-
+                            {% set ts = as_timestamp(now()) | int %}
+                            {% if is_time_control_disabled or is_shading_allowed_window %}
+                              {{ ts }}
+                            {% elif is_time_field_enabled %}
+                              {{ [ts, as_timestamp(today_at(time_up_early_today)) | int] | max }}
+                            {% elif is_calendar_enabled and calendar_open_start is not none %}
+                              {{ [ts, calendar_open_start | int] | max }}
+                            {% else %}
+                              {{ ts }}
+                            {% endif %}
+                          log_extra: "shading start pending armed; wait={{ shading_waitingtime_start | int }}s; due_in={{ (shading_start_due | int - as_timestamp(now()) | int) }}s; max_duration={{ shading_start_max_duration | int }}s; budget_from={{ shading_start_arm | int }}"
                           update_values:
                             # Set shade pending timestamp
                             shd: 0
@@ -5361,7 +5372,7 @@ actions:
                             ts:
                               shd: "now"
                               due: "{{ shading_start_due | int }}"
-                              arm: "now" # Anchor for max-duration retry window
+                              arm: "{{ shading_start_arm | int }}" # Anchor max-duration budget to window start when arming before the window
                       - *helper_update
                       - stop: "Shading Start Pending: Waiting"
 
