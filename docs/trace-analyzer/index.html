@@ -1067,6 +1067,11 @@
             background: rgba(59, 130, 246, 0.05);
         }
 
+        .branch-item.skipped {
+            border-left-color: var(--accent-yellow);
+            background: rgba(245, 158, 11, 0.05);
+        }
+
         .branch-icon {
             font-size: 1.5rem;
             min-width: 2.5rem;
@@ -1112,6 +1117,10 @@
 
         .branch-reason.pass {
             border-left-color: var(--accent-green);
+        }
+
+        .branch-reason.skipped {
+            border-left-color: var(--accent-yellow);
         }
 
         /* OPT #1: Condition Chain Error Analysis Styles */
@@ -1851,7 +1860,7 @@
             const steps = parseExecutionSteps(innerTrace, lastStep);
 
             // Render everything
-            renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId);
+            renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId, innerTrace);
             renderLastStepAnalysis(lastStep, innerTrace, branchInfo);
 
             // OPT #2: Render Branch Decision Tree
@@ -2410,8 +2419,17 @@
 
                     // Check if this branch was executed
                     if (lastStep.includes(`choose/${i}/sequence`) || lastStep.includes(`choose/${i}/default`)) {
-                        status = 'executed';
-                        reason = 'Branch executed';
+                        // Distinguish a real execution from a branch that was entered and
+                        // then skipped/aborted via a stop (no cover action) — issue #523.
+                        if (branchInfo && branchInfo.number === i && branchInfo.outcome === 'skipped') {
+                            status = 'skipped';
+                            reason = branchInfo.stopMsg
+                                ? `Branch entered, then skipped (no cover action): "${branchInfo.stopMsg}"`
+                                : 'Branch entered, then skipped (no cover action)';
+                        } else {
+                            status = 'executed';
+                            reason = 'Branch executed';
+                        }
                     }
 
                     // Check if this was the default branch
@@ -2429,6 +2447,7 @@
                     if (status === 'pass') statusIcon = '✓';
                     if (status === 'fail') statusIcon = '✗';
                     if (status === 'executed') statusIcon = '→';
+                    if (status === 'skipped') statusIcon = '↩';
 
                     html += `
                         <div class="branch-item ${status}">
@@ -2656,9 +2675,49 @@
             return { id: 'unknown', idx: '?', platform: 'unknown', description: 'Trigger info not found' };
         }
 
+        // Determine what a matched branch actually DID, not just that its path was traversed.
+        // A branch sequence can end in a real cover drive / helper write, or in a
+        // skip/abort/waiting `stop:` that performs no cover action. Labeling the latter
+        // as "executed" is misleading (see issue #523).
+        function analyzeExecutionOutcome(innerTrace, lastStep) {
+            let droveCover = false;
+            let wroteHelper = false;
+            for (const key of Object.keys(innerTrace)) {
+                for (const step of innerTrace[key]) {
+                    const params = step.result && step.result.params;
+                    if (!params) continue;
+                    if (params.domain === 'cover') droveCover = true;
+                    if (params.domain === 'input_text' && params.service === 'set_value') wroteHelper = true;
+                }
+            }
+
+            let stopMsg = null;
+            const sd = innerTrace[lastStep];
+            if (sd && sd[0]) {
+                if (sd[0].stop) stopMsg = sd[0].stop;
+                else if (sd[0].result && sd[0].result.stop) stopMsg = sd[0].result.stop;
+            }
+            const isSkipMsg = stopMsg ? /skip|abort|waiting|pending|continue/i.test(stopMsg) : false;
+
+            let outcome;
+            if (droveCover) {
+                outcome = 'executed';            // cover was physically driven
+            } else if (isSkipMsg) {
+                outcome = 'skipped';             // branch entered, then skipped/aborted/waiting — no cover action
+            } else if (wroteHelper) {
+                outcome = 'executed';            // no movement, but a real state change was persisted
+            } else if (lastStep.match(/^condition\//)) {
+                outcome = 'none';                // stopped before any branch
+            } else {
+                outcome = stopMsg ? 'skipped' : 'entered';
+            }
+            return { outcome, stopMsg, droveCover, wroteHelper, isSkipMsg };
+        }
+
         function extractBranchInfo(lastStep, innerTrace) {
             // Parse branch from path like "action/6/choose/1/sequence/..."
             // action/6 is the main choose block, choose/N is the branch number
+            const exec = analyzeExecutionOutcome(innerTrace, lastStep);
             const match = lastStep.match(/action\/\d+\/choose\/(\d+)/);
             if (match) {
                 const branchNum = parseInt(match[1]);
@@ -2668,7 +2727,11 @@
                     name: branchDef ? branchDef.name : `Branch ${branchNum}`,
                     description: branchDef ? branchDef.description : 'Unknown branch',
                     icon: branchDef ? branchDef.icon : '❓',
-                    matched: true
+                    matched: true,
+                    outcome: exec.outcome,
+                    stopMsg: exec.stopMsg,
+                    droveCover: exec.droveCover,
+                    wroteHelper: exec.wroteHelper
                 };
             }
 
@@ -2679,7 +2742,11 @@
                     name: 'Global Conditions',
                     description: 'Stopped at global condition check before branch evaluation',
                     icon: '🚫',
-                    matched: false
+                    matched: false,
+                    outcome: exec.outcome,
+                    stopMsg: exec.stopMsg,
+                    droveCover: exec.droveCover,
+                    wroteHelper: exec.wroteHelper
                 };
             }
 
@@ -2688,7 +2755,11 @@
                 name: 'No Branch',
                 description: 'No branch was matched or executed',
                 icon: '❓',
-                matched: false
+                matched: false,
+                outcome: exec.outcome,
+                stopMsg: exec.stopMsg,
+                droveCover: exec.droveCover,
+                wroteHelper: exec.wroteHelper
             };
         }
 
@@ -2756,7 +2827,7 @@
             return steps;
         }
 
-        function renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId) {
+        function renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId, innerTrace) {
             const startTime = timestamp.start ? new Date(timestamp.start).toLocaleString('de-DE') : 'N/A';
             const duration = timestamp.start && timestamp.finish ?
                 ((new Date(timestamp.finish) - new Date(timestamp.start)) / 1000).toFixed(1) + 's' : 'N/A';
@@ -2794,24 +2865,33 @@
                 </div>
 
                 <div class="summary-card branch-info">
-                    <div class="card-label">Branch Executed</div>
+                    <div class="card-label">${branchInfo.outcome === 'skipped' ? 'Branch Entered (Skipped)' : 'Branch Executed'}</div>
                     <div class="card-value">
                         ${branchInfo.icon} ${branchInfo.number !== null ? `(${branchInfo.number}) ` : ''}${branchInfo.name}
                     </div>
                     <div class="card-detail">${branchInfo.description}</div>
+                    ${branchInfo.outcome === 'skipped' ? `<div class="card-detail" style="color: var(--accent-yellow); margin-top: 0.35rem;">↩️ Entered, then skipped — no cover action${branchInfo.stopMsg ? `: "${branchInfo.stopMsg}"` : ''}</div>` : ''}
                 </div>
 
                 <div class="summary-card last-step-info">
                     <div class="card-label">Last Step</div>
-                    <div class="card-value" style="font-size: 0.9rem;">${interpretLastStep(lastStep)}</div>
+                    <div class="card-value" style="font-size: 0.9rem;">${interpretLastStep(lastStep, innerTrace)}</div>
                     <div class="card-mono">${lastStep}</div>
                 </div>
             `;
         }
 
-        function interpretLastStep(lastStep) {
+        function interpretLastStep(lastStep, innerTrace) {
             // Parse the path and give a human-readable interpretation
             const parts = lastStep.split('/');
+
+            // Prefer the real outcome (skip vs. action) when the trace is available.
+            if (innerTrace) {
+                const exec = analyzeExecutionOutcome(innerTrace, lastStep);
+                if (exec.outcome === 'skipped') {
+                    return '↩️ Branch entered, then skipped (no cover action)';
+                }
+            }
 
             if (lastStep.includes('choose') && lastStep.includes('default')) {
                 return '✅ Default action in branch';
@@ -2841,7 +2921,21 @@
             let interpretation = '';
             let suggestions = [];
 
-            if (branchInfo.matched) {
+            if (branchInfo.matched && branchInfo.outcome === 'skipped') {
+                // Branch path was traversed, but it ended in a skip/abort/waiting stop —
+                // no cover was driven. Do NOT present this as a successful execution (issue #523).
+                interpretation = `
+                    <p><strong>Branch ${branchInfo.number} (${branchInfo.name})</strong> was <strong>entered</strong>, but then <strong>skipped</strong> — no cover action was taken.</p>
+                    <p>The branch is responsible for handling the trigger, so it is selected, but an internal check (e.g. the combined shading conditions) evaluated to <em>false</em>, so the automation stopped without moving the cover or writing the helper. "Branch traversed" is not the same as "branch executed".</p>
+                `;
+
+                suggestions = [
+                    'This is expected: the branch was entered to evaluate the trigger, then bailed out.',
+                    'The cover did NOT move and the helper was NOT changed.',
+                    'See the stop message below for the exact reason the branch skipped.'
+                ];
+
+            } else if (branchInfo.matched) {
                 interpretation = `
                     <p><strong>Branch ${branchInfo.number} (${branchInfo.name})</strong> was successfully entered and executed.</p>
                 `;
@@ -3690,11 +3784,12 @@ BRANCH
 Number: ${branchInfo.number !== null ? branchInfo.number : 'None'}
 Name: ${branchInfo.name}
 Description: ${branchInfo.description}
+Outcome: ${branchInfo.outcome === 'skipped' ? 'ENTERED, THEN SKIPPED (no cover action)' : (branchInfo.outcome === 'executed' ? 'Executed' : (branchInfo.outcome || 'N/A'))}${branchInfo.stopMsg ? `\nStop message: "${branchInfo.stopMsg}"` : ''}
 
 LAST STEP
 ---------
 Path: ${traceInfo.last_step}
-Interpretation: ${interpretLastStep(traceInfo.last_step)}
+Interpretation: ${interpretLastStep(traceInfo.last_step, innerTrace)}
 
 HELPER STATUS
 -------------
