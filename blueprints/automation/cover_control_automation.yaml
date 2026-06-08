@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.08
+    **Version**: 2026.06.08 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2191,19 +2191,20 @@ blueprint:
             If the detection of the manual position change was activated above, you may need a way to reset this status.
             Otherwise, the next cover movements will be permanently ignored or overridden.
             Or you have not activated an individual action, e.g. when closing the covers, which resets the status.
-          default: reset_disabled
+            <br /><br />
+            You can select **multiple** reset mechanisms — the first one whose condition is met clears the override.
+            Leave empty to disable all timed resets.
+          default: []
           selector:
             select:
               options:
-                - label: "No timed reset for manual override"
-                  value: "reset_disabled"
                 - label: "Reset at a specified time (see below)"
                   value: "reset_fixed_time"
                 - label: "Reset after a timeout in minutes (see below)"
                   value: "reset_timeout"
                 - label: "Reset in position (see below)"
                   value: "reset_in_position"
-              multiple: false
+              multiple: true
               sort: false
               custom_value: false
               mode: list
@@ -2227,13 +2228,23 @@ blueprint:
         
         reset_override_position:
           name: "🗑️ Position for reset manual override"
-          description: "At which position (+- tolerance) should it be reset? Typically, these are 'open' or 'closed' positions. Note: This position must be maintained for the duration specified by the 'minutes until reset' setting."
+          description: "At which position (+- tolerance) should it be reset? Typically, these are 'open' or 'closed' positions."
           default: 100
           selector:
             number:
               min: 0
               max: 100
               unit_of_measurement: "%"
+
+        reset_override_position_dwell:
+          name: "🗑️ Dwell time at reset position (seconds)"
+          description: "How long must the cover stay at the reset position (± tolerance) before the manual override is cleared? Only applies to the 'Reset in position' option."
+          default: 30
+          selector:
+            number:
+              min: 0
+              max: 3600
+              unit_of_measurement: seconds
 
     delay_section:
       description: >-
@@ -2817,10 +2828,11 @@ trigger_variables:
   reset_override_time: !input reset_override_time
   reset_override_timeout: !input reset_override_timeout
   reset_override_position: !input reset_override_position
-  is_reset_disabled: "{{ 'reset_disabled' in reset_override_config }}"
+  reset_override_position_dwell: !input reset_override_position_dwell
   is_reset_fixed_time: "{{ 'reset_fixed_time' in reset_override_config }}"
   is_reset_timeout: "{{ 'reset_timeout' in reset_override_config }}"
   is_reset_position: "{{ 'reset_in_position' in reset_override_config }}"
+  is_reset_disabled: "{{ not is_reset_fixed_time and not is_reset_timeout and not is_reset_position }}"
 
   # Force entities
   auto_up_force: !input auto_up_force
@@ -2850,7 +2862,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.08"
+  version: "2026.06.08 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3921,7 +3933,7 @@ triggers:
     enabled: "{{ is_reset_position }}"
     id: "t_reset_position"
     for:
-      minutes: !input reset_override_timeout
+      seconds: !input reset_override_position_dwell
 
 ################################################################################
 # GLOBAL CONDITIONS

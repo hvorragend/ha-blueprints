@@ -1,5 +1,12 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.08 V2
+
+- ✨ **Feature:** The *"Reset manual override"* setting now accepts **multiple** reset mechanisms at the same time. Previously the four options (*disabled*, *at fixed time*, *after timeout*, *in position*) were mutually exclusive; you can now combine e.g. *Reset in position* with *Reset after a timeout* as a safety net for when you forget to drive the cover back to the reset position. The first triggered reset wins. Existing single-value configurations continue to work unchanged. To disable all timed resets, leave the field empty ([#522](https://github.com/hvorragend/ha-blueprints/issues/522))
+- ✨ **Feature:** The *"Reset in position"* mechanism now has its own *"Dwell time at reset position (seconds)"* input (default: 30 seconds), independent from *"Number of minutes until reset manual override"*. This makes combining *Reset in position* with *Reset after a timeout* sensible: the position reset can fire quickly (seconds) while the timeout safety net stays at a longer interval (minutes)
+
+---
+
 # CCA 2026.06.08
 
 - 🐛 **Fix:** When a shading-start pending was armed before the opening time and the shading conditions were *still* met when the opening time fired, the cover opened normally instead of staying in shading — but only for setups using **calendar-controlled opening times** (or any opening trigger other than the early time trigger). The opening handler's "Opening skipped: Shading start pending" branch now correctly evaluates whether shading is still warranted, but on a calendar opening the weather forecast was never loaded, so the forecast-based conditions defaulted to *false*, "still warranted" evaluated to *false*, and the cover opened. The forecast is now loaded for every opening-related trigger (early/late time, brightness, sun elevation, calendar start), so the *"defer to shading execution while still warranted"* logic works regardless of which trigger fires the opening ([#514](https://github.com/hvorragend/ha-blueprints/issues/514))
