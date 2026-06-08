@@ -2442,3 +2442,108 @@ class TestManualDetectionDeadband:
         assert "trigger.from_state.attributes.current_position != trigger.to_state.attributes.current_position" not in text, (
             "Old unconditional '!=' manual detection must be replaced by the dead-band."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: Weather forecast must be loaded on every opening trigger (Bug Pattern T)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestWeatherForecastLoadGateCoversOpeningTriggers:
+    """
+    Regression for Bug Pattern T (issue #514 follow-up):
+
+    The Bug Pattern R fix (CCA 2026.06.07) added `shading_start_warranted` to
+    the "Opening skipped: Shading start pending" branch. That variable reads
+    `forecast_temp_raw` and `forecast_weather_condition_raw`, which require
+    `weather_forecast` to be populated by the `weather.get_forecasts` action.
+
+    The forecast-load gate originally only matched `^(t_shading_start|t_open_1)`
+    triggers. With Bug Pattern R in place, every opening trigger that may
+    reach the "Opening skipped" branch must also load the forecast — otherwise
+    the forecast-based conditions silently evaluate to false and the cover
+    opens despite shading still being warranted.
+
+    The top-level "Check for opening" branch is gated on
+    `^(t_open|t_calendar_event)` (calendar_event_end is filtered out by other
+    conditions). The forecast-load regex must therefore cover all `t_open*`
+    triggers AND `t_calendar_event_start`.
+    """
+
+    OPENING_TRIGGER_IDS_REQUIRING_FORECAST = [
+        "t_open_1",            # early time
+        "t_open_2",            # late time
+        "t_open_4",            # brightness
+        "t_open_5",            # sun elevation
+        "t_calendar_event_start",  # calendar
+    ]
+
+    def _load_forecast_load_block(self) -> dict:
+        """Locate the top-level if/then block that calls weather.get_forecasts."""
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+
+        def walk(node):
+            if isinstance(node, dict):
+                if "if" in node and "then" in node:
+                    then = node["then"]
+                    if isinstance(then, list):
+                        for step in then:
+                            if isinstance(step, dict) and step.get("action") == "weather.get_forecasts":
+                                return node
+                for v in node.values():
+                    result = walk(v)
+                    if result is not None:
+                        return result
+            elif isinstance(node, list):
+                for item in node:
+                    result = walk(item)
+                    if result is not None:
+                        return result
+            return None
+
+        block = walk(blueprint)
+        assert block is not None, "Could not find weather.get_forecasts if/then block"
+        return block
+
+    def test_regex_matches_all_opening_triggers(self):
+        """Every opening-related trigger ID must satisfy the forecast-load regex."""
+        import re
+
+        block = self._load_forecast_load_block()
+        conditions = block["if"]
+        flat = yaml.safe_dump(conditions)
+        # Extract the regex_match pattern from the trigger-gating condition.
+        # We look for `regex_match('^(...)')` to pull out the alternation list.
+        m = re.search(r"regex_match\(''?(\^\([^)]+\))''?\)", flat)
+        assert m is not None, (
+            "Forecast-load gate must use a regex_match on trigger.id with an "
+            f"anchored alternation. Conditions were:\n{flat}"
+        )
+        pattern = m.group(1)
+        compiled = re.compile(pattern)
+        for trigger_id in self.OPENING_TRIGGER_IDS_REQUIRING_FORECAST:
+            assert compiled.match(trigger_id), (
+                f"Forecast-load regex {pattern!r} does not match opening trigger "
+                f"{trigger_id!r}. Without loading the forecast, the opening "
+                f"handler cannot correctly evaluate shading_start_warranted "
+                f"and may open the cover even when shading is still warranted."
+            )
+
+    def test_regex_still_matches_shading_start_triggers(self):
+        """The forecast must continue to load on shading-start pending triggers."""
+        import re
+
+        block = self._load_forecast_load_block()
+        flat = yaml.safe_dump(block["if"])
+        m = re.search(r"regex_match\(''?(\^\([^)]+\))''?\)", flat)
+        assert m is not None
+        pattern = m.group(1)
+        compiled = re.compile(pattern)
+        for trigger_id in [
+            "t_shading_start_pending_1",
+            "t_shading_start_pending_7",
+            "t_shading_start_execution",
+        ]:
+            assert compiled.match(trigger_id), (
+                f"Forecast-load regex {pattern!r} must also match shading-start "
+                f"trigger {trigger_id!r}."
+            )

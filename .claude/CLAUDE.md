@@ -483,6 +483,18 @@ A change only counts as manual when its magnitude *exceeds* `position_tolerance`
 
 ---
 
+### Bug Pattern T: Weather forecast not loaded on non-`t_open_1` opening triggers breaks `shading_start_warranted` (Issue #514 follow-up)
+
+**Symptom:** A shading-start pending is armed before the opening time and the shading conditions are *still* met when the opening time fires. The cover should stay in shading (the opening handler defers to the shading execution per Bug Pattern R). Instead the cover opens normally — but only for users on **calendar-controlled opening** (`t_calendar_event_start`) or any non-`t_open_1` opening trigger (`t_open_2/4/5`). The trace shows the "Opening skipped: Shading start pending" branch was *not* selected, "Normal opening" ran, and the pending was cleared.
+
+**Cause:** The forecast-load gate (line ~4207) only ran `weather.get_forecasts` when the trigger matched `^(t_shading_start|t_open_1)`. Other opening triggers were excluded. With the forecast not loaded, `weather_forecast` is undefined, `forecast_temp_raw` and `forecast_weather_condition_raw` fall through to `None`, and `forecast_temp_valid`/`forecast_weather_valid` evaluate to `false` whenever the user has configured those conditions. `shading_start_warranted` therefore evaluates to `false`, the "Opening skipped: Shading start pending" branch (which gates on `shading_start_warranted` per the Bug Pattern R fix) is skipped, and execution falls through to "Normal opening". `independent_temp_valid` is affected too (depends on `forecast_temp_raw`), so the independent-temperature path also breaks under the same conditions.
+
+**Fix:** Widen the regex to `^(t_shading_start|t_open|t_calendar_event_start)` so the weather forecast is loaded on every opening-related trigger. This mirrors the top-level "Check for opening" branch gate (`^(t_open|t_calendar_event)`) plus the existing shading-start triggers, ensuring `shading_start_warranted` is evaluated against fresh forecast data whenever the opening handler may need it. The closing handler discards pending unconditionally and never reads `shading_start_warranted`, so it does not need the forecast.
+
+**Why only this user setup hit it:** The original `t_open_1` covered the most common time-based opening. Bug Pattern R (#514, CCA 2026.06.07) added the `shading_start_warranted` gate without revisiting the forecast-load gate — the moment the user's setup uses a calendar trigger or a late/brightness/sun-elevation opening trigger, the gate's premise (forecast already loaded) silently breaks.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
