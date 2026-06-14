@@ -495,6 +495,22 @@ A change only counts as manual when its magnitude *exceeds* `position_tolerance`
 
 ---
 
+### Bug Pattern U: Shading start skipped when cover sits below the shading position (Issue #530)
+
+**Symptom:** Shading conditions are met *before* the opening time, so at opening time the cover is still fully closed (position `0`). The opening handler correctly defers to `t_shading_start_execution` (Bug Pattern R), but the execution then does nothing: no drive, no helper write, `shd` stays `0`, `pnd` stays `'beg'`. The cover hangs closed all morning and the slats never tilt into the shading angle. Trace shows the execution reaching the inner drive `choose` with **all** branches false (`Consider lockout` / `Start Shading` / `Save shading state for the future`), then falling off the end with no `stop`.
+
+**Cause:** The "Start Shading" branch position guard (line ~5437) only allowed driving *downward* to the shading position: `current_above_shading` (and, for tilt covers, `current_above_shading or current_position == shading_position`). With `shading_position` above `close_position` (e.g. `3` vs `0`), a fully-closed cover is **below** the shading position → `current_above_shading` is false and `current_position != shading_position` → the guard fails. "Consider lockout" needs an open window (false here) and "Save shading state for the future" needs `effective_state == 'cls'` — but after the opening trigger set `bas: 'opn'`, `effective_state == 'opn'` (shading not yet active, `shd == 0`). All three branches miss → dead zone.
+
+**Fix:** Add a third alternative to the "Start Shading" position-check OR: drive when the cover is **below** the shading position **and** the base state wants it open (so shading must cap an otherwise-open cover by *raising* it to the shading position):
+```yaml
+- and:
+    - "{{ position_comparisons.current_below_shading }}"
+    - "{{ effective_state == 'opn' }}"
+```
+The `effective_state == 'opn'` gate is essential: when `effective_state == 'cls'` (base closed, e.g. overnight) the cover must stay closed and "Save shading state for the future" stores the intent without driving — do **not** raise the cover at night. This mirrors the opening handler's "Shading detected. Move to shading position" branch, which already drives from any direction via `not in_shading_position`.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.

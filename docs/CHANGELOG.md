@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.14
+
+- 🐛 **Fix:** When the shading conditions were already met *before* the opening time, the cover stayed closed all morning instead of moving into the shading position. At the opening time the handler correctly deferred to the shading execution, but the execution then refused to move the cover: its position check only drove the cover *down* to the shading position, while a cover that was still fully closed sits *below* the shading position (e.g. shading position 3 %, closed 0 %). As a result nothing happened — no movement, the shading state was never recorded, and the cover stayed stuck closed (and the slats never tilted into the shading angle). The shading-start branch now also raises a closed cover up to the shading position when the schedule wants it open ([#530](https://github.com/hvorragend/ha-blueprints/issues/530))
+
+---
+
 # CCA 2026.06.08
 
 - ✨ **Feature:** The *"Reset manual override"* setting now accepts **multiple** reset mechanisms at the same time. Previously the four options (*disabled*, *at fixed time*, *after timeout*, *in position*) were mutually exclusive; you can now combine e.g. *Reset in position* with *Reset after a timeout* as a safety net for when you forget to drive the cover back to the reset position. The first triggered reset wins. Existing single-value configurations continue to work unchanged. To disable all timed resets, leave the field empty ([#522](https://github.com/hvorragend/ha-blueprints/issues/522))
