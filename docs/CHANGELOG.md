@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.14
+
+- 🐛 **Fix:** The blueprint failed to import (YAML parsing error *"expected \<block end\>, but found ?"* at the `trace:` key) since the *"Number of stored traces"* setting was added. The `trace:` top-level key was indented by one space, which made it part of the preceding `actions:` block instead of a separate automation-level key. It is now correctly placed at the top level, so importing via the official button or the standard/raw URL works again ([#532](https://github.com/hvorragend/ha-blueprints/issues/532))
+
+---
+
 # CCA 2026.06.08
 
 - ✨ **Feature:** The *"Reset manual override"* setting now accepts **multiple** reset mechanisms at the same time. Previously the four options (*disabled*, *at fixed time*, *after timeout*, *in position*) were mutually exclusive; you can now combine e.g. *Reset in position* with *Reset after a timeout* as a safety net for when you forget to drive the cover back to the reset position. The first triggered reset wins. Existing single-value configurations continue to work unchanged. To disable all timed resets, leave the field empty ([#522](https://github.com/hvorragend/ha-blueprints/issues/522))
