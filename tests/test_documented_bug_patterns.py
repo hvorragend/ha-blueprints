@@ -376,3 +376,51 @@ class TestIssue495AlreadyOpenPreservesTsOpn:
         # else (already open, same day) → preserve ts.opn by omitting the key
         assert "ts" not in else_uv, "else must preserve ts.opn (omit it) (#495)"
         assert else_uv.get("bas") == "opn"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #530: shading starts while the cover sits BELOW the shading position
+#
+# When the shading conditions are met before the opening time, the cover is
+# still fully closed (position 0) at execution time. The shading-position cap is
+# above the closed position (e.g. shading_position=3, close_position=0), so the
+# old `current_above_shading` position guard was always False and the
+# "Start Shading" branch was skipped — leaving the cover stuck closed with
+# pnd='beg' forever. The branch must also drive when the cover is below the
+# shading position while the base state wants it open (effective_state == 'opn').
+# ─────────────────────────────────────────────────────────────────────────────
+
+START_SHADING_ALIAS = "Start Shading"
+
+
+class TestIssue530RaiseToShadingFromBelow:
+    """The Start Shading branch must raise a closed cover to the shading cap."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), START_SHADING_ALIAS)
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, f"branch not found: {START_SHADING_ALIAS!r}"
+
+    def test_position_check_has_below_shading_alternative(self, branch):
+        # The position-check OR must include an alternative that fires when the
+        # cover is below the shading position and the base state wants it open.
+        or_clauses = [
+            c["or"] for c in branch["conditions"] if isinstance(c, dict) and "or" in c
+        ]
+        assert or_clauses, "Start Shading must have an or-based position check"
+        flat = " ".join(str(clause) for clause in or_clauses)
+        assert "current_below_shading" in flat, (
+            "Start Shading must drive when cover is below the shading position (#530)"
+        )
+        assert "effective_state == 'opn'" in flat, (
+            "below-shading drive must be gated on base wanting open (#530)"
+        )
+
+    def test_branch_still_sets_shd_and_clears_pending(self, branch):
+        # Whatever direction the cover moves, the helper must record shd=1 and
+        # clear the pending so the cover never gets stuck in 'beg'.
+        uv = _branch_update_values(branch)
+        assert uv.get("shd") == 1, "Start Shading must set shd=1"
+        assert uv.get("pnd") == "non", "Start Shading must clear pnd"
