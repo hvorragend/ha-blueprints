@@ -2,6 +2,7 @@
 
 # CCA 2026.06.14
 
+- 🐛 **Fix:** The blueprint failed to import (YAML parsing error *"expected \<block end\>, but found ?"* at the `trace:` key) since the *"Number of stored traces"* setting was added. The `trace:` top-level key was indented by one space, which made it part of the preceding `actions:` block instead of a separate automation-level key. It is now correctly placed at the top level, so importing via the official button or the standard/raw URL works again ([#532](https://github.com/hvorragend/ha-blueprints/issues/532))
 - 🐛 **Fix:** When the shading conditions were already met *before* the opening time, the cover stayed closed all morning instead of moving into the shading position. At the opening time the handler correctly deferred to the shading execution, but the execution then refused to move the cover: its position check only drove the cover *down* to the shading position, while a cover that was still fully closed sits *below* the shading position (e.g. shading position 3 %, closed 0 %). As a result nothing happened — no movement, the shading state was never recorded, and the cover stayed stuck closed (and the slats never tilted into the shading angle). The shading-start branch now also raises a closed cover up to the shading position when the schedule wants it open ([#530](https://github.com/hvorragend/ha-blueprints/issues/530))
 
 ---
