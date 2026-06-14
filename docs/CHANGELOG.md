@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.14
+
+- ✨ **Feature:** When shading decisions rely on the **weather forecast service** (forecast source *daily* or *hourly*, weather entity configured, no separate temperature sensor), the blueprint now re-evaluates the shading start every hour. Previously the forecast value was only refreshed when some other trigger happened to fire, so an intraday weather change — e.g. a cloudy morning that clears into a hot, sunny afternoon — could be missed and shading never started. Sensor-based shading sources (brightness, temperature, sun position, weather *attributes*) already re-evaluate on their own state change and are unaffected; the hourly trigger stays disabled for them ([#531](https://github.com/hvorragend/ha-blueprints/issues/531))
+
+---
+
 # CCA 2026.06.08
 
 - ✨ **Feature:** The *"Reset manual override"* setting now accepts **multiple** reset mechanisms at the same time. Previously the four options (*disabled*, *at fixed time*, *after timeout*, *in position*) were mutually exclusive; you can now combine e.g. *Reset in position* with *Reset after a timeout* as a safety net for when you forget to drive the cover back to the reset position. The first triggered reset wins. Existing single-value configurations continue to work unchanged. To disable all timed resets, leave the field empty ([#522](https://github.com/hvorragend/ha-blueprints/issues/522))
