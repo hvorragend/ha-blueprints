@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.16
+
+- 🐛 **Fix:** The *"Open/Close/Shade cover only once per day"* options had no effect — covers were moved multiple times per day despite the setting being active. The daily-limit condition allowed re-execution whenever `ts.man` (last manual override timestamp) was less than or equal to `ts.opn`/`ts.cls`/`ts.shd`. Since `ts.man` defaults to `0` and the action timestamps are positive Unix values, `0 ≤ <timestamp>` was always true, bypassing the limit on every subsequent trigger. The condition is now correctly inverted: the limit is lifted only when `ts.man > ts.opn/cls/shd`, i.e. the user explicitly moved the cover **after** the last automated action.
+
+---
+
 # CCA 2026.06.14
 
 - 🐛 **Fix:** The blueprint failed to import (YAML parsing error *"expected \<block end\>, but found ?"* at the `trace:` key) since the *"Number of stored traces"* setting was added. The `trace:` top-level key was indented by one space, which made it part of the preceding `actions:` block instead of a separate automation-level key. It is now correctly placed at the top level, so importing via the official button or the standard/raw URL works again ([#532](https://github.com/hvorragend/ha-blueprints/issues/532))
