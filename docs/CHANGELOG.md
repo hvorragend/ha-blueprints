@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.16
+
+- 🐛 **Fix:** The *"shade the cover only once per day"* option was effectively inactive for everyone who does not manually move their covers by hand. The daily guard allowed shading again whenever no manual change had happened since the last shading — and since that is *always* the case when you never touch the cover by hand, the guard never blocked a second shading. Covers therefore re-entered the shading position again and again throughout the day (and the repeated shading-end movements made the cover look like it was *also* opening multiple times). The guard is now purely calendar-based: once the cover has shaded today, it will not shade again until the next day
+
+---
+
 # CCA 2026.06.14
 
 - 🐛 **Fix:** The blueprint failed to import (YAML parsing error *"expected \<block end\>, but found ?"* at the `trace:` key) since the *"Number of stored traces"* setting was added. The `trace:` top-level key was indented by one space, which made it part of the preceding `actions:` block instead of a separate automation-level key. It is now correctly placed at the top level, so importing via the official button or the standard/raw URL works again ([#532](https://github.com/hvorragend/ha-blueprints/issues/532))

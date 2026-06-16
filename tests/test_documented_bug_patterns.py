@@ -8,6 +8,8 @@ Covered here:
   - Pattern M (#483): sun-position end split into azimuth-only / elevation-only
   - Pattern N (#484): contact handler must not reset pnd/ts.due/ts.arm,
                       and "was ventilating before" must not gate on in_open_position
+  - Pattern V:        shade-once-per-day guard is calendar-based (no helper_ts_man
+                      short-circuit)
 
 Run with: pytest tests/ -v
 """
@@ -424,3 +426,53 @@ class TestIssue530RaiseToShadingFromBelow:
         uv = _branch_update_values(branch)
         assert uv.get("shd") == 1, "Start Shading must set shd=1"
         assert uv.get("pnd") == "non", "Start Shading must clear pnd"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern V: "shade only once per day" must block on a calendar-day basis,
+# not be short-circuited by the always-true `helper_ts_man <= helper_ts_shade`
+# clause.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestPatternVShadeOncePerDay:
+    """The shading once-per-day guard must actually block a second shading."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), "Check for shading start")
+
+    def _once_per_day_clauses(self, branch):
+        for cond in branch["conditions"]:
+            if isinstance(cond, dict) and "or" in cond:
+                flat = " ".join(str(c) for c in cond["or"])
+                if "prevent_flags.shading_multiple_times" in flat:
+                    return cond["or"], flat
+        raise AssertionError("once-per-day OR not found in shading-start branch")
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, "Check for shading start branch must exist"
+
+    def test_no_manual_short_circuit_clause(self, branch):
+        # The `helper_ts_man <= helper_ts_shade` clause defaulted to True for
+        # users who never touch the cover, disabling the guard entirely.
+        _, flat = self._once_per_day_clauses(branch)
+        assert "helper_ts_man" not in flat, (
+            "shading once-per-day guard must not use helper_ts_man "
+            "(always-true short-circuit, Bug Pattern V)"
+        )
+
+    def test_guard_is_calendar_day_based(self, branch):
+        # Full-date comparison guards against month-rollover and a fresh
+        # ts.shd == 0 (which '%-d' rendered as day 1).
+        _, flat = self._once_per_day_clauses(branch)
+        assert "%Y-%m-%d" in flat, (
+            "shading once-per-day guard must compare full calendar dates"
+        )
+
+    def test_execution_bypass_preserved(self, branch):
+        # An already-armed pending must still be able to execute.
+        _, flat = self._once_per_day_clauses(branch)
+        assert "t_shading_start_execution" in flat, (
+            "execution trigger must bypass the once-per-day guard"
+        )

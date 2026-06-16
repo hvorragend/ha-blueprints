@@ -149,6 +149,7 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 **ts.shd (shading timestamp):**
 - `ts.shd` may only be set when `shd` actually changes (guard in `helper_update`: only when `new_shd != current.shd`)
 - In the SHADED branch of the `resident_leaving` handler: `shd` was already `1` (precondition) → do **not** set `ts.shd` to `now`, preserve the original activation timestamp
+- The midnight reset (BRANCH 11) **does** write `ts.shd: "now"` when it clears `shd` 1→0 — this is fine: the reset fires at **23:55 same day** (`now() >= today_at('23:55:00')`), so the stamp lands on the current day, never the next one. The once-per-day shading guard (full-date compare) therefore still allows shading the following day.
 
 **pnd / ts.due / ts.arm (pending phase + timestamps):**
 - The top-level `pnd` enum encodes which phase is pending: `'non'` (idle), `'beg'` (start armed), `'end'` (end armed). Only one value at a time is representable — Invariant 11 is enforced by the schema.
@@ -508,6 +509,32 @@ A change only counts as manual when its magnitude *exceeds* `position_tolerance`
     - "{{ effective_state == 'opn' }}"
 ```
 The `effective_state == 'opn'` gate is essential: when `effective_state == 'cls'` (base closed, e.g. overnight) the cover must stay closed and "Save shading state for the future" stores the intent without driving — do **not** raise the cover at night. This mirrors the opening handler's "Shading detected. Move to shading position" branch, which already drives from any direction via `not in_shading_position`.
+
+---
+
+### Bug Pattern V: "Shade only once per day" never blocks for users who don't touch the cover by hand
+
+**Symptom:** With `prevent_shading_multiple_times` enabled, the cover still shades multiple times a day. After the morning shading ends (sun leaves the facade, cover returns to open), the afternoon shading conditions re-trigger and the cover shades **again**. The repeated shading-end movements also make the cover appear to *open* multiple times (shade → open → shade → open).
+
+**Cause:** The once-per-day guard was
+
+```jinja2
+prevent_flags.shading_multiple_times and ((now().day != helper_ts_shade|timestamp_custom('%-d')|int) or helper_ts_man <= helper_ts_shade)
+```
+
+The second OR-clause `helper_ts_man <= helper_ts_shade` ("no manual change happened after the last shading") is **always true** when the user never moves the cover by hand, because `ts.man` defaults to `0` and `0 <= ts.shd` holds for any non-zero `ts.shd`. The day-check is therefore short-circuited and the guard never blocks a second shading. The clause was originally added for the opening/closing guards to handle `ts.opn`/`ts.cls` being polluted by non-driving base-state syncs (Issue #311) — but for shading it only disables the feature.
+
+**Fix:** Drop the manual clause for shading and make the guard purely calendar-based, comparing the **full date** (not just day-of-month, which collapsed across months and treated a fresh `ts.shd == 0` as "day 1"):
+
+```jinja2
+prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d')
+```
+
+The `t_shading_start_execution` bypass (third OR-clause) is kept so an already-armed pending can still execute. Manual override is still respected via the separate `not (helper_state_manual and override_flags.shading)` gate.
+
+**`ts.shd` is the only consumer of this guard, and it is not polluted like `ts.opn`/`ts.cls`** — it changes only on a real `shd` 0↔1 transition (Invariant 8). The opening/closing guards are intentionally **left unchanged** (they keep the manual clause) because their timestamps *are* polluted by non-driving syncs, so removing the clause there would reintroduce Issue #311. The user-reported "opening multiple times" symptom is a side-effect of the shading loop, not an independent opening bug.
+
+**Why the midnight reset (BRANCH 11) needs no special handling:** `t_shading_reset` fires at **23:55 the same day** (`now() >= today_at('23:55:00')`), so even though it clears `shd` 1→0 and writes `ts.shd: "now"`, the stamp lands on the *current* day — never the next one. The full-date guard compares `ts.shd`'s day against today, so the following day is still a different date → shading is allowed. The old CHANGELOG #365 failure (reset stamping the *new* day and blocking it) cannot occur with the 23:55 trigger; no `ts.shd` omission is required.
 
 ---
 
