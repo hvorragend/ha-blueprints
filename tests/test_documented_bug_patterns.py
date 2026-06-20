@@ -476,3 +476,46 @@ class TestPatternVShadeOncePerDay:
         assert "t_shading_start_execution" in flat, (
             "execution trigger must bypass the once-per-day guard"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern W (#538): the closing handler's "window tilted → ventilation" branch
+# must not re-drive the cover when it is already in the ventilation position.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+TILTED_CLOSE_ALIAS = (
+    "Window tilted. No lockout. Move to ventilation position instead of closing"
+)
+
+
+class TestPatternWTiltedClosingIdempotent:
+    """#538: re-driving ventilation on every closing trigger must be guarded."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), TILTED_CLOSE_ALIAS)
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, f"branch not found: {TILTED_CLOSE_ALIAS!r}"
+
+    def test_drive_is_position_guarded(self, branch):
+        # The drive `if:` must gate on the in-ventilation position check so a
+        # cover that is already venting is not re-driven on every closing
+        # trigger (e.g. the repeating sun-based t_close_5).
+        flat = str(branch["sequence"])
+        assert "force_allows_ventilate and (effective_state != 'vnt'" in flat, (
+            "tilted-closing drive must be guarded by the in-ventilation check (#538)"
+        )
+        assert "not in_ventilate_position" in flat, (
+            "tilted-closing drive must check in_ventilate_position (#538)"
+        )
+
+    def test_man_reset_only_when_driving(self, branch):
+        # man: 0 must carry the same guard so it is not cleared without a drive
+        # (Invariant 7).
+        uv = _branch_update_values(branch)
+        man = str(uv.get("man", ""))
+        assert "effective_state != 'vnt' or not in_ventilate_position" in man, (
+            "man:0 must be gated on actually driving the cover (Invariant 7, #538)"
+        )
