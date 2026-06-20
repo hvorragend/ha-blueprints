@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.20
+
+- 🐛 **Fix:** With *"Allow sun protection when resident is still present"* disabled, the slats could still tilt into the shading angle while a resident was present. When the shading conditions were met during resident presence, the shading **intent** was correctly stored without driving the cover (`shade` on, status `resident`). But the separate *shading tilt* adjustment (which re-angles the slats as the sun rises) was missing the resident check, so a tilt-position trigger would still move the slats into the shading position — making the cover appear to enter shading mode despite the resident being present. The shading-tilt adjustment now respects the resident *"allow shading"* setting like every other shading movement
+
+---
+
 # CCA 2026.06.16
 
 - 🐛 **Fix:** The *"shade the cover only once per day"* option was effectively inactive for everyone who does not manually move their covers by hand. The daily guard allowed shading again whenever no manual change had happened since the last shading — and since that is *always* the case when you never touch the cover by hand, the guard never blocked a second shading. Covers therefore re-entered the shading position again and again throughout the day (and the repeated shading-end movements made the cover look like it was *also* opening multiple times). The guard is now purely calendar-based: once the cover has shaded today, it will not shade again until the next day
