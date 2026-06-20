@@ -1,5 +1,12 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.20
+
+- ✨ **Feature:** New shading option *"End shading independently via temperature (ignore sun position)"* (in *"Sun Shading - Configuration"*). It is the counterpart to *"Independent Shading via Temperature Comparison"* for the **end** of shading. When enabled, the sun-position, brightness and weather *end* conditions can no longer end the shading — only a temperature *end* condition does. So when you start shading independently of the sun on a hot day, it no longer ends as soon as the sun leaves the facade; it stays active while it is warm. If you have configured a temperature end condition (Temperature Sensor 1/2 or Forecast Temperature Value), shading ends when that temperature drops; otherwise it stays active until the daily reset shortly before midnight ([#537](https://github.com/hvorragend/ha-blueprints/issues/537))
+- ✨ **Feature:** New shading option *"Allow shading to start from a fixed time (before the opening time)"* together with a new *"Sun Shading - Direct start time"* input. The shading time window can now open at a configurable time that may be **earlier** than the normal opening time, so the shading decision can be made before the cover would otherwise open — e.g. moving the blinds straight into the shading position early in the morning to keep the house dark on a hot day. This only controls *when* the shading window opens; whether shading actually starts is still decided by your shading start conditions (typically combined with the independent temperature comparison). Time-schedule mode only ([#537](https://github.com/hvorragend/ha-blueprints/issues/537))
+
+---
+
 # CCA 2026.06.16
 
 - 🐛 **Fix:** The *"shade the cover only once per day"* option was effectively inactive for everyone who does not manually move their covers by hand. The daily guard allowed shading again whenever no manual change had happened since the last shading — and since that is *always* the case when you never touch the cover by hand, the guard never blocked a second shading. Covers therefore re-entered the shading position again and again throughout the day (and the repeated shading-end movements made the cover look like it was *also* opening multiple times). The guard is now purely calendar-based: once the cover has shaded today, it will not shade again until the next day

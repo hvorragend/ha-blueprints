@@ -286,6 +286,23 @@ The contact handler ("Contact sensor state changed") gates on **both** the previ
 
 **This is intentional, not a bug.** The root cause is an unstable contact sensor reporting `unavailable`. The fix belongs at the sensor (battery / radio range), not in the blueprint. Do **not** remove the `from_state` guard to "process recovery transitions" — that would make CCA act on sensor dropouts. Do not "harmonize" this away.
 
+### Independent temperature END is opt-in and suppresses sun/brightness/weather end (Issue #537)
+
+The `shading_config` option `shading_temp_comparison_independent_end` is the END counterpart to the START-only `shading_temp_comparison_independent`. When selected, the four non-temperature end-condition states (`azimuth_invalid`, `elevation_invalid`, `brightness_invalid`, `forecast_weather_invalid`) are forced to `false` via a `'shading_temp_comparison_independent_end' not in shading_config` guard at the top of each. Only the **temperature** end conditions (`temp1_invalid`, `temp2_invalid`, `forecast_temp_invalid`) remain — so shading ends solely on temperature, never on sun position.
+
+**Design:** opt-in (does not change behavior for existing independent-mode users who configured sun-position end), implemented entirely in the condition states — **no new end triggers**. Sun-position end triggers (`t_shading_end_pending_5/_7`) still fire but `shading_end_conditions_met` then returns `false`, so they are no-ops. Temperature end triggers (`_1/_2/_6`) drive the end as before.
+
+**Known consequence:** If the user enables this option but configures **no** temperature end condition, `shading_end_conditions_met` can never become true and shading stays active until the midnight reset (BRANCH 11, 23:55). This is acceptable/intended ("keep the house dark all day") and bounded by the reset. Do **not** add an implicit sun-position fallback to "fix" it.
+
+### Early shading start window is opt-in, time-schedule mode only (Issue #537)
+
+The `shading_config` option `shading_early_start` plus the `shading_window_start_time` input let the shading time window open **earlier** than the normal opening time. Implemented as an extra OR clause in `is_shading_allowed_window` (gated on `'shading_early_start' in shading_config and is_time_field_enabled and shading_window_start_time not in ['', none, []]`) plus the trigger `t_shading_start_pending_8` (fires at the direct time; enabled via the trigger-scope alias `shading_config_early`).
+
+**Design notes:**
+- The option only controls **when** the window opens. The actual shade decision still flows through the existing start gate (`shading_start_conditions_met or independent_temp_valid`), so in practice it is combined with `shading_temp_comparison_independent` (temperature decides early, independently of the sun).
+- `t_shading_start_pending_8` is **not** added to the `^t_shading_start_pending_[1-6]$` dispatch regex — like `_7` it falls through to the `else → true` branch (time-based trigger, the action handler's own guards apply).
+- Because the early clause references `time_down_late_today` for its upper bound, it is gated on `is_time_field_enabled` (time-schedule mode). Calendar mode is unaffected.
+
 ---
 
 ## Known Bug Patterns (with cause and fix)

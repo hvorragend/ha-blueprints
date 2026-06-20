@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.16
+    **Version**: 2026.06.20
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -1968,6 +1968,37 @@ blueprint:
               This mechanism improves the responsiveness and reliability of the shading system by using real-time sensor input as an optional condition, especially when forecast data is uncertain.
               Note: This function has nothing to do with normal temperature comparison, but is used exclusively in the context of the forecast function.
             </details>
+            <br />
+            <details>
+            <summary><code><strong>End shading independently via temperature (ignore sun position)</strong></code></summary>
+
+              Counterpart to <em>"Independent Shading via Temperature Comparison"</em> for the <ins>end</ins> of shading.
+              When enabled, the sun-position, brightness and weather <em>end</em> conditions can no longer end the shading —
+              only a temperature <em>end</em> condition does. Shading therefore stays active as long as it is warm, even after the
+              sun has left the facade.
+
+              <strong>How it ends:</strong>
+              - If you have configured a temperature end condition (<em>"Temperature Sensor 1/2"</em> or <em>"Forecast Temperature Value"</em> as an end condition), shading ends when that temperature drops below its threshold.
+              - If you have <ins>not</ins> configured any temperature end condition, shading stays active until the daily reset shortly before midnight.
+
+              <strong>Why this exists:</strong> When you start shading independently of the sun (e.g. on a hot day from the forecast alone),
+              it is usually unwanted that the regular sun-position end condition (azimuth/elevation) ends the shading while it is still hot.
+              This option keeps the start and end symmetric — both driven by temperature, both ignoring the sun position.
+            </details>
+            <br />
+            <details>
+            <summary><code><strong>Allow shading to start from a fixed time (before the opening time)</strong></code></summary>
+
+              By default the shading time window starts at the earliest opening time. With this option the window can start at the separate
+              <em>"Sun Shading - Direct start time"</em> instead, which may be <ins>earlier</ins> than the opening time.
+
+              This lets the shading decision be made before the cover would normally open — e.g. moving the blinds straight into the
+              shading position early in the morning to keep the house dark on a hot day, instead of first opening fully at the opening time.
+
+              <strong>Note:</strong> This only controls <em>when</em> the shading window opens. Whether shading actually starts is still decided
+              by your shading start conditions. In practice this is combined with <em>"Independent Shading via Temperature Comparison"</em>, so the
+              forecast/temperature decides early — independently of the sun — that the day will be hot.
+            </details>
           default: []
           selector:
             select:
@@ -1976,6 +2007,10 @@ blueprint:
                   value: "shading_temp_comparison_independent"
                 - label: "Also trigger if 'Temperature Sensor 2' exceeds 'Forecast Temperature Value'"
                   value: "shading_compare_forecast_with_sensor2"
+                - label: "End shading independently via temperature (ignore sun position)"
+                  value: "shading_temp_comparison_independent_end"
+                - label: "Allow shading to start from a fixed time (before the opening time)"
+                  value: "shading_early_start"
               multiple: true
               sort: false
               custom_value: false
@@ -1998,6 +2033,18 @@ blueprint:
               step: 0.5
               mode: slider
               unit_of_measurement: "°C"
+
+        shading_window_start_time:
+          name: "🥵 Sun Shading - Direct start time"
+          description: >-
+            Only used when <em>"Allow shading to start from a fixed time (before the opening time)"</em> is enabled in
+            <em>"Sun Shading - Configuration"</em>. From this time on, the shading time window is open — even if it is earlier than the
+            normal opening time. This allows the cover to move straight into the shading position on a hot day before it would otherwise
+            open. Whether shading actually starts still depends on your shading start conditions (typically combined with the
+            independent temperature comparison).
+          default: "05:00:00"
+          selector:
+            time: {}
 
         shading_waitingtime_start:
           name: "🥵 Sun Shading - Start Waiting Time"
@@ -2805,6 +2852,8 @@ trigger_variables:
   shading_forecast_temp: !input shading_forecast_temp
   shading_forecast_temp_hysteresis: !input shading_forecast_temp_hysteresis
   shading_independent_temp: !input shading_independent_temp
+  shading_window_start_time: !input shading_window_start_time
+  shading_config_early: !input shading_config
   shading_weather_conditions: !input shading_weather_conditions
 
   # Shading condition selections
@@ -2872,7 +2921,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.16"
+  version: "2026.06.20"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3713,6 +3762,11 @@ triggers:
     enabled: "{{ is_shading_enabled }}"
     id: "t_shading_start_pending_7"
 
+  - trigger: template # Early shading: opens the shading time window from a fixed time, before the normal opening time.
+    value_template: "{{ shading_window_start_time not in ['', none, []] and now() >= today_at(shading_window_start_time) }}"
+    enabled: "{{ is_shading_enabled and 'shading_early_start' in shading_config_early and shading_window_start_time not in ['', none, []] }}"
+    id: "t_shading_start_pending_8"
+
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
@@ -4513,6 +4567,7 @@ actions:
         azimuth_invalid: >-
           {{
             is_shading_enabled and
+            'shading_temp_comparison_independent_end' not in shading_config and
             shading_end_condition_enabled.azimuth and
             default_sun_sensor != [] and
             (
@@ -4523,6 +4578,7 @@ actions:
         elevation_invalid: >-
           {{
             is_shading_enabled and
+            'shading_temp_comparison_independent_end' not in shading_config and
             shading_end_condition_enabled.elevation and
             default_sun_sensor != [] and
             (
@@ -4533,6 +4589,7 @@ actions:
         brightness_invalid: >-
           {{
             is_shading_enabled and
+            'shading_temp_comparison_independent_end' not in shading_config and
             shading_end_condition_enabled.brightness and
             shading_brightness_sensor != [] and
             states(shading_brightness_sensor) not in invalid_states and
@@ -4565,6 +4622,7 @@ actions:
         forecast_weather_invalid: >-
           {{
             is_shading_enabled and
+            'shading_temp_comparison_independent_end' not in shading_config and
             shading_end_condition_enabled.forecast_weather and
             shading_weather_conditions != [] and
             shading_forecast_sensor != [] and
@@ -4845,6 +4903,13 @@ actions:
       is_shading_allowed_window: >-
         {{
           is_time_control_disabled or
+          (
+            'shading_early_start' in shading_config and
+            is_time_field_enabled and
+            shading_window_start_time not in ['', none, []] and
+            now() >= today_at(shading_window_start_time) and
+            now() <= today_at(time_down_late_today) + timedelta(seconds = 5)
+          ) or
           (
             is_time_field_enabled and
             now() >= today_at(time_up_early_today) and
