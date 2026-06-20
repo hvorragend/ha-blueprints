@@ -538,6 +538,32 @@ The `t_shading_start_execution` bypass (third OR-clause) is kept so an already-a
 
 ---
 
+### Bug Pattern W: Closing handler re-drives ventilation on every closing trigger (Issue #538)
+
+**Symptom:** The cover is in the ventilation position because the window is tilted. A subsequent closing trigger — typically the sun-based `t_close_5`, which fires repeatedly through the evening closing window — re-drives the cover to the ventilation position again (`set_cover_position` + `set_cover_tilt_position`) instead of leaving it alone. The user sees the cover "override the ventilation position" and end in an undefined position on every trigger.
+
+**Cause:** The close handler's "Window tilted. No lockout. Move to ventilation position instead of closing" branch (line ~5197) drove **unconditionally** whenever `force_allows_ventilate` was true:
+
+```yaml
+- if: "{{ force_allows_ventilate }}"
+  then: ...drive position + tilt...
+```
+
+The close handler already has an idempotent "Already in close position - only update base state" branch, but had **no** equivalent guard for the ventilation case. The contact handler's ventilation-start branches (line ~6288 / ~6417) already used the correct guard. This was an asymmetry, not a deliberate design.
+
+**Fix:** Mirror the contact handler — gate the drive (and the `man: 0` reset) on `(effective_state != 'vnt' or not in_ventilate_position)` in the `if:`, per Invariant 1 (position check in the drive guard, not the branch conditions). The `*helper_update` still always runs:
+
+```yaml
+man: "{{ 0 if force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) else helper_json.man | default(0) | int }}"
+if: "{{ force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) }}"
+```
+
+This also fixes an incidental Invariant 7 violation (the old `man: 0` fired even when no drive happened).
+
+**Config caveat (not solvable by the blueprint alone):** On tilt/venetian covers the tilt movement changes the reported `current_position`, so the cover may rest at a position several points away from the configured `ventilate_position` (Issue #538: commanded position `6` + tilt `100` → reported position `10`). With a tight `position_tolerance` (e.g. `1`), `in_ventilate_position` stays `false`, so even the new guard keeps re-driving. The user must raise `position_tolerance` (or adjust `ventilate_position`) so the cover's resting position is recognized as "in ventilation position". The blueprint guard removes the *redundant* re-drive only once the cover is recognizable as vented.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.

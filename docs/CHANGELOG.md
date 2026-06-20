@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.20
+
+- 🐛 **Fix:** When a cover was already in the ventilation position because the window was tilted, a following closing trigger (e.g. the sun-based closing trigger that fires repeatedly throughout the evening) re-drove the cover to the ventilation position again instead of leaving it alone. The closing handler's *"window tilted → ventilation"* branch always drove the cover, while the analogous *"already in close position"* branch only updates the base state. The branch now only drives when the cover is not already in the ventilation position — matching the contact handler, which already behaved this way. Note: if your cover reports a resting position that differs from the configured ventilation position by more than the *position tolerance* (common with tilt/venetian covers, where the tilt movement changes the reported position), increase the *position tolerance* so the cover is recognized as "in ventilation position" ([#538](https://github.com/hvorragend/ha-blueprints/issues/538))
+
+---
+
 # CCA 2026.06.16
 
 - 🐛 **Fix:** The *"shade the cover only once per day"* option was effectively inactive for everyone who does not manually move their covers by hand. The daily guard allowed shading again whenever no manual change had happened since the last shading — and since that is *always* the case when you never touch the cover by hand, the guard never blocked a second shading. Covers therefore re-entered the shading position again and again throughout the day (and the repeated shading-end movements made the cover look like it was *also* opening multiple times). The guard is now purely calendar-based: once the cover has shaded today, it will not shade again until the next day
