@@ -538,7 +538,19 @@ The `t_shading_start_execution` bypass (third OR-clause) is kept so an already-a
 
 ---
 
-### Bug Pattern W: Closing handler re-drives ventilation on every closing trigger (Issue #538)
+### Bug Pattern W: Shading-tilt adjustment ignores resident `allow_shade`
+
+**Symptom:** With `resident_allow_shading` **unset** ("Allow sun protection when resident is still present" disabled) and a resident present, the cover still tilts its slats into the shading position. The helper shows `shd=1` and `res=1` but the cover visibly enters shading mode despite the resident block.
+
+**Cause:** When the shading-start conditions are met while a resident is present, the execution handler's "Save shading state for the future" branch (gated by `not resident_flags.allow_shade`) stores the intent — `shd: 1`, `pnd: 'non'`, no drive. This makes `helper_state_is_shaded` true. A subsequent `t_shading_tilt_*` trigger then enters the "Check for shading tilt" branch, which gated on `is_shading_enabled`, `helper_state_is_shaded`, tilt-possible, `auto_shading_tilt_condition`, `force_allows_shade`, window-closed and manual-override — but **not** on `resident_flags.allow_shade`. So `*tilt_move_action` drove the slats into the shading angle while the resident was present.
+
+**Fix:** Add `- "{{ resident_flags.allow_shade }}"` to the "Check for shading tilt" branch conditions, matching every other shading-drive branch (start execution #5459, shading-end #5680, resident-leaving SHADED #6303, force-recovery SHADING #6947, and the inline equivalent in "Window closed - Return to shading" #6123).
+
+**Rule:** Every branch that physically moves the cover (position *or* tilt) into the shading position must gate on `resident_flags.allow_shade`. The shading-tilt adjustment is a shading movement, not an exception.
+
+---
+
+### Bug Pattern X: Closing handler re-drives ventilation on every closing trigger (Issue #538)
 
 **Symptom:** The cover is in the ventilation position because the window is tilted. A subsequent closing trigger — typically the sun-based `t_close_5`, which fires repeatedly through the evening closing window — re-drives the cover to the ventilation position again (`set_cover_position` + `set_cover_tilt_position`) instead of leaving it alone. The user sees the cover "override the ventilation position" and end in an undefined position on every trigger.
 

@@ -2386,15 +2386,31 @@
                 (variables.is_shading_enabled && variables.shading_azimuth_start !== undefined);
         }
 
+        // The main dispatch `choose:` is the last top-level action item, preceded
+        // by setup steps (variables, helper validation, weather forecast load).
+        // Those setup steps shift over blueprint versions, so the choose is not at
+        // a fixed action index — derive it from the trace instead of hardcoding it.
+        function getMainChooseAction(innerTrace, lastStep) {
+            const fromLast = lastStep && lastStep.match(/^action\/(\d+)\/choose\//);
+            if (fromLast) return parseInt(fromLast[1]);
+            for (const key of Object.keys(innerTrace || {})) {
+                const m = key.match(/^action\/(\d+)\/choose\//);
+                if (m) return parseInt(m[1]);
+            }
+            return 6; // legacy fallback
+        }
+
         // OPT #2: Branch Decision Tree Visualization
         function renderBranchDecisionTree(innerTrace, lastStep, branchInfo) {
             try {
                 let html = '<div class="branch-tree">';
 
+                const mainAction = getMainChooseAction(innerTrace, lastStep);
+
                 // Analyze all branches to understand which were evaluated
                 for (let i = 0; i < 14; i++) {
-                    const branchPath = `action/6/choose/${i}/conditions`;
-                    const branchKey = `action/6/choose/${i}`;
+                    const branchPath = `action/${mainAction}/choose/${i}/conditions`;
+                    const branchKey = `action/${mainAction}/choose/${i}`;
                     const branchDef = BRANCH_DEFINITIONS[i];
 
                     let status = 'skip';
@@ -2465,7 +2481,7 @@
 
                 if (lastStep.includes('default/')) {
                     // Only highlight as the path if it's the TOP LEVEL default action (not nested)
-                    const isMainDefault = lastStep.includes('action/6/default');
+                    const isMainDefault = lastStep.includes(`action/${mainAction}/default`);
                     html += `
                         <div class="branch-item ${isMainDefault ? 'executed' : ''}" style="${isMainDefault ? 'border-left-color: var(--accent-green); background: rgba(0, 255, 136, 0.05);' : 'border-left-color: var(--border-color); background: var(--bg-tertiary); opacity: 0.8;'}">
                             <div class="branch-icon">⚙️</div>
@@ -2715,8 +2731,8 @@
         }
 
         function extractBranchInfo(lastStep, innerTrace) {
-            // Parse branch from path like "action/6/choose/1/sequence/..."
-            // action/6 is the main choose block, choose/N is the branch number
+            // Parse branch from path like "action/9/choose/1/sequence/..."
+            // The first action/N/choose/M is the main dispatch; M is the branch number.
             const exec = analyzeExecutionOutcome(innerTrace, lastStep);
             const match = lastStep.match(/action\/\d+\/choose\/(\d+)/);
             if (match) {

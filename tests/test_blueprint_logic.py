@@ -2547,3 +2547,55 @@ class TestWeatherForecastLoadGateCoversOpeningTriggers:
                 f"Forecast-load regex {pattern!r} must also match shading-start "
                 f"trigger {trigger_id!r}."
             )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests: shading-tilt adjustment must respect resident allow_shade
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _flatten_condition_strings(conditions) -> list:
+    """Collect all template/condition strings from a (possibly nested) conditions list."""
+    out = []
+
+    def walk(node):
+        if isinstance(node, str):
+            out.append(node)
+        elif isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(conditions)
+    return out
+
+
+class TestShadingTiltRespectsResident:
+    """
+    Regression: the 'Check for shading tilt' branch drove the slats into the
+    shading tilt position while a resident was present, even when
+    'Allow sun protection when resident is still present' was disabled.
+
+    Every other shading-drive branch gates on resident_flags.allow_shade
+    (or the inline equivalent). The shading-tilt branch was missing it, so a
+    t_shading_tilt_* trigger tilted the cover into shading mode despite the
+    resident block (shd=1 stored via 'Save shading state for the future',
+    res=1, but the cover still moved).
+    """
+
+    def _load_blueprint(self) -> dict:
+        return _load_blueprint_yaml(BLUEPRINT_PATH)
+
+    def test_shading_tilt_branch_gates_on_allow_shade(self):
+        blueprint = self._load_blueprint()
+        branch = _find_branch_by_alias(blueprint, "Check for shading tilt")
+        assert branch is not None, "Could not find 'Check for shading tilt' branch."
+        conditions = _flatten_condition_strings(branch.get("conditions", []))
+        assert any("resident_flags.allow_shade" in c for c in conditions), (
+            "The 'Check for shading tilt' branch must gate on "
+            "resident_flags.allow_shade so the slats are not tilted into the "
+            "shading position while a resident is present and shading is not "
+            "allowed. Conditions found: " + repr(conditions)
+        )
