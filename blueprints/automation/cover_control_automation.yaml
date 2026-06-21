@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.20
+    **Version**: 2026.06.21
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2872,7 +2872,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.20"
+  version: "2026.06.21"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4235,6 +4235,41 @@ actions:
           type: "{{ shading_forecast_type }}"
         response_variable: weather_forecast
         continue_on_error: true
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Warn when the forecast service returned no usable data
+  # ════════════════════════════════════════════════════════════════════════════
+  # The weather entity is available, the service was called, but the returned
+  # forecast list is empty/missing. Without this warning the forecast conditions
+  # silently evaluate to "not met" (forecast_temp_raw / forecast_weather_condition_raw
+  # stay None) and shading never starts. This is most commonly a temporary
+  # provider-side hiccup (e.g. Met.no rate-limiting) and otherwise invisible.
+  - if:
+      - "{{ is_shading_enabled }}"
+      - "{{ forecast_source.use_weather and not forecast_source.prevent_service }}"
+      - "{{ states(shading_forecast_sensor) not in invalid_states }}"
+      - "{{ trigger.id is defined }}"
+      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start)') }}"
+      - "{{ shading_start_condition_enabled.forecast_temp or shading_start_condition_enabled.forecast_weather or shading_end_condition_enabled.forecast_temp or shading_end_condition_enabled.forecast_weather }}"
+      - >-
+        {{
+          weather_forecast is not defined or
+          shading_forecast_sensor not in weather_forecast or
+          (weather_forecast[shading_forecast_sensor].forecast | default([]) | count == 0)
+        }}
+    then:
+      - action: system_log.write
+        data:
+          level: warning
+          logger: "blueprints.hvorragend.cca"
+          message: >-
+            Cover Control Automation ({{ friendly_name }}): weather.get_forecasts for
+            {{ shading_forecast_sensor }} (type '{{ shading_forecast_type }}') returned an empty
+            forecast - forecast-based shading conditions cannot be evaluated and will be treated as
+            not met. The weather entity is available but provides no forecast data (often a temporary
+            provider-side issue, e.g. Met.no rate-limiting). Verify by running weather.get_forecasts
+            for this entity in Developer Tools - Actions. If this persists, reload the weather
+            integration or use a different weather entity / a direct forecast temperature sensor.
 
   # ════════════════════════════════════════════════════════════════════════════
   # Load calendar events for today (00:00 to 23:59)

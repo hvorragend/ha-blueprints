@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.21
+
+- 🔧 **Improvement:** Forecast-based shading now warns you when the weather forecast comes back empty. If the weather entity is available but `weather.get_forecasts` returns no forecast data (most often a temporary provider-side hiccup such as Met.no rate-limiting), the forecast values (`forecast_temp_raw` / `forecast_weather_condition_raw`) silently stayed `null`, the forecast conditions evaluated to *"not met"*, and shading never started — with nothing in the log to explain why (you had to dig through the trace to find the `null` values). The blueprint now writes a clear warning to the Home Assistant log (logger `blueprints.hvorragend.cca`) pointing at the empty forecast and how to verify it (Developer Tools → Actions → `weather.get_forecasts`). No behavior change otherwise; this only makes the existing silent failure discoverable
+
+---
+
 # CCA 2026.06.20
 
 - 🐛 **Fix:** When a cover was already in the ventilation position because the window was tilted, a following closing trigger (e.g. the sun-based closing trigger that fires repeatedly throughout the evening) re-drove the cover to the ventilation position again instead of leaving it alone. The closing handler's *"window tilted → ventilation"* branch always drove the cover, while the analogous *"already in close position"* branch only updates the base state. The branch now only drives when the cover is not already in the ventilation position — matching the contact handler, which already behaved this way. Note: if your cover reports a resting position that differs from the configured ventilation position by more than the *position tolerance* (common with tilt/venetian covers, where the tilt movement changes the reported position), increase the *position tolerance* so the cover is recognized as "in ventilation position" ([#538](https://github.com/hvorragend/ha-blueprints/issues/538))
