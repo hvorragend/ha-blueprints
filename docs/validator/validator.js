@@ -404,24 +404,27 @@ class CCAValidator {
     validateTimeConfiguration() {
         const c = this.config;
         const autoOptions = c.auto_options || [];
+        // Apply the blueprint default (time_control_input) when the field is omitted,
+        // so an unset selector is not mistaken for "disabled".
+        const timeControl = c.time_control || 'time_control_input';
         // Hybrid backward-compat logic: matches blueprint is_time_control_disabled
-        const isTimeControlDisabled = !autoOptions.includes('time_control_enabled') && c.time_control === 'time_control_disabled';
+        const isTimeControlDisabled = !autoOptions.includes('time_control_enabled') && timeControl === 'time_control_disabled';
 
-        if (isTimeControlDisabled || !c.time_control) {
+        if (isTimeControlDisabled) {
             this.addInfo('⏰ Time control is disabled - skipping time validation');
             return;
         }
 
-        if (c.time_control === 'time_control_disabled') {
+        if (timeControl === 'time_control_disabled') {
             // Still active because time_control_enabled overrides it, but warn about legacy usage
             this.addWarning('⚠️ time_control: time_control_disabled is the legacy way to disable time control. Prefer unchecking "Time Control" (time_control_enabled) in auto_options instead.');
         }
 
-        if (!autoOptions.includes('time_control_enabled') && c.time_control !== 'time_control_disabled') {
+        if (!autoOptions.includes('time_control_enabled') && timeControl !== 'time_control_disabled') {
             this.addInfo('ℹ️ time_control_enabled is not in auto_options. Time control remains active for backward compatibility. Add "time_control_enabled" to auto_options to use the new consolidated control.');
         }
 
-        if (c.time_control === 'time_control_calendar') {
+        if (timeControl === 'time_control_calendar') {
             this.addInfo('📅 Calendar control enabled - time inputs not used');
             return;
         }
@@ -433,14 +436,17 @@ class CCAValidator {
 
     validatePositions() {
         const c = this.config;
-
-        if (c.open_position === undefined || c.open_position === null) {
-            this.addInfo('ℹ️ Positions: open_position not configured. Using blueprint default (100 for blinds, 0 for awnings).');
-            return;
-        }
-
         const isAwning = c.cover_type === 'awning';
         const tolerance = c.position_tolerance || 0;
+
+        // Apply the blueprint default for open_position when omitted (100 for blinds,
+        // 0 for awnings) so order/overlap checks still run against the other positions.
+        // Without this the validator would silently skip detecting e.g. shading_position
+        // overlapping close_position (which leaves a cover unable to open).
+        if (c.open_position === undefined || c.open_position === null) {
+            this.addInfo('ℹ️ Positions: open_position not configured. Using blueprint default (100 for blinds, 0 for awnings).');
+            c.open_position = isAwning ? 0 : 100;
+        }
 
         this.checkRange('open_position', 0, 100);
         this.checkRange('close_position', 0, 100);
