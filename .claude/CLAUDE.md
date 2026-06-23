@@ -576,6 +576,33 @@ This also fixes an incidental Invariant 7 violation (the old `man: 0` fired even
 
 ---
 
+### Bug Pattern Y: Manual move to the reset position swallowed when no override is active (Issue #546)
+
+**Symptom:** With *"Reset in position"* enabled (`reset_override_config` contains `reset_in_position`, e.g. `reset_override_position = 100`), the user manually moves the cover to the reset position while CCA is in **automatic** mode (`man == 0`). The helper never records a manual change (`man` stays `0`, `ts.man` unchanged). A later event — typically closing a tilted window — then drives the cover to the scheduled/`effective_state` position instead of holding the position the user just set by hand. The user reports "I opened the cover manually but it did not change the helper" and "the cover closes when I close the window".
+
+**Cause:** The manual-detection branch ("Checking for manual position changes") condition
+
+```yaml
+- "{{ not (trigger.id == 't_manual_position' and in_reset_override_position) }}"
+```
+
+suppressed **every** manual position trigger fired while the cover is within tolerance of the reset position — regardless of `man`. But the matching reset trigger `t_reset_position` (line ~3941) only fires when `helper.man | int == 1`. This asymmetry creates a dead zone: when `man == 0`, a manual move to the reset position is **neither** recorded as a manual change (suppressed by the condition) **nor** cleared by a reset (`t_reset_position` needs `man == 1`). The move is lost, the base state is never synced, and `effective_state` continues to reflect the old schedule.
+
+**Fix:** Gate the suppression on `helper_state_manual`, matching the `t_reset_position` precondition:
+
+```yaml
+- "{{ not (trigger.id == 't_manual_position' and in_reset_override_position and helper_state_manual) }}"
+```
+
+- `man == 1` + move to reset position → still suppressed. This is the *"reopen to the reset position to resume automatic control"* gesture (the feature's intent, #506): detection stays quiet and `t_reset_position` clears the override after the dwell time. **Unchanged.**
+- `man == 0` + move to reset position → now detected as a normal manual change. The base state is synced (directly via the "Manual: opened/closed" sub-branch, or — when the open position is not recognized because the relevant `auto_*` is disabled — via the reset handler's "restore OPEN/CLOSE base state" after the dwell). Subsequent events then follow the correct `effective_state`.
+
+**Rule:** A manual-detection suppression that exists only to mute a *reset gesture* must carry the same precondition as the reset it is muting. Suppressing detection when there is nothing to reset silently discards a real manual change.
+
+**Config note:** Choosing `reset_override_position = 100` (= open) intentionally means "moving the cover fully open resumes automatic control" — so once the override has been cleared the cover follows the schedule again. The fix only ensures the *first* manual move (while `man == 0`) is no longer dropped; it does not turn the open position into a permanent manual hold.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
