@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.23
+
+- 🔧 **Improvement:** Clarified the description of the *"End Sun Shading – Immediately When Out Of Range"* option. The previous wording suggested that enabling it would end shading as soon as the sun leaves the azimuth *or* elevation range. In reality the option only controls the *timing* (it shortens the end waiting time to a few seconds) — it does **not** change *which* conditions end the shading. If "Sun Azimuth" / "Sun Elevation" are configured in the **AND** group of the END conditions, shading ends only once *all* of those conditions are out of range at the same time, so a single axis leaving its range is not enough (this also means a wide elevation range such as 0–90° practically never satisfies the elevation part). To get an "end as soon as either axis is out of range" behavior, put azimuth/elevation in the **OR** group. No behavior change — documentation only ([#545](https://github.com/hvorragend/ha-blueprints/issues/545))
+
+---
+
 # CCA 2026.06.21
 
 - 🔧 **Improvement:** Forecast-based shading now warns you when the weather forecast comes back empty. If the weather entity is available but `weather.get_forecasts` returns no forecast data (most often a temporary provider-side hiccup such as Met.no rate-limiting), the forecast values (`forecast_temp_raw` / `forecast_weather_condition_raw`) silently stayed `null`, the forecast conditions evaluated to *"not met"*, and shading never started — with nothing in the log to explain why (you had to dig through the trace to find the `null` values). The blueprint now writes a clear warning to the Home Assistant log (logger `blueprints.hvorragend.cca`) pointing at the empty forecast and how to verify it (Developer Tools → Actions → `weather.get_forecasts`). No behavior change otherwise; this only makes the existing silent failure discoverable
