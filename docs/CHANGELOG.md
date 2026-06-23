@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.23
+
+- 🐛 **Fix:** With *"Reset in position"* enabled, manually moving the cover to the reset position (e.g. fully open at 100%) was silently ignored when **no** manual override was active — the helper never recorded the manual change. The manual-detection branch suppressed *every* manual move to the reset position, but the matching reset only ever fires while a manual override is already active. So a manual move to the reset position while in automatic mode was lost: neither recorded as a manual change nor cleared by a reset. As a consequence, a later event (e.g. closing a tilted window) drove the cover to the scheduled position instead of respecting the position you had just set by hand. The suppression now only applies while a manual override is actually active — matching the reset's own precondition. The intended *"reopen to the reset position to resume automatic control"* behavior is unchanged ([#546](https://github.com/hvorragend/ha-blueprints/issues/546))
+
+---
+
 # CCA 2026.06.21
 
 - 🔧 **Improvement:** Forecast-based shading now warns you when the weather forecast comes back empty. If the weather entity is available but `weather.get_forecasts` returns no forecast data (most often a temporary provider-side hiccup such as Met.no rate-limiting), the forecast values (`forecast_temp_raw` / `forecast_weather_condition_raw`) silently stayed `null`, the forecast conditions evaluated to *"not met"*, and shading never started — with nothing in the log to explain why (you had to dig through the trace to find the `null` values). The blueprint now writes a clear warning to the Home Assistant log (logger `blueprints.hvorragend.cca`) pointing at the empty forecast and how to verify it (Developer Tools → Actions → `weather.get_forecasts`). No behavior change otherwise; this only makes the existing silent failure discoverable

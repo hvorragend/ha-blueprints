@@ -519,3 +519,57 @@ class TestPatternWTiltedClosingIdempotent:
         assert "effective_state != 'vnt' or not in_ventilate_position" in man, (
             "man:0 must be gated on actually driving the cover (Invariant 7, #538)"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern Y (#546): the manual-detection suppression at the reset position must
+# carry the same precondition as the reset it mutes (helper_state_manual).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+MANUAL_BRANCH_ALIAS = "Checking for manual position changes"
+
+
+class TestPatternYResetPositionSuppressionGuard:
+    """#546: don't swallow a manual move to the reset position when man == 0."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), MANUAL_BRANCH_ALIAS)
+
+    def _reset_suppression_condition(self, branch):
+        for cond in branch["conditions"]:
+            s = str(cond)
+            if "in_reset_override_position" in s:
+                return s
+        raise AssertionError(
+            "reset-position suppression condition not found in manual branch"
+        )
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, f"branch not found: {MANUAL_BRANCH_ALIAS!r}"
+
+    def test_suppression_is_gated_on_manual_override(self, branch):
+        # The suppression must only fire while an override is active, mirroring
+        # the t_reset_position trigger precondition (man == 1).
+        cond = self._reset_suppression_condition(branch)
+        assert "helper_state_manual" in cond, (
+            "reset-position suppression must be gated on helper_state_manual "
+            "so a manual move while man == 0 is not silently dropped (#546)"
+        )
+
+    def test_suppression_still_targets_manual_position_trigger(self, branch):
+        # The guard must remain scoped to the manual position trigger.
+        cond = self._reset_suppression_condition(branch)
+        assert "t_manual_position" in cond and "in_reset_override_position" in cond
+
+    def test_reset_position_trigger_requires_active_override(self):
+        # Documents the asymmetry the fix removes: the reset only fires on
+        # man == 1, so the detection suppression must too.
+        blueprint = _load_blueprint_yaml()
+        trig = _find_trigger_by_id(blueprint, "t_reset_position")
+        assert trig is not None, "t_reset_position trigger must exist"
+        vt = str(trig.get("value_template", ""))
+        assert "helper.man" in vt and "== 1" in vt, (
+            "t_reset_position must require an active manual override (man == 1)"
+        )
