@@ -1741,7 +1741,8 @@ EFFECTIVE_STATE_TEMPLATE = """
   {%- else -%}
     {%- set base_target = h.bas -%}
   {%- endif -%}
-  {%- if w == 'tlt' and allow_vent and base_target != 'opn' -%}
+  {%- set base_open_scheduled = base_target == 'opn' and is_opening_scheduled -%}
+  {%- if w == 'tlt' and allow_vent and not base_open_scheduled -%}
     vnt
   {%- else -%}
     {{ base_target }}
@@ -1755,7 +1756,8 @@ def _eval_effective_state(*, helper_json: dict, state_resident: bool = False,
                           sensor_opened: bool = False,
                           sensor_tilted: bool = False,
                           has_opened_sensor: bool = False,
-                          has_tilted_sensor: bool = False) -> str:
+                          has_tilted_sensor: bool = False,
+                          is_opening_scheduled: bool = True) -> str:
     env = make_jinja_env()
     template = env.from_string(EFFECTIVE_STATE_TEMPLATE)
     return template.render(
@@ -1766,6 +1768,7 @@ def _eval_effective_state(*, helper_json: dict, state_resident: bool = False,
         sensor_tilted=sensor_tilted,
         has_opened_sensor=has_opened_sensor,
         has_tilted_sensor=has_tilted_sensor,
+        is_opening_scheduled=is_opening_scheduled,
     ).strip()
 
 
@@ -1782,6 +1785,31 @@ class TestEffectiveStateCascade:
         """bas=opn + win=tlt + shd=0 → 'opn' (new behavior, previously 'vnt')."""
         result = _eval_effective_state(
             helper_json={"frc": "non", "win": "tlt", "bas": "opn", "shd": 0},
+        )
+        assert result == "opn", f"Expected 'opn' but got '{result}'"
+
+    def test_base_open_tilted_no_schedule_returns_vnt(self):
+        """Issue #553: shading-only setup without an opening schedule.
+
+        bas defaults to 'opn' forever (no scheduled close ever flips it to 'cls'),
+        so BASE=OPN must NOT beat VENT — a tilted window has to drive the cover to
+        the ventilation position. With is_opening_scheduled=False, VENT applies.
+        """
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "tlt", "bas": "opn", "shd": 0},
+            is_opening_scheduled=False,
+        )
+        assert result == "vnt", f"Expected 'vnt' but got '{result}'"
+
+    def test_base_open_closed_window_no_schedule_returns_opn(self):
+        """Issue #553: without a tilted window, base=opn still returns 'opn'.
+
+        The fix only affects the VENT floor — a closed window must keep returning
+        'opn' so shading-end and other base=opn logic continue to work.
+        """
+        result = _eval_effective_state(
+            helper_json={"frc": "non", "win": "cls", "bas": "opn", "shd": 0},
+            is_opening_scheduled=False,
         )
         assert result == "opn", f"Expected 'opn' but got '{result}'"
 

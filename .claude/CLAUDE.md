@@ -39,7 +39,7 @@ State is persisted as a JSON string in an `input_text` helper:
 ```
 1. FORCE    → frc != "non"                                       → Force position
 2. LOCKOUT  → win == "opn"                                       → Open position
-3. BASE=OPN → bas == "opn" AND no privacy/shading/restriction    → Open position
+3. BASE=OPN → bas == "opn" AND is_opening_scheduled AND no privacy/shading/restriction → Open position
 4. VENT     → win == "tlt" AND base would close/shade/privacy    → Ventilation position
 5. PRIVACY  → resident && closing                                → Close position
 6. SHADING  → shd == 1 && allow_shade                            → Shading position
@@ -50,7 +50,9 @@ The variable `effective_state` returns the currently active state from this casc
 
 **Rationale for BASE=OPN before VENT:** A tilted window signals ventilation intent — and a fully open cover provides maximum airflow. So when the time schedule says "open" (`bas=opn`) and nothing else lowers the cover, opening wins over the tilted-vent floor. VENT is a *floor* only when the cover would otherwise go below ventilation position (close, shading, privacy-close, or base=opn with `allow_open=false`).
 
-Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT only when `win == 'tlt'` and `base_target != 'opn'`.
+**BASE=OPN beats VENT only when an opening schedule actually exists** (`is_opening_scheduled = is_up_enabled and not is_time_control_disabled`). `bas` initializes to `'opn'` and is only ever switched to `'cls'` by the scheduled close handler — so in a shading-only setup with no schedule, `bas` stays `'opn'` permanently. Without the schedule gate the VENT floor could never apply there (Issue #553, Bug Pattern Z). When no opening schedule exists, a tilted window therefore still produces `vnt`.
+
+Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT when `win == 'tlt'` and `not (base_target == 'opn' and is_opening_scheduled)`.
 
 ---
 
@@ -600,6 +602,35 @@ suppressed **every** manual position trigger fired while the cover is within tol
 **Rule:** A manual-detection suppression that exists only to mute a *reset gesture* must carry the same precondition as the reset it is muting. Suppressing detection when there is nothing to reset silently discards a real manual change.
 
 **Config note:** Choosing `reset_override_position = 100` (= open) intentionally means "moving the cover fully open resumes automatic control" — so once the override has been cleared the cover follows the schedule again. The fix only ensures the *first* manual move (while `man == 0`) is no longer dropped; it does not turn the open position into a permanent manual hold.
+
+---
+
+### Bug Pattern Z: Tilted-window ventilation never triggers in a schedule-less setup (Issue #553)
+
+**Symptom:** In a **shading-only** setup with no open/close schedule (`auto_options` has neither `auto_up_enabled` nor `auto_down_enabled`, `time_control: time_control_disabled`), a tilted or opened window **never moves a closed cover to the ventilation position**. This worked in v5. The helper shows `bas: 'opn'`, `win: 'tlt'`, and the cover sits at the closed position with no movement. The contact handler's "Window tilted - No drive, sync helper window state" branch (which gates on `effective_state == 'opn'`) catches the event and only syncs `win: 'tlt'` — the drive branch ("Window tilted - Partial ventilation", gated on `effective_state != 'opn'`) is skipped.
+
+**Cause:** `bas` initializes to `'opn'` in every init path (fresh init, v6 parse fallback `default('opn')`, v5 migration unless the v5 state was explicitly `close`) and is **only ever** switched to `'cls'` by the scheduled close handler (`t_close_*`, which needs `auto_down_enabled` + a time/calendar source). Without a schedule, `bas` stays `'opn'` forever → `base_target == 'opn'` → the VENT floor condition (`base_target != 'opn'`) is never true → a closed cover ignores a tilted window. The `2026.05.24` changelog had documented "remove the time schedule (so `bas` never reaches `opn`)" as the way to restore v5 behavior — but removing the schedule does **not** make `bas` non-`opn`, so that workaround never worked.
+
+**Fix:** Gate the BASE=OPN-beats-VENT rule on whether an opening schedule actually exists. New `trigger_variables` flag:
+
+```yaml
+is_opening_scheduled: "{{ is_up_enabled and not is_time_control_disabled }}"
+```
+
+In `effective_state`, replace the VENT floor condition:
+
+```jinja2
+{% set base_open_scheduled = base_target == 'opn' and is_opening_scheduled %}
+{% if w == 'tlt' and allow_vent and not base_open_scheduled %}
+  vnt
+{% else %}
+  {{ base_target }}
+{% endif %}
+```
+
+This is **surgical** — it only changes the VENT-floor decision. When the window is **not** tilted, `effective_state` still returns `'opn'` for `bas == 'opn'`, so shading-end (gated on `effective_state != 'cls'`), the contact "return to open" branch, and every other base=opn consumer are unaffected. Scheduled setups (`is_opening_scheduled == true`) keep the `2026.05.24` BASE=OPN-beats-VENT behavior unchanged.
+
+**Why not Option 1 (treat `bas` as `'cls'` for the whole cascade):** That was the maintainer's originally-documented intent, but making `effective_state` return `'cls'`/`'vnt'` wholesale breaks the shading-end handler, whose branch gate is `effective_state != 'cls'` — shading would never end. The VENT floor must be the *only* thing affected; gating just that line is the correct minimal change.
 
 ---
 

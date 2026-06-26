@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.28
+    **Version**: 2026.06.28 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2840,6 +2840,11 @@ trigger_variables:
   # Disabled when explicitly unchecked in auto_options AND the legacy selector is also set to disabled.
   # This preserves backward compatibility: existing users with time_control_input/calendar remain active.
   is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options and 'time_control_disabled' in time_control }}"
+  # An open base state ('opn') only reflects a real "schedule wants open" intent when an
+  # opening schedule actually exists. Without one, bas stays at its 'opn' init default forever
+  # (it is only ever driven to 'cls' by the scheduled close handler), so the VENT floor could
+  # never apply. Used by effective_state to let VENT beat a non-scheduled bas='opn'.
+  is_opening_scheduled: "{{ is_up_enabled and not is_time_control_disabled }}"
 
   # Ventilation and tilt are only available for blinds, not awnings
   is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
@@ -2883,7 +2888,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.28"
+  version: "2026.06.28 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3245,16 +3250,18 @@ variables:
   # Priority Order (highest first):
   # 1. FORCE    → force != "none" → Force-Position
   # 2. LOCKOUT  → window == "open" → Open-Position (prevent lockout)
-  # 3. BASE=OPN → base == "open" AND no shading/privacy/close-restriction → Open-Position
+  # 3. BASE=OPN → base == "open" (scheduled) AND no shading/privacy/close-restriction → Open-Position
   # 4. VENT     → window == "tilted" AND allow_ventilate AND base would close/shade → Ventilate-Position
   # 5. PRIVACY  → resident == 1 AND closing_trigger → Close-Position
   # 6. SHADING  → shade == 1 AND allow_shade → Shading-Position
   # 7. BASE=CLS → base (respects allow_open for "open" state)
   #
-  # Rationale: A tilted window expresses ventilation intent. With base=opn the
-  # cover should fully open (maximum airflow). VENT acts as a "floor" only when
-  # the cover would otherwise go below ventilate position (close, shading,
-  # privacy-close, base=opn but allow_open=false).
+  # Rationale: A tilted window expresses ventilation intent. With a scheduled
+  # base=opn the cover should fully open (maximum airflow). VENT acts as a "floor"
+  # only when the cover would otherwise go below ventilate position (close, shading,
+  # privacy-close, base=opn but allow_open=false). BASE=OPN beats VENT only when an
+  # opening schedule actually exists (is_opening_scheduled): without one, bas stays
+  # at its 'opn' init default permanently, so VENT must still apply (Issue #553).
   #
   # ═══════════════════════════════════════════════════════════════════════════
 
@@ -3290,7 +3297,8 @@ variables:
       {% else %}
         {% set base_target = h.bas %}
       {% endif %}
-      {% if w == 'tlt' and allow_vent and base_target != 'opn' %}
+      {% set base_open_scheduled = base_target == 'opn' and is_opening_scheduled %}
+      {% if w == 'tlt' and allow_vent and not base_open_scheduled %}
         vnt
       {% else %}
         {{ base_target }}
