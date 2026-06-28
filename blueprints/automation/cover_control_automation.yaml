@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.28 V2
+    **Version**: 2026.06.28 V3
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -573,6 +573,19 @@ blueprint:
             number:
               min: 0
               max: 100
+              unit_of_measurement: "%"
+        tilt_position_tolerance:
+          name: "〰️ Tilt Position Tolerance"
+          description: >-
+            Tolerance to be applied when comparing the current tilt position with the to be tilt position.
+            These are absolute values, analogous to the position tolerance. Use this when several states share the
+            same cover position and can only be told apart by their tilt angle (e.g. closed/shading/ventilate all at
+            position 0), or to absorb small tilt motor inaccuracies.
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 20.0
               unit_of_measurement: "%"
         shading_tilt_position_0:
           name: "🥵 Sun Shading Tilt Position"
@@ -2728,6 +2741,7 @@ trigger_variables:
   open_tilt_position: !input open_tilt_position
   close_tilt_position: !input close_tilt_position
   ventilate_tilt_position: !input ventilate_tilt_position
+  tilt_position_tolerance: !input tilt_position_tolerance
   shading_tilt_elevation_1: !input shading_tilt_elevation_1
   shading_tilt_elevation_2: !input shading_tilt_elevation_2
   shading_tilt_elevation_3: !input shading_tilt_elevation_3
@@ -2888,7 +2902,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.28 V2"
+  version: "2026.06.28 V3"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3031,7 +3045,7 @@ variables:
       (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (is_cover_tilt_enabled_and_possible and current_tilt_position == open_tilt_position | int)
+        ((current_tilt_position - (open_tilt_position | int)) | abs <= tilt_position_tolerance)
       )
     }}
 
@@ -3042,24 +3056,26 @@ variables:
       (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (is_cover_tilt_enabled_and_possible and current_tilt_position == close_tilt_position | int)
+        ((current_tilt_position - (close_tilt_position | int)) | abs <= tilt_position_tolerance)
       )
     }}
 
-  # TODO: in_shading_position is volatile when tilt is enabled because shading_tilt_position
-  #       is dynamically computed from current sun elevation. When the sun moves and a new tilt
-  #       stage is calculated, the cover is no longer considered "in shading position" even though
-  #       it was correctly set before. Consider storing the last applied tilt in the JSON helper
-  #       (e.g. field 'tp') and comparing against that instead of the dynamic value.
+  # Shading tilt is dynamically computed from the current sun elevation. To avoid the checker
+  # going stale when the sun moves to a new tilt stage, it compares against the last applied
+  # shading tilt persisted in the helper (field 'tp'), falling back to the dynamic value when
+  # no tilt has been applied yet (tp == -1). Both comparisons honour tilt_position_tolerance.
   in_shading_position: >-
     {% set min = shading_position - position_tolerance %}
     {% set max = shading_position + position_tolerance %}
+    {% set hs = states(cover_status_helper) %}
+    {% set tp = (hs | from_json(default={})).tp | default(-1) | int if hs not in invalid_states else -1 %}
+    {% set target_tilt = tp if tp >= 0 else shading_tilt_position | int %}
     {{
       is_shading_enabled
       and (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position == shading_tilt_position | int)
+        ((current_tilt_position - target_tilt) | abs <= tilt_position_tolerance)
       )
     }}
 
@@ -3071,7 +3087,7 @@ variables:
       and (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position == ventilate_tilt_position | int)
+        ((current_tilt_position - (ventilate_tilt_position | int)) | abs <= tilt_position_tolerance)
       )
     }}
 
@@ -3126,10 +3142,10 @@ variables:
     forecast_weather: "{{ 'cond_forecast_weather' in shading_conditions_end_and or 'cond_forecast_weather' in shading_conditions_end_or }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # Cover Status Helper – JSON parsing with v5 → v6 migration
+  # Cover Status Helper – JSON parsing with v5/v6 → v7 migration
   # ═══════════════════════════════════════════════════════════════════════════
-  # v6 Compact Schema (stored in input_text, max 208 chars):
-  # {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0}
+  # v7 Compact Schema (stored in input_text):
+  # {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"tp":-1,"v":7,"t":0}
   #
   # Field mapping (compact → internal):
   #   bas → base (opn/cls → open/close)
@@ -3143,22 +3159,25 @@ variables:
   #   ts.due → fire time of armed pending (used together with pnd)
   #   ts.arm → first-arming anchor of current retry sequence
   #   ts.man → ts.manual
+  #   tp  → last applied shading tilt position (-1 = none applied). Used by
+  #         in_shading_position to stay stable when shading_tilt_position changes
+  #         with the sun elevation. Auto-reset to -1 in helper_update whenever shd
+  #         transitions to 0.
   #
-  # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
-  #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
-  #   lt  → last_trigger  (+6 chars) – Which trigger caused last action (debug)
-  #   tp  → tilt_position  (+5 chars) – Last applied tilt value (fixes in_shading_position volatility)
-  #   ec  → error_count    (+4 chars) – Consecutive error counter
+  # TODO: Potential future expansion fields:
+  #   lp  → last_position  – Position before last action (smart recovery)
+  #   lt  → last_trigger   – Which trigger caused last action (debug)
+  #   ec  → error_count    – Consecutive error counter
   # ═══════════════════════════════════════════════════════════════════════════
-  # Parses the helper JSON and normalises to v6 compact format.
-  # Handles three cases: v5 → v6 migration, v6 pass-through, new/empty default.
+  # Parses the helper JSON and normalises to v7 compact format.
+  # Handles three cases: v5/v6 → v7 migration, v7 pass-through, new/empty default.
   helper_json: >-
     {% set helper_state = states(cover_status_helper) %}
     {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
     {% set ts_now = as_timestamp(now()) | round(0) %}
 
     {% set is_v5 = helper_raw.v | default(0) == 5 %}
-    {% set is_v6_compact = helper_raw.bas is defined and helper_raw.v is defined and helper_raw.v == 6 %}
+    {% set is_compact = helper_raw.bas is defined and helper_raw.v is defined and helper_raw.v in [6, 7] %}
 
     {% if is_v5 %}
       {% set v5_current =
@@ -3189,11 +3208,12 @@ variables:
             'arm': 0,
             'man': helper_raw.manual.t | default(0)
           },
-          'v': 6,
+          'tp': -1,
+          'v': 7,
           't': ts_now
         }
       }}
-    {% elif is_v6_compact %}
+    {% elif is_compact %}
       {% set raw_ts = helper_raw.ts | default({}) %}
       {{
         {
@@ -3212,7 +3232,8 @@ variables:
             'arm': raw_ts.arm | default(0) | int,
             'man': raw_ts.man | default(0) | int
           },
-          'v': 6,
+          'tp': helper_raw.tp | default(-1) | int,
+          'v': 7,
           't': helper_raw.t | default(ts_now) | int
         }
       }}
@@ -3234,7 +3255,8 @@ variables:
             'arm': 0,
             'man': 0
           },
-          'v': 6,
+          'tp': -1,
+          'v': 7,
           't': ts_now
         }
       }}
@@ -4093,16 +4115,17 @@ actions:
       # ═══════════════════════════════════════════════════════════════════════════
       # Usage: Set 'update_values' variable before calling with fields to update
       # Example: update_values: { bas: 'cls', ts: { opn: ts_now } }
-      # Uses v6 compact schema names directly (no internal name conversion)
+      # Uses v7 compact schema names directly (no internal name conversion)
       #
-      # Fields: bas, shd (1/0), pnd (non/beg/end), win, frc, res (1/0), man (1/0)
+      # Fields: bas, shd (1/0), pnd (non/beg/end), win, frc, res (1/0), man (1/0), tp (-1..100)
       # Timestamps: ts.opn, ts.cls, ts.shd, ts.due, ts.arm, ts.man
       #
       # Template logic:
       #   1. Apply field updates (compact names directly)
       #   2. Build timestamp object (preserve existing, merge updates, 'now' → ts_now)
       #   3. Guard: ts.shd only updates when shd actually changes
-      #   4. Build final v6 compact JSON structure
+      #   4. Guard: tp is forced to -1 whenever shd becomes 0 (shading cleared)
+      #   5. Build final v7 compact JSON structure
       # ═══════════════════════════════════════════════════════════════════════════
       helper_update: &helper_update
         choose: []
@@ -4122,6 +4145,7 @@ actions:
                   {% set new_frc = updates.frc | default(current.frc | default('non')) %}
                   {% set new_res = updates.res | default(current.res | default(0)) | int %}
                   {% set new_man = updates.man | default(current.man | default(0)) | int %}
+                  {% set new_tp = -1 if new_shd == 0 else (updates.tp | default(current.tp | default(-1)) | int) %}
                   {% set current_ts = current.ts | default({}) %}
 
                   {% set merged_ts = namespace(data={}) %}
@@ -4153,7 +4177,8 @@ actions:
                       'arm': merged_ts.data.arm | default(0) | int,
                       'man': merged_ts.data.man | default(0) | int
                     },
-                    'v': 6,
+                    'tp': new_tp | int,
+                    'v': 7,
                     't': ts_now | int
                   } %}
                   {{ dict_new | to_json }}
@@ -4167,7 +4192,7 @@ actions:
                     Trigger: {{ trigger.id | default('manual') }} | 
                     Effective: {{ effective_state }} | 
                     Position: {{ current_position }}% {% if is_cover_tilt_enabled %} / Tilt: {{ current_tilt_position }}%{% endif %} | 
-                    Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} | 
+                    Helper: bas={{ helper_json.bas | default('opn') }} shd={{ helper_json.shd | default(0) }} pnd={{ helper_json.pnd | default('non') }} win={{ helper_json.win | default('cls') }} frc={{ helper_json.frc | default('non') }} res={{ helper_json.res | default(0) }} man={{ helper_json.man | default(0) }} tp={{ helper_json.tp | default(-1) }} |
                     States: 
                     opn={{ states(contact_window_opened) if contact_window_opened != [] else '-' }} 
                     tlt={{ states(contact_window_tilted) if contact_window_tilted != [] else '-' }}
@@ -4210,19 +4235,20 @@ actions:
                 'arm': 0,
                 'man': 0
               },
-              'v': 6,
+              'tp': -1,
+              'v': 7,
               't': ts_now | int
             } %}
             {{ dict_new | to_json }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Persist migration (v5 → v6) and stale-schema cleanup
+  # Persist migration (v5/v6 → v7) and stale-schema cleanup
   # ════════════════════════════════════════════════════════════════════════════
   # Migration is computed in helper_json variable. Persist back to the helper when:
-  #   - the stored version is not 6 (v5 → v6 conversion), OR
+  #   - the stored version is not 7 (v5/v6 → v7 conversion, adds the 'tp' field), OR
   #   - the stored ts.* contains keys that the current schema no longer recognizes
   #     (defensive cleanup; preserves all live state, resets pending to idle).
-  # We check the raw helper state, not helper_json (which always has v:6 after migration).
+  # We check the raw helper state, not helper_json (which always has v:7 after migration).
   - if:
       - condition: template
         value_template: >-
@@ -4231,7 +4257,7 @@ actions:
           {% set raw_ts = helper_raw.ts | default({}) %}
           {% set known_ts_keys = ['opn', 'cls', 'shd', 'due', 'arm', 'man'] %}
           {% set has_unknown_ts = raw_ts.keys() | reject('in', known_ts_keys) | list | count > 0 %}
-          {{ helper_raw.v | default(0) != 6 or has_unknown_ts }}
+          {{ helper_raw.v | default(0) != 7 or has_unknown_ts }}
     then:
       - variables:
           update_values: {}
@@ -5103,6 +5129,7 @@ actions:
                         bas: "opn"
                         shd: 1
                         man: "{{ 0 if force_allows_shade and effective_state == 'shd' else helper_json.man | default(0) | int }}"
+                        tp: "{{ shading_tilt_position | int if force_allows_shade and effective_state == 'shd' else helper_json.tp | default(-1) | int }}"
                         pnd: 'non'
                         ts:
                           shd: "now"
@@ -5534,6 +5561,7 @@ actions:
                                         # Activate shading
                                         shd: 1
                                         man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
+                                        tp: "{{ shading_tilt_position | int if force_allows_shade else helper_json.tp | default(-1) | int }}"
                                         pnd: 'non'
                                         ts:
                                           shd: "now"
@@ -5715,11 +5743,9 @@ actions:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
               tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
-              # TODO: Consider storing the applied tilt value in the JSON helper (e.g. 'tp' field)
-              #       so that in_shading_position can compare against the actually applied tilt
-              #       instead of the dynamically computed shading_tilt_position.
               update_values:
                 man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
+                tp: "{{ shading_tilt_position | int }}"
           - *tilt_move_action
           - *helper_update
           - stop: "Shading Tilt executed"
@@ -6201,6 +6227,7 @@ actions:
                         shd: 1
                         win: "cls"
                         man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
+                        tp: "{{ shading_tilt_position | int if force_allows_shade else helper_json.tp | default(-1) | int }}"
                   - if: "{{ force_allows_shade }}"
                     then:
                       - if: # Optional delay if enabled
@@ -6379,6 +6406,7 @@ actions:
                               update_values:
                                 # Resident leaving, shade already active — preserve ts.shd
                                 man: "{{ 0 if force_allows_shade and (effective_state != 'shd' or not in_shading_position) else helper_json.man | default(0) | int }}"
+                                tp: "{{ shading_tilt_position | int if force_allows_shade and (effective_state != 'shd' or not in_shading_position) else helper_json.tp | default(-1) | int }}"
                                 res: "{{ new_resident_status | int }}"
                           - if: "{{ force_allows_shade and (effective_state != 'shd' or not in_shading_position) }}"
                             then:
@@ -7196,7 +7224,7 @@ actions:
                   - "{{ trigger.to_state.attributes.current_tilt_position not in invalid_states }}"
                   - "{{ is_number(trigger.from_state.attributes.current_tilt_position | default(none)) }}"
                   - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}"
-                  - "{{ trigger.from_state.attributes.current_tilt_position != trigger.to_state.attributes.current_tilt_position }}"
+                  - "{{ ((trigger.to_state.attributes.current_tilt_position | float(0)) - (trigger.from_state.attributes.current_tilt_position | float(0))) | abs > tilt_position_tolerance }}"
 
         sequence:
           - choose:

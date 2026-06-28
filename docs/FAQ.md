@@ -1297,7 +1297,8 @@ The global condition blocks the entire action block — including helper state u
 | `res` | Resident | `0`, `1` | Resident presence (1=present, 0=away) |
 | `man` | Manual | `0`, `1` | Manual operation detected (1=active) |
 | `ts` | Timestamps | Object | Dictionary of when each state was last changed |
-| `v` | Version | Number | Helper schema version (current: 6) |
+| `tp` | Tilt | `-1`, `0`–`100` | Last applied shading tilt position (`-1` = none); keeps shading status detection stable when the shading tilt follows the sun |
+| `v` | Version | Number | Helper schema version (current: 7) |
 | `t` | Global Time | Timestamp | Last overall helper update timestamp |
 
 **Top-level field — pending phase:**
@@ -1365,7 +1366,8 @@ The global condition blocks the entire action block — including helper state u
     "arm": 0,
     "man": 1703150600
   },
-  "v": 6,
+  "tp": -1,
+  "v": 7,
   "t": 1703250600
 }
 ```

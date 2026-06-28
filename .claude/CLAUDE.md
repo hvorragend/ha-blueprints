@@ -6,15 +6,20 @@
 
 ---
 
-## Helper JSON Schema (v6)
+## Helper JSON Schema (v7)
 
 State is persisted as a JSON string in an `input_text` helper:
 
 ```json
 {"bas":"opn","shd":1,"pnd":"non","win":"opn","frc":"non","res":1,"man":0,
  "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},
- "v":6,"t":0}
+ "tp":-1,"v":7,"t":0}
 ```
+
+The helper is automatically migrated from v5/v6 to v7 on the first run (the
+`tp` field is added with default `-1`). The migration-persist block gates on
+`helper_raw.v | default(0) != 7`, and the compact parser accepts both v6 and
+v7 (`helper_raw.v in [6, 7]`).
 
 | Field | Values | Meaning |
 |-------|--------|---------|
@@ -31,6 +36,7 @@ State is persisted as a JSON string in an `input_text` helper:
 | `ts.due` | Unix timestamp | Fire time of armed pending (used together with `pnd`; `0` when `pnd == 'non'`) |
 | `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (preserved across retries; `0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
+| `tp` | `-1`/`0`–`100` | Last applied shading tilt position (`-1` = none applied). Stabilizes `in_shading_position` against the dynamically recomputed `shading_tilt_position`. Auto-reset to `-1` in `helper_update` whenever `shd` transitions to `0`. |
 
 ---
 
@@ -166,6 +172,11 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
   - Midnight reset (BRANCH 11, "Reset shading status")
   - Incidental clears in non-shading branches (force, manual) — also clear all three for hygiene.
 - **Contact handler branches must NOT reset `pnd`/`ts.due`/`ts.arm`.** Window open/close events are orthogonal to shading pending state. Omit these keys from `update_values` so `helper_update` preserves the existing values (#484).
+
+**tp (last applied shading tilt, #558):**
+- `tp` records the shading tilt position that was last physically applied. It is set in `update_values` of the shading-tilt drive branches only (start-detected, start-execution, shading-tilt adjustment, contact return-to-shading, resident-leaving SHADED) — gated by the same drive condition as `man` where the drive is conditional.
+- `helper_update` **centrally forces `tp` to `-1` whenever `new_shd == 0`** (shading cleared). Because of this, branches that drive *out* of shading (shading-end, midnight reset, open/close/vent) need **not** touch `tp` — setting `shd: 0` resets it automatically. Force-shading branches (`frc: 'shd'`, `shd` stays `0`) likewise do not set `tp`; during force shading `in_shading_position` falls back to the dynamic value (pre-existing behavior; force is explicit).
+- `in_shading_position` compares `current_tilt_position` against `tp` (within `tilt_position_tolerance`) when `tp >= 0`, falling back to the dynamic `shading_tilt_position` when `tp == -1`. It reads `tp` by parsing the helper locally (`states(cover_status_helper) | from_json`) — **not** via `helper_json` — because the checker is defined *before* `helper_json` in the `variables:` block and HA only resolves backward references.
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
 

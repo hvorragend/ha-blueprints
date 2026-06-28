@@ -27,11 +27,11 @@ schedules, brightness, sun elevation, window state, and resident presence.
 
 ---
 
-## JSON Helper Schema (v6 compact, stored in `input_text`)
+## JSON Helper Schema (v7 compact, stored in `input_text`)
 
 ```json
 {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,
- "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0}
+ "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"tp":-1,"v":7,"t":0}
 ```
 
 | Field | Values | Meaning |
@@ -49,6 +49,7 @@ schedules, brightness, sun elevation, window state, and resident presence.
 | `ts.due` | Unix timestamp | Fire time of armed pending (`0` when `pnd == 'non'`) |
 | `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (`0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
+| `tp` | `-1` / `0`–`100` | Last applied shading tilt (`-1` = none); stabilizes `in_shading_position` vs. dynamic `shading_tilt_position`. Auto-reset to `-1` when `shd` → `0`. |
 
 ### Pending field semantics (`pnd` enum)
 
