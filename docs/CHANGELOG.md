@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.28 V2
+
+- 🐛 **Fix:** In a **shading-only** setup *without* an open/close schedule (no automatic up/down, time control disabled), a tilted or opened window never moved a closed cover to the ventilation position. The internal base state initializes to *"open"* and is only ever switched to *"closed"* by the scheduled close handler — so without a schedule it stayed *"open"* forever, and since *BASE=OPEN* outranks the ventilation *"floor"* in the priority cascade, ventilation could never apply. The cascade now treats *"open"* as a real open intent only when an opening schedule actually exists; without one, a tilted window correctly drives the cover to the ventilation position. This also makes the documented *"remove the time schedule"* workaround from the `2026.05.24` notes work as described. Setups *with* a schedule are unaffected ([#553](https://github.com/hvorragend/ha-blueprints/issues/553))
+
+---
+
 # CCA 2026.06.28
 
 - 🐛 **Fix:** When shading-end was **pending** (waiting for the configured end waiting time to elapse) and the shading conditions were met **again** before the timer fired — because weather changed from cloudy back to bright — the pending end was not canceled. CCA ignored all `t_shading_start_pending*` events while `pnd == 'end'`, so the end timer continued running silently. If conditions happened to still be met at the execution moment, shading ended regardless of what had happened during the waiting period. This violated the documented behavior *"Shading ends if the conditions are not fulfilled **for the entire waiting time**"*. A re-triggered `t_shading_start_pending*` event now cancels the active end-pending (`pnd` → `non`, timestamps cleared); the cover stays in the shading position and waits for the next uninterrupted end-conditions period ([#554](https://github.com/hvorragend/ha-blueprints/issues/554))
