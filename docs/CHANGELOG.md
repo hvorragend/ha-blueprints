@@ -1,10 +1,8 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
-# CCA 2026.06.28 V3
+# CCA 2026.06.28 V2
 
 - 🐛 **Fix (docs):** The *"Shading END – Optional Conditions (OR)"* help text contained a misleading example claiming shading would *"End only when sun is wrong AND (dark OR cold)"*. That suggested the AND group and the OR group are combined with **AND**. In reality — and as the *"Combined logic"* note in the same help text and the automation trace both show — the two END groups are combined with **OR**: shading ends when *either* all AND-group conditions become invalid *or* any single OR-group condition becomes invalid. The example has been corrected, and the help text now states explicitly that END combines the groups with OR (unlike START, which combines them with AND) and explains that requiring several end conditions together means putting them all in the AND group. No logic change ([#560](https://github.com/hvorragend/ha-blueprints/issues/560))
-
-# CCA 2026.06.28 V2
 
 - 🐛 **Fix:** In a **shading-only** setup *without* an open/close schedule (no automatic up/down, time control disabled), a tilted or opened window never moved a closed cover to the ventilation position. The internal base state initializes to *"open"* and is only ever switched to *"closed"* by the scheduled close handler — so without a schedule it stayed *"open"* forever, and since *BASE=OPEN* outranks the ventilation *"floor"* in the priority cascade, ventilation could never apply. The cascade now treats *"open"* as a real open intent only when an opening schedule actually exists; without one, a tilted window correctly drives the cover to the ventilation position. This also makes the documented *"remove the time schedule"* workaround from the `2026.05.24` notes work as described. Setups *with* a schedule are unaffected ([#553](https://github.com/hvorragend/ha-blueprints/issues/553))
 
