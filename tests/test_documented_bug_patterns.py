@@ -646,3 +646,58 @@ class TestIssue554CancelPendingShadingEnd:
                     )
                     return
         raise AssertionError("once-per-day OR not found in shading-start branch")
+
+
+# ---------------------------------------------------------------------------
+# #550: a Threshold helper (or any noisy source) bound to a contact/resident
+# input re-fires the state trigger on every *attribute* change. Setting any of
+# from/to/not_from/not_to on the trigger flips HA out of match_all, so it only
+# fires on real on/off transitions. The fix uses not_to at the trigger so the
+# automation never even starts a run (no leftover trace) for attribute changes.
+# ---------------------------------------------------------------------------
+class TestIssue550AttributeOnlyTriggersFiltered:
+    """#550: ignore attribute-only re-triggers on contact/resident sensors."""
+
+    FILTERED_IDS = (
+        "t_contact_tilted_changed",
+        "t_contact_opened_changed",
+        "t_resident_update",
+    )
+    MANUAL_IDS = ("t_manual_position", "t_manual_tilt")
+
+    def test_contact_resident_triggers_have_not_to(self):
+        # not_to (any of from/to/not_from/not_to) disables match_all, so the
+        # trigger no longer fires on attribute-only changes.
+        blueprint = _load_blueprint_yaml()
+        for tid in self.FILTERED_IDS:
+            trig = _find_trigger_by_id(blueprint, tid)
+            assert trig is not None, f"trigger {tid} must exist"
+            keys = set(trig)
+            assert keys & {"not_to", "not_from", "to", "from"}, (
+                f"{tid} must set one of from/to/not_from/not_to to ignore "
+                f"attribute-only changes (#550)"
+            )
+
+    def test_not_to_keeps_real_transitions(self):
+        # not_to must only exclude dropout sentinels, never on/off/true/false,
+        # otherwise real window/presence transitions would be dropped too.
+        blueprint = _load_blueprint_yaml()
+        for tid in self.FILTERED_IDS:
+            trig = _find_trigger_by_id(blueprint, tid)
+            not_to = trig.get("not_to") or []
+            assert "unavailable" in not_to
+            for real in ("on", "off", "true", "false"):
+                assert real not in not_to, (
+                    f"{tid} not_to must not exclude the real state {real!r} (#550)"
+                )
+
+    def test_manual_triggers_not_filtered(self):
+        # Manual position/tilt detection legitimately relies on attribute
+        # changes and must NOT get a not_to/to guard.
+        blueprint = _load_blueprint_yaml()
+        for tid in self.MANUAL_IDS:
+            trig = _find_trigger_by_id(blueprint, tid)
+            assert trig is not None, f"trigger {tid} must exist"
+            assert not (set(trig) & {"not_to", "not_from", "to", "from"}), (
+                f"{tid} must keep reacting to attribute changes (#550)"
+            )

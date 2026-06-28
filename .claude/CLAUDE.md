@@ -288,6 +288,29 @@ The contact handler ("Contact sensor state changed") gates on **both** the previ
 
 **This is intentional, not a bug.** The root cause is an unstable contact sensor reporting `unavailable`. The fix belongs at the sensor (battery / radio range), not in the blueprint. Do **not** remove the `from_state` guard to "process recovery transitions" — that would make CCA act on sensor dropouts. Do not "harmonize" this away.
 
+### Attribute-only re-triggers on contact/resident sensors are ignored (Issue #550)
+
+The contact (`t_contact_tilted_changed`, `t_contact_opened_changed`) and resident (`t_resident_update`) triggers are plain `trigger: state`. By default a HA state trigger with only an `entity_id` fires on **every** change of the state object — including **attribute-only** changes where the actual `on`/`off` value is unchanged (internal `match_all` mode).
+
+The fix is applied **at the trigger**, not in a global condition: each of the three triggers carries `not_to`. Setting *any* of `from`/`to`/`not_from`/`not_to` flips HA out of `match_all`, so the trigger only fires on real state-value transitions and silently drops attribute-only changes:
+
+```yaml
+- trigger: state
+  entity_id: !input contact_window_tilted
+  not_to:
+    - "unavailable"
+    - "unknown"
+  ...
+```
+
+**Why the trigger, not a global condition:** A global `condition` still lets the automation *start* — HA records a (stopped) trace for every triggered run. Filtering at the trigger means the automation never runs at all → no trace, no queue entry, no logbook noise. `not_to`/`not_from` require HA ≥ 2023.4; the blueprint's `min_version` (2024.10.0) covers this.
+
+**Rationale:** A user binding a "noisy" entity to one of these inputs — classically a HA **Threshold helper** built on `sun.elevation`, whose `sensor_value` attribute updates on every elevation step — would otherwise re-fire the whole automation every few minutes although the entity's real state changes only twice a day. There was never any functional harm (`mode: queued`, every branch idempotent), only trace/logbook noise.
+
+**Why `not_to` (not `to`):** Contact/resident sensors can report `on`/`off` *or* `true`/`false`, so an allow-list (`to: [...]`) would be fragile. `not_to: [unavailable, unknown]` only excludes the dropout sentinels, keeps every real transition, and aligns with the existing `invalid_states` handling (the `to_state` invalid-state guard in the global conditions and the contact handler). The `from`-side recovery guard (#505) stays in the action conditions — `not_to` does not touch it.
+
+**Scope:** Only contact + resident. The manual triggers (`t_manual_position`, `t_manual_tilt`) deliberately react to attribute changes (`current_position` / `current_tilt_position`) and must **not** get `not_to`.
+
 ---
 
 ## Known Bug Patterns (with cause and fix)

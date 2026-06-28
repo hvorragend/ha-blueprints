@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.28 V3
+
+- 🔧 **Improvement:** The window-contact and resident triggers now ignore pure *attribute* changes and only react to a real `on`/`off` state transition. A "noisy" source bound to one of these inputs — for example a Threshold helper built on `sun.elevation`, whose `sensor_value` attribute updates on every elevation change — could previously re-trigger the automation every few minutes even though its actual state changed only twice a day. There was no functional harm (the automation runs in `queued` mode and every branch is idempotent), but it cluttered the trace/logbook history. This is now filtered **at the trigger itself** (`not_to`), so the automation no longer even starts a run for an attribute-only change — no leftover trace entries ([#550](https://github.com/hvorragend/ha-blueprints/issues/550))
+
+---
+
 # CCA 2026.06.28 V2
 
 - 🐛 **Fix (docs):** The *"Shading END – Optional Conditions (OR)"* help text contained a misleading example claiming shading would *"End only when sun is wrong AND (dark OR cold)"*. That suggested the AND group and the OR group are combined with **AND**. In reality — and as the *"Combined logic"* note in the same help text and the automation trace both show — the two END groups are combined with **OR**: shading ends when *either* all AND-group conditions become invalid *or* any single OR-group condition becomes invalid. The example has been corrected, and the help text now states explicitly that END combines the groups with OR (unlike START, which combines them with AND) and explains that requiring several end conditions together means putting them all in the AND group. No logic change ([#560](https://github.com/hvorragend/ha-blueprints/issues/560))
