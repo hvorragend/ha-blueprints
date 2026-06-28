@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.24
+    **Version**: 2026.06.28
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2883,7 +2883,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.24"
+  version: "2026.06.28"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5375,6 +5375,7 @@ actions:
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
+              - "{{ helper_state_pending_end }}" # Allow entry to cancel a stale end-pending
           - or: # Only once a day?
               - "{{ not prevent_flags.shading_multiple_times }}"
               - "{{ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d') }}"
@@ -5392,6 +5393,25 @@ actions:
                   - "{{ is_shading_allowed_window }}"
             then:
               - choose:
+                  #####################################################################
+                  # Shading re-detected while end-pending is active: cancel the pending
+                  # end so the cover stays shaded until end conditions hold for the
+                  # full waiting time without interruption.
+                  #####################################################################
+                  - alias: "Shading re-detected. Cancel pending shading end"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
+                      - "{{ helper_state_pending_end }}"
+                    sequence:
+                      - variables:
+                          update_values:
+                            pnd: 'non'
+                            ts:
+                              due: 0
+                              arm: 0
+                      - *helper_update
+                      - stop: "Shading End Pending: Canceled (shading re-detected)"
+
                   #####################################################################
                   # Shading start detected. Save next execution time and pending status
                   #####################################################################

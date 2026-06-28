@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.28
+
+- 🐛 **Fix:** When shading-end was **pending** (waiting for the configured end waiting time to elapse) and the shading conditions were met **again** before the timer fired — because weather changed from cloudy back to bright — the pending end was not canceled. CCA ignored all `t_shading_start_pending*` events while `pnd == 'end'`, so the end timer continued running silently. If conditions happened to still be met at the execution moment, shading ended regardless of what had happened during the waiting period. This violated the documented behavior *"Shading ends if the conditions are not fulfilled **for the entire waiting time**"*. A re-triggered `t_shading_start_pending*` event now cancels the active end-pending (`pnd` → `non`, timestamps cleared); the cover stays in the shading position and waits for the next uninterrupted end-conditions period ([#554](https://github.com/hvorragend/ha-blueprints/issues/554))
+
+---
+
 # CCA 2026.06.24
 
 - 🐛 **Fix:** Forecast-based shading via the **daily/hourly weather forecast service** did not work when a weather entity was configured **without** a separate direct temperature sensor — i.e. the primary and recommended setup. The internal check that decides whether to call `weather.get_forecasts` treated an unset temperature sensor (which resolves to an empty list) as "still configured", so the forecast service was never called. As a result `forecast_temp_raw` and `forecast_weather_condition_raw` stayed `null`, and any forecast condition used as a **required (AND)** condition blocked shading entirely (removing it from AND made shading work again). The check now correctly recognizes an unconfigured temperature sensor, so the weather forecast service is called as intended. Calling `weather.get_forecasts` manually in Developer Tools always returned valid data; only the automation's internal gate was wrong
