@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.24
+    **Version**: 2026.06.28
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2883,7 +2883,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.24"
+  version: "2026.06.28"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5128,6 +5128,38 @@ actions:
                           opn: "now"
                   - *helper_update
                   - stop: "Opening skipped: Shading start pending"
+
+              ###################################
+              # Shading warranted at opening, but no pending/marker (e.g. lost via
+              # manual open+close before opening time) - arm pending and defer
+              ###################################
+              - alias: "Opening: Shading warranted, arm pending"
+                conditions:
+                  - "{{ is_shading_enabled }}"
+                  - "{{ shading_start_warranted }}"
+                  - "{{ is_shading_allowed_window }}"
+                  - "{{ not helper_state_is_shaded }}"
+                  - "{{ not helper_state_shade }}"
+                  - "{{ not helper_state_pending_start }}"
+                  - "{{ not helper_state_pending_end }}" # Mutual-exclusivity guard
+                  - "{{ not (helper_state_manual and override_flags.shading) }}" # Override check
+                  - or: # Only once a day?
+                      - "{{ not prevent_flags.shading_multiple_times }}"
+                      - "{{ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d') }}"
+                sequence:
+                  - variables:
+                      shading_start_due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                      log_extra: "opening: shading warranted, arming pending; wait={{ shading_waitingtime_start | int }}s; max_duration={{ shading_start_max_duration | int }}s"
+                      update_values:
+                        bas: "opn"
+                        shd: 0
+                        pnd: 'beg'
+                        ts:
+                          opn: "now"
+                          due: "{{ shading_start_due | int }}"
+                          arm: "now"
+                  - *helper_update
+                  - stop: "Opening: Shading pending armed"
 
             ###################################
             # Normal opening of the cover

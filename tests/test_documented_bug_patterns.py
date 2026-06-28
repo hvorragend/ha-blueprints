@@ -573,3 +573,63 @@ class TestPatternYResetPositionSuppressionGuard:
         assert "helper.man" in vt and "== 1" in vt, (
             "t_reset_position must require an active manual override (man == 1)"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #555: a cover manually opened+closed before the earliest opening time
+# loses its armed shading-start pending. At opening time shading is still
+# warranted, but no shading trigger re-fires (steadily-true conditions produce
+# no false→true transition). The opening handler must re-arm a pending from the
+# live conditions instead of opening normally and forgetting shading.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+ISSUE555_ARM_ALIAS = "Opening: Shading warranted, arm pending"
+
+
+class TestIssue555OpeningArmsShadingPending:
+    """The opening handler must re-arm shading from live conditions (#555)."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), ISSUE555_ARM_ALIAS)
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, f"branch not found: {ISSUE555_ARM_ALIAS!r}"
+
+    def test_gated_on_live_shading_conditions(self, branch):
+        flat = " ".join(str(c) for c in branch["conditions"])
+        assert "shading_start_warranted" in flat, (
+            "arm branch must gate on live shading conditions (#555)"
+        )
+        assert "is_shading_enabled" in flat
+        assert "is_shading_allowed_window" in flat
+
+    def test_only_when_no_existing_pending_or_marker(self, branch):
+        # Must not double-arm: the existing 'shd=1' and 'pnd=beg' branches
+        # already handle those cases.
+        flat = " ".join(str(c) for c in branch["conditions"])
+        assert "not helper_state_is_shaded" in flat
+        assert "not helper_state_shade" in flat
+        assert "not helper_state_pending_start" in flat
+        assert "not helper_state_pending_end" in flat
+
+    def test_respects_manual_override(self, branch):
+        flat = " ".join(str(c) for c in branch["conditions"])
+        assert "override_flags.shading" in flat, (
+            "arm branch must skip when manual override blocks shading"
+        )
+
+    def test_arms_pending_consistently(self, branch):
+        # pnd='beg' implies ts.due > 0 and ts.arm > 0 (Invariant 8).
+        uv = _branch_update_values(branch)
+        assert uv.get("pnd") == "beg", "arm branch must set pnd=beg"
+        assert uv.get("shd") == 0, "arm branch must keep shd=0 while pending"
+        ts = uv.get("ts", {})
+        assert "due" in ts and ts["due"] not in (0, "0"), "must set ts.due"
+        assert ts.get("arm") == "now", "must anchor ts.arm to now (in window)"
+
+    def test_does_not_clear_manual_without_driving(self, branch):
+        # No cover drive happens here, so man must be preserved (Invariant 7).
+        uv = _branch_update_values(branch)
+        assert "man" not in uv, "arm branch must not touch man (no drive)"

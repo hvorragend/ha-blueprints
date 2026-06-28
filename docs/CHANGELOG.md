@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.28
+
+- 🐛 **Fix:** A cover did not enter sun shading if it had been **manually opened and then closed before the earliest opening time**. The manual moves cleared the armed shading-start pending (and the shading marker) from the helper. At the opening time the shading conditions were still met, but since they were already steadily true no shading trigger re-fired (those only fire on a fresh false→true transition), and the opening handler only honored shading via the now-cleared helper markers — so the cover just opened normally and never shaded that day. The opening handler now re-evaluates the live shading conditions: when shading is still warranted at opening time but no pending/marker exists, it arms a fresh shading-start pending and defers to the normal shading execution (waiting time, conditions and retry/abort logic all apply as usual) ([#555](https://github.com/hvorragend/ha-blueprints/issues/555))
+
+---
+
 # CCA 2026.06.24
 
 - 🐛 **Fix:** Forecast-based shading via the **daily/hourly weather forecast service** did not work when a weather entity was configured **without** a separate direct temperature sensor — i.e. the primary and recommended setup. The internal check that decides whether to call `weather.get_forecasts` treated an unset temperature sensor (which resolves to an empty list) as "still configured", so the forecast service was never called. As a result `forecast_temp_raw` and `forecast_weather_condition_raw` stayed `null`, and any forecast condition used as a **required (AND)** condition blocked shading entirely (removing it from AND made shading work again). The check now correctly recognizes an unconfigured temperature sensor, so the weather forecast service is called as intended. Calling `weather.get_forecasts` manually in Developer Tools always returned valid data; only the automation's internal gate was wrong

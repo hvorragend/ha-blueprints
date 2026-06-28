@@ -603,6 +603,20 @@ suppressed **every** manual position trigger fired while the cover is within tol
 
 ---
 
+### Bug Pattern Z: Shading not entered when cover manually opened+closed before opening time (Issue #555)
+
+**Symptom:** A cover is manually opened and then closed **before** the earliest opening time. At the opening time the shading conditions are still met, but the cover just opens normally and never enters shading that day — it does not appear in the user's "Forecast Sun Protection" view (`shd` stays `0`).
+
+**Cause:** Shading at opening time is driven entirely by the helper markers (`shd == 1` → "Shading detected. Move to shading position"; `pnd == 'beg'` → "Opening skipped: Shading start pending"). A shading-start pending is normally armed pre-window (Bug Pattern L/S) by a `t_shading_start_pending_*` trigger. The manual open **and** the manual close handlers both clear `pnd`/`ts.due`/`ts.arm` and set `shd: 0` ("hygiene", Invariant 8). So by opening time both markers are gone. The shading conditions are still **steadily** true, but template triggers only fire on a fresh false→true transition — so no `t_shading_start_pending_*` re-fires to re-arm. The opening handler, seeing no marker, runs "Normal opening" and shading is forgotten for the day.
+
+**Fix:** Add an opening sub-branch "Opening: Shading warranted, arm pending" (between "Opening skipped: Shading start pending" and "Normal opening"). When shading is currently warranted (`shading_start_warranted` — the same live gate the execution uses, already available because the forecast is loaded on all opening triggers per Bug Pattern T) and no pending/marker exists, it arms a fresh pending (`pnd: 'beg'`, `ts.due = now + waitingtime`, `ts.arm = now`) and sets `bas: 'opn'`/`ts.opn: 'now'`, then defers to `t_shading_start_execution`. The normal execution path then applies the waiting time, `auto_shading_start_condition`, and retry/abort logic. The branch mirrors the shading-start guards: `is_shading_enabled`, `is_shading_allowed_window`, the once-per-day guard, the `not (helper_state_manual and override_flags.shading)` override check, and the mutual-exclusivity guard (`not helper_state_pending_end`). It does **not** drive and does **not** touch `man` (Invariant 7).
+
+**Why it does not change the normal path:** On a normal day the pending is already armed (`pnd == 'beg'`), so "Opening skipped: Shading start pending" consumes the opening and this branch (which requires `not helper_state_pending_start`) is skipped. It only fires when the marker was lost but conditions are still warranted.
+
+**Note:** `ts.due`/`ts.arm` use plain `now` (no window deferral) because the opening trigger fires *at* the window start — `is_shading_allowed_window` is already true.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
