@@ -5166,11 +5166,42 @@ actions:
                   - stop: "Opening skipped: Shading start pending"
 
             ###################################
+            # Shading warranted at opening time but no pending is active - arm pending and defer
+            # (e.g. pending was cleared by a manual open+close before opening time, Issue #555)
+            ###################################
+              - alias: "Opening: Shading warranted, arm pending"
+                conditions:
+                  - "{{ is_shading_enabled }}"
+                  - "{{ shading_start_warranted }}"
+                  - "{{ is_shading_allowed_window }}"
+                  - "{{ not helper_state_is_shaded }}"
+                  - "{{ not helper_state_shade }}"
+                  - "{{ not helper_state_pending_start }}"
+                  - "{{ not helper_state_pending_end }}"
+                  - or:
+                      - "{{ not prevent_flags.shading_multiple_times }}"
+                      - "{{ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d') }}"
+                sequence:
+                  - variables:
+                      shading_start_due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                      log_extra: "opening: shading warranted, arming pending; wait={{ shading_waitingtime_start | int }}s; max_duration={{ shading_start_max_duration | int }}s"
+                      update_values:
+                        bas: "opn"
+                        shd: 0
+                        pnd: 'beg'
+                        ts:
+                          opn: "now"
+                          due: "{{ shading_start_due | int }}"
+                          arm: "now"
+                  - *helper_update
+                  - stop: "Opening: Shading pending armed"
+
+            ###################################
             # Normal opening of the cover
             ###################################
               - alias: "Normal opening of the cover"
                 conditions:
-                  - "{{ not in_shading_position }}" # Don't switch from Shading to Open here - that's handled by Shading End 
+                  - "{{ not in_shading_position }}" # Don't switch from Shading to Open here - that's handled by Shading End
                 sequence:
                   - variables:
                       target_position: !input open_position
