@@ -573,3 +573,76 @@ class TestPatternYResetPositionSuppressionGuard:
         assert "helper.man" in vt and "== 1" in vt, (
             "t_reset_position must require an active manual override (man == 1)"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #554: a re-triggered shading start during an active end-pending must
+# cancel the pending end ONLY when the end conditions are no longer met, and the
+# branch must remain reachable even after shading already ran today
+# (prevent_shading_multiple_times must not block the cancel).
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+CANCEL_END_PENDING_ALIAS = "Shading re-detected. Cancel pending shading end"
+
+
+class TestIssue554CancelPendingShadingEnd:
+    """#554: cancel the end-pending when end conditions are no longer met."""
+
+    @pytest.fixture(scope="class")
+    def cancel_branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), CANCEL_END_PENDING_ALIAS)
+
+    @pytest.fixture(scope="class")
+    def start_branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), "Check for shading start")
+
+    def test_branch_exists(self, cancel_branch):
+        assert cancel_branch is not None, f"branch not found: {CANCEL_END_PENDING_ALIAS!r}"
+
+    def test_cancel_rechecks_end_conditions(self, cancel_branch):
+        # Without the re-check, an unrelated start-pending trigger (e.g.
+        # forecast-temp) cancels a legitimate end-pending whose real end
+        # condition (azimuth/elevation) is still met. Since that end trigger
+        # won't re-fire (no FALSE->TRUE transition), the cover gets stuck shaded.
+        flat = " ".join(str(c) for c in cancel_branch["conditions"])
+        assert "not shading_end_conditions_met" in flat, (
+            "cancel branch must only fire when the end conditions are no longer "
+            "met, otherwise an unrelated start trigger leaves the cover stuck "
+            "shaded (#554)"
+        )
+
+    def test_cancel_requires_active_end_pending(self, cancel_branch):
+        flat = " ".join(str(c) for c in cancel_branch["conditions"])
+        assert "helper_state_pending_end" in flat
+        assert "t_shading_start_pending" in flat
+
+    def test_cancel_clears_pending_keys(self, cancel_branch):
+        uv = _branch_update_values(cancel_branch)
+        assert uv.get("pnd") == "non", "cancel must clear pnd to 'non'"
+        ts = uv.get("ts", {}) or {}
+        assert ts.get("due") == 0 and ts.get("arm") == 0, (
+            "cancel must clear ts.due and ts.arm (terminal pending state)"
+        )
+
+    def test_cancel_does_not_drive_or_clear_manual(self, cancel_branch):
+        # No cover movement happens here, so man must not be reset (Invariant 7)
+        # and shd must stay shaded (omitted -> preserved as 1).
+        uv = _branch_update_values(cancel_branch)
+        assert "man" not in uv, "cancel must not clear man without driving (Invariant 7)"
+        assert uv.get("shd", 1) == 1, "cancel must keep shading active"
+
+    def test_once_per_day_guard_allows_end_pending_entry(self, start_branch):
+        # prevent_shading_multiple_times must not block the cancel: shading has
+        # already run today, so the once-per-day OR is otherwise false and the
+        # whole branch (incl. the cancel) would be skipped.
+        for cond in start_branch["conditions"]:
+            if isinstance(cond, dict) and "or" in cond:
+                flat = " ".join(str(c) for c in cond["or"])
+                if "prevent_flags.shading_multiple_times" in flat:
+                    assert "helper_state_pending_end" in flat, (
+                        "once-per-day guard must allow entry while an end-pending "
+                        "is active so the cancel branch stays reachable (#554)"
+                    )
+                    return
+        raise AssertionError("once-per-day OR not found in shading-start branch")
