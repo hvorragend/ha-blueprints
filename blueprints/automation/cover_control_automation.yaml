@@ -5181,10 +5181,10 @@ actions:
                           opn: "now"
                           due: 0
                           arm: 0
-                  - delay:
-                      seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - if: "{{ resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) }}"
-                    then:
+                    then: &open_drive_steps
+                      - delay:
+                          seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                       - choose: []
                         default: !input auto_up_action_before
                       - *cover_move_action
@@ -5613,15 +5613,25 @@ actions:
                                 conditions: []
                                 sequence:
                                   - variables:
-                                      log_extra: "abort: blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
+                                      target_position: !input open_position
+                                      target_tilt_position: "{{ open_tilt_position | int }}"
+                                      # Open the cover on abort when the base state wants it open but it
+                                      # is not there (e.g. pending was armed at opening time while the
+                                      # cover sat at a stale closed position, #555). Manual shading
+                                      # override is respected: keep the held position instead of opening.
+                                      drive_open: "{{ effective_state == 'opn' and not in_open_position and not (helper_state_manual and override_flags.shading) }}"
+                                      log_extra: "abort: blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}; drive_open={{ drive_open }}"
                                       update_values:
-                                        # Abort shading start, clear pending
+                                        # Abort shading start, clear pending; open if base wants open (#555)
                                         shd: 0
+                                        man: "{{ 0 if drive_open else helper_json.man | default(0) | int }}"
                                         pnd: 'non'
                                         ts:
                                           shd: "now"
                                           due: 0
                                           arm: 0 # Clear retry anchor (sequence ended)
+                                  - if: "{{ drive_open }}"
+                                    then: *open_drive_steps
                                   - *helper_update
                                   - stop: "Shading Start aborted: Timeout or invalid (blocked)"
 
@@ -5679,15 +5689,24 @@ actions:
                       - "{{ helper_state_pending_start }}"
                     sequence:
                       - variables:
-                          log_extra: "abort: shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
+                          target_position: !input open_position
+                          target_tilt_position: "{{ open_tilt_position | int }}"
+                          # Open the cover on abort when the base state wants it open but it is
+                          # not there (stale-pending armed at opening time, #555). Manual shading
+                          # override is respected: keep the held position instead of opening.
+                          drive_open: "{{ effective_state == 'opn' and not in_open_position and not (helper_state_manual and override_flags.shading) }}"
+                          log_extra: "abort: shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}; drive_open={{ drive_open }}"
                           update_values:
-                            # Abort shading start, clear pending
+                            # Abort shading start, clear pending; open if base wants open (#555)
                             shd: 0
+                            man: "{{ 0 if drive_open else helper_json.man | default(0) | int }}"
                             pnd: 'non'
                             ts:
                               shd: "now"
                               due: 0
                               arm: 0 # Clear retry anchor (sequence ended)
+                      - if: "{{ drive_open }}"
+                        then: *open_drive_steps
                       - *helper_update
                       - stop: "Shading Start aborted: Timeout or invalid"
 

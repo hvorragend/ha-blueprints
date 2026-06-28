@@ -615,6 +615,16 @@ suppressed **every** manual position trigger fired while the cover is within tol
 
 **Note:** `ts.due`/`ts.arm` use plain `now` (no window deferral) because the opening trigger fires *at* the window start — `is_shading_allowed_window` is already true.
 
+**Abort safety (the arm branch does not drive — Option 2):** The arm branch deliberately does **not** open the cover; it only arms the pending and defers, exactly like "Opening skipped: Shading start pending". This keeps the cover at its current position during the shading waiting time, consistent with the pre-window pending path (closed → shading directly, no spurious full-open). The risk this introduces — a pending armed at opening time while the cover sits at a stale **closed** position that then *aborts* (conditions drop, or `auto_shading_start_condition` stays false) would leave the cover stuck closed all morning (a #514-class failure) — is closed in the **execution abort branches**, not by driving open up front:
+
+- Both abort branches ("Shading start blocked - stop retry" and "Shading start / Stop retry") compute `drive_open = effective_state == 'opn' and not in_open_position and not (helper_state_manual and override_flags.shading)` and, when true, run the shared `&open_drive_steps` anchor to drive the cover to the open position.
+- `effective_state == 'opn'` is the authoritative "base wants open" signal (the cascade already accounts for force/privacy/window). `not in_open_position` keeps the normal mid-day abort (cover already open) a no-op. The manual-override guard keeps an `ignore_shading_after_manual` hold respected.
+- `man` is reset to `0` **only** when `drive_open` (Invariant 7); `ts.shd`/`due`/`arm` clearing is unchanged.
+
+The open-drive steps were extracted into the `&open_drive_steps` YAML anchor (defined on the "Normal opening" drive, reused in both abort branches). The `delay` was moved *inside* the opening `if:` so the anchor is self-contained and the stagger delay only runs when a drive actually happens.
+
+**Why Option 2 over "open first, then arm" (the rejected alternative):** Driving open *before* arming the pending (so a later abort trivially leaves the cover open) would cause a visible closed → open → shading double movement and diverge from the pre-window pending path. Option 2 keeps the single, direct closed → shading movement on the happy path and only opens when shading genuinely does not happen.
+
 ---
 
 ## Language & Style Conventions

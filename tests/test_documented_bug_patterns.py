@@ -633,3 +633,76 @@ class TestIssue555OpeningArmsShadingPending:
         # No cover drive happens here, so man must be preserved (Invariant 7).
         uv = _branch_update_values(branch)
         assert "man" not in uv, "arm branch must not touch man (no drive)"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #555 (Option 2): the shading-start abort branches must open the cover
+# when the base state wants it open but it is not there — otherwise a pending
+# armed at opening time (cover at a stale closed position) that later aborts
+# would leave the cover stuck closed all day.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+ISSUE555_ABORT_ALIASES = [
+    "Shading start blocked - stop retry",
+    "Shading start / Stop retry",
+]
+
+
+class TestIssue555AbortOpensWhenBaseWantsOpen:
+    """Shading-start abort must drive open when effective_state == 'opn' (#555)."""
+
+    @pytest.fixture(scope="class")
+    def blueprint(self):
+        return _load_blueprint_yaml()
+
+    @pytest.mark.parametrize("alias", ISSUE555_ABORT_ALIASES)
+    def test_branch_exists(self, blueprint, alias):
+        assert _find_branch_by_alias(blueprint, alias) is not None, (
+            f"abort branch not found: {alias!r}"
+        )
+
+    @pytest.mark.parametrize("alias", ISSUE555_ABORT_ALIASES)
+    def test_defines_drive_open_with_correct_gate(self, blueprint, alias):
+        branch = _find_branch_by_alias(blueprint, alias)
+        drive_open = None
+        for step in branch["sequence"]:
+            if isinstance(step, dict) and "variables" in step:
+                drive_open = step["variables"].get("drive_open")
+                break
+        assert drive_open is not None, f"{alias}: must define a drive_open variable"
+        assert "effective_state == 'opn'" in drive_open, (
+            f"{alias}: drive_open must require the base to want open"
+        )
+        assert "not in_open_position" in drive_open, (
+            f"{alias}: drive_open must skip when already open (idempotent)"
+        )
+        assert "override_flags.shading" in drive_open, (
+            f"{alias}: drive_open must respect an active manual shading override"
+        )
+
+    @pytest.mark.parametrize("alias", ISSUE555_ABORT_ALIASES)
+    def test_has_conditional_open_drive(self, blueprint, alias):
+        branch = _find_branch_by_alias(blueprint, alias)
+        guarded = [
+            s
+            for s in branch["sequence"]
+            if isinstance(s, dict) and str(s.get("if", "")).strip() == "{{ drive_open }}"
+        ]
+        assert guarded, f"{alias}: must drive open guarded by 'if: drive_open'"
+        # The anchored open-drive steps must actually move the cover.
+        then = guarded[0].get("then", [])
+        assert any("delay" in s for s in then if isinstance(s, dict)), (
+            f"{alias}: open drive must reuse the open_drive_steps (delay + move)"
+        )
+
+    @pytest.mark.parametrize("alias", ISSUE555_ABORT_ALIASES)
+    def test_clears_man_only_when_driving(self, blueprint, alias):
+        # Invariant 7: man must only be reset to 0 when the cover is actually driven.
+        branch = _find_branch_by_alias(blueprint, alias)
+        uv = _branch_update_values(branch)
+        man = str(uv.get("man", ""))
+        assert "drive_open" in man, (
+            f"{alias}: man must be gated on drive_open (Invariant 7)"
+        )
+        assert uv.get("pnd") == "non", f"{alias}: abort must clear pnd"
