@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.06.28
+
+- 🐛 **Fix:** When the sun shading started while a window was only **tilted** (not fully open) and the shading position is **below** the ventilation position (e.g. shading 30 %, ventilation 50 %), the cover dropped all the way to the **shading position** — below the ventilation floor. A tilted window makes the ventilation position a *floor* (VENT outranks SHADING in the priority cascade), so the cover should stop at the **ventilation position** while the window is tilted and only move to the shading position once the window is closed. This only happened in the order *tilt the window first, then shading starts*; the reverse order (shading already active, then tilt the window) already held the ventilation position correctly via the contact handler. The shading-start execution now holds the ventilation floor when the window is tilted. If you would rather the cover stay **fully open** while the window is tilted and shade only after you close it, enable *"Lockout protection for window tilted → when starting the sun shading"*
+
+---
+
 # CCA 2026.06.23
 
 - 🐛 **Fix:** With *"Reset in position"* enabled, manually moving the cover to the reset position (e.g. fully open at 100%) was silently ignored when **no** manual override was active — the helper never recorded the manual change. The manual-detection branch suppressed *every* manual move to the reset position, but the matching reset only ever fires while a manual override is already active. So a manual move to the reset position while in automatic mode was lost: neither recorded as a manual change nor cleared by a reset. As a consequence, a later event (e.g. closing a tilted window) drove the cover to the scheduled position instead of respecting the position you had just set by hand. The suppression now only applies while a manual override is actually active — matching the reset's own precondition. The intended *"reopen to the reset position to resume automatic control"* behavior is unchanged ([#546](https://github.com/hvorragend/ha-blueprints/issues/546))

@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.23
+    **Version**: 2026.06.28
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2883,7 +2883,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.23"
+  version: "2026.06.28"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -2928,6 +2928,7 @@ variables:
     shading_above_close: "{{ shading_position < close_position if is_awning else shading_position > close_position }}"
     shading_below_open: "{{ shading_position > open_position if is_awning else shading_position < open_position }}"
     ventilate_above_close: "{{ ventilate_position < close_position if is_awning else ventilate_position > close_position }}"
+    shading_below_ventilate: "{{ shading_position > ventilate_position if is_awning else shading_position < ventilate_position }}"
 
   current_sun_azimuth: "{{ state_attr(default_sun_sensor, 'azimuth') }}"
   current_sun_elevation: "{{ state_attr(default_sun_sensor, 'elevation') }}"
@@ -5476,6 +5477,49 @@ actions:
                                           arm: 0 # Clear retry anchor (sequence ended)
                                   - *helper_update
                                   - stop: "Shading Start skipped: Lockout enabled"
+
+                              ##################################################
+                              # Shading start while the window is tilted:
+                              # ventilation is a floor (VENT > SHADING), so cap
+                              # the cover at the ventilation position instead of
+                              # shading below it. Mirrors effective_state == 'vnt'.
+                              ##################################################
+                              - alias: "Shading start - hold ventilation floor (window tilted)"
+                                conditions:
+                                  - "{{ is_ventilation_enabled }}"
+                                  - "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
+                                  - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) }}"
+                                  - "{{ force_allows_ventilate }}"
+                                  - "{{ resident_flags.allow_ventilate }}"
+                                  - "{{ resident_flags.allow_shade }}"
+                                  - "{{ is_shading_allowed_window }}"
+                                  - "{{ position_comparisons.shading_below_ventilate }}"
+                                sequence:
+                                  - variables:
+                                      target_position: !input ventilate_position
+                                      target_tilt_position: !input ventilate_tilt_position
+                                      update_values:
+                                        # Shading active but window tilted: hold the ventilation floor
+                                        shd: 1
+                                        win: "tlt"
+                                        man: "{{ 0 if not in_ventilate_position else helper_json.man | default(0) | int }}"
+                                        pnd: 'non'
+                                        ts:
+                                          shd: "now"
+                                          due: 0
+                                          arm: 0 # Clear retry anchor (sequence ended)
+                                  - if: "{{ not in_ventilate_position }}"
+                                    then:
+                                      - delay:
+                                          seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
+                                      - choose: []
+                                        default: !input auto_ventilate_action_before
+                                      - *cover_move_action
+                                      - *tilt_move_action
+                                      - choose: []
+                                        default: !input auto_ventilate_action
+                                  - *helper_update
+                                  - stop: "Shading Start: ventilation floor held (window tilted)"
 
                               ###################################
                               # Start Shading

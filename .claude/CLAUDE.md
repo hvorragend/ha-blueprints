@@ -603,6 +603,18 @@ suppressed **every** manual position trigger fired while the cover is within tol
 
 ---
 
+### Bug Pattern Z: Shading start ignores the ventilation floor when the window is already tilted
+
+**Symptom:** With a window **tilted** (not fully open) and `shading_position` below `ventilate_position` (e.g. shading 30, vent 50), the cover drops to the **shading position (30)** when shading starts — below the ventilation floor. It should hold the **ventilation position (50)** while the window is tilted and only move to the shading position once the window is closed.
+
+**Cause:** The shading-start execution had no VENT-floor handling. Its only drive branch, "Start Shading", drove straight to `shading_position` regardless of a tilted window. `effective_state` correctly returns `'vnt'` for tilted + shading (VENT prio 4 > SHADING prio 6), and the **contact handler** holds the floor for the reverse order (shade first, then tilt) — but the shading-start path did not. So the bug only manifested in the order **tilt first, then shading starts** (the reverse order was already correct).
+
+**Fix:** New branch "Shading start - hold ventilation floor (window tilted)" placed **before** "Start Shading" in the execution `choose`. It fires when the window is tilted (and not opened — Invariant 5), ventilation is enabled and force/resident-allowed, shading is resident-allowed, and `position_comparisons.shading_below_ventilate` holds. It drives to `ventilate_position` / `ventilate_tilt_position`, sets `shd: 1`, `win: 'tlt'`, clears pending (`pnd: 'non'`, `ts.due: 0`, `ts.arm: 0`), and sets `man: 0` only when it actually drives (`not in_ventilate_position`, Invariant 7). When the window later closes, the contact handler's "Window closed - Return to shading" lowers the cover to the real shading position.
+
+**Scope:** Only the common case `shading_position` below `ventilate_position` is floored (`position_comparisons.shading_below_ventilate`). When `shading_position` is at/above `ventilate_position` the floor does not bind and "Start Shading" drives to the shading position as before. The `lockout_tilted_shading_start` option still takes precedence (treats a tilted window like a fully-open one → cover stays open during shading). The latent `effective_state == 'vnt'` divergence for the rare `shading_position` *above* `ventilate_position` config is intentionally left untouched (out of scope, not the reported case).
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
