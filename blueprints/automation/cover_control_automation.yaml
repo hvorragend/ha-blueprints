@@ -5170,16 +5170,17 @@ actions:
             ###################################
               - alias: "Normal opening of the cover"
                 conditions:
-                  - "{{ not in_shading_position }}" # Don't switch from Shading to Open here - that's handled by Shading End 
+                  - "{{ not in_shading_position }}" # Don't switch from Shading to Open here - that's handled by Shading End
                 sequence:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: "{{ open_tilt_position | int }}"
+                      man_val: "{{ 0 if resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) else helper_json.man | default(0) | int }}"
                       update_values:
                         # Set base state to open, clear shading
                         bas: "opn"
                         shd: 0
-                        man: "{{ 0 if resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) else helper_json.man | default(0) | int }}"
+                        man: "{{ man_val }}"
                         pnd: 'non'
                         ts:
                           opn: "now"
@@ -5195,6 +5196,26 @@ actions:
                       - *tilt_move_action
                       - choose: []
                         default: !input auto_up_action
+                  - if:
+                      - "{{ is_shading_enabled }}"
+                      - "{{ shading_start_warranted }}"
+                      - "{{ is_shading_allowed_window }}"
+                      - "{{ not helper_state_pending_start }}"
+                      - "{{ not helper_state_pending_end }}"
+                      - or:
+                          - "{{ not prevent_flags.shading_multiple_times }}"
+                          - "{{ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d') }}"
+                    then:
+                      - variables:
+                          update_values:
+                            bas: "opn"
+                            shd: 0
+                            man: "{{ man_val }}"
+                            pnd: 'beg'
+                            ts:
+                              opn: "now"
+                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                              arm: "{{ as_timestamp(now()) | int }}"
                   - *helper_update
                   - stop: "Opening executed"
 
