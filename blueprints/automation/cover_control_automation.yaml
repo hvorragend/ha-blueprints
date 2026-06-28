@@ -5380,6 +5380,7 @@ actions:
               - "{{ not prevent_flags.shading_multiple_times }}"
               - "{{ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d') }}"
               - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
+              - "{{ helper_state_pending_end }}" # Allow entry to cancel an end-pending even after shading already ran today
 
         sequence:
           - if:
@@ -5402,8 +5403,10 @@ actions:
                     conditions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
                       - "{{ helper_state_pending_end }}"
+                      - "{{ not shading_end_conditions_met }}" # Only cancel when the end conditions are no longer met
                     sequence:
                       - variables:
+                          log_extra: "shading end pending canceled (start-pending event, end conditions no longer met); elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s"
                           update_values:
                             pnd: 'non'
                             ts:
