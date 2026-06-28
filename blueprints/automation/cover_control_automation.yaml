@@ -5166,6 +5166,37 @@ actions:
                   - stop: "Opening skipped: Shading start pending"
 
             ###################################
+            # Shading warranted at opening time but no pending is active - arm pending and defer
+            # (e.g. pending was cleared by a manual open+close before opening time, Issue #555)
+            ###################################
+              - alias: "Opening: Shading warranted, arm pending"
+                conditions:
+                  - "{{ is_shading_enabled }}"
+                  - "{{ shading_start_warranted }}"
+                  - "{{ is_shading_allowed_window }}"
+                  - "{{ not helper_state_is_shaded }}"
+                  - "{{ not helper_state_shade }}"
+                  - "{{ not helper_state_pending_start }}"
+                  - "{{ not helper_state_pending_end }}"
+                  - or:
+                      - "{{ not prevent_flags.shading_multiple_times }}"
+                      - "{{ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d') }}"
+                sequence:
+                  - variables:
+                      shading_start_due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                      log_extra: "opening: shading warranted, arming pending; wait={{ shading_waitingtime_start | int }}s; max_duration={{ shading_start_max_duration | int }}s"
+                      update_values:
+                        bas: "opn"
+                        shd: 0
+                        pnd: 'beg'
+                        ts:
+                          opn: "now"
+                          due: "{{ shading_start_due | int }}"
+                          arm: "now"
+                  - *helper_update
+                  - stop: "Opening: Shading pending armed"
+
+            ###################################
             # Normal opening of the cover
             ###################################
               - alias: "Normal opening of the cover"
@@ -5175,12 +5206,11 @@ actions:
                   - variables:
                       target_position: !input open_position
                       target_tilt_position: "{{ open_tilt_position | int }}"
-                      man_val: "{{ 0 if resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) else helper_json.man | default(0) | int }}"
                       update_values:
                         # Set base state to open, clear shading
                         bas: "opn"
                         shd: 0
-                        man: "{{ man_val }}"
+                        man: "{{ 0 if resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) else helper_json.man | default(0) | int }}"
                         pnd: 'non'
                         ts:
                           opn: "now"
@@ -5196,26 +5226,6 @@ actions:
                       - *tilt_move_action
                       - choose: []
                         default: !input auto_up_action
-                  - if:
-                      - "{{ is_shading_enabled }}"
-                      - "{{ shading_start_warranted }}"
-                      - "{{ is_shading_allowed_window }}"
-                      - "{{ not helper_state_pending_start }}"
-                      - "{{ not helper_state_pending_end }}"
-                      - or:
-                          - "{{ not prevent_flags.shading_multiple_times }}"
-                          - "{{ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d') }}"
-                    then:
-                      - variables:
-                          update_values:
-                            bas: "opn"
-                            shd: 0
-                            man: "{{ man_val }}"
-                            pnd: 'beg'
-                            ts:
-                              opn: "now"
-                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
-                              arm: "{{ as_timestamp(now()) | int }}"
                   - *helper_update
                   - stop: "Opening executed"
 
