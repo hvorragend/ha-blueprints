@@ -5613,13 +5613,18 @@ actions:
                               - stop: "Shading Start: state recorded (no drive required)"
 
                         else: # Blocked by additional condition or manual override - retry or abort
-                          - choose:
-                              - alias: "Shading start blocked - waiting for time window"
+                          - variables:
+                              shading_start_retry_reason: "blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}"
+                          # Shared retry routine: also referenced by the outer
+                          # "conditions not met" path via *shading_start_retry.
+                          - &shading_start_retry
+                            choose:
+                              - alias: "Shading start retry - waiting for time window"
                                 conditions:
                                   - "{{ not is_shading_allowed_window }}"
                                 sequence:
                                   - variables:
-                                      log_extra: "blocked, waiting for time window; next_retry_in={{ shading_waitingtime_start | int }}s"
+                                      log_extra: "{{ shading_start_retry_reason | default('') }}; waiting for time window; next_retry_in={{ shading_waitingtime_start | int }}s"
                                       update_values:
                                         shd: 0
                                         pnd: 'beg'
@@ -5627,16 +5632,16 @@ actions:
                                           due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
                                           arm: "now"
                                   - *helper_update
-                                  - stop: "Shading Start Pending: Waiting for time window (blocked)"
+                                  - stop: "Shading Start Pending: Waiting for time window"
 
-                              - alias: "Shading start blocked by additional condition or manual override - check if we should continue"
+                              - alias: "Shading start retry - continue waiting"
                                 conditions:
                                   - "{{ shading_start_max_duration > 0 }}"
                                   - "{{ is_shading_allowed_window }}" # Continue only within time window
                                   - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_start_max_duration }}"
                                 sequence:
                                   - variables:
-                                      log_extra: "blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
+                                      log_extra: "{{ shading_start_retry_reason | default('') }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
                                       update_values:
                                         # Continue waiting with new pending time
                                         shd: 0
@@ -5645,91 +5650,32 @@ actions:
                                           shd: "now"
                                           due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
                                   - *helper_update
-                                  - stop: "Shading Start Pending: Continue waiting (blocked by user condition or override)"
+                                  - stop: "Shading Start Pending: Continue waiting"
 
-                              - alias: "Shading start blocked - stop retry"
-                                conditions: []
-                                sequence:
-                                  - variables:
-                                      log_extra: "abort: blocked by={{ 'manual_override' if (helper_state_manual and override_flags.shading) else 'auto_shading_start_condition' }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
-                                      update_values:
-                                        # Abort shading start, clear pending
-                                        shd: 0
-                                        pnd: 'non'
-                                        ts:
-                                          shd: "now"
-                                          due: 0
-                                          arm: 0 # Clear retry anchor (sequence ended)
-                                  - *helper_update
-                                  - stop: "Shading Start aborted: Timeout or invalid (blocked)"
+                            # Abort: timeout OR outside time window OR max duration disabled
+                            default:
+                              - variables:
+                                  log_extra: "abort: {{ shading_start_retry_reason | default('') }}; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
+                                  update_values:
+                                    # Abort shading start, clear pending
+                                    shd: 0
+                                    pnd: 'non'
+                                    ts:
+                                      shd: "now"
+                                      due: 0
+                                      arm: 0 # Clear retry anchor (sequence ended)
+                              - *helper_update
+                              - stop: "Shading Start aborted: Timeout or invalid"
 
             else: # Shading conditions were no longer met or not met again.
-              - choose:
-                  #####################################################################
-                  # Shading start execution - waiting for time window to open
-                  #####################################################################
-                  - alias: "Shading start execution - waiting for time window"
-                    conditions:
-                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_state_pending_start }}"
-                      - "{{ not is_shading_allowed_window }}"
-                    sequence:
-                      - variables:
-                          log_extra: "waiting for time window; next_retry_in={{ shading_waitingtime_start | int }}s"
-                          update_values:
-                            shd: 0
-                            pnd: 'beg'
-                            ts:
-                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
-                              arm: "now"
-                      - *helper_update
-                      - stop: "Shading Start Pending: Waiting for time window"
-
-                  #####################################################################
-                  # Shading start conditions not met - check if we should continue
-                  #####################################################################
-                  - alias: "Shading start conditions not met - check if we should continue"
-                    conditions:
-                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_state_pending_start }}"
-                      - "{{ shading_start_max_duration > 0 }}"
-                      - "{{ is_shading_allowed_window }}"
-                      - "{{ (as_timestamp(now()) - helper_ts_pending_arm) <= shading_start_max_duration }}"
-                    sequence:
-                      - variables:
-                          log_extra: "shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s/{{ shading_start_max_duration | int }}s; next_retry_in={{ shading_waitingtime_start | int }}s"
-                          update_values:
-                            # Continue waiting with new pending time
-                            shd: 0
-                            pnd: 'beg'
-                            ts:
-                              shd: "now"
-                              due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
-                      - *helper_update
-                      - stop: "Shading Start Pending: Continue waiting"
-
-                  ######################################################################
-                  # Shading start / Stop retry (timeout OR outside time window OR disabled)
-                  ######################################################################
-                  - alias: "Shading start / Stop retry"
-                    conditions:
-                      - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
-                      - "{{ helper_state_pending_start }}"
-                    sequence:
-                      - variables:
-                          log_extra: "abort: shading_start_conditions_met=false; elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s; max_duration={{ shading_start_max_duration | int }}s; in_window={{ is_shading_allowed_window }}"
-                          update_values:
-                            # Abort shading start, clear pending
-                            shd: 0
-                            pnd: 'non'
-                            ts:
-                              shd: "now"
-                              due: 0
-                              arm: 0 # Clear retry anchor (sequence ended)
-                      - *helper_update
-                      - stop: "Shading Start aborted: Timeout or invalid"
-
-                default:
+              - if:
+                  - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}"
+                  - "{{ helper_state_pending_start }}"
+                then:
+                  - variables:
+                      shading_start_retry_reason: "shading_start_conditions_met=false"
+                  - *shading_start_retry
+                else:
                   - stop: "Shading start skipped: Pending trigger fired but combined start conditions evaluated false."
 
       ############################################################
