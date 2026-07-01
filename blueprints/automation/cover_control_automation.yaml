@@ -3377,16 +3377,33 @@ variables:
        if (resident_sensor != [] and states(resident_sensor) in invalid_states)
        else (resident_sensor != [] and states(resident_sensor) in ['on', 'true']) }}
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RESIDENT PERMISSION FLAGS - Centralized Resident-based Access Control
+  # ═══════════════════════════════════════════════════════════════════════════
+  # These flags check resident status (from state_resident, live sensor) once,
+  # avoiding redundant sensor reads across the entire code.
+  #
+  # Relationship to effective_state priority cascade:
+  #   closing_trigger → Activates Layer 4 (PRIVACY) in effective_state
+  #   opening_trigger → One-shot trigger action (not a hierarchy layer)
+  #   allow_ventilate → Conditions Layer 3 (VENT) in effective_state
+  #   allow_shade     → Conditions Layer 5 (SHADING) in effective_state
+  #   allow_open      → Conditions Layer 6 (BASE="open") in effective_state
+
+  # Resident flags - All resident permission checks in one place
+  resident_flags:
+    opening_trigger: "{{ 'resident_opening_enabled' in resident_config }}"
+    closing_trigger: "{{ 'resident_closing_enabled' in resident_config }}"
+    allow_open: "{{ 'resident_allow_opening' in resident_config or not state_resident }}"
+    allow_shade: "{{ 'resident_allow_shading' in resident_config or not state_resident }}"
+    allow_ventilate: "{{ 'resident_allow_ventilation' in resident_config or not state_resident }}"
+
   # EFFECTIVE STATE - The actual state the cover should be in based on priority cascade
   # Replaces v5's state_current (which was just an alias with old names vpart/vfull)
   # Use this directly instead of the old state_current variable
   effective_state: >-
     {% set h = helper_json %}
-    {% set resident_present = state_resident %}
-    {% set allow_vent = 'resident_allow_ventilation' in resident_config or not resident_present %}
-    {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %}
-    {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %}
-    {% set privacy_active = resident_present and 'resident_closing_enabled' in resident_config %}
+    {% set privacy_active = state_resident and resident_flags.closing_trigger %}
     {% set s_opn = contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
     {% set s_tlt = contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
     {% set w = 'opn' if s_opn else 'tlt' if s_tlt else h.win if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' %}
@@ -3397,15 +3414,15 @@ variables:
     {% else %}
       {% if privacy_active %}
         {% set base_target = 'cls' %}
-      {% elif h.shd | int == 1 and allow_shade %}
+      {% elif h.shd | int == 1 and resident_flags.allow_shade %}
         {% set base_target = 'shd' %}
-      {% elif h.bas == 'opn' and not allow_open %}
+      {% elif h.bas == 'opn' and not resident_flags.allow_open %}
         {% set base_target = 'cls' %}
       {% else %}
         {% set base_target = h.bas %}
       {% endif %}
       {% set base_open_scheduled = base_target == 'opn' and is_opening_scheduled %}
-      {% if w == 'tlt' and allow_vent and not base_open_scheduled %}
+      {% if w == 'tlt' and resident_flags.allow_ventilate and not base_open_scheduled %}
         vnt
       {% else %}
         {{ base_target }}
@@ -3438,7 +3455,6 @@ variables:
   helper_ts_open: "{{ helper_json.ts.opn | default(0) | int }}"
   helper_ts_close: "{{ helper_json.ts.cls | default(0) | int }}"
   helper_ts_shade: "{{ helper_json.ts.shd | default(0) | int }}"
-  helper_ts_pending_due: "{{ helper_json.ts.due | default(0) | int }}"
   helper_ts_pending_arm: "{{ helper_json.ts.arm | default(0) | int }}"
   helper_ts_man: "{{ helper_json.ts.man | default(0) | int }}"
 
@@ -3478,7 +3494,7 @@ variables:
   #      written to the helper. Used to track which force was active across
   #      automation runs and for state recovery after force ends.
   #
-  #   2. is_forced_* / active_force_from_sensors (from HA entities) – The
+  #   2. is_forced_* (from HA entities) – The
   #      REALTIME sensor state. Reads the actual entity value at execution
   #      time. Used for permission checks (force_allows_*) and "Last Wins"
   #      logic when one force is disabled but another is still active.
@@ -3526,43 +3542,6 @@ variables:
   force_allows_close: "{{ not (is_forced_open or is_forced_shade or is_forced_vent) }}"
   force_allows_shade: "{{ not (is_forced_open or is_forced_close or is_forced_vent) }}"
   force_allows_ventilate: "{{ not (is_forced_open or is_forced_close or is_forced_shade) }}"
-
-  # Which force is currently active based on sensor states (not helper)?
-  # Used for "Last Wins" logic - when a force is disabled, switch to another active force
-  # Values: opn|cls|shd|vnt|non
-  active_force_from_sensors: >-
-    {% if auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
-      opn
-    {% elif auto_down_force != [] and states(auto_down_force) in ['on', 'true'] %}
-      cls
-    {% elif auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'] %}
-      shd
-    {% elif auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true'] %}
-      vnt
-    {% else %}
-      non
-    {% endif %}
-
-  # ═══════════════════════════════════════════════════════════════════════════
-  # RESIDENT PERMISSION FLAGS - Centralized Resident-based Access Control
-  # ═══════════════════════════════════════════════════════════════════════════
-  # These flags check resident status (from helper_state_resident) once, avoiding
-  # redundant sensor reads across the entire code.
-  #
-  # Relationship to effective_state priority cascade:
-  #   closing_trigger → Activates Layer 4 (PRIVACY) in effective_state
-  #   opening_trigger → One-shot trigger action (not a hierarchy layer)
-  #   allow_ventilate → Conditions Layer 3 (VENT) in effective_state
-  #   allow_shade     → Conditions Layer 5 (SHADING) in effective_state
-  #   allow_open      → Conditions Layer 6 (BASE="open") in effective_state
-
-  # Resident flags - All resident permission checks in one place
-  resident_flags:
-    opening_trigger: "{{ 'resident_opening_enabled' in resident_config }}"
-    closing_trigger: "{{ 'resident_closing_enabled' in resident_config }}"
-    allow_open: "{{ 'resident_allow_opening' in resident_config or not state_resident }}"
-    allow_shade: "{{ 'resident_allow_shading' in resident_config or not state_resident }}"
-    allow_ventilate: "{{ 'resident_allow_ventilation' in resident_config or not state_resident }}"
 
   # Override flags
   ignore_after_manual_config: !input ignore_after_manual_config
@@ -4297,14 +4276,14 @@ actions:
                       sequence:
                         - action: cover.close_cover
                           target:
-                            entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                            entity_id: "{{ repeat.item }}"
 
                     - alias: "Cover move: full open"
                       conditions: "{{ target_position | default(101) | int == 100 }}"
                       sequence:
                         - action: cover.open_cover
                           target:
-                            entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                            entity_id: "{{ repeat.item }}"
 
                     - alias: "Cover move: partial position (1-99)"
                       conditions: "{{ 0 < target_position | default(101) | int < 100 }}"
@@ -4313,7 +4292,7 @@ actions:
                           data:
                             position: "{{ target_position | default(101) | int }}"
                           target:
-                            entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                            entity_id: "{{ repeat.item }}"
 
                 - delay: # Small random delay between covers to avoid RF interference
                     seconds: "{{ range(1, 3) | random }}"
@@ -4325,7 +4304,7 @@ actions:
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
-                - if: "{{ state_attr(repeat.item if repeat is defined else '', 'current_tilt_position') is defined }}"
+                - if: "{{ state_attr(repeat.item, 'current_tilt_position') is defined }}"
                   then:
                     # Optional: Reset tilt to 0 (Reposition Mode)
                     - if: "{{ tilt_first | default(false) }}"
@@ -4334,7 +4313,7 @@ actions:
                           data:
                             tilt_position: 0
                           target:
-                            entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                            entity_id: "{{ repeat.item }}"
                         - delay:
                             seconds: !input tilt_delay
 
@@ -4343,11 +4322,11 @@ actions:
                         - alias: "Tilt wait: until movement stops"
                           conditions: "{{ is_tilt_wait_idle_mode | default(false) }}"
                           sequence:
-                            - wait_template: "{{ states(repeat.item if repeat is defined else '') in ['open', 'closed'] }}"
+                            - wait_template: "{{ states(repeat.item) in ['open', 'closed'] }}"
                               timeout: "{{ tilt_wait_timeout | int }}"
                               continue_on_timeout: true
                             # Safety buffer after reaching idle state
-                            - if: "{{ wait.completed if wait is defined else '' }}"
+                            - if: "{{ wait.completed }}"
                               then:
                                 - delay: 1
                       # Mode: Standard fixed delay
@@ -4360,7 +4339,7 @@ actions:
                       data:
                         tilt_position: "{{ target_tilt_position | default(101) }}"
                       target:
-                        entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                        entity_id: "{{ repeat.item }}"
 
                     # RF Anti-Interference delay
                     - delay:
@@ -5270,25 +5249,6 @@ actions:
             A valid input_text helper is mandatory. Please configure it in the automation settings.
           entity_id: "{{ blind_entities[0] if blind_entities else none }}"
       - stop: "Missing Cover Status Helper configuration"
-
-  - if:
-      - or:
-          - "{{ states(cover_status_helper) in invalid_states }}"
-          - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
-    then:
-      - action: system_log.write
-        data:
-          message: >-
-            Cover Control Automation ({{ friendly_name }}): HELPER VALIDATION WARNING - Cover Status Helper contains invalid or empty data.
-            Helper: {{ cover_status_helper }}, Current state: {{ states(cover_status_helper) }}
-            The helper will be initialized with default structure.
-          level: warning
-      - action: logbook.log
-        data:
-          name: "Cover Control Automation"
-          message: >-
-            ⚠️ {{ friendly_name }}: Cover Status Helper invalid - initializing with default structure.
-          entity_id: "{{ cover_status_helper }}"
 
   - if:
       - "{{ check_status_helper_length is not none and check_status_helper_length | int < 210 }}"
@@ -7598,8 +7558,6 @@ actions:
               - and:
                   - "{{ trigger.id == 't_manual_position' }}"
                   - "{{ position_source == 'custom_sensor' }}"
-                  - "{{ trigger.from_state.state not in invalid_states }}"
-                  - "{{ trigger.to_state.state not in invalid_states }}"
                   - "{{ is_number(trigger.from_state.state) }}"
                   - "{{ is_number(trigger.to_state.state) }}"
                   - "{{ ((trigger.to_state.state | float(0)) - (trigger.from_state.state | float(0))) | abs > position_tolerance }}"
