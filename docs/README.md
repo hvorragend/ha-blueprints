@@ -41,6 +41,7 @@
 
 | Resource | Description |
 |----------|-------------|
+| [📖 Handbook](handbook/index.md) | Complete configuration reference for every blueprint input |
 | [FAQ & Troubleshooting](FAQ.md) | Common questions, setup help, and troubleshooting |
 | [Changelog](CHANGELOG.md) | Version history and release notes |
 | [Dynamic Sun Elevation Guide](DYNAMIC_SUN_ELEVATION.md) | Seasonal sun angle adaptation with template sensors |
