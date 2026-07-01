@@ -6907,99 +6907,38 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id is match('t_force_enabled_.*') }}"
         sequence:
-          - choose:
-              - alias: "Force enabled: OPEN (Last Wins)"
-                conditions:
-                  - "{{ trigger.id == 't_force_enabled_open' }}"
-                sequence:
-                  - variables:
-                      target_position: !input open_position
-                      target_tilt_position: !input open_tilt_position
-                      update_values:
-                        # Force open activated
-                        frc: "opn"
-                        man: 0
-                        pnd: 'non'
-                        ts:
-                          due: 0
-                          arm: 0
-                  - if: "{{ force_allows_open }}"
-                    then:
-                      - variables:
-                          drive_action_set: "up"
-                      - *drive_with_actions
-                  - *helper_update
-                  - stop: "Force Open executed"
-
-              - alias: "Force enabled: CLOSE (Last Wins)"
-                conditions:
-                  - "{{ trigger.id == 't_force_enabled_close' }}"
-                sequence:
-                  - variables:
-                      target_position: !input close_position
-                      target_tilt_position: !input close_tilt_position
-                      update_values:
-                        # Force close activated
-                        frc: "cls"
-                        man: 0
-                        pnd: 'non'
-                        ts:
-                          due: 0
-                          arm: 0
-                  - if: "{{ force_allows_close }}"
-                    then:
-                      - variables:
-                          drive_action_set: "down"
-                      - *drive_with_actions
-                  - *helper_update
-                  - stop: "Force Close executed"
-
-              - alias: "Force enabled: VENTILATION (Last Wins)"
-                conditions:
-                  - "{{ trigger.id == 't_force_enabled_ventilate' }}"
-                sequence:
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      update_values:
-                        # Force ventilate activated
-                        frc: "vnt"
-                        man: 0
-                        pnd: 'non'
-                        ts:
-                          due: 0
-                          arm: 0
-                  - if: "{{ force_allows_ventilate }}"
-                    then:
-                      - variables:
-                          drive_action_set: "ventilate"
-                      - *drive_with_actions
-                  - *helper_update
-                  - stop: "Force Ventilation executed"
-
-              - alias: "Force enabled: SHADING (Last Wins)"
-                conditions:
-                  - "{{ trigger.id == 't_force_enabled_shading' }}"
-                sequence:
-                  - variables:
-                      target_position: "{{ effective_shading_position | int }}"
-                      target_tilt_position: "{{ shading_tilt_position |int }}"
-                      update_values:
-                        # Force shading activated
-                        frc: "shd"
-                        man: 0
-                        pnd: 'non'
-                        ts:
-                          due: 0
-                          arm: 0
-                  - if: "{{ force_allows_shade }}"
-                    then:
-                      - variables:
-                          drive_action_set: "shading_start"
-                      - *drive_with_actions
-                  - *helper_update
-                  - stop: "Force Shading executed"
-
+          # One parametrized sequence for all four force kinds; the trace's
+          # trigger.id identifies which force was enabled.
+          - variables:
+              force_kind: >-
+                {{ {'t_force_enabled_open': 'opn',
+                    't_force_enabled_close': 'cls',
+                    't_force_enabled_ventilate': 'vnt',
+                    't_force_enabled_shading': 'shd'}.get(trigger.id, 'non') }}
+          - if: "{{ force_kind != 'non' }}"
+            then:
+              - variables:
+                  target_position: "{{ {'opn': open_position, 'cls': close_position, 'vnt': ventilate_position, 'shd': effective_shading_position}[force_kind] | int }}"
+                  target_tilt_position: "{{ {'opn': open_tilt_position, 'cls': close_tilt_position, 'vnt': ventilate_tilt_position, 'shd': shading_tilt_position}[force_kind] | int }}"
+                  drive_action_set: "{{ {'opn': 'up', 'cls': 'down', 'vnt': 'ventilate', 'shd': 'shading_start'}[force_kind] }}"
+                  force_allows_target: >-
+                    {{ (force_kind == 'opn' and force_allows_open)
+                       or (force_kind == 'cls' and force_allows_close)
+                       or (force_kind == 'vnt' and force_allows_ventilate)
+                       or (force_kind == 'shd' and force_allows_shade) }}
+                  update_values:
+                    # Force activated (Last Wins)
+                    frc: "{{ force_kind }}"
+                    man: 0
+                    pnd: 'non'
+                    ts:
+                      due: 0
+                      arm: 0
+              - if: "{{ force_allows_target }}"
+                then:
+                  - *drive_with_actions
+              - *helper_update
+          - stop: "Force enabled executed"
       ############################################################
       # BRANCH (8a): RESUME FROM FORCE PAUSE
       # When force_pause turns off, immediately drive the cover to the
@@ -7110,98 +7049,32 @@ actions:
                 sequence:
                   - stop: "Disabled force ({{ disabled_force }}) was not the active force (frc={{ helper_state_force }}), keeping current state"
 
-              - alias: "Force disabled: Last Wins → switch to FORCE OPEN"
+              - alias: "Force disabled: Last Wins → switch to most recent force"
                 conditions:
-                  - "{{ next_active_force == 'opn' }}"
+                  - "{{ next_active_force != 'non' }}"
                 sequence:
                   - variables:
-                      target_position: !input open_position
-                      target_tilt_position: !input open_tilt_position
+                      target_position: "{{ {'opn': open_position, 'cls': close_position, 'vnt': ventilate_position, 'shd': effective_shading_position}[next_active_force] | int }}"
+                      target_tilt_position: "{{ {'opn': open_tilt_position, 'cls': close_tilt_position, 'vnt': ventilate_tilt_position, 'shd': shading_tilt_position}[next_active_force] | int }}"
+                      drive_action_set: "{{ {'opn': 'up', 'cls': 'down', 'vnt': 'ventilate', 'shd': 'shading_start'}[next_active_force] }}"
+                      force_allows_target: >-
+                        {{ (next_active_force == 'opn' and force_allows_open)
+                           or (next_active_force == 'cls' and force_allows_close)
+                           or (next_active_force == 'vnt' and force_allows_ventilate)
+                           or (next_active_force == 'shd' and force_allows_shade) }}
                       update_values:
-                        # Switch to force open
-                        frc: "opn"
+                        # Switch to the most recently activated force
+                        frc: "{{ next_active_force }}"
                         man: 0
                         pnd: 'non'
                         ts:
                           due: 0
                           arm: 0
-                  - if: "{{ force_allows_open }}"
+                  - if: "{{ force_allows_target }}"
                     then:
-                      - variables:
-                          drive_action_set: "up"
                       - *drive_with_actions
                   - *helper_update
-                  - stop: "Switched to active Force Open"
-
-              - alias: "Force disabled: Last Wins → switch to FORCE CLOSE"
-                conditions:
-                  - "{{ next_active_force == 'cls' }}"
-                sequence:
-                  - variables:
-                      target_position: !input close_position
-                      target_tilt_position: !input close_tilt_position
-                      update_values:
-                        # Switch to force close
-                        frc: "cls"
-                        man: 0
-                        pnd: 'non'
-                        ts:
-                          due: 0
-                          arm: 0
-                  - if: "{{ force_allows_close }}"
-                    then:
-                      - variables:
-                          drive_action_set: "down"
-                      - *drive_with_actions
-                  - *helper_update
-                  - stop: "Switched to active Force Close"
-
-              - alias: "Force disabled: Last Wins → switch to FORCE SHADING"
-                conditions:
-                  - "{{ next_active_force == 'shd' }}"
-                sequence:
-                  - variables:
-                      target_position: "{{ effective_shading_position | int }}"
-                      target_tilt_position: "{{ shading_tilt_position | int }}"
-                      update_values:
-                        # Switch to force shading
-                        frc: "shd"
-                        man: 0
-                        pnd: 'non'
-                        ts:
-                          shd: "now"
-                          due: 0
-                          arm: 0
-                  - if: "{{ force_allows_shade }}"
-                    then:
-                      - variables:
-                          drive_action_set: "shading_start"
-                      - *drive_with_actions
-                  - *helper_update
-                  - stop: "Switched to active Force Shading"
-
-              - alias: "Force disabled: Last Wins → switch to FORCE VENTILATION"
-                conditions:
-                  - "{{ next_active_force == 'vnt' }}"
-                sequence:
-                  - variables:
-                      target_position: !input ventilate_position
-                      target_tilt_position: !input ventilate_tilt_position
-                      update_values:
-                        # Switch to force ventilate
-                        frc: "vnt"
-                        man: 0
-                        pnd: 'non'
-                        ts:
-                          due: 0
-                          arm: 0
-                  - if: "{{ force_allows_ventilate }}"
-                    then:
-                      - variables:
-                          drive_action_set: "ventilate"
-                      - *drive_with_actions
-                  - *helper_update
-                  - stop: "Switched to active Force Ventilation"
+                  - stop: "Switched to the most recently activated force"
 
             # No other force active - proceed with recovery (if enabled)
             default:
