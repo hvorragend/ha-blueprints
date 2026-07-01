@@ -7196,6 +7196,10 @@ actions:
                   - "{{ trigger.from_state.attributes.current_tilt_position != trigger.to_state.attributes.current_tilt_position }}"
 
         sequence:
+          # Classification only - the branches just set update_values.
+          # The shared tail below persists the helper, runs the manual action
+          # and stops. The choose branch alias in the trace identifies which
+          # position was detected.
           - choose:
               - alias: "Manual: tilted"
                 conditions:
@@ -7207,10 +7211,6 @@ actions:
                         man: 1
                         ts:
                           man: "now"
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Tilt detected"
 
               - alias: "Manual: opened"
                 conditions:
@@ -7233,10 +7233,6 @@ actions:
                           shd: "now"
                           due: 0
                           arm: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Open detected"
 
               - alias: "Manual: ventilated"
                 conditions:
@@ -7253,10 +7249,6 @@ actions:
                           man: "now"
                           due: 0
                           arm: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Ventilation detected"
 
               - alias: "Manual: shaded"
                 conditions:
@@ -7274,10 +7266,6 @@ actions:
                           man: "now"
                           due: 0
                           arm: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Shading detected"
 
               - alias: "Manual: closed"
                 conditions:
@@ -7301,34 +7289,26 @@ actions:
                           shd: "now"
                           due: 0
                           arm: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual Close detected"
 
-              - alias: "Manual: position cannot be assigned (unknown)"
-                conditions:
-                  - not:
-                      - "{{ is_up_enabled and in_open_position }}"
-                      - "{{ is_down_enabled and in_close_position }}"
-                      - "{{ is_ventilation_enabled and in_ventilate_position }}"
-                      - "{{ is_shading_enabled and in_shading_position }}"
-                sequence:
-                  - variables:
-                      update_values:
-                        # Unknown manual position - cancel shading state and pending
-                        shd: 0
-                        man: 1
-                        pnd: 'non'
-                        ts:
-                          shd: "now"
-                          man: "now"
-                          due: 0
-                          arm: 0
-                  - *helper_update
-                  - choose: []
-                    default: !input auto_manual_action
-                  - stop: "Manual position (unknown) detected"
+            # Manual: position cannot be assigned (unknown) - catch-all so a
+            # real manual change is never silently dropped.
+            default:
+              - variables:
+                  update_values:
+                    # Unknown manual position - cancel shading state and pending
+                    shd: 0
+                    man: 1
+                    pnd: 'non'
+                    ts:
+                      shd: "now"
+                      man: "now"
+                      due: 0
+                      arm: 0
+
+          - *helper_update
+          - choose: []
+            default: !input auto_manual_action
+          - stop: "Manual change detected"
 
       ############################################################
       # BRANCH (10): RESET MANUAL DETECTION
