@@ -105,3 +105,39 @@ class TestShadingStartExecutionInnerDefault:
         steps = inner_choose["default"]
         assert _steps_write_helper(steps)
         assert "stop" in steps[-1]
+
+
+class TestShadingEndMoveCoverPreventedPath:
+    """With prevent_flags.opening_after_shading_end set and tilt not possible,
+    the 'Move cover after shading end' branch used to hit stop without any
+    helper write, leaving pnd='end'/shd=1 armed forever (#395 pattern)."""
+
+    @pytest.fixture(scope="class")
+    def outer_if(self):
+        branch = _find_branch_by_alias(
+            _load_blueprint_yaml(), "Move cover after shading end - conditions still valid"
+        )
+        assert branch is not None
+        step = branch["sequence"][0]
+        assert "if" in step and "then" in step
+        return step
+
+    def test_prevented_path_has_else(self, outer_if):
+        assert "else" in outer_if, (
+            "prevent_flags.opening_after_shading_end path must still clear the "
+            "pending; without an else the sequence stops without a helper write"
+        )
+
+    def test_prevented_path_terminates_pending_without_drive(self, outer_if):
+        else_steps = outer_if["else"]
+        uv = else_steps[0]["variables"]["update_values"]
+        assert uv.get("shd") == 0
+        assert uv.get("pnd") == "non"
+        ts = uv.get("ts", {}) or {}
+        assert ts.get("due") == 0 and ts.get("arm") == 0
+        # No drive happens here -> no man reset (Invariant 7), no base change,
+        # and no cover service call.
+        assert "man" not in uv and "bas" not in uv
+        flat = str(else_steps)
+        assert "cover." not in flat
+        assert _steps_write_helper(else_steps)
