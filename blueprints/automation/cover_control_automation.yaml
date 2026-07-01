@@ -4096,6 +4096,62 @@ actions:
                         seconds: "{{ range(1, 3) | random }}"
 
       # ═══════════════════════════════════════════════════════════════════════════
+      # Drive With Actions - the shared drive idiom
+      # ═══════════════════════════════════════════════════════════════════════════
+      # Usage: Set 'drive_action_set' ("up" | "down" | "ventilate" |
+      # "shading_start" | "shading_end") and target_position /
+      # target_tilt_position, then call. Runs the matching before-action,
+      # moves cover and tilt, then runs the matching after-action.
+      # Delays and the helper update stay at the call site.
+      # ═══════════════════════════════════════════════════════════════════════════
+      drive_with_actions: &drive_with_actions
+        sequence:
+          - choose:
+              - conditions: "{{ drive_action_set | default('') == 'up' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_up_action_before
+              - conditions: "{{ drive_action_set | default('') == 'down' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_down_action_before
+              - conditions: "{{ drive_action_set | default('') == 'ventilate' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action_before
+              - conditions: "{{ drive_action_set | default('') == 'shading_start' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action_before
+              - conditions: "{{ drive_action_set | default('') == 'shading_end' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_end_action_before
+          - *cover_move_action
+          - *tilt_move_action
+          - choose:
+              - conditions: "{{ drive_action_set | default('') == 'up' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_up_action
+              - conditions: "{{ drive_action_set | default('') == 'down' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_down_action
+              - conditions: "{{ drive_action_set | default('') == 'ventilate' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_ventilate_action
+              - conditions: "{{ drive_action_set | default('') == 'shading_start' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_start_action
+              - conditions: "{{ drive_action_set | default('') == 'shading_end' }}"
+                sequence:
+                  - choose: []
+                    default: !input auto_shading_end_action
+
+      # ═══════════════════════════════════════════════════════════════════════════
       # Helper Update Function
       # ═══════════════════════════════════════════════════════════════════════════
       # Usage: Set 'update_values' variable before calling with fields to update
@@ -5100,12 +5156,9 @@ actions:
                     then:
                       - delay:
                           seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_shading_start_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_shading_start_action
+                      - variables:
+                          drive_action_set: "shading_start"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Opening skipped: Shading detected"
 
@@ -5180,12 +5233,9 @@ actions:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
                   - if: "{{ resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) }}"
                     then:
-                      - choose: []
-                        default: !input auto_up_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_up_action
+                      - variables:
+                          drive_action_set: "up"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Opening executed"
 
@@ -5291,12 +5341,9 @@ actions:
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_ventilate_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_ventilate_action
+                      - variables:
+                          drive_action_set: "ventilate"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Closing skipped: Window tilted (Ventilation activated)"
 
@@ -5374,12 +5421,9 @@ actions:
                 then:
                   - delay:
                       seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                  - choose: []
-                    default: !input auto_down_action_before
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - choose: []
-                    default: !input auto_down_action
+                  - variables:
+                      drive_action_set: "down"
+                  - *drive_with_actions
               - *helper_update
               - stop: "Closing executed"
 
@@ -5563,12 +5607,9 @@ actions:
                                     then:
                                       - delay:
                                           seconds: "{{ range(drive_delay_fix | int(0), drive_delay_fix | int(0) + drive_delay_random | int(0) +1) | random }}"
-                                      - choose: []
-                                        default: !input auto_shading_start_action_before
-                                      - *cover_move_action
-                                      - *tilt_move_action
-                                      - choose: []
-                                        default: !input auto_shading_start_action
+                                      - variables:
+                                          drive_action_set: "shading_start"
+                                      - *drive_with_actions
                                   - *helper_update
                                   - stop: "Shading Start executed"
 
@@ -5867,12 +5908,9 @@ actions:
                                 {% else %}
                                   {{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}
                                 {% endif %}
-                          - choose: []
-                            default: !input auto_ventilate_action_before
-                          - *cover_move_action
-                          - *tilt_move_action
-                          - choose: []
-                            default: !input auto_ventilate_action
+                          - variables:
+                              drive_action_set: "ventilate"
+                          - *drive_with_actions
                       - *helper_update
                       - stop: "Shading End: Ventilation activated"
 
@@ -6068,12 +6106,9 @@ actions:
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_up_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_up_action
+                      - variables:
+                          drive_action_set: "up"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Ventilation Start (Full) executed"
 
@@ -6143,12 +6178,9 @@ actions:
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_ventilate_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_ventilate_action
+                      - variables:
+                          drive_action_set: "ventilate"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Ventilation Start (Partial) executed"
 
@@ -6207,12 +6239,9 @@ actions:
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_shading_start_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_shading_start_action
+                      - variables:
+                          drive_action_set: "shading_start"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Ventilation End: Return to Shading executed"
 
@@ -6244,12 +6273,9 @@ actions:
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_up_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_up_action
+                      - variables:
+                          drive_action_set: "up"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Ventilation End: Return to Open executed"
 
@@ -6282,12 +6308,9 @@ actions:
                         then:
                           - delay:
                               seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                      - choose: []
-                        default: !input auto_down_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_down_action
+                      - variables:
+                          drive_action_set: "down"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Ventilation End: Return to Close executed"
 
@@ -6330,12 +6353,9 @@ actions:
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_ventilate_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_ventilate_action
+                              - variables:
+                                  drive_action_set: "ventilate"
+                              - *drive_with_actions
                           - *helper_update
 
                       - alias: "Resident leaving: target VENTILATION (window tilted)"
@@ -6358,12 +6378,9 @@ actions:
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_ventilate_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_ventilate_action
+                              - variables:
+                                  drive_action_set: "ventilate"
+                              - *drive_with_actions
                           - *helper_update
 
                       - alias: "Resident leaving: target SHADED"
@@ -6383,12 +6400,9 @@ actions:
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_shading_start_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_shading_start_action
+                              - variables:
+                                  drive_action_set: "shading_start"
+                              - *drive_with_actions
                           - *helper_update
 
                       - alias: "Resident leaving: target OPEN"
@@ -6411,12 +6425,9 @@ actions:
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_up_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_up_action
+                              - variables:
+                                  drive_action_set: "up"
+                              - *drive_with_actions
                           - *helper_update
 
                       - alias: "Resident leaving: target CLOSE"
@@ -6438,12 +6449,9 @@ actions:
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_down_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_down_action
+                              - variables:
+                                  drive_action_set: "down"
+                              - *drive_with_actions
                           - *helper_update
                     default:
                       # No matching target state or conditions not met, just update resident status
@@ -6487,12 +6495,9 @@ actions:
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_ventilate_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_ventilate_action
+                              - variables:
+                                  drive_action_set: "ventilate"
+                              - *drive_with_actions
                           - *helper_update
 
                       - alias: "Resident arriving: normal closing"
@@ -6513,12 +6518,9 @@ actions:
                             then:
                               - delay:
                                   seconds: "{{ range(drive_delay_fix|int(0), drive_delay_fix|int(0) + drive_delay_random|int(0) +1) | random }}"
-                              - choose: []
-                                default: !input auto_down_action_before
-                              - *cover_move_action
-                              - *tilt_move_action
-                              - choose: []
-                                default: !input auto_down_action
+                              - variables:
+                                  drive_action_set: "down"
+                              - *drive_with_actions
                           - *helper_update
                     default:
                       # No matching condition: just update resident status
@@ -6560,12 +6562,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_open }}"
                     then:
-                      - choose: []
-                        default: !input auto_up_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_up_action
+                      - variables:
+                          drive_action_set: "up"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Force Open executed"
 
@@ -6586,12 +6585,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_close }}"
                     then:
-                      - choose: []
-                        default: !input auto_down_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_down_action
+                      - variables:
+                          drive_action_set: "down"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Force Close executed"
 
@@ -6612,12 +6608,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_ventilate }}"
                     then:
-                      - choose: []
-                        default: !input auto_ventilate_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_ventilate_action
+                      - variables:
+                          drive_action_set: "ventilate"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Force Ventilation executed"
 
@@ -6638,12 +6631,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_shade }}"
                     then:
-                      - choose: []
-                        default: !input auto_shading_start_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_shading_start_action
+                      - variables:
+                          drive_action_set: "shading_start"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Force Shading executed"
 
@@ -6672,12 +6662,9 @@ actions:
                       target_tilt_position: "{{ open_tilt_position | int }}"
                       update_values:
                         man: 0
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - choose: []
-                    default: !input auto_ventilate_action
+                  - variables:
+                      drive_action_set: "ventilate"
+                  - *drive_with_actions
                   - *helper_update
 
               - alias: "Force pause disabled: drive to VENTILATION target (window tilted)"
@@ -6688,12 +6675,9 @@ actions:
                       target_tilt_position: !input ventilate_tilt_position
                       update_values:
                         man: 0
-                  - choose: []
-                    default: !input auto_ventilate_action_before
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - choose: []
-                    default: !input auto_ventilate_action
+                  - variables:
+                      drive_action_set: "ventilate"
+                  - *drive_with_actions
                   - *helper_update
 
               - alias: "Force pause disabled: drive to SHADING target"
@@ -6704,12 +6688,9 @@ actions:
                       target_tilt_position: "{{ shading_tilt_position | int }}"
                       update_values:
                         man: 0
-                  - choose: []
-                    default: !input auto_shading_start_action_before
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - choose: []
-                    default: !input auto_shading_start_action
+                  - variables:
+                      drive_action_set: "shading_start"
+                  - *drive_with_actions
                   - *helper_update
 
               - alias: "Force pause disabled: drive to CLOSE target"
@@ -6720,12 +6701,9 @@ actions:
                       target_tilt_position: "{{ close_tilt_position | int }}"
                       update_values:
                         man: 0
-                  - choose: []
-                    default: !input auto_down_action_before
-                  - *cover_move_action
-                  - *tilt_move_action
-                  - choose: []
-                    default: !input auto_down_action
+                  - variables:
+                      drive_action_set: "down"
+                  - *drive_with_actions
                   - *helper_update
 
             # OPEN (effective_state 'opn') and fallback
@@ -6735,12 +6713,9 @@ actions:
                   target_tilt_position: "{{ open_tilt_position | int }}"
                   update_values:
                     man: 0
-              - choose: []
-                default: !input auto_up_action_before
-              - *cover_move_action
-              - *tilt_move_action
-              - choose: []
-                default: !input auto_up_action
+              - variables:
+                  drive_action_set: "up"
+              - *drive_with_actions
               - *helper_update
 
       ############################################################
@@ -6809,12 +6784,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_open }}"
                     then:
-                      - choose: []
-                        default: !input auto_up_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_up_action
+                      - variables:
+                          drive_action_set: "up"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Switched to active Force Open"
 
@@ -6835,12 +6807,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_close }}"
                     then:
-                      - choose: []
-                        default: !input auto_down_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_down_action
+                      - variables:
+                          drive_action_set: "down"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Switched to active Force Close"
 
@@ -6862,12 +6831,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_shade }}"
                     then:
-                      - choose: []
-                        default: !input auto_shading_start_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_shading_start_action
+                      - variables:
+                          drive_action_set: "shading_start"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Switched to active Force Shading"
 
@@ -6888,12 +6854,9 @@ actions:
                           arm: 0
                   - if: "{{ force_allows_ventilate }}"
                     then:
-                      - choose: []
-                        default: !input auto_ventilate_action_before
-                      - *cover_move_action
-                      - *tilt_move_action
-                      - choose: []
-                        default: !input auto_ventilate_action
+                      - variables:
+                          drive_action_set: "ventilate"
+                      - *drive_with_actions
                   - *helper_update
                   - stop: "Switched to active Force Ventilation"
 
@@ -6923,12 +6886,9 @@ actions:
                                       arm: 0
                               - if: "{{ force_allows_close }}"
                                 then:
-                                  - choose: []
-                                    default: !input auto_down_action_before
-                                  - *cover_move_action
-                                  - *tilt_move_action
-                                  - choose: []
-                                    default: !input auto_down_action
+                                  - variables:
+                                      drive_action_set: "down"
+                                  - *drive_with_actions
                               - *helper_update
                               - stop: "Return to Close executed"
 
@@ -6952,12 +6912,9 @@ actions:
                                       arm: 0
                               - if: "{{ force_allows_shade }}"
                                 then:
-                                  - choose: []
-                                    default: !input auto_shading_start_action_before
-                                  - *cover_move_action
-                                  - *tilt_move_action
-                                  - choose: []
-                                    default: !input auto_shading_start_action
+                                  - variables:
+                                      drive_action_set: "shading_start"
+                                  - *drive_with_actions
                               - *helper_update
                               - stop: "Return to Shading executed"
 
@@ -6981,12 +6938,9 @@ actions:
                                       arm: 0
                               - if: "{{ force_allows_ventilate }}"
                                 then:
-                                  - choose: []
-                                    default: !input auto_ventilate_action_before
-                                  - *cover_move_action
-                                  - *tilt_move_action
-                                  - choose: []
-                                    default: !input auto_ventilate_action
+                                  - variables:
+                                      drive_action_set: "ventilate"
+                                  - *drive_with_actions
                               - *helper_update
                               - stop: "Return to Open (window open - lockout protection)"
 
@@ -7011,12 +6965,9 @@ actions:
                                       arm: 0
                               - if: "{{ force_allows_open }}"
                                 then:
-                                  - choose: []
-                                    default: !input auto_up_action_before
-                                  - *cover_move_action
-                                  - *tilt_move_action
-                                  - choose: []
-                                    default: !input auto_up_action
+                                  - variables:
+                                      drive_action_set: "up"
+                                  - *drive_with_actions
                               - *helper_update
                               - stop: "Return to Open executed"
 
@@ -7040,12 +6991,9 @@ actions:
                                       arm: 0
                               - if: "{{ force_allows_ventilate }}"
                                 then:
-                                  - choose: []
-                                    default: !input auto_ventilate_action_before
-                                  - *cover_move_action
-                                  - *tilt_move_action
-                                  - choose: []
-                                    default: !input auto_ventilate_action
+                                  - variables:
+                                      drive_action_set: "ventilate"
+                                  - *drive_with_actions
                               - *helper_update
                               - stop: "Return to Ventilation executed"
                         default:
