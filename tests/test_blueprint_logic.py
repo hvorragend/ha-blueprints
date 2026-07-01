@@ -764,19 +764,23 @@ class TestManualUnknownClearsShadingState:
         return _load_blueprint_yaml(BLUEPRINT_PATH)
 
     def _get_update_values(self) -> dict:
+        # The unknown-position case is the default of the classification
+        # choose inside "Checking for manual position changes".
         blueprint = self._load_blueprint()
-        branch = _find_branch_by_alias(
-            blueprint, "Manual: position cannot be assigned (unknown)"
-        )
+        branch = _find_branch_by_alias(blueprint, "Checking for manual position changes")
         assert branch is not None, (
-            "Could not find 'Manual: position cannot be assigned (unknown)' branch"
+            "Could not find 'Checking for manual position changes' branch"
         )
-        seq = branch.get("sequence", [])
+        classify = branch["sequence"][0]
+        assert "choose" in classify and "default" in classify, (
+            "Expected the classification choose with an unknown-position default"
+        )
         variables_step = next(
-            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+            (s for s in classify["default"] if isinstance(s, dict) and "variables" in s),
+            None,
         )
         assert variables_step is not None, (
-            "No 'variables:' step found in manual-unknown sequence"
+            "No 'variables:' step found in manual-unknown default"
         )
         return variables_step["variables"].get("update_values", {})
 
