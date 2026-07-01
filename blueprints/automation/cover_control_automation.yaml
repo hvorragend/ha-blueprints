@@ -3171,7 +3171,7 @@ variables:
   # Handles three cases: v5 → v6 migration, v6 pass-through, new/empty default.
   helper_json: >-
     {% set helper_state = states(cover_status_helper) %}
-    {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+    {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
     {% set ts_now = as_timestamp(now()) | round(0) %}
 
     {% set is_v5 = helper_raw.v | default(0) == 5 %}
@@ -3763,7 +3763,7 @@ triggers:
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
-      {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_ts = as_timestamp(now()) | int %}
         {% set pending = helper.ts.due | default(0) | int %}
@@ -3896,7 +3896,7 @@ triggers:
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
-      {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v == 6 %}
         {% set now_ts = as_timestamp(now()) | int %}
         {% set pending = helper.ts.due | default(0) | int %}
@@ -3967,7 +3967,7 @@ triggers:
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
-      {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% if helper.v | default(0) == 6 %}
         {{ helper.man | default(0) | int == 1 and
            helper.ts.man | default(0) | int > 0 and
@@ -3983,7 +3983,7 @@ triggers:
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
-      {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% set pos = state_attr(blind, 'current_position') | float(-100) %}
       {{ helper.man | default(0) | int == 1 and
          (pos - (reset_override_position | float(0))) | abs <= (position_tolerance | float(5)) }}
@@ -4215,7 +4215,7 @@ actions:
       - "{{ cover_status_helper != [] }}"
       - or:
           - "{{ states(cover_status_helper) in invalid_states }}"
-          - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
+          - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
     then:
       - action: input_text.set_value
         data:
@@ -5023,7 +5023,7 @@ actions:
   - if:
       - or:
           - "{{ states(cover_status_helper) in invalid_states }}"
-          - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
+          - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
     then:
       - action: system_log.write
         data:
@@ -5490,6 +5490,7 @@ actions:
                       - "{{ trigger.id | regex_match('^(t_shading_start_pending)') }}"
                       - "{{ not helper_state_pending_start }}" # Not if a pending is already active
                       - "{{ not helper_state_pending_end }}" # Mutual-exclusivity guard against misconfigured conditions
+                      - "{{ not helper_state_shade }}" # Not if shading is already active or stored (t_shading_start_pending_7 bypasses the global shd-gate)
                     sequence:
                       - variables:
                           shading_start_due: >-
@@ -5936,7 +5937,7 @@ actions:
                           - "{{ states(contact_window_opened) in ['false', 'off'] }}"
                       - or:
                           - "{{ position_comparisons.current_below_ventilate }}"
-                          - "{{ ventilation_flags.if_lower_enabled and position_comparisons.current_above_ventilate or current_position == ventilate_position }}"
+                          - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                     sequence:
                       - variables:
                           target_position: !input ventilate_position
