@@ -166,3 +166,37 @@ dieselben Trigger, dasselbe Helper-Schema.
 - `mode: queued` + idempotente Zweige
 - Testsuite (210 Tests, parsen die YAML direkt)
 - Trace-Aliase + `log_extra`-Konzept
+
+---
+
+## 7. Umsetzungsstand (2026-07-01, released als CCA 2026.07.12 V2)
+
+Umgesetzt (je ein Commit pro Schritt, alle Tests grün):
+
+- ✅ Fix #1 (Default im Shading-Start-Drive-choose), Fix #2 (else im
+  „Move cover after shading end“), Fixes #3/#4/#8 (Arm-Guard,
+  Klammerung, Regex-Tippfehler ×7)
+- ✅ V6 Variablen-Hygiene — **mit einer wichtigen Korrektur:** die
+  `repeat is defined`/`wait is defined`-Guards in den Anker-Bodies sind
+  KEIN toter Code. Die Anker sind Werte eines `variables:`-Schritts und
+  werden von HA bei jedem Lauf mitgerendert — die Guards sind tragend
+  (neue Invariante 13 in CLAUDE.md).
+- ✅ V4 gemeinsame Retry-Routine (`&shading_start_retry`)
+- ✅ V7 gemeinsamer Manual-Tail; der Unknown-Zweig ist jetzt echter
+  `default:` (schließt nebenbei den Silent-Drop-Randfall)
+- ✅ V1 Force-Pause-Handler: 10 → 5 Zweige (Switch über `effective_state`)
+- ✅ V3 `&drive_with_actions`-Anker, 36 von 37 Call-Sites umgestellt
+- ✅ V2 Force-Enabled und Last-Wins parametrisiert. Die Recovery-Kaskade
+  wurde bewusst NICHT aus `effective_state` abgeleitet: die Reihenfolge
+  weicht absichtlich ab (base=cls gewinnt gegen gemerktes shd=1 —
+  nachts nicht in die Beschattung hochfahren; Lockout-Return an
+  Ventilation-Enable gebunden).
+- ✅ V5 Handbuch unter `docs/handbook/` (17 Kapitel), `<details>`-Blöcke
+  und die längsten Beschreibungen ausgelagert, Blueprint/README/FAQ
+  verlinken darauf.
+
+Ergebnis: 7.794 → ~6.830 Zeilen (−12 %), −~35 choose-Zweige. Offen /
+bewusst nicht umgesetzt: Befund #5 (Restart-Verhalten der
+Template-Trigger, HA-Einschränkung — nur dokumentiert), Befund #6
+(Reset-default synchronisiert `bas` nicht — Verhaltensfrage), tiefere
+FAQ-Handbuch-Verschmelzung (bestehende Deep-Links).
