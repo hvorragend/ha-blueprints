@@ -202,10 +202,26 @@ Delays between steps would make a global value stale.
 Never write the helper update inline; always use the YAML anchor.
 The anchor handles JSON merging, timestamp guards, and optional logbook logging.
 
-### Three YAML anchors
+### YAML anchors
 - `&cover_move_action` — actual cover movement with position tolerance
 - `&tilt_move_action` — tilt positioning with wait strategy
+- `&drive_with_actions` — the shared drive idiom: before-action → cover move →
+  tilt move → after-action, selected via the `drive_action_set` variable
+  (`up` / `down` / `ventilate` / `shading_start` / `shading_end`). Delays and
+  the helper update stay at the call site.
 - `&helper_update` — JSON state persistence + logbook
+- `&shading_start_retry` — shared retry routine (waiting-for-window /
+  continue / abort) for the shading-start execution; call sites set
+  `shading_start_retry_reason` for the log line. Defined at its first use
+  inside the shading-start branch, not in the anchor variables block.
+
+**⚠️ Anchor bodies are rendered on every run:** the first four anchors are
+defined as values of a top-level `variables:` step. HA renders variable values
+recursively, so every template inside those anchor bodies is ALSO evaluated
+once per run outside its real context. Guards like
+`repeat.item if repeat is defined else ''` and `| default(...)` filters in
+anchor bodies are load-bearing — never remove them, and template-guard all
+runtime-context references in any new anchor.
 
 ---
 
