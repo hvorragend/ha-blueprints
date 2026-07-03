@@ -841,3 +841,75 @@ class TestIssue565OpenAtShadingPositionWithoutActiveShading:
     def test_opens_when_not_at_shading_position(self, branch):
         assert self._eval(branch, in_shading_position=False, helper_state_shade=True)
         assert self._eval(branch, in_shading_position=False, helper_state_shade=False)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern AC (#566): force-disable recovery must ignore the window contacts
+# when the ventilation automation is disabled — every direct sensor read in the
+# recovery branches must be scoped to is_ventilation_enabled.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+RECOVERY_VENT_ALIAS = "Force disabled recovery: return to VENTILATION (window tilted)"
+RECOVERY_LOCKOUT_ALIAS = "Force disabled recovery: return to OPEN (window open — lockout)"
+RECOVERY_CLOSE_ALIAS = "Force disabled recovery: return to CLOSE (base=cls)"
+RECOVERY_SHADING_ALIAS = "Force disabled recovery: return to SHADING"
+RECOVERY_OPEN_ALIAS = "Force disabled recovery: return to OPEN (base=opn)"
+
+
+class TestPatternACForceRecoveryVentilationGate:
+    """#566: recovery drove to ventilation although ventilation was disabled."""
+
+    @pytest.fixture(scope="class")
+    def blueprint(self):
+        return _load_blueprint_yaml()
+
+    def _string_conditions(self, branch):
+        return [str(c) for c in branch["conditions"]]
+
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            RECOVERY_VENT_ALIAS,
+            RECOVERY_LOCKOUT_ALIAS,
+            RECOVERY_CLOSE_ALIAS,
+            RECOVERY_SHADING_ALIAS,
+            RECOVERY_OPEN_ALIAS,
+        ],
+    )
+    def test_branch_exists(self, blueprint, alias):
+        assert _find_branch_by_alias(blueprint, alias) is not None, (
+            f"branch not found: {alias!r}"
+        )
+
+    @pytest.mark.parametrize("alias", [RECOVERY_VENT_ALIAS, RECOVERY_LOCKOUT_ALIAS])
+    def test_drive_branches_require_ventilation_enabled(self, blueprint, alias):
+        # The ventilation-target branches read the contact sensors directly and
+        # therefore bypass the trigger-level gate — they need their own gate.
+        branch = _find_branch_by_alias(blueprint, alias)
+        conds = self._string_conditions(branch)
+        assert any(c.strip() == "{{ is_ventilation_enabled }}" for c in conds), (
+            f"{alias!r} must gate on is_ventilation_enabled (#566)"
+        )
+
+    @pytest.mark.parametrize(
+        "alias",
+        [RECOVERY_CLOSE_ALIAS, RECOVERY_SHADING_ALIAS, RECOVERY_OPEN_ALIAS],
+    )
+    def test_window_exclusions_scoped_to_ventilation_enabled(self, blueprint, alias):
+        # A stuck open/tilted contact must not block these branches when the
+        # ventilation automation is disabled — every negative window-contact
+        # check must be scoped to is_ventilation_enabled.
+        branch = _find_branch_by_alias(blueprint, alias)
+        for cond in self._string_conditions(branch):
+            for sensor in ("contact_window_opened", "contact_window_tilted"):
+                if f"not ({sensor}" in cond.replace("  ", " "):
+                    raise AssertionError(
+                        f"{alias!r} has an unscoped {sensor} exclusion — "
+                        f"must be 'not (is_ventilation_enabled and {sensor} ...' (#566)"
+                    )
+                if sensor in cond and "not (" in cond:
+                    assert "is_ventilation_enabled" in cond, (
+                        f"{alias!r}: window exclusion on {sensor} must be scoped "
+                        f"to is_ventilation_enabled (#566)"
+                    )
