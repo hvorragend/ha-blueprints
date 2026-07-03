@@ -657,6 +657,28 @@ This is **surgical** — it only changes the VENT-floor decision. When the windo
 
 ---
 
+### Bug Pattern AA: Global trigger gate makes the #554 end-pending cancel unreachable (Issue #554)
+
+**Symptom:** Shading-end is pending (`pnd == 'end'`). During the end waiting time the shading conditions are met again (sun comes back), so per the documented guarantee — *"Shading ends if one of the conditions is not fulfilled for the entire waiting time"* — the pending end should be canceled. The dedicated cancel branch ("Shading re-detected. Cancel pending shading end", added for #554) exists in the actions, but never runs: no trace is even recorded for the `t_shading_start_pending_*` trigger. If the end conditions happen to be met again at `t_shading_end_execution` time, shading ends regardless of the interruption.
+
+**Cause:** The global trigger gate (conditions block, "GLOBAL CONDITIONS") suppresses `t_shading_start_pending_[1-6]` whenever the helper shows `shd == 1` — its purpose is noise suppression (don't re-run the automation for start triggers while shading is already active). But during an end-pending, `shd` is *always* still `1` (shading stays active until the end executes). The gate therefore stopped the automation before the actions ran, making the #554 cancel branch dead code in exactly the scenario it was written for.
+
+**Fix:** The gate lets `t_shading_start_pending_[1-6]` through when the helper shows an armed end-pending (`"pnd"\s*:\s*"end"` regex — value `"end"` is unique to `pnd`, no other field can hold it):
+
+```jinja2
+{% set is_shaded = helper not in invalid_states and helper | regex_search('"shd"\s*:\s*1\s*[,}]') %}
+{% set is_end_pending = helper not in invalid_states and helper | regex_search('"pnd"\s*:\s*"end"') %}
+{{ not is_shaded or is_end_pending }}
+```
+
+Additionally, the "Check for shading start" branch entry OR ("Check the helper status or the target status") gets `helper_state_pending_end` as a third alternative — matching the two escape hatches the earlier #554 fixes already added to the position-check OR and the once-per-day OR — so the cancel is also reachable while the window is open/tilted (an end-pending can arm with the window open; the contact handler holds lockout/vent, but the interruption must still cancel the pending).
+
+**Rule:** A fix in the actions is only real once every gate *upstream* of it (trigger `enabled`, trigger `for`, **global conditions**, branch conditions) provably lets the triggering event through in the exact scenario being fixed. When adding an action branch keyed to a trigger id, always re-check the global trigger gate for that id.
+
+**Deliberate asymmetry (reporter's "FWIW"):** The gate still suppresses `t_shading_end_pending_[1-7]` while shading is inactive (`shd == 0`), even though a shading-**start** pending may be armed. This is intentional: the start side is documented as a *retry loop* ("After the waiting time expires, the automation re-evaluates ALL configured conditions. Only if they are still valid at this point, the cover actually moves") — momentary interruptions during the start wait are tolerated by design, and the execution re-check plus `shading_start_max_duration` budget already handle unmet conditions. Canceling a start-pending on an end trigger would also break the pre-window arming flows (Bug Patterns L/S/R). Do not "harmonize" the end side of the gate.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.

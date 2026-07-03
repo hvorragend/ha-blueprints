@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.06.28 V3
+    **Version**: 2026.07.03
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2905,7 +2905,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.06.28 V3"
+  version: "2026.07.03"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4015,7 +4015,10 @@ conditions:
   - condition: template
     value_template: >-
       {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
-        {{ not (states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]')) }}
+        {% set helper = states(cover_status_helper) %}
+        {% set is_shaded = helper not in invalid_states and helper | regex_search('"shd"\s*:\s*1\s*[,}]') %}
+        {% set is_end_pending = helper not in invalid_states and helper | regex_search('"pnd"\s*:\s*"end"') %}
+        {{ not is_shaded or is_end_pending }}
       {% elif trigger.id is match('^t_shading_end_pending_[1-7]$') %}
         {{ states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
       {% else %}
@@ -5439,6 +5442,7 @@ actions:
           - or: # Check the helper status or the target status
               - "{{ not helper_state_is_shaded }}"
               - "{{ not (contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) and not (contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']) }}"
+              - "{{ helper_state_pending_end }}" # Allow entry to cancel an end-pending even while the window is open/tilted
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"

@@ -647,6 +647,97 @@ class TestIssue554CancelPendingShadingEnd:
                     return
         raise AssertionError("once-per-day OR not found in shading-start branch")
 
+    def test_window_state_guard_allows_end_pending_entry(self, start_branch):
+        # An end-pending can be armed while the window is open/tilted (the end
+        # handler has no window gate). The branch-entry OR ("Check the helper
+        # status or the target status") must then still admit the run so the
+        # cancel branch stays reachable.
+        for cond in start_branch["conditions"]:
+            if isinstance(cond, dict) and "or" in cond:
+                flat = " ".join(str(c) for c in cond["or"])
+                if "helper_state_is_shaded" in flat:
+                    assert "helper_state_pending_end" in flat, (
+                        "window-state entry OR must allow entry while an "
+                        "end-pending is active (#554)"
+                    )
+                    return
+        raise AssertionError("window-state entry OR not found in shading-start branch")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bug Pattern AA (#554 follow-up): the GLOBAL trigger gate suppressed all
+# t_shading_start_pending_[1-6] triggers while shd == 1 — but during an
+# end-pending shd is always still 1, so the #554 cancel branch was dead code.
+# The gate must let start-pending triggers through when pnd == 'end'.
+# ─────────────────────────────────────────────────────────────────────────────
+
+PND_END_REGEX = r'"pnd"\s*:\s*"end"'
+
+HELPER_END_PENDING = (
+    '{"bas":"opn","shd":1,"pnd":"end","win":"cls","frc":"non","res":1,"man":0,'
+    '"ts":{"opn":0,"cls":0,"shd":1779701945,"due":1779705000,"arm":1779701945,"man":0},"v":6,"t":0}'
+)
+
+
+def _global_trigger_gate_template() -> str:
+    blueprint = _load_blueprint_yaml()
+    conditions = blueprint.get("conditions") or blueprint.get("condition") or []
+    for cond in conditions:
+        if isinstance(cond, dict) and cond.get("condition") == "template":
+            vt = str(cond.get("value_template", ""))
+            if "t_shading_start_pending" in vt:
+                return vt
+    raise AssertionError("global trigger gate template condition not found")
+
+
+def _render_gate(trigger_id: str, helper_json: str) -> bool:
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.tests["match"] = lambda value, pattern: bool(re.match(pattern, str(value)))
+    env.filters["regex_search"] = _regex_search
+    env.globals["states"] = lambda entity_id: helper_json
+    rendered = env.from_string(_global_trigger_gate_template()).render(
+        trigger={"id": trigger_id},
+        cover_status_helper="input_text.cca_helper",
+        invalid_states=["", "unavailable", "unknown", "none", "None"],
+    )
+    rendered = rendered.strip()
+    # The else-branch renders the literal "true"; HA parses both spellings.
+    assert rendered in ("True", "False", "true", "false"), f"unexpected gate output: {rendered!r}"
+    return rendered in ("True", "true")
+
+
+class TestPatternAAGlobalGateEndPending:
+    """#554 follow-up: gate must not swallow start triggers during end-pending."""
+
+    def test_pnd_end_regex_matches_only_end_pending(self):
+        assert _regex_search(HELPER_END_PENDING, PND_END_REGEX) is True
+        assert _regex_search(HELPER_SHADING_ACTIVE, PND_END_REGEX) is False
+        assert _regex_search(HELPER_SHADING_INACTIVE, PND_END_REGEX) is False
+
+    def test_start_pending_passes_while_end_pending_armed(self):
+        # The core #554 scenario: shd == 1 AND pnd == 'end' → the start trigger
+        # must reach the actions so the cancel branch can run.
+        for trigger_id in ("t_shading_start_pending_1", "t_shading_start_pending_2",
+                           "t_shading_start_pending_6"):
+            assert _render_gate(trigger_id, HELPER_END_PENDING) is True
+
+    def test_start_pending_still_blocked_while_shaded_without_pending(self):
+        # Noise suppression preserved: shading active, no end-pending → blocked.
+        assert _render_gate("t_shading_start_pending_2", HELPER_SHADING_ACTIVE) is False
+
+    def test_start_pending_passes_while_not_shaded(self):
+        assert _render_gate("t_shading_start_pending_2", HELPER_SHADING_INACTIVE) is True
+
+    def test_end_pending_trigger_requires_active_shading(self):
+        # Deliberate asymmetry: end triggers still require shd == 1 (the start
+        # side is a documented retry loop; see Bug Pattern AA in CLAUDE.md).
+        assert _render_gate("t_shading_end_pending_3", HELPER_END_PENDING) is True
+        assert _render_gate("t_shading_end_pending_3", HELPER_SHADING_INACTIVE) is False
+
+    def test_unrelated_triggers_pass(self):
+        assert _render_gate("t_shading_start_execution", HELPER_END_PENDING) is True
+        assert _render_gate("t_open_1", HELPER_SHADING_ACTIVE) is True
+
 
 # ---------------------------------------------------------------------------
 # #550: a Threshold helper (or any noisy source) bound to a contact/resident
