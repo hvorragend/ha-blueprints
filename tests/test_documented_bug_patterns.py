@@ -792,3 +792,52 @@ class TestIssue550AttributeOnlyTriggersFiltered:
             assert not (set(trig) & {"not_to", "not_from", "to", "from"}), (
                 f"{tid} must keep reacting to attribute changes (#550)"
             )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bug Pattern AB (#565): a cover sitting at the shading position with shd == 0
+# must still open normally at opening time. The old "not in_shading_position"
+# guard deferred to Shading End unconditionally — but the global trigger gate
+# blocks all shading-end triggers unless the helper shows shd == 1, so with
+# shd == 0 the handoff was dead code and the cover never opened.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+NORMAL_OPENING_ALIAS = "Normal opening of the cover"
+
+
+class TestIssue565OpenAtShadingPositionWithoutActiveShading:
+    """#565: normal opening must only defer to Shading End while shd == 1."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), NORMAL_OPENING_ALIAS)
+
+    def _condition(self, branch) -> str:
+        conds = [str(c) for c in branch["conditions"]]
+        assert len(conds) == 1, "normal-opening branch is expected to have one condition"
+        return conds[0]
+
+    def _eval(self, branch, *, in_shading_position: bool, helper_state_shade: bool) -> bool:
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        rendered = env.from_string(self._condition(branch)).render(
+            in_shading_position=in_shading_position,
+            helper_state_shade=helper_state_shade,
+        )
+        return rendered.strip() == "True"
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, f"branch not found: {NORMAL_OPENING_ALIAS!r}"
+
+    def test_opens_when_at_shading_position_but_shading_inactive(self, branch):
+        # shd == 0: the shading-end triggers are gated off globally, so the
+        # deferral can never complete — the branch must fire and open (#565).
+        assert self._eval(branch, in_shading_position=True, helper_state_shade=False)
+
+    def test_still_defers_when_shading_active(self, branch):
+        # shd == 1 and in shading position: Shading End owns the movement.
+        assert not self._eval(branch, in_shading_position=True, helper_state_shade=True)
+
+    def test_opens_when_not_at_shading_position(self, branch):
+        assert self._eval(branch, in_shading_position=False, helper_state_shade=True)
+        assert self._eval(branch, in_shading_position=False, helper_state_shade=False)

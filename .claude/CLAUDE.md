@@ -679,6 +679,24 @@ Additionally, the "Check for shading start" branch entry OR ("Check the helper s
 
 ---
 
+### Bug Pattern AB: Opening deferred to Shading End although shading is inactive (Issue #565)
+
+**Symptom:** The cover sits at the shading position at opening time while the helper shows `shd: 0` and `pnd: 'non'` (e.g. the user moved it there manually, or positions happen to coincide). The opening trigger fires, the trace ends with `"Open time: In shading position, base state updated (movement via Shading End)"`, and the cover never opens — it stays at the shading position for the rest of the day.
+
+**Cause:** The "Normal opening of the cover" branch guarded only on `not in_shading_position` — the physical position alone — assuming that a cover at the shading position is *shaded* and the Shading End flow will open it later. Execution fell through to the default branch, which only sets `bas: 'opn'` and defers the movement. But with `shd == 0` that handoff is impossible: the global trigger gate suppresses all `t_shading_end_pending_[1-7]` triggers unless the helper contains `"shd":1` — the gate upstream makes the deferral dead code (Bug Pattern AA territory).
+
+**Fix:** Gate the deferral on the helper's actual shading state:
+
+```yaml
+- "{{ not in_shading_position or not helper_state_shade }}"
+```
+
+With `shd == 1` + in shading position, the default branch still defers to Shading End (whose triggers pass the global gate because `shd == 1` — the handoff works). With `shd == 0`, "Normal opening" fires and drives the cover open. This also covers the stale-pending case (`pnd == 'beg'`, `shd == 0`, cover at shading position, conditions no longer warranted): Bug Pattern R's fall-through now genuinely reaches the drive instead of dead-ending in the default branch.
+
+**Rule:** A deferral to another flow must be gated on the *helper state* that makes that flow reachable, never on the physical position alone. Position says where the cover is; only the helper says *why* — and the "why" decides which flow owns the next movement (same family as the Bug Pattern AA rule: verify the receiving flow's upstream gates actually let it run).
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
