@@ -130,14 +130,17 @@ class TestShadingEndMoveCoverPreventedPath:
 
     def test_prevented_path_terminates_pending_without_drive(self, outer_if):
         else_steps = outer_if["else"]
-        uv = else_steps[0]["variables"]["update_values"]
+        variables = else_steps[0]["variables"]
+        uv = variables["update_values"]
         assert uv.get("shd") == 0
         assert uv.get("pnd") == "non"
         ts = uv.get("ts", {}) or {}
         assert ts.get("due") == 0 and ts.get("arm") == 0
         # No drive happens here -> no man reset (Invariant 7), no base change,
-        # and no cover service call.
+        # and no drive_plan (the apply_transition anchor only drives when a
+        # drive_plan with run=true is set).
         assert "man" not in uv and "bas" not in uv
-        flat = str(else_steps)
-        assert "cover." not in flat
+        assert "drive_plan" not in variables, (
+            "prevented path must not set a drive_plan (no cover movement)"
+        )
         assert _steps_write_helper(else_steps)
