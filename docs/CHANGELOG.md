@@ -1,6 +1,6 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
-# CCA 2026.07.03 V2
+# CCA 2026.07.05
 
 - 🐛 **Fix:** If the cover happened to sit at the **shading position** at opening time while shading was **not** active in the helper (`shd: 0`) — for example because it was moved there manually — the cover never opened for the rest of the day. The opening handler skipped the normal opening (assuming an active shading would be ended later by the Shading End logic) and only updated the base state. But that handoff can never happen with `shd: 0`: a global trigger gate blocks all shading-end triggers unless shading is actually active in the helper. The normal opening now only defers to Shading End while shading is genuinely active; with `shd: 0` the cover simply opens normally ([#565](https://github.com/hvorragend/ha-blueprints/issues/565))
 
