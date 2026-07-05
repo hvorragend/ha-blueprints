@@ -913,3 +913,71 @@ class TestPatternACForceRecoveryVentilationGate:
                         f"{alias!r}: window exclusion on {sensor} must be scoped "
                         f"to is_ventilation_enabled (#566)"
                     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern AE: shading start must hold the ventilation floor when the window is
+# only tilted (VENT prio 4 > SHADING prio 6). Tilt-first-then-shade must stop at
+# the ventilation position, not drop to the shading position below it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+VENT_FLOOR_ALIAS = "Shading start - hold ventilation floor (window tilted)"
+
+
+def _sequence_variables(branch: dict) -> dict:
+    for step in branch.get("sequence", []):
+        if isinstance(step, dict) and "variables" in step:
+            return step["variables"]
+    return {}
+
+
+class TestPatternAEShadingStartVentilationFloor:
+    """Tilt-first-then-shade must hold the ventilation floor, not shade below it."""
+
+    @pytest.fixture(scope="class")
+    def branch(self):
+        return _find_branch_by_alias(_load_blueprint_yaml(), VENT_FLOOR_ALIAS)
+
+    def test_branch_exists(self, branch):
+        assert branch is not None, f"branch not found: {VENT_FLOOR_ALIAS!r}"
+
+    def test_drives_to_ventilation_position(self, branch):
+        variables = _sequence_variables(branch)
+        assert variables.get("target_position") == "ventilate_position", (
+            "vnt-floor branch must drive to the ventilation position, not shading"
+        )
+
+    def test_gated_on_tilted_not_opened_and_floor(self, branch):
+        conds = " ".join(str(c) for c in branch["conditions"])
+        assert "contact_window_tilted" in conds
+        # opened beats tilted (Invariant 5)
+        assert "contact_window_opened" in conds
+        assert "position_comparisons.shading_below_ventilate" in conds
+        assert "force_allows_ventilate" in conds
+        assert "resident_flags.allow_ventilate" in conds
+        # shading must be allowed too, else fall through to "Save shading state for the future"
+        assert "resident_flags.allow_shade" in conds
+
+    def test_runs_before_start_shading(self):
+        text = _blueprint_text()
+        assert text.index(VENT_FLOOR_ALIAS) < text.index('alias: "Start Shading"'), (
+            "vnt-floor branch must be evaluated before 'Start Shading'"
+        )
+
+    def test_terminal_pending_clear_and_manual_guard(self, branch):
+        uv = _sequence_variables(branch).get("update_values", {})
+        # terminal branch clears pending together (Invariant 8)
+        assert uv.get("pnd") == "non"
+        assert uv.get("ts", {}).get("due") == 0
+        assert uv.get("ts", {}).get("arm") == 0
+        assert uv.get("shd") == 1
+        assert uv.get("win") == "tlt"
+        # man only cleared when actually driving (Invariant 7)
+        assert "not in_ventilate_position" in str(uv.get("man", ""))
+
+    def test_position_comparison_defined(self):
+        text = _blueprint_text()
+        assert "shading_below_ventilate:" in text, (
+            "position_comparisons must define shading_below_ventilate"
+        )
