@@ -776,9 +776,13 @@ blueprint:
             <summary><code><strong>CLICK HERE:</strong> How to use calendar control</code></summary>
 
 
-            **Event Titles (case-insensitive):**
+            **Event Titles (exact match, case-insensitive):**
               - **"Open Cover"** - Marks the daytime window (cover should be open)
               - **"Close Cover"** - Marks the evening window (cover should be closed)
+              - The event title must match the configured title exactly (ignoring
+                upper/lower case and surrounding spaces). "Open Cover Bedroom" does
+                **not** match the title "Open Cover" - so several covers can share
+                one calendar with different event titles.
 
             **How it works:**
               - When an "Open Cover" event starts, the automation treats it like morning time
@@ -809,7 +813,7 @@ blueprint:
           name: "📂 Open Event Title"
           description: >-
             Title of calendar events that define the daytime window
-            (case-insensitive match).
+            (exact match, ignoring upper/lower case and surrounding spaces).
             Default: "Open Cover".
           default: "Open Cover"
           selector:
@@ -819,7 +823,7 @@ blueprint:
           name: "📁 Close Event Title"
           description: >-
             Title of calendar events that define the evening/close window
-            (case-insensitive match).
+            (exact match, ignoring upper/lower case and surrounding spaces).
             Default: "Close Cover".
           default: "Close Cover"
           selector:
@@ -4009,8 +4013,8 @@ conditions:
           - "{{ state_attr(calendar_entity, 'message') is not none }}"
           - >-
             {{
-              calendar_open_title_lc in (state_attr(calendar_entity, 'message') | lower) or
-              calendar_close_title_lc in (state_attr(calendar_entity, 'message') | lower)
+              (calendar_open_title_lc != '' and calendar_open_title_lc == (state_attr(calendar_entity, 'message') | lower | trim)) or
+              (calendar_close_title_lc != '' and calendar_close_title_lc == (state_attr(calendar_entity, 'message') | lower | trim))
             }}
   - condition: template
     value_template: >-
@@ -4737,7 +4741,7 @@ actions:
           {% set events = calendar_events[calendar_entity].events | default([]) %}
           {% for event in events %}
             {% set summary = (event.summary | default('')) | lower | trim %}
-            {% if calendar_open_title_lc != '' and calendar_open_title_lc in summary %}
+            {% if calendar_open_title_lc != '' and calendar_open_title_lc == summary %}
               {% set result.found = true %}
               {% set result.start = event.start %}
               {% set result.end = event.end %}
@@ -4757,7 +4761,7 @@ actions:
           {% set events = calendar_events[calendar_entity].events | default([]) %}
           {% for event in events %}
             {% set summary = (event.summary | default('')) | lower | trim %}
-            {% if calendar_close_title_lc != '' and calendar_close_title_lc in summary %}
+            {% if calendar_close_title_lc != '' and calendar_close_title_lc == summary %}
               {% set result.found = true %}
               {% set result.start = event.start %}
               {% set result.end = event.end %}
