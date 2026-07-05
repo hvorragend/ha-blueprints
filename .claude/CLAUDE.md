@@ -697,6 +697,23 @@ With `shd == 1` + in shading position, the default branch still defers to Shadin
 
 ---
 
+### Bug Pattern AC: Force-disable recovery reads window contacts without the ventilation gate (Issue #566)
+
+**Symptom:** Ventilation automation is disabled (`auto_ventilate_enabled` not in `auto_options` — e.g. because a defective tilt sensor permanently reports "tilted"). Shading is active, the cover sits at the shading position. A force function is turned off → the recovery drives the cover to the **ventilation position** although ventilation is disabled and the tilt sensor should be ignored entirely.
+
+**Cause:** When the ventilation automation is disabled, the contact sensors are ignored throughout CCA — the contact triggers carry `enabled: "{{ is_ventilation_enabled and ... }}"`, the contact handler, the closing-lockout branch, the shading-end lockout/ventilation branches and the resident-handler ventilation branches all gate on `is_ventilation_enabled`. The force-disable recovery branches, however, read `states(contact_window_opened)` / `states(contact_window_tilted)` **directly** and bypassed that gate: the "return to VENTILATION (window tilted)" branch drove to the ventilation position, and the negative window checks in "return to CLOSE / SHADING / OPEN (base=opn)" blocked those branches on a (stuck) contact. Only the sibling "return to OPEN (window open — lockout)" branch already checked `is_ventilation_enabled`.
+
+**Fix:** Apply the gate to every direct sensor read in the recovery `choose`:
+
+- "return to VENTILATION (window tilted)": add `- "{{ is_ventilation_enabled }}"` (mirrors the lockout recovery branch).
+- "return to CLOSE (base=cls)", "return to SHADING", "return to OPEN (base=opn)": scope the window-contact exclusions, e.g. `not (is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'])`.
+
+With ventilation disabled, the recovery now falls through to the correct shading/open/close target instead of driving to ventilation or dead-ending in the recovery `default:` (which would clear `frc` without any movement).
+
+**Rule:** Every direct `states(contact_window_opened/tilted)` read in a branch condition or drive guard must be scoped to `is_ventilation_enabled`. When the ventilation automation is disabled, the window contacts do not exist as far as CCA is concerned — this includes lockout (the trigger gate already treats it that way). Note this is about the feature toggle `auto_ventilate_enabled`, not the resident flag `resident_allow_ventilation` (Invariant 6 remains untouched).
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
