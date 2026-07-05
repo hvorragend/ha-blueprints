@@ -70,6 +70,14 @@ To which tilt position should the cover be moved when closing?
 
 To which tilt position should the cover be moved for ventilation?
 
+<a id="tilt_position_tolerance"></a>
+
+## 〰️ Tilt Position Tolerance
+
+*Blueprint input: `tilt_position_tolerance`* *(default: `0`)*
+
+Tolerance to be applied when comparing the current tilt position with the to be tilt position. These are absolute values, analogous to the position tolerance. Use this when several states share the same cover position and can only be told apart by their tilt angle (e.g. closed/shading/ventilate all at position 0), or to absorb small tilt motor inaccuracies.
+
 <a id="shading_tilt_position_0"></a>
 
 ## 🥵 Sun Shading Tilt Position
