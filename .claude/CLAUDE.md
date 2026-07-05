@@ -714,6 +714,30 @@ With ventilation disabled, the recovery now falls through to the correct shading
 
 ---
 
+### Bug Pattern AD: Calendar title gate on `message` attribute misses concurrent events (Issue #568)
+
+**Symptom:** One calendar carries two events with **different titles but the same start time** (e.g. "Open Cover" and "Open Schlafraume", both Saturday 08:30, driving different CCA instances). Only one automation runs; the other is stopped by the global conditions (trace: "Stopped because a condition failed", runtime ~0.04 s) and its cover never opens.
+
+**Cause:** The global conditions gated `t_calendar_event_*` triggers on `state_attr(calendar_entity, 'message')` matching `calendar_open_title` or `calendar_close_title`. A calendar entity's `message`/`start_time`/`end_time` attributes only ever expose a **single** (current-or-next) event — with two simultaneous events, HA picks one and the other is invisible. The automation whose title matched the hidden event was suppressed. The same attribute-based gate also failed at an event **end** when no upcoming event exists (`message` is `none`).
+
+**Fix:** Remove the title check from the global conditions entirely — a condition context cannot call `calendar.get_events`, and the `message` attribute is structurally unable to represent concurrent events. The precise check lives in the actions instead ("Calendar trigger relevance check", directly before the main `choose:`): after `calendar.get_events` has loaded today's events and the variables block has parsed them per title (`calendar_open_event`/`calendar_close_event` → `calendar_open_start/end`, `calendar_close_start/end`), the step `stop`s calendar-triggered runs when **none** of the automation's own parsed event boundaries caused the state transition:
+
+```jinja2
+{% set flip_to = as_timestamp(trigger.to_state.last_changed) %}
+{% set flip_from = as_timestamp(trigger.from_state.last_changed) if trigger.from_state is not none else 0 %}
+boundary is relevant iff flip_from < boundary <= flip_to + 60
+```
+
+The interval `(flip_from, flip_to + 60]` — previous on/off flip to current flip plus tolerance — is used instead of a plain "boundary == now" comparison for two reasons: `mode: queued` can delay execution well past the trigger (so `now()` is unusable), and a lagging calendar integration can flip the entity state after the nominal event boundary (so a tight tolerance around `flip_to` alone could false-negative). The asymmetry is deliberate: a false **pass** merely costs an idempotent no-op run (the opening/closing branches still gate on `is_opening_phase`/`is_closing_phase` etc.), while a false **stop** silently loses an open/close — so the gate is generous.
+
+**Why not `trigger: calendar` platform triggers (which expose `trigger.calendar_event.summary`):** `calendar_entity` defaults to `[]`, and the calendar trigger schema (`cv.entity_id`) rejects a list — the blueprint would fail validation for every user without a calendar. `enabled:` does not skip schema validation. The state triggers (`to: "on"` / `to: "off"`) must stay.
+
+**Known limitation (unchanged):** the state trigger only fires on real `off`↔`on` transitions of the calendar entity. If a matching event starts while another event is already running (overlap, not same-start), the entity stays `on` and **no trigger fires at all** — that is a trigger-level gap this action gate cannot close.
+
+**Rule:** Never gate calendar-trigger relevance on the calendar entity's state attributes — they show one event only. Relevance must be decided against the `calendar.get_events` result (same family as Bug Pattern AA: the gate upstream must provably let the event through in the scenario being handled).
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.

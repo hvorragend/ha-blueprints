@@ -4005,17 +4005,6 @@ conditions:
   - or:
       - "{{ trigger.to_state is not defined }}" # for "trigger: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger
-  - or:
-      - "{{ trigger.id is not defined }}"
-      - "{{ not trigger.id | regex_match('^t_calendar_event') }}"
-      - and:
-          - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ state_attr(calendar_entity, 'message') is not none }}"
-          - >-
-            {{
-              (calendar_open_title_lc != '' and calendar_open_title_lc == (state_attr(calendar_entity, 'message') | lower | trim)) or
-              (calendar_close_title_lc != '' and calendar_close_title_lc == (state_attr(calendar_entity, 'message') | lower | trim))
-            }}
   - condition: template
     value_template: >-
       {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
@@ -5063,6 +5052,30 @@ actions:
             ❌ {{ friendly_name }}: Cover Status Helper max length too small ({{ check_status_helper_length }}/210). Increase to at least 254.
           entity_id: "{{ cover_status_helper }}"
       - stop: "Cover Status Helper max length too small"
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Calendar trigger relevance check
+  # Based on the parsed calendar events (calendar.get_events), because the
+  # calendar entity's 'message' attribute only exposes a single event and
+  # hides concurrent events with a different title (#568)
+  # ════════════════════════════════════════════════════════════════════════════
+  - alias: "Calendar trigger relevance check"
+    if:
+      - "{{ trigger.id is defined and trigger.id | regex_match('^t_calendar_event') }}"
+      - condition: template
+        value_template: >-
+          {% set flip_to = as_timestamp(trigger.to_state.last_changed) %}
+          {% set flip_from = as_timestamp(trigger.from_state.last_changed) if trigger.from_state is not none else 0 %}
+          {% set boundaries = [calendar_open_start, calendar_open_end, calendar_close_start, calendar_close_end] %}
+          {% set ns = namespace(relevant=false) %}
+          {% for b in boundaries %}
+            {% if b is not none and (b | float(0)) > flip_from and (b | float(0)) <= flip_to + 60 %}
+              {% set ns.relevant = true %}
+            {% endif %}
+          {% endfor %}
+          {{ not ns.relevant }}
+    then:
+      - stop: "Calendar trigger ignored: No configured open/close event starts or ends at this calendar state change"
 
   - choose:
 
