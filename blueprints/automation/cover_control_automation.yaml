@@ -574,6 +574,19 @@ blueprint:
               min: 0
               max: 100
               unit_of_measurement: "%"
+        tilt_position_tolerance:
+          name: "〰️ Tilt Position Tolerance"
+          description: >-
+            Tolerance to be applied when comparing the current tilt position with the to be tilt position.
+            These are absolute values, analogous to the position tolerance. Use this when several states share the
+            same cover position and can only be told apart by their tilt angle (e.g. closed/shading/ventilate all at
+            position 0), or to absorb small tilt motor inaccuracies.
+          default: 0
+          selector:
+            number:
+              min: 0.0
+              max: 20.0
+              unit_of_measurement: "%"
         shading_tilt_position_0:
           name: "🥵 Sun Shading Tilt Position"
           description: "Minimum tilt position for shading. The cover will be tilted to this position if the sun elevation is below the value of elevation 1."
@@ -2749,6 +2762,7 @@ trigger_variables:
   open_tilt_position: !input open_tilt_position
   close_tilt_position: !input close_tilt_position
   ventilate_tilt_position: !input ventilate_tilt_position
+  tilt_position_tolerance: !input tilt_position_tolerance
   shading_tilt_elevation_1: !input shading_tilt_elevation_1
   shading_tilt_elevation_2: !input shading_tilt_elevation_2
   shading_tilt_elevation_3: !input shading_tilt_elevation_3
@@ -3053,7 +3067,7 @@ variables:
       (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (is_cover_tilt_enabled_and_possible and current_tilt_position == open_tilt_position | int)
+        ((current_tilt_position - (open_tilt_position | int)) | abs <= tilt_position_tolerance)
       )
     }}
 
@@ -3064,15 +3078,10 @@ variables:
       (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (is_cover_tilt_enabled_and_possible and current_tilt_position == close_tilt_position | int)
+        ((current_tilt_position - (close_tilt_position | int)) | abs <= tilt_position_tolerance)
       )
     }}
 
-  # TODO: in_shading_position is volatile when tilt is enabled because shading_tilt_position
-  #       is dynamically computed from current sun elevation. When the sun moves and a new tilt
-  #       stage is calculated, the cover is no longer considered "in shading position" even though
-  #       it was correctly set before. Consider storing the last applied tilt in the JSON helper
-  #       (e.g. field 'tp') and comparing against that instead of the dynamic value.
   in_shading_position: >-
     {% set min = shading_position - position_tolerance %}
     {% set max = shading_position + position_tolerance %}
@@ -3081,7 +3090,7 @@ variables:
       and (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position == shading_tilt_position | int)
+        ((current_tilt_position - (shading_tilt_position | int)) | abs <= tilt_position_tolerance)
       )
     }}
 
@@ -3093,7 +3102,7 @@ variables:
       and (current_position >= min and current_position <= max)
       and (
         (not is_cover_tilt_enabled_and_possible) or
-        (current_tilt_position == ventilate_tilt_position | int)
+        ((current_tilt_position - (ventilate_tilt_position | int)) | abs <= tilt_position_tolerance)
       )
     }}
 
@@ -3166,11 +3175,11 @@ variables:
   #   ts.arm → first-arming anchor of current retry sequence
   #   ts.man → ts.manual
   #
-  # TODO: Potential v7 expansion fields (~46-106 chars remaining in input_text):
-  #   lp  → last_position (+8 chars) – Position before last action (smart recovery)
-  #   lt  → last_trigger  (+6 chars) – Which trigger caused last action (debug)
-  #   tp  → tilt_position  (+5 chars) – Last applied tilt value (fixes in_shading_position volatility)
-  #   ec  → error_count    (+4 chars) – Consecutive error counter
+  # NOTE: in_shading_position compares against the dynamically computed
+  #       shading_tilt_position. When the sun crosses a tilt-stage threshold the
+  #       target briefly differs from the applied tilt until the tilt trigger
+  #       re-drives. This is intentionally NOT stabilized via a persisted helper
+  #       field — the helper holds logical state, not the last physical tilt.
   # ═══════════════════════════════════════════════════════════════════════════
   # Parses the helper JSON and normalises to v6 compact format.
   # Handles three cases: v5 → v6 migration, v6 pass-through, new/empty default.
@@ -5839,9 +5848,6 @@ actions:
           - variables:
               target_tilt_position: "{{ shading_tilt_position | int }}"
               tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
-              # TODO: Consider storing the applied tilt value in the JSON helper (e.g. 'tp' field)
-              #       so that in_shading_position can compare against the actually applied tilt
-              #       instead of the dynamically computed shading_tilt_position.
               update_values:
                 man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
           - *tilt_move_action
@@ -7321,7 +7327,7 @@ actions:
                   - "{{ trigger.to_state.attributes.current_tilt_position not in invalid_states }}"
                   - "{{ is_number(trigger.from_state.attributes.current_tilt_position | default(none)) }}"
                   - "{{ is_number(trigger.to_state.attributes.current_tilt_position | default(none)) }}"
-                  - "{{ trigger.from_state.attributes.current_tilt_position != trigger.to_state.attributes.current_tilt_position }}"
+                  - "{{ ((trigger.to_state.attributes.current_tilt_position | float(0)) - (trigger.from_state.attributes.current_tilt_position | float(0))) | abs > tilt_position_tolerance }}"
 
         sequence:
           - choose:

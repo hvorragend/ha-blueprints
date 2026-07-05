@@ -245,6 +245,29 @@ via `to_json`.
 
 ## Design Decisions (intentional deviations from the general patterns)
 
+### Tilt is part of status detection, but the last applied tilt is NOT persisted (#558)
+
+The position checkers (`in_open/close/shading/ventilate_position`) compare the
+current tilt against the target tilt within `tilt_position_tolerance` (an
+absolute dead-band, analogous to `position_tolerance`). This lets states that
+share the same cover position be told apart by their tilt angle (e.g.
+`closed`/`shading`/`ventilate` all at position `0`). The same dead-band gates
+manual tilt-change detection so small tilt jitter is not read as manual.
+
+`in_shading_position` compares against the **dynamically computed**
+`shading_tilt_position`. When the sun crosses a tilt-stage threshold, the target
+briefly differs from the physically applied tilt until the `t_shading_tilt_*`
+trigger re-drives — so the checker can read "not in shading position" for that
+short window. This volatility is **intentionally not** stabilized by persisting
+the last applied tilt in the helper (a `tp` field was considered and rejected):
+the status helper holds *logical* state, not the last *physical* tilt. A
+stateless fix (accepting any configured shading stage) is also rejected — it
+would reintroduce the #558 ambiguity (e.g. a closed cover at tilt `0` matching a
+shading stage configured to `0`). The volatility does not occur at all with a
+single (non-staged) shading tilt.
+
+Do not re-add a `tp`/last-tilt helper field to "fix" this.
+
 ### Resident handler bypasses `helper_state_manual` / `override_flags.*`
 
 The resident sensor handler (`resident_leaving` / `resident_arriving`) does **not** check `not (helper_state_manual and override_flags.X)` in any of its branches. All other handlers (Open, Close, Shading-Start, Shading-End, Contact, Manual) do.
