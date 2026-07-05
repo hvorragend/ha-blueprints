@@ -773,6 +773,18 @@ The interval `(flip_from, flip_to + 60]` — previous on/off flip to current fli
 
 ---
 
+### Bug Pattern AF: Unconfigured status helper kills variable rendering before the friendly config check
+
+**Symptom:** With the mandatory `cover_status_helper` not configured, every run of the automation dies at trigger time with `Error rendering variables: TypeError: cannot use 'list' as a dict key (unhashable type: 'list')` (Python ≥ 3.13 wording of "unhashable type"). The actions' "MANDATORY HELPER VALIDATION" block — which exists precisely to log a clear "Cover Status Helper is required but not configured" error and stop — never runs, because the top-level `variables:` block is rendered *before* the actions and aborts the run.
+
+**Cause:** `helper_json` called `states(cover_status_helper)` without a `!= []` guard. The input's `default: []` makes the argument a list, and `hass.states.get([])` fails on the dict lookup. Every other state read in the `variables:` block already carried the `x != [] and states(x)` guard — `helper_json` was the single unguarded one. The same unguarded read existed in trigger templates (`t_shading_start/end_execution`, `t_shading_tilt_*`, `t_reset_timeout`, `t_reset_position`), the global conditions (shading pending gate), and the v5→v6 migration check in the actions.
+
+**Fix:** Guard every reachable `states(cover_status_helper)`: in `helper_json` and the global-conditions gate via `... if cover_status_helper != [] else 'unavailable'` (falls through to the existing invalid-state handling → fresh default JSON), in the migration check via a preceding `{{ cover_status_helper != [] }}` condition, and in the helper-reading triggers via `and cover_status_helper != []` in their `enabled:`. With no helper configured the run now reaches the mandatory validation, logs the friendly error, and stops.
+
+**Rule:** Every `states(x)` / `state_attr(x, ...)` on an input whose `default` is `[]` must be guarded with `x != []` (short-circuit) — in *every* context: `variables:`, trigger `value_template`s, global conditions, and action conditions. This is the same upstream-gate family as Bug Pattern AA: a user-facing validation in the actions is dead code if variable rendering upstream can throw first.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
