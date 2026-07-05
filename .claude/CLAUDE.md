@@ -785,6 +785,24 @@ The interval `(flip_from, flip_to + 60]` — previous on/off flip to current fli
 
 ---
 
+### Bug Pattern AG: Opening deferred into shading while the lockout window is open (2026.06.28 V3 regression, forum report)
+
+**Symptom:** The lockout window is **fully open** (or **tilted** with `lockout_tilted_shading_start` enabled) at the scheduled opening time and the shading conditions are met. The cover does not open — it stays at its current position (e.g. still closed after a force function or restart) for the rest of the morning. The trace ends with `"Opening: Shading pending armed"` (or `"Opening skipped: Shading start pending"`), and the later shading execution ends with `"Shading Start skipped: Lockout enabled"`.
+
+**Cause:** The opening handler has two branches that hand the movement over to the shading execution instead of opening: "Opening skipped: Shading start pending" (defer, Bug Pattern R) and "Opening: Shading warranted, arm pending" (#555, new in `2026.06.28 V3`). Neither checked the window contacts. But the shading execution's "Consider lockout protection when shading starts" branch only **stores** the intent (`shd: 1`, `win: 'opn'`) and stops — it never drives the cover. So with the lockout active, the receiving flow can never satisfy the opening obligation: the handoff dead-ends and the cover stays below the open position although `effective_state == 'lock'` demands it. The #555 branch made this common (it fires on every sunny morning with an open window at opening time); the defer branch had the same gap since #514 for a pending armed pre-window.
+
+**Fix:** Both branches gate on the same lockout-window check as the execution's "Consider lockout" branch (scoped to `is_ventilation_enabled` per Bug Pattern AC):
+
+```yaml
+- "{{ not (is_ventilation_enabled and ((contact_window_opened != [] and states(contact_window_opened) in ['true', 'on']) or (lockout_tilted_when_shading_starts and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on']))) }}"
+```
+
+When the lockout applies, execution falls through to "Normal opening", which drives the cover open (a no-op via the `cover_move_action` tolerance guard when the contact handler already opened it) and clears `pnd`/`ts.due`/`ts.arm`. A plain tilted window **without** the `lockout_tilted_shading_start` option still arms/defers — the execution then holds the ventilation floor (Bug Pattern AE) or shades, as designed. Trade-off: the stored-shading-intent handoff (window closes later → "Return to shading") is not established in the lockout case; shading starts when the next shading trigger re-fires. That restores the pre-`2026.06.28 V3` behavior — lockout safety beats remembered shading.
+
+**Rule:** A handoff into another flow must be gated on what the receiving flow can actually *do* in that scenario — the shading execution's lockout branch stops without movement, so it can never fulfill a deferred opening. Same family as Bug Pattern AB (gate deferrals on the receiving flow's reachability) and AA (verify the receiving flow's upstream gates).
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.

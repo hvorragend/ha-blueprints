@@ -981,3 +981,135 @@ class TestPatternAEShadingStartVentilationFloor:
         assert "shading_below_ventilate:" in text, (
             "position_comparisons must define shading_below_ventilate"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bug Pattern AG: opening deferred/armed into shading although the lockout
+# window is open — the shading execution's lockout branch only stores the
+# intent and stops, it never opens the cover. Both defer paths in the opening
+# handler ("Opening skipped: Shading start pending" and "Opening: Shading
+# warranted, arm pending", the latter new since #555 / 2026.06.28 V3) must
+# fall through to "Normal opening" when the lockout applies (window fully
+# open, or tilted with lockout_tilted_shading_start), so the cover is driven
+# to the open position as the cascade (LOCKOUT prio 2) demands.
+# ─────────────────────────────────────────────────────────────────────────────
+
+AG_DEFER_ALIAS = "Opening skipped: Shading start pending"
+AG_ARM_ALIAS = "Opening: Shading warranted, arm pending"
+AG_NORMAL_ALIAS = "Normal opening of the cover"
+
+
+def _eval_ha_condition(env, cond, variables) -> bool:
+    """Evaluate a blueprint condition: template string or {or:[...]}/{and:[...]} dict."""
+    from conftest import eval_condition
+
+    if isinstance(cond, str):
+        return eval_condition(env, cond, variables)
+    if isinstance(cond, dict):
+        if "or" in cond:
+            return any(_eval_ha_condition(env, c, variables) for c in cond["or"])
+        if "and" in cond:
+            return all(_eval_ha_condition(env, c, variables) for c in cond["and"])
+    raise AssertionError(f"unsupported condition node: {cond!r}")
+
+
+def _opening_choose_branches() -> list[dict]:
+    """Return the choose branches of the 'Check for opening' handler, in order."""
+    blueprint = _load_blueprint_yaml()
+    handler = _find_branch_by_alias(blueprint, "Check for opening")
+    assert handler is not None
+    choose_step = handler["sequence"][0]
+    return choose_step["choose"]
+
+
+def _select_opening_branch(entity_states: dict, variables: dict) -> str | None:
+    from conftest import make_jinja_env
+
+    env = make_jinja_env(entity_states)
+    for branch in _opening_choose_branches():
+        if all(
+            _eval_ha_condition(env, c, variables) for c in branch["conditions"]
+        ):
+            return branch["alias"]
+    return None
+
+
+def _ag_variables(**overrides) -> dict:
+    base = {
+        "is_ventilation_enabled": True,
+        "is_shading_enabled": True,
+        "is_shading_allowed_window": True,
+        "shading_start_warranted": True,
+        "lockout_tilted_when_shading_starts": False,
+        "contact_window_opened": "binary_sensor.window_opened",
+        "contact_window_tilted": "binary_sensor.window_tilted",
+        "helper_state_pending_start": False,
+        "helper_state_pending_end": False,
+        "helper_state_is_shaded": False,
+        "helper_state_shade": False,
+        "effective_state": "lock",
+        "in_open_position": False,
+        "in_shading_position": False,
+        "prevent_flags": {"shading_multiple_times": False},
+    }
+    base.update(overrides)
+    return base
+
+
+class TestPatternAGOpeningLockoutNotDeferredToShading:
+    """Window open at opening time must open the cover, not defer to shading."""
+
+    def test_window_open_with_pending_falls_through_to_normal_opening(self):
+        states = {"binary_sensor.window_opened": "on", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(
+            states, _ag_variables(helper_state_pending_start=True)
+        )
+        assert chosen == AG_NORMAL_ALIAS
+
+    def test_window_open_without_pending_falls_through_to_normal_opening(self):
+        states = {"binary_sensor.window_opened": "on", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(states, _ag_variables())
+        assert chosen == AG_NORMAL_ALIAS
+
+    def test_window_closed_with_pending_still_defers(self):
+        states = {"binary_sensor.window_opened": "off", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(
+            states, _ag_variables(helper_state_pending_start=True, effective_state="opn")
+        )
+        assert chosen == AG_DEFER_ALIAS
+
+    def test_window_closed_without_pending_still_arms(self):
+        # #555 behavior must be preserved for a closed window
+        states = {"binary_sensor.window_opened": "off", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(states, _ag_variables(effective_state="opn"))
+        assert chosen == AG_ARM_ALIAS
+
+    def test_window_tilted_with_lockout_option_falls_through(self):
+        states = {"binary_sensor.window_opened": "off", "binary_sensor.window_tilted": "on"}
+        chosen = _select_opening_branch(
+            states,
+            _ag_variables(lockout_tilted_when_shading_starts=True, effective_state="opn"),
+        )
+        assert chosen == AG_NORMAL_ALIAS
+
+    def test_window_tilted_without_lockout_option_still_arms(self):
+        states = {"binary_sensor.window_opened": "off", "binary_sensor.window_tilted": "on"}
+        chosen = _select_opening_branch(states, _ag_variables(effective_state="opn"))
+        assert chosen == AG_ARM_ALIAS
+
+    def test_ventilation_disabled_ignores_contacts(self):
+        # Bug Pattern AC rule: direct contact reads must be scoped to is_ventilation_enabled
+        states = {"binary_sensor.window_opened": "on", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(
+            states, _ag_variables(is_ventilation_enabled=False, effective_state="opn")
+        )
+        assert chosen == AG_ARM_ALIAS
+
+    @pytest.mark.parametrize("alias", [AG_DEFER_ALIAS, AG_ARM_ALIAS])
+    def test_gate_present_in_both_branches(self, alias):
+        branch = _find_branch_by_alias(_load_blueprint_yaml(), alias)
+        assert branch is not None, f"branch not found: {alias!r}"
+        conds = " ".join(str(c) for c in branch["conditions"])
+        assert "is_ventilation_enabled" in conds
+        assert "contact_window_opened" in conds
+        assert "lockout_tilted_when_shading_starts" in conds
