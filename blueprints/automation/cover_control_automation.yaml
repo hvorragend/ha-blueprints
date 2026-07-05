@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.05
+    **Version**: 2026.07.05 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2923,7 +2923,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.05"
+  version: "2026.07.05 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3184,7 +3184,7 @@ variables:
   # Parses the helper JSON and normalises to v6 compact format.
   # Handles three cases: v5 → v6 migration, v6 pass-through, new/empty default.
   helper_json: >-
-    {% set helper_state = states(cover_status_helper) %}
+    {% set helper_state = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
     {% set helper_raw = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
     {% set ts_now = as_timestamp(now()) | round(0) %}
 
@@ -3790,7 +3790,7 @@ triggers:
           now() >= (helper.shading.p | as_datetime | as_local)
         }}
       {% endif %}
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_start_execution"
 
   - trigger: state
@@ -3825,7 +3825,7 @@ triggers:
         states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') and
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_1
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] and cover_status_helper != [] }}"
     id: "t_shading_tilt_1"
 
   - trigger: template
@@ -3836,7 +3836,7 @@ triggers:
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_2 and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_1
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] and cover_status_helper != [] }}"
     id: "t_shading_tilt_2"
 
   - trigger: template
@@ -3847,7 +3847,7 @@ triggers:
         state_attr(default_sun_sensor, 'elevation') < shading_tilt_elevation_3 and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_2
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] and cover_status_helper != [] }}"
     id: "t_shading_tilt_3"
 
   - trigger: template
@@ -3857,7 +3857,7 @@ triggers:
         states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') and
         state_attr(default_sun_sensor, 'elevation') >= shading_tilt_elevation_3
       }}
-    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_shading_enabled and is_cover_tilt_enabled and default_sun_sensor != [] and cover_status_helper != [] }}"
     id: "t_shading_tilt_4"
 
   ########################################
@@ -3923,7 +3923,7 @@ triggers:
           now() >= (helper.shading.q | as_datetime | as_local)
         }}
       {% endif %}
-    enabled: "{{ is_shading_enabled }}"
+    enabled: "{{ is_shading_enabled and cover_status_helper != [] }}"
     id: "t_shading_end_execution"
 
   - trigger: template
@@ -3989,7 +3989,7 @@ triggers:
       {% else %}
         {{ false }}
       {% endif %}
-    enabled: "{{ is_reset_timeout }}"
+    enabled: "{{ is_reset_timeout and cover_status_helper != [] }}"
     id: "t_reset_timeout"
     for:
       seconds: 2
@@ -4001,7 +4001,7 @@ triggers:
       {% set pos = state_attr(blind, 'current_position') | float(-100) %}
       {{ helper.man | default(0) | int == 1 and
          (pos - (reset_override_position | float(0))) | abs <= (position_tolerance | float(5)) }}
-    enabled: "{{ is_reset_position }}"
+    enabled: "{{ is_reset_position and cover_status_helper != [] }}"
     id: "t_reset_position"
     for:
       minutes: !input reset_override_position_dwell
@@ -4018,12 +4018,12 @@ conditions:
   - condition: template
     value_template: >-
       {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
-        {% set helper = states(cover_status_helper) %}
+        {% set helper = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
         {% set is_shaded = helper not in invalid_states and helper | regex_search('"shd"\s*:\s*1\s*[,}]') %}
         {% set is_end_pending = helper not in invalid_states and helper | regex_search('"pnd"\s*:\s*"end"') %}
         {{ not is_shaded or is_end_pending }}
       {% elif trigger.id is match('^t_shading_end_pending_[1-7]$') %}
-        {{ states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
+        {{ cover_status_helper != [] and states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
       {% else %}
         true
       {% endif %}
@@ -4258,6 +4258,7 @@ actions:
   #     (defensive cleanup; preserves all live state, resets pending to idle).
   # We check the raw helper state, not helper_json (which always has v:6 after migration).
   - if:
+      - "{{ cover_status_helper != [] }}"
       - condition: template
         value_template: >-
           {% set helper_state = states(cover_status_helper) %}

@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.07.05 V2
+
+- 🐛 **Fix:** When the mandatory **Cover Status Helper** was not configured, every run of the automation died immediately with the cryptic log error `Error rendering variables: TypeError: cannot use 'list' as a dict key (unhashable type: 'list')` — the friendly configuration error CCA is supposed to log ("Cover Status Helper is required but not configured") was never reached, so nothing worked and there was no hint why. The internal helper parsing read the helper entity's state without first checking whether a helper is configured at all. All helper reads are now guarded: without a configured helper the automation starts normally, reaches the built-in configuration check, writes a clear error to the system log and the logbook, and stops. The shading execution/tilt triggers and the manual-override reset triggers are also disabled while no helper is configured, so they cannot produce template errors either. **Reminder:** the Cover Status Helper (an `input_text` helper with a maximum length of 254) is mandatory — one per CCA automation
+
+---
+
 # CCA 2026.07.05
 
 - ✨ **Feature:** Tilt-capable covers now have a **Tilt Position Tolerance** (next to the existing position tolerance, in the *Tilt Position Feature* settings). The cover status is now told apart by **position *and* tilt angle**, so several states that share the same position can be distinguished by their tilt — e.g. *closed*, *shading* and *ventilate* all at position 0 but with different tilt angles. The tolerance is an absolute dead-band that also absorbs small tilt-motor inaccuracies, mirroring the position tolerance. The same dead-band is applied to manual tilt-change detection, so a tiny tilt jitter reported by the cover is no longer mistaken for a manual intervention ([#558](https://github.com/hvorragend/ha-blueprints/issues/558))
