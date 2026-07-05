@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.07.05 V2
+
+- 🐛 **Fix:** Calendar event titles were matched as a **substring**, so a cover configured with the open title *"Open Cover"* also reacted to events like *"Open Cover Bedroom"* on the same calendar. Because the parsing kept the **last** matching event of the day, such a cover could ignore its own *"Open Cover"* event (e.g. 06:00) and open at the time of the more specific event (e.g. 06:15) instead. Event titles are now matched **exactly** (ignoring upper/lower case and surrounding spaces) in the open/close event parsing and in the calendar trigger gate. Several covers can therefore share one calendar with prefix-related titles — *"Open Cover"* and *"Open Cover Bedroom"* are now distinct. **Note:** If you relied on the old substring behavior (e.g. events named *"Open Cover (vacation)"* matching the title *"Open Cover"*), rename the events or the configured title so they match exactly ([#536](https://github.com/hvorragend/ha-blueprints/issues/536))
+
+---
+
 # CCA 2026.07.05
 
 - 🐛 **Fix:** If the cover happened to sit at the **shading position** at opening time while shading was **not** active in the helper (`shd: 0`) — for example because it was moved there manually — the cover never opened for the rest of the day. The opening handler skipped the normal opening (assuming an active shading would be ended later by the Shading End logic) and only updated the base state. But that handoff can never happen with `shd: 0`: a global trigger gate blocks all shading-end triggers unless shading is actually active in the helper. The normal opening now only defers to Shading End while shading is genuinely active; with `shd: 0` the cover simply opens normally ([#565](https://github.com/hvorragend/ha-blueprints/issues/565))
