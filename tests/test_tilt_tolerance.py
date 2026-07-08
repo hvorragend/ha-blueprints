@@ -69,6 +69,9 @@ def _vars(**overrides) -> dict:
         tilt_position_tolerance=0,
     )
     base.update(overrides)
+    # in_shading_position compares against effective_shading_position (the alternate
+    # shading position feature); with the feature disabled it equals shading_position.
+    base.setdefault("effective_shading_position", base["shading_position"])
     return base
 
 
