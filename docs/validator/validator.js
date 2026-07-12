@@ -407,21 +407,16 @@ class CCAValidator {
         // Apply the blueprint default (time_control_input) when the field is omitted,
         // so an unset selector is not mistaken for "disabled".
         const timeControl = c.time_control || 'time_control_input';
-        // Hybrid backward-compat logic: matches blueprint is_time_control_disabled
-        const isTimeControlDisabled = !autoOptions.includes('time_control_enabled') && timeControl === 'time_control_disabled';
+        // The Time Control Type selector is authoritative (issue #544): matches blueprint is_time_control_disabled
+        const isTimeControlDisabled = timeControl === 'time_control_disabled';
 
         if (isTimeControlDisabled) {
             this.addInfo('⏰ Time control is disabled - skipping time validation');
             return;
         }
 
-        if (timeControl === 'time_control_disabled') {
-            // Still active because time_control_enabled overrides it, but warn about legacy usage
-            this.addWarning('⚠️ time_control: time_control_disabled is the legacy way to disable time control. Prefer unchecking "Time Control" (time_control_enabled) in auto_options instead.');
-        }
-
-        if (!autoOptions.includes('time_control_enabled') && timeControl !== 'time_control_disabled') {
-            this.addInfo('ℹ️ time_control_enabled is not in auto_options. Time control remains active for backward compatibility. Add "time_control_enabled" to auto_options to use the new consolidated control.');
+        if (autoOptions.includes('time_control_enabled')) {
+            this.addInfo('ℹ️ time_control_enabled in auto_options is deprecated and has no function. Time control is disabled only via time_control: time_control_disabled ("Time Control Type" → 🚫 Disabled).');
         }
 
         if (timeControl === 'time_control_calendar') {
@@ -1004,8 +999,7 @@ time_down_late: "22:00:00"
 
 auto_options:
   - auto_up_enabled
-  - auto_down_enabled
-  - time_control_enabled`,
+  - auto_down_enabled`,
 
             advanced: `# Advanced with Shading
 blind: cover.example_blind
@@ -1024,7 +1018,6 @@ time_down_late: "22:00:00"
 auto_options:
   - auto_up_enabled
   - auto_down_enabled
-  - time_control_enabled
   - auto_shading_enabled
   - auto_sun_enabled
 
@@ -1067,8 +1060,7 @@ time_down_late: "21:00:00"
 
 auto_options:
   - auto_up_enabled
-  - auto_down_enabled
-  - time_control_enabled`
+  - auto_down_enabled`
         };
 
         yamlInput.value = examples[type] || '';

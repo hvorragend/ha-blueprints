@@ -1113,3 +1113,58 @@ class TestPatternAGOpeningLockoutNotDeferredToShading:
         assert "is_ventilation_enabled" in conds
         assert "contact_window_opened" in conds
         assert "lockout_tilted_when_shading_starts" in conds
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #544: Time Control disable must be reachable via the UI —
+# the Time Control Type selector is authoritative, the deprecated
+# time_control_enabled checkbox is ignored.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_time_control_disabled(auto_options, time_control) -> bool:
+    blueprint = _load_blueprint_yaml()
+    template = blueprint["trigger_variables"]["is_time_control_disabled"]
+    out = jinja2.Environment().from_string(template).render(
+        auto_options=auto_options, time_control=time_control
+    )
+    return out.strip() == "True"
+
+
+class TestIssue544TimeControlDisable:
+    """#544: selector value 'time_control_disabled' is the single disable path."""
+
+    def test_selector_offers_disabled_option(self):
+        blueprint = _load_blueprint_yaml()
+        inputs = blueprint["blueprint"]["input"]["feature_section"]["input"]
+        options = inputs["time_control"]["selector"]["select"]["options"]
+        values = [o["value"] for o in options]
+        assert "time_control_disabled" in values
+
+    def test_disabled_when_selector_disabled_checkbox_checked(self):
+        # New install: user selects Disabled but leaves the deprecated box checked.
+        assert _render_time_control_disabled(
+            ["auto_up_enabled", "time_control_enabled"], "time_control_disabled"
+        ) is True
+
+    def test_disabled_when_selector_disabled_checkbox_unchecked(self):
+        # Legacy install: pre-consolidation config with the old disabled value
+        # (and no time_control_enabled in auto_options) stays disabled.
+        assert _render_time_control_disabled(
+            ["auto_up_enabled"], "time_control_disabled"
+        ) is True
+
+    def test_enabled_when_selector_input_checkbox_unchecked(self):
+        # Legacy install without the checkbox must keep time control active.
+        assert _render_time_control_disabled(
+            ["auto_up_enabled"], "time_control_input"
+        ) is False
+
+    def test_enabled_when_selector_calendar(self):
+        assert _render_time_control_disabled(
+            ["auto_up_enabled", "time_control_enabled"], "time_control_calendar"
+        ) is False
+
+    def test_checkbox_alone_does_not_disable(self):
+        # The deprecated checkbox is ignored: unchecking it must not disable.
+        assert _render_time_control_disabled([], "time_control_input") is False

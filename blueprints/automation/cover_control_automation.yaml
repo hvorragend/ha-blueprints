@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.12
+    **Version**: 2026.07.12 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -72,9 +72,10 @@ blueprint:
 
             **Fine-Tuning (When to trigger):**
 
-            - **⏲️ Time Control** — Defines the Early/Late time windows that constrain *all* other triggers.
-            Keep this ON even when using Brightness or Sun Elevation — the time fields set the boundaries.
-            Early = earliest the cover may move; Late = guaranteed move (safety net).
+            - **⏲️ Time Control** — The Early/Late time windows constrain *all* other triggers and are
+            active by default. Early = earliest the cover may move; Late = guaranteed move (safety net).
+            To turn the time windows off, select **🚫 Disabled** under **Time Control Type** below.
+            The ⏲️ checkbox in this list is deprecated and has no function anymore.
 
             - **🔅 Brightness** / **☀️ Sun Elevation** — Additional triggers that fire *within* the time window.
             Set the condition logic (AND/OR) when both are active.
@@ -122,7 +123,6 @@ blueprint:
             [
               auto_up_enabled,
               auto_down_enabled,
-              time_control_enabled,
             ]
           selector:
             select:
@@ -131,7 +131,7 @@ blueprint:
                   value: "auto_up_enabled"
                 - label: "🔻 Evening Closing — Automatically close the cover each evening"
                   value: "auto_down_enabled"
-                - label: "⏲️ Time Control — Use time windows (Early/Late) to constrain when triggers fire"
+                - label: "⏲️ Time Control — Deprecated, no function: disable time windows via 'Time Control Type' → 🚫 Disabled"
                   value: "time_control_enabled"
                 - label: "🔅 Brightness Control — Trigger opening/closing based on ambient brightness sensor"
                   value: "auto_brightness_enabled"
@@ -149,7 +149,7 @@ blueprint:
         time_control:
           name: "⏲️ Time Control Type"
           description: >-
-            Select how time-based opening and closing is scheduled. *(Only relevant when **Time Control** is enabled above.)*
+            Select how time-based opening and closing is scheduled — or disable the time windows entirely.
 
             <details>
             <summary><code><strong>📖 CLICK HERE:</strong> Further descriptions</code></summary>
@@ -166,6 +166,12 @@ blueprint:
             You can use a Home Assistant calendar to define when covers should be open or closed.
             Create calendar events with titles "Open Cover" (for daytime) or "Close Cover" (for evening).
             The automation reacts immediately when events start or end.
+            <br /><br />
+            <ins>Disabled</ins><br />
+            No time windows are applied at all — Brightness and Sun Elevation triggers may fire at any
+            time of day. <strong>Warning:</strong> without time windows there is no guaranteed
+            <strong>Late</strong> opening/closing safety net; the cover only moves when a sensor
+            condition is actually met.
 
 
             </details>
@@ -178,6 +184,8 @@ blueprint:
                   value: "time_control_input"
                 - label: "📅 Use a Home Assistant calendar"
                   value: "time_control_calendar"
+                - label: "🚫 Disabled — no time windows (pure sensor control, no Late safety net)"
+                  value: "time_control_disabled"
               sort: false
               multiple: false
               custom_value: false
@@ -2905,9 +2913,11 @@ trigger_variables:
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   use_and_operator: "{{ brightness_sun_operator == 'and' }}"
   is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
-  # Disabled when explicitly unchecked in auto_options AND the legacy selector is also set to disabled.
-  # This preserves backward compatibility: existing users with time_control_input/calendar remain active.
-  is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options and 'time_control_disabled' in time_control }}"
+  # The Time Control Type selector is authoritative (#544). 'time_control_disabled' is only present
+  # when explicitly selected (or stored from a pre-consolidation config that had chosen it) - both
+  # mean "no time windows". The deprecated time_control_enabled checkbox is intentionally ignored:
+  # its absence cannot distinguish a legacy install (keep time control) from a deliberate uncheck.
+  is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
   # An open base state ('opn') only reflects a real "schedule wants open" intent when an
   # opening schedule actually exists. Without one, bas stays at its 'opn' init default forever
   # (it is only ever driven to 'cls' by the scheduled close handler), so the VENT floor could
@@ -2956,7 +2966,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.12"
+  version: "2026.07.12 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"

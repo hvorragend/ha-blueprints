@@ -200,16 +200,17 @@ Instead of hunting through multiple sections, a single checklist controls what C
 auto_options:
   - auto_up_enabled          # Morning opening
   - auto_down_enabled        # Evening closing
-  - time_control_enabled     # Time-based triggers
   - auto_brightness_enabled  # Brightness-based opening/closing
   - auto_sun_enabled         # Sun elevation-based opening/closing
   - auto_ventilate_enabled   # Ventilation mode
   - auto_shading_enabled     # Sun protection / shading
 ```
 
+**Time control:** The Early/Late time windows are active by default. To disable them (pure sensor control), select **🚫 Disabled** under **Time Control Type** (`time_control: time_control_disabled`). The `time_control_enabled` checkbox in `auto_options` is deprecated and has no function.
+
 **Backward compatibility:**
-- Old configurations without `time_control_enabled` keep working — the legacy `time_control: time_control_disabled` selector is still honored.
-- The new flag is additive. If `time_control_enabled` is present in `auto_options`, it takes precedence.
+- Old configurations that still store `time_control: time_control_disabled` keep working — they mean "time windows disabled", exactly as originally configured.
+- Configurations with or without `time_control_enabled` in `auto_options` behave identically; the checkbox is ignored.
 - The `brightness_sun_operator` parameter (AND/OR link between brightness and sun conditions) has moved to this section as well. Its value is preserved; only the UI location changed.
 
 **When to update:** Only when you reconfigure the automation in the UI. No forced migration.

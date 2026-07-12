@@ -826,6 +826,24 @@ When the lockout applies, execution falls through to "Normal opening", which dri
 
 ---
 
+### Bug Pattern AH: Time-control disable path unreachable through the UI (Issue #544)
+
+**Symptom:** Unchecking the *"⏲️ Time Control"* checkbox in `auto_options` has no effect for installations created after the options consolidation (~2026.05). Brightness-/sun-only setups stay gated by the default Early/Late time windows; there is no way to disable time control through the UI.
+
+**Cause:** `is_time_control_disabled` required **both** `'time_control_enabled' not in auto_options` **and** `'time_control_disabled' in time_control` — but the `time_control` selector no longer offered a `disabled` option, so the second clause could never become true for new installs. The state "`time_control_enabled` missing from `auto_options`" is ambiguous by itself: it means either "legacy pre-consolidation install (keep time control)" or "new user deliberately unchecked (wants it off)" — the checkbox alone cannot be made authoritative without silently disabling time control for every legacy install.
+
+**Fix:** The *"Time Control Type"* selector is authoritative. Re-add the `time_control_disabled` option to the selector and simplify:
+
+```yaml
+is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
+```
+
+`time_control_disabled` can only be present when explicitly selected (new installs) or stored from a pre-consolidation config that had chosen it — both unambiguously mean "no time windows". The `time_control_enabled` checkbox is **deprecated and ignored**: it stays in the `auto_options` selector (with a deprecation label) so stored configurations remain valid, but was removed from the `default:` list and is referenced nowhere in the logic. `is_time_field_enabled` / `is_calendar_enabled` need no change — the selector is single-select, so `disabled` automatically makes both false. The config validator (`docs/validator/validator.js`) mirrors the simplified logic.
+
+**Rule:** A boolean derived from two UI inputs must be reachable through each input's actual UI: never AND a checkbox with a selector value the selector no longer offers. When one input is deprecated, keep its option for stored-config validity but remove every logic reference — a half-honored deprecated input is worse than an ignored one.
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
