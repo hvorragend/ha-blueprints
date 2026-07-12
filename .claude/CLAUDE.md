@@ -832,15 +832,19 @@ When the lockout applies, execution falls through to "Normal opening", which dri
 
 **Cause:** `is_time_control_disabled` required **both** `'time_control_enabled' not in auto_options` **and** `'time_control_disabled' in time_control` — but the `time_control` selector no longer offered a `disabled` option, so the second clause could never become true for new installs. The state "`time_control_enabled` missing from `auto_options`" is ambiguous by itself: it means either "legacy pre-consolidation install (keep time control)" or "new user deliberately unchecked (wants it off)" — the checkbox alone cannot be made authoritative without silently disabling time control for every legacy install.
 
-**Fix:** The *"Time Control Type"* selector is authoritative. Re-add the `time_control_disabled` option to the selector and simplify:
+**Fix (maintainer decision — deliberate breaking change):** The `time_control_enabled` checkbox in `auto_options` is the single authoritative switch; the legacy `time_control` selector only picks the *source* (time fields vs calendar) and its old `time_control_disabled` value is no longer evaluated:
 
 ```yaml
-is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
+is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options }}"
+is_time_field_enabled: "{{ 'time_control_enabled' in auto_options and 'time_control_input' in time_control }}"
+is_calendar_enabled: "{{ 'time_control_enabled' in auto_options and 'time_control_calendar' in time_control and calendar_entity != [] }}"
 ```
 
-`time_control_disabled` can only be present when explicitly selected (new installs) or stored from a pre-consolidation config that had chosen it — both unambiguously mean "no time windows". The `time_control_enabled` checkbox is **deprecated and ignored**: it stays in the `auto_options` selector (with a deprecation label) so stored configurations remain valid, but was removed from the `default:` list and is referenced nowhere in the logic. `is_time_field_enabled` / `is_calendar_enabled` need no change — the selector is single-select, so `disabled` automatically makes both false. The config validator (`docs/validator/validator.js`) mirrors the simplified logic.
+Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essential: the time/calendar triggers carry `enabled: "{{ is_time_field_enabled }}"` / `is_calendar_enabled`, so without the gate the Late trigger would still fire while time control is "disabled". The checkbox stays in the `default:` list (new installs get the Late safety net by default). The `time_control_disabled` option is **not** offered in the dropdown — one switch, one mechanism. Pre-consolidation configs that had chosen `time_control_disabled` remain disabled (checkbox absent), matching their original intent. The config validator (`docs/validator/validator.js`) mirrors the logic and warns about the breaking change.
 
-**Rule:** A boolean derived from two UI inputs must be reachable through each input's actual UI: never AND a checkbox with a selector value the selector no longer offers. When one input is deprecated, keep its option for stored-config validity but remove every logic reference — a half-honored deprecated input is worse than an ignored one.
+**Accepted breakage:** Pre-consolidation installs with `time_control_input`/`time_control_calendar` (no `time_control_enabled` stored) silently lose time control after the update until the automation is re-saved with the checkbox enabled — for pure time-schedule users this stops opening/closing entirely. The ambiguity ("value missing = legacy install or deliberate uncheck") cannot be resolved from stored data; the maintainer chose the clean end state over keeping a permanently ambiguous hybrid clause, with prominent CHANGELOG/FAQ communication instead of silent compat.
+
+**Rule:** When one UI input must be authoritative and the stored data cannot distinguish legacy absence from deliberate absence, do not encode the ambiguity into a hybrid AND-clause forever — pick the authoritative input, document the one-time breakage loudly, and make every dependent flag (`is_time_field_enabled`, `is_calendar_enabled`, trigger `enabled:` gates) follow the same single switch.
 
 ---
 

@@ -72,10 +72,10 @@ blueprint:
 
             **Fine-Tuning (When to trigger):**
 
-            - **⏲️ Time Control** — The Early/Late time windows constrain *all* other triggers and are
-            active by default. Early = earliest the cover may move; Late = guaranteed move (safety net).
-            To turn the time windows off, select **🚫 Disabled** under **Time Control Type** below.
-            The ⏲️ checkbox in this list is deprecated and has no function anymore.
+            - **⏲️ Time Control** — Defines the Early/Late time windows that constrain *all* other triggers.
+            Keep this ON even when using Brightness or Sun Elevation — the time fields set the boundaries.
+            Early = earliest the cover may move; Late = guaranteed move (safety net).
+            **Uncheck to disable all time windows** (pure sensor control — no guaranteed Late safety net).
 
             - **🔅 Brightness** / **☀️ Sun Elevation** — Additional triggers that fire *within* the time window.
             Set the condition logic (AND/OR) when both are active.
@@ -123,6 +123,7 @@ blueprint:
             [
               auto_up_enabled,
               auto_down_enabled,
+              time_control_enabled,
             ]
           selector:
             select:
@@ -131,7 +132,7 @@ blueprint:
                   value: "auto_up_enabled"
                 - label: "🔻 Evening Closing — Automatically close the cover each evening"
                   value: "auto_down_enabled"
-                - label: "⏲️ Time Control — Deprecated, no function: disable time windows via 'Time Control Type' → 🚫 Disabled"
+                - label: "⏲️ Time Control — Use time windows (Early/Late) to constrain when triggers fire"
                   value: "time_control_enabled"
                 - label: "🔅 Brightness Control — Trigger opening/closing based on ambient brightness sensor"
                   value: "auto_brightness_enabled"
@@ -149,7 +150,7 @@ blueprint:
         time_control:
           name: "⏲️ Time Control Type"
           description: >-
-            Select how time-based opening and closing is scheduled — or disable the time windows entirely.
+            Select how time-based opening and closing is scheduled. *(Only relevant when **Time Control** is enabled above — uncheck **⏲️ Time Control** in the options list to disable the time windows entirely.)*
 
             <details>
             <summary><code><strong>📖 CLICK HERE:</strong> Further descriptions</code></summary>
@@ -167,11 +168,11 @@ blueprint:
             Create calendar events with titles "Open Cover" (for daytime) or "Close Cover" (for evening).
             The automation reacts immediately when events start or end.
             <br /><br />
-            <ins>Disabled</ins><br />
-            No time windows are applied at all — Brightness and Sun Elevation triggers may fire at any
-            time of day. <strong>Warning:</strong> without time windows there is no guaranteed
-            <strong>Late</strong> opening/closing safety net; the cover only moves when a sensor
-            condition is actually met.
+            <ins>Disabling time control</ins><br />
+            Uncheck <strong>⏲️ Time Control</strong> in the options list above to disable the time
+            windows entirely — Brightness and Sun Elevation triggers may then fire at any time of day.
+            <strong>Warning:</strong> without time windows there is no guaranteed <strong>Late</strong>
+            opening/closing safety net; the cover only moves when a sensor condition is actually met.
 
 
             </details>
@@ -184,8 +185,6 @@ blueprint:
                   value: "time_control_input"
                 - label: "📅 Use a Home Assistant calendar"
                   value: "time_control_calendar"
-                - label: "🚫 Disabled — no time windows (pure sensor control, no Late safety net)"
-                  value: "time_control_disabled"
               sort: false
               multiple: false
               custom_value: false
@@ -2842,7 +2841,7 @@ trigger_variables:
   calendar_close_title: !input calendar_close_title
   calendar_open_title_lc: "{{ (calendar_open_title | default('')) | lower | trim }}"
   calendar_close_title_lc: "{{ (calendar_close_title | default('')) | lower | trim }}"
-  is_calendar_enabled: "{{ 'time_control_calendar' in time_control and calendar_entity != [] }}"
+  is_calendar_enabled: "{{ 'time_control_enabled' in auto_options and 'time_control_calendar' in time_control and calendar_entity != [] }}"
 
   # Brightness configuration
   default_brightness_sensor: !input default_brightness_sensor
@@ -2912,12 +2911,15 @@ trigger_variables:
   is_brightness_enabled: "{{ 'auto_brightness_enabled' in auto_options }}"
   is_sun_elevation_enabled: "{{ 'auto_sun_enabled' in auto_options }}"
   use_and_operator: "{{ brightness_sun_operator == 'and' }}"
-  is_time_field_enabled: "{{ 'time_control_input' in time_control }}"
-  # The Time Control Type selector is authoritative (#544). 'time_control_disabled' is only present
-  # when explicitly selected (or stored from a pre-consolidation config that had chosen it) - both
-  # mean "no time windows". The deprecated time_control_enabled checkbox is intentionally ignored:
-  # its absence cannot distinguish a legacy install (keep time control) from a deliberate uncheck.
-  is_time_control_disabled: "{{ 'time_control_disabled' in time_control }}"
+  is_time_field_enabled: "{{ 'time_control_enabled' in auto_options and 'time_control_input' in time_control }}"
+  # The time_control_enabled checkbox in auto_options is the single authoritative switch (#544).
+  # Unchecking it disables all time windows; the Time Control Type selector only picks the source
+  # (time fields vs calendar) while time control is on. Deliberate breaking change: configs from
+  # before the options consolidation (~2026.05) do not store time_control_enabled and therefore
+  # lose time control until re-saved - documented prominently in CHANGELOG/FAQ. The legacy
+  # selector value 'time_control_disabled' is no longer evaluated (its stored configs are
+  # disabled via the missing checkbox anyway, matching their original intent).
+  is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options }}"
   # An open base state ('opn') only reflects a real "schedule wants open" intent when an
   # opening schedule actually exists. Without one, bas stays at its 'opn' init default forever
   # (it is only ever driven to 'cls' by the scheduled close handler), so the VENT floor could

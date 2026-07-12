@@ -407,16 +407,19 @@ class CCAValidator {
         // Apply the blueprint default (time_control_input) when the field is omitted,
         // so an unset selector is not mistaken for "disabled".
         const timeControl = c.time_control || 'time_control_input';
-        // The Time Control Type selector is authoritative (issue #544): matches blueprint is_time_control_disabled
-        const isTimeControlDisabled = timeControl === 'time_control_disabled';
+        // The time_control_enabled checkbox in auto_options is authoritative (issue #544):
+        // matches blueprint is_time_control_disabled
+        const isTimeControlDisabled = !autoOptions.includes('time_control_enabled');
 
         if (isTimeControlDisabled) {
-            this.addInfo('⏰ Time control is disabled - skipping time validation');
+            this.addInfo('⏰ Time control is disabled (time_control_enabled not in auto_options) - skipping time validation');
+            this.addWarning('⚠️ Breaking change (2026.07.12): time control is disabled whenever "time_control_enabled" is missing from auto_options. If this configuration predates the options consolidation (~2026.05) and you still want time windows, add time_control_enabled to auto_options.');
             return;
         }
 
-        if (autoOptions.includes('time_control_enabled')) {
-            this.addInfo('ℹ️ time_control_enabled in auto_options is deprecated and has no function. Time control is disabled only via time_control: time_control_disabled ("Time Control Type" → 🚫 Disabled).');
+        if (timeControl === 'time_control_disabled') {
+            this.addWarning('⚠️ time_control: time_control_disabled is obsolete and no longer evaluated. Time control is enabled (time_control_enabled in auto_options) but no time source is selected - set time_control to time_control_input or time_control_calendar.');
+            return;
         }
 
         if (timeControl === 'time_control_calendar') {
@@ -999,7 +1002,8 @@ time_down_late: "22:00:00"
 
 auto_options:
   - auto_up_enabled
-  - auto_down_enabled`,
+  - auto_down_enabled
+  - time_control_enabled`,
 
             advanced: `# Advanced with Shading
 blind: cover.example_blind
@@ -1018,6 +1022,7 @@ time_down_late: "22:00:00"
 auto_options:
   - auto_up_enabled
   - auto_down_enabled
+  - time_control_enabled
   - auto_shading_enabled
   - auto_sun_enabled
 
@@ -1060,7 +1065,8 @@ time_down_late: "21:00:00"
 
 auto_options:
   - auto_up_enabled
-  - auto_down_enabled`
+  - auto_down_enabled
+  - time_control_enabled`
         };
 
         yamlInput.value = examples[type] || '';

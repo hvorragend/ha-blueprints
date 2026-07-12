@@ -200,20 +200,19 @@ Instead of hunting through multiple sections, a single checklist controls what C
 auto_options:
   - auto_up_enabled          # Morning opening
   - auto_down_enabled        # Evening closing
+  - time_control_enabled     # Early/Late time windows
   - auto_brightness_enabled  # Brightness-based opening/closing
   - auto_sun_enabled         # Sun elevation-based opening/closing
   - auto_ventilate_enabled   # Ventilation mode
   - auto_shading_enabled     # Sun protection / shading
 ```
 
-**Time control:** The Early/Late time windows are active by default. To disable them (pure sensor control), select **🚫 Disabled** under **Time Control Type** (`time_control: time_control_disabled`). The `time_control_enabled` checkbox in `auto_options` is deprecated, has no function, and will be removed in a future release — no backward compatibility is provided for it.
+**Time control:** The **⏲️ Time Control** checkbox (`time_control_enabled`) is the single authoritative switch for the Early/Late time windows. Unchecking it disables all time windows (pure sensor control — no guaranteed *Late* safety net). The **Time Control Type** dropdown only selects *how* the windows are defined (time fields or calendar) and is ignored while time control is off. The legacy selector value `time_control: time_control_disabled` is obsolete and no longer evaluated.
+
+**⚠️ Breaking change (2026.07.12):** Configurations created **before** the options consolidation (~2026.05) do not contain `time_control_enabled` in `auto_options` — after updating the blueprint, their time control is **disabled** until you open the automation, check **⏲️ Time Control**, and save. Configurations created after ~2026.05 are unaffected (the checkbox is part of the defaults). Old configurations that had chosen `time_control: time_control_disabled` stay disabled, exactly as originally configured.
 
 **Backward compatibility:**
-- Old configurations that still store `time_control: time_control_disabled` keep working — they mean "time windows disabled", exactly as originally configured.
-- Configurations with or without `time_control_enabled` in `auto_options` behave identically; the checkbox is ignored entirely.
 - The `brightness_sun_operator` parameter (AND/OR link between brightness and sun conditions) has moved to this section as well. Its value is preserved; only the UI location changed.
-
-**When to update:** Only when you reconfigure the automation in the UI. No forced migration.
 
 ---
 
