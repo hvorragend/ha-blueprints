@@ -1,5 +1,14 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+<!-- Proposed entry for the next release. Version heading intentionally left as TBD:
+     the maintainer decides the version number / whether to fold this into an existing
+     release or a V2. No version bump was applied to the blueprint itself. -->
+# CCA TBD
+
+- ✨ **Feature:** New optional **Alternate Sun Shading Position** (in the *Cover Position* settings, next to the normal shading position). You can now define a second shading position together with a switch entity (a `binary_sensor` or `input_boolean`): while that entity is **on**, the cover shades to the alternate position; while it is **off** (or the fields are left empty), it shades to the normal position exactly as before. If the switch changes while the cover is **already shading**, the cover moves to the matching position right away. This only affects the shading *position* — the shading tilt angle is unchanged — and it does **not** count as an additional sun shading, so *"Only shade once per day"* keeps working normally. Leave both fields empty to keep the previous behavior ([#580](https://github.com/hvorragend/ha-blueprints/issues/580))
+
+---
+
 # CCA 2026.07.05 V2
 
 - 🐛 **Fix:** When the mandatory **Cover Status Helper** was not configured, every run of the automation died immediately with the cryptic log error `Error rendering variables: TypeError: cannot use 'list' as a dict key (unhashable type: 'list')` — the friendly configuration error CCA is supposed to log ("Cover Status Helper is required but not configured") was never reached, so nothing worked and there was no hint why. The internal helper parsing read the helper entity's state without first checking whether a helper is configured at all. All helper reads are now guarded: without a configured helper the automation starts normally, reaches the built-in configuration check, writes a clear error to the system log and the logbook, and stops. The shading execution/tilt triggers and the manual-override reset triggers are also disabled while no helper is configured, so they cannot produce template errors either. **Reminder:** the Cover Status Helper (an `input_text` helper with a maximum length of 254) is mandatory — one per CCA automation
