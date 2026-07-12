@@ -1,15 +1,19 @@
 {% raw %}
 # ⚙️ Features & Modes
 
-> Part of the [CCA Handbook](index). These options live in the **Automation Options** section of the blueprint.
+[📖 CCA Handbook](index) › Blueprint section: **Automation Options**
 
 Configure what CCA controls and how it behaves. Most settings use safe defaults. Expand the descriptions below only if you need details.
+
+**On this page:** [👉 What should CCA control?](#auto_options) · [⏲️ Time Control Type](#time_control) · [🔀 Condition Logic: Brightness & Sun Elevation](#brightness_sun_operator) · [⚙️ Behavior Customization](#individual_config)
+
+---
 
 <a id="auto_options"></a>
 
 ## 👉 What should CCA control?
 
-*Blueprint input: `auto_options`* *(default: `['auto_up_enabled', 'auto_down_enabled', 'time_control_enabled']`)*
+> 🧩 Input: `auto_options` · Default: `['auto_up_enabled', 'auto_down_enabled', 'time_control_enabled']`
 
 Select which opening, closing, and special behaviors CCA should manage.
 *Not sure? The defaults (Morning Opening, Evening Closing, Time Control) work for most setups.*
@@ -62,11 +66,13 @@ Configure thresholds and sensors in the dedicated sections below.
 Even if multiple opening, closing, shading, etc. is activated, this only works if a trigger is available.
 However, the numeric state triggers only trigger under certain circumstances. See: [FAQ: Why are my numeric triggers not firing?](https://hvorragend.github.io/ha-blueprints/FAQ#q-why-are-my-numeric-triggers-not-firing)
 
+---
+
 <a id="time_control"></a>
 
 ## ⏲️ Time Control Type
 
-*Blueprint input: `time_control`* *(default: `time_control_input`)*
+> 🧩 Input: `time_control` · Default: `time_control_input`
 
 Select how time-based opening and closing is scheduled. *(Only relevant when **⏲️ Time Control** is checked in the **👉 What should CCA control?** list above — uncheck it there to disable the time windows entirely.)*
 
@@ -93,11 +99,13 @@ fire at any time of day.
 <strong>Warning:</strong> without time windows there is no guaranteed <strong>Late</strong>
 opening/closing safety net; the cover only moves when a sensor condition is actually met.
 
+---
+
 <a id="brightness_sun_operator"></a>
 
 ## 🔀 Condition Logic: Brightness & Sun Elevation
 
-*Blueprint input: `brightness_sun_operator`* *(default: `or`)*
+> 🧩 Input: `brightness_sun_operator` · Default: `or`
 
 How should Brightness and Sun Elevation conditions be combined when **both** are active?
 
@@ -115,11 +123,13 @@ More conservative — reduces false triggers on overcast mornings.
 
 *Has no effect when only one of the two conditions is enabled.*
 
+---
+
 <a id="individual_config"></a>
 
 ## ⚙️ Behavior Customization
 
-*Blueprint input: `individual_config`*
+> 🧩 Input: `individual_config`
 
 **Fine-tune automation behavior for your specific hardware and preferences.**
 
@@ -140,5 +150,9 @@ Some devices (e.g., Shelly, Homematic) have issues when 'set_cover_position' and
 - Shelly: Use script [cover_position_tilt.yaml](https://gist.github.com/lukasvice/b364724d84c3ac4e160f7a7d8fa37066)
 - Homematic: Use custom service [homematicip_local.set_cover_combined_position](https://github.com/SukramJ/custom_homematic?tab=readme-ov-file#homematicip_localset_cover_combined_position)
 - Other devices: Implement via "Additional Actions" in the Service Calls section
+
+---
+
+[⬅️ Handbook index](index) · Previous: [🧱 Basics: Cover & Status Helper](basics) · Next: [📐 Positions](positions)
 
 {% endraw %}

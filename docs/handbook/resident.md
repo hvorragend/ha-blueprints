@@ -1,7 +1,7 @@
 {% raw %}
 # 🛏️ Resident Mode
 
-> Part of the [CCA Handbook](index). These options live in the **Resident Settings** section of the blueprint.
+[📖 CCA Handbook](index) › Blueprint section: **Resident Settings**
 
 <br />
   (1) The purpose of resident mode is to the close the cover (without checking the defined times) when the resident sensor switches to ‘on/true’. For example, when a resident goes to sleep.
@@ -14,23 +14,33 @@
   <br /><br />
   All these settings are optional.
 
+**On this page:** [🛌 Resident Sensor](#resident_sensor) · [🛌 Resident Configuration](#resident_config)
+
+---
+
 <a id="resident_sensor"></a>
 
 ## 🛌 Resident Sensor
 
-*Blueprint input: `resident_sensor`*
+> 🧩 Input: `resident_sensor`
 
 You can use this to define a resident for the room
+
+---
 
 <a id="resident_config"></a>
 
 ## 🛌 Resident Configuration
 
-*Blueprint input: `resident_config`*
+> 🧩 Input: `resident_config`
 
 Configure how the automation responds to resident sensor changes.
 
 - **Opening enabled**: Cover opens when resident wakes up, but only if time, brightness, and sun elevation conditions are met
 - **Closing enabled**: Cover closes when resident goes to sleep (immediate, ignores other conditions)
+
+---
+
+[⬅️ Handbook index](index) · Previous: [🪟 Tilt Positions (Venetian Blinds)](tilt) · Next: [✋ Manual Override & Reset](override)
 
 {% endraw %}

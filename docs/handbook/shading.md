@@ -1,7 +1,7 @@
 {% raw %}
 # 🌤️ Sun Shading
 
-> Part of the [CCA Handbook](index). These options live in the **Sun Shading / Sun Protection** section of the blueprint.
+[📖 CCA Handbook](index) › Blueprint section: **Sun Shading / Sun Protection**
 
 Settings if the feature '🥵 - Sun Protection / Shading — Partially close when sun shines on window' has been activated above.
   <br />
@@ -24,11 +24,47 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Debugging tip:** Enable the Logbook option and check the automation trace after the waiting time expires. Look for the <em>t_shading_start_execution</em> trigger — if it doesn't appear, the template trigger may not be evaluating correctly. If it appears but the trace shows "conditions not met", check which specific condition fails using Developer Tools → Template.
 
+**On this page:**
+
+- [🌞 Shading START - Required Conditions (AND)](#shading_conditions_start_and)
+- [🌞 Shading START - Optional Conditions (OR)](#shading_conditions_start_or)
+- [🌥️ Shading END - Required Conditions (AND)](#shading_conditions_end_and)
+- [🌥️ Shading END - Optional Conditions (OR)](#shading_conditions_end_or)
+- [📐 Sun Shading - Azimuth Start Value](#shading_azimuth_start)
+- [📐 Sun Shading - Azimuth End Value](#shading_azimuth_end)
+- [📈 Sun Shading - Elevation Minimum Value](#shading_elevation_min)
+- [📈 Sun Shading - Elevation Maximum Value](#shading_elevation_max)
+- [🔆 Sun Shading - Brightness Sensor](#shading_brightness_sensor)
+- [🔆 Sun Shading - Brightness Start Value](#shading_sun_brightness_start)
+- [🔆 Sun Shading - Brightness End Value](#shading_sun_brightness_end)
+- [🔆 Sun Shading - Brightness Hysteresis](#shading_sun_brightness_hysteresis)
+- [1️⃣ Sun Shading - Temperature Sensor 1 (eg. indoor)](#shading_temperatur_sensor1)
+- [1️⃣ Sun Shading - Temperature Sensor 1 Minimum Value](#shading_min_temperatur1)
+- [1️⃣ Sun Shading - Temperature Sensor 1 Hysteresis Value](#shading_temperature_hysteresis1)
+- [2️⃣ Sun Shading - Temperature Sensor 2 (eg. outdoor)](#shading_temperatur_sensor2)
+- [2️⃣ Sun Shading - Temperature Sensor 2 Minimum Value](#shading_min_temperatur2)
+- [2️⃣ Sun Shading - Temperature Sensor 2 Hysteresis Value](#shading_temperature_hysteresis2)
+- [📊 Sun Shading - Forecast Weather Entity](#shading_forecast_sensor)
+- [📊 Sun Shading - Forecast Source](#shading_forecast_type)
+- [📊 Sun Shading - Direct Temperature Sensor (Alternative)](#shading_forecast_temp_sensor)
+- [📊 Sun Shading - Forecast Temperature Value](#shading_forecast_temp)
+- [📊 Sun Shading - Forecast Temperature Hysteresis](#shading_forecast_temp_hysteresis)
+- [🌦️ Sun Shading - Weather Conditions](#shading_weather_conditions)
+- [🥵 Sun Shading - Configuration](#shading_config)
+- [🥵 Sun Shading - Independent Temperature Threshold](#shading_independent_temp)
+- [🥵 Sun Shading - Start Waiting Time](#shading_waitingtime_start)
+- [🥵 Sun Shading - Maximum duration for shading start retry loop](#shading_start_max_duration)
+- [🥵 Sun Shading - End Waiting Time](#shading_waitingtime_end)
+- [🥵 Sun Shading - Maximum duration for shading end retry loop](#shading_end_max_duration)
+- [🥵 End Sun Shading - Immediately When Out Of Range](#shading_end_immediate_by_sun_position)
+
+---
+
 <a id="shading_conditions_start_and"></a>
 
 ## 🌞 Shading START - Required Conditions (AND)
 
-*Blueprint input: `shading_conditions_start_and`* *(default: `['cond_azimuth', 'cond_elevation', 'cond_brightness', 'cond_temp1', 'cond_temp2', 'cond_forecast_temp', 'cond_forecast_weather']`)*
+> 🧩 Input: `shading_conditions_start_and` · Default: `['cond_azimuth', 'cond_elevation', 'cond_brightness', 'cond_temp1', 'cond_temp2', 'cond_forecast_temp', 'cond_forecast_weather']`
 
 **Conditions that MUST ALL be met to START shading**
 
@@ -58,11 +94,13 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Important:** Conditions without a configured sensor are automatically satisfied (skipped). You can safely leave all conditions selected — only those with a matching sensor configured below will actually be evaluated. However, if a sensor IS configured but returns "unavailable" or "unknown", the condition will FAIL — sun shading then does not start, but the rest of the automation (opening, closing, ventilation) keeps working normally. Once the sensor reports again, the sun shading conditions are re-evaluated, so a shading that was missed while the sensor was down is not lost.
 
+---
+
 <a id="shading_conditions_start_or"></a>
 
 ## 🌞 Shading START - Optional Conditions (OR)
 
-*Blueprint input: `shading_conditions_start_or`*
+> 🧩 Input: `shading_conditions_start_or`
 
 **Conditions where AT LEAST ONE must be met to START shading**
 
@@ -82,11 +120,13 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 **Combined logic:**
 - Final = (ALL AND conditions) AND (ONE OR condition)
 
+---
+
 <a id="shading_conditions_end_and"></a>
 
 ## 🌥️ Shading END - Required Conditions (AND)
 
-*Blueprint input: `shading_conditions_end_and`*
+> 🧩 Input: `shading_conditions_end_and`
 
 **Conditions that MUST ALL become invalid to END shading**
 
@@ -109,11 +149,13 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Tip:** Usually END should be MORE permissive than START
 
+---
+
 <a id="shading_conditions_end_or"></a>
 
 ## 🌥️ Shading END - Optional Conditions (OR)
 
-*Blueprint input: `shading_conditions_end_or`* *(default: `['cond_azimuth', 'cond_elevation', 'cond_brightness', 'cond_temp1', 'cond_temp2', 'cond_forecast_temp', 'cond_forecast_weather']`)*
+> 🧩 Input: `shading_conditions_end_or` · Default: `['cond_azimuth', 'cond_elevation', 'cond_brightness', 'cond_temp1', 'cond_temp2', 'cond_forecast_temp', 'cond_forecast_weather']`
 
 **Conditions where AT LEAST ONE must become invalid to END shading**
 
@@ -142,123 +184,153 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 - Final = (ALL AND invalid) OR (ONE OR invalid)
 - The AND group and the OR group are themselves combined with **OR** (unlike START, where they are combined with AND). To require several end conditions together, put them ALL in the AND group and leave the OR group empty.
 
+---
+
 <a id="shading_azimuth_start"></a>
 
 ## 📐 Sun Shading - Azimuth Start Value
 
-*Blueprint input: `shading_azimuth_start`* *(default: `95`)*
+> 🧩 Input: `shading_azimuth_start` · Default: `95`
 
 What is the minimum azimuth at which the sun hits the window? (Shading will start)
+
+---
 
 <a id="shading_azimuth_end"></a>
 
 ## 📐 Sun Shading - Azimuth End Value
 
-*Blueprint input: `shading_azimuth_end`* *(default: `265`)*
+> 🧩 Input: `shading_azimuth_end` · Default: `265`
 
 What is the maximum azimuth at which the sun hits the window? (Shading will stop)
+
+---
 
 <a id="shading_elevation_min"></a>
 
 ## 📈 Sun Shading - Elevation Minimum Value
 
-*Blueprint input: `shading_elevation_min`* *(default: `25`)*
+> 🧩 Input: `shading_elevation_min` · Default: `25`
 
 Starting from which elevation of the sun should the window be shaded? (Here it makes sense to consider surrounding buildings, trees, etc.).
+
+---
 
 <a id="shading_elevation_max"></a>
 
 ## 📈 Sun Shading - Elevation Maximum Value
 
-*Blueprint input: `shading_elevation_max`* *(default: `90`)*
+> 🧩 Input: `shading_elevation_max` · Default: `90`
 
 What is the maximal elevation for elevation? (In most cases, 90 degrees is probably the most reasonable value. However, this can also be different due to surrounding buildings, etc.).
+
+---
 
 <a id="shading_brightness_sensor"></a>
 
 ## 🔆 Sun Shading - Brightness Sensor
 
-*Blueprint input: `shading_brightness_sensor`*
+> 🧩 Input: `shading_brightness_sensor`
 
 This sensor is only used for shading.
+
+---
 
 <a id="shading_sun_brightness_start"></a>
 
 ## 🔆 Sun Shading - Brightness Start Value
 
-*Blueprint input: `shading_sun_brightness_start`* *(default: `35000`)*
+> 🧩 Input: `shading_sun_brightness_start` · Default: `35000`
 
 The minimum brightness value from which shading should start. (Must be above the value of brightness end!)
+
+---
 
 <a id="shading_sun_brightness_end"></a>
 
 ## 🔆 Sun Shading - Brightness End Value
 
-*Blueprint input: `shading_sun_brightness_end`* *(default: `25000`)*
+> 🧩 Input: `shading_sun_brightness_end` · Default: `25000`
 
 The brightness value from which shading is no longer necessary. (Must be below the value of brightness start!).
+
+---
 
 <a id="shading_sun_brightness_hysteresis"></a>
 
 ## 🔆 Sun Shading - Brightness Hysteresis
 
-*Blueprint input: `shading_sun_brightness_hysteresis`* *(default: `0`)*
+> 🧩 Input: `shading_sun_brightness_hysteresis` · Default: `0`
 
 Hysteresis value to prevent flickering. The brightness must exceed (start + hysteresis) to activate shading and fall below (end - hysteresis) to deactivate it. See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
+
+---
 
 <a id="shading_temperatur_sensor1"></a>
 
 ## 1️⃣ Sun Shading - Temperature Sensor 1 (eg. indoor)
 
-*Blueprint input: `shading_temperatur_sensor1`*
+> 🧩 Input: `shading_temperatur_sensor1`
 
 This is the first temperature sensor used for sun shading logic.<br /> For example, you can use the current **indoor temperature** as a condition to trigger shading.
+
+---
 
 <a id="shading_min_temperatur1"></a>
 
 ## 1️⃣ Sun Shading - Temperature Sensor 1 Minimum Value
 
-*Blueprint input: `shading_min_temperatur1`* *(default: `18`)*
+> 🧩 Input: `shading_min_temperatur1` · Default: `18`
 
 Minimum temperature for sensor 1 above which shading should occur.
+
+---
 
 <a id="shading_temperature_hysteresis1"></a>
 
 ## 1️⃣ Sun Shading - Temperature Sensor 1 Hysteresis Value
 
-*Blueprint input: `shading_temperature_hysteresis1`* *(default: `0.2`)*
+> 🧩 Input: `shading_temperature_hysteresis1` · Default: `0.2`
 
 Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles. See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
+
+---
 
 <a id="shading_temperatur_sensor2"></a>
 
 ## 2️⃣ Sun Shading - Temperature Sensor 2 (eg. outdoor)
 
-*Blueprint input: `shading_temperatur_sensor2`*
+> 🧩 Input: `shading_temperatur_sensor2`
 
 This is an optional secondary temperature sensor, typically used for **outdoor temperature**. <br /> It can serve as an additional condition for sun shading logic. <br /><br /> This sensor also plays a role in the calculation of the <ins>Sun Shading - Forecast Temperature Value</ins>. Please refer to that section for more details.
+
+---
 
 <a id="shading_min_temperatur2"></a>
 
 ## 2️⃣ Sun Shading - Temperature Sensor 2 Minimum Value
 
-*Blueprint input: `shading_min_temperatur2`* *(default: `18`)*
+> 🧩 Input: `shading_min_temperatur2` · Default: `18`
 
 Minimum temperature for sensor 2 above which shading should occur.
+
+---
 
 <a id="shading_temperature_hysteresis2"></a>
 
 ## 2️⃣ Sun Shading - Temperature Sensor 2 Hysteresis Value
 
-*Blueprint input: `shading_temperature_hysteresis2`* *(default: `0.2`)*
+> 🧩 Input: `shading_temperature_hysteresis2` · Default: `0.2`
 
 Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles. See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
+
+---
 
 <a id="shading_forecast_sensor"></a>
 
 ## 📊 Sun Shading - Forecast Weather Entity
 
-*Blueprint input: `shading_forecast_sensor`*
+> 🧩 Input: `shading_forecast_sensor`
 
 Weather entity for forecast data (temperature & conditions). This is the primary and recommended method for forecast-based shading.
 
@@ -283,19 +355,23 @@ Select a weather entity (e.g., weather.home, weather.openweathermap).
   So you can define via the forecast that shading is only started at an
   expected daily maximum temperature.
 
+---
+
 <a id="shading_forecast_type"></a>
 
 ## 📊 Sun Shading - Forecast Source
 
-*Blueprint input: `shading_forecast_type`* *(default: `daily`)*
+> 🧩 Input: `shading_forecast_type` · Default: `daily`
 
 Please select whether you want to use the **daily** or **hourly** weather forecast. This only works if a weather entity has been configured above. <br /> The first entry in the forecast array will always be used — this corresponds to the current day or current hour. <br /><br /> Note: Your weather entity must support `weather.get_forecasts`, which was introduced in Home Assistant 2023.9. <br /><br /> Alternatively, you can choose **not to use** the forecast service at all. In that case, the current weather attributes from the weather entity will be used instead. <br /><br /> **Recommendation:** Using the **daily forecast** is generally preferred for sun shading purposes. <br /><br /> **Ignored when using temperature sensor below.**
+
+---
 
 <a id="shading_forecast_temp_sensor"></a>
 
 ## 📊 Sun Shading - Direct Temperature Sensor (Alternative)
 
-*Blueprint input: `shading_forecast_temp_sensor`*
+> 🧩 Input: `shading_forecast_temp_sensor`
 
 **Alternative method:** Use a sensor that directly provides forecasted max temperature.
 
@@ -321,11 +397,13 @@ Use this if:
 
   **Limitation:** Weather condition checks are not available with sensors.
 
+---
+
 <a id="shading_forecast_temp"></a>
 
 ## 📊 Sun Shading - Forecast Temperature Value
 
-*Blueprint input: `shading_forecast_temp`*
+> 🧩 Input: `shading_forecast_temp`
 
 This setting defines the <strong>minimum temperature threshold</strong> based on the forecast at which shading should be activated. If the forecasted temperature exceeds this value, the shading system will respond accordingly.
 - Minimum temperature threshold for shading activation.
@@ -342,11 +420,13 @@ To enhance reliability, the system can compare this threshold against two source
 
   <strong>Troubleshooting:</strong> If this condition is in your AND list, the forecast source (weather entity or temperature sensor above) MUST provide a valid numeric temperature value. Check Developer Tools → States that your weather entity or sensor shows a numeric temperature, not "unavailable" or "unknown". If the forecast returns no data, this condition will fail and block shading execution.
 
+---
+
 <a id="shading_forecast_temp_hysteresis"></a>
 
 ## 📊 Sun Shading - Forecast Temperature Hysteresis
 
-*Blueprint input: `shading_forecast_temp_hysteresis`* *(default: `0`)*
+> 🧩 Input: `shading_forecast_temp_hysteresis` · Default: `0`
 
 Prevents frequent on/off cycles near threshold.
 - Shading starts: forecast > (threshold + hysteresis)
@@ -354,19 +434,23 @@ Prevents frequent on/off cycles near threshold.
 
 See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
 
+---
+
 <a id="shading_weather_conditions"></a>
 
 ## 🌦️ Sun Shading - Weather Conditions
 
-*Blueprint input: `shading_weather_conditions`*
+> 🧩 Input: `shading_weather_conditions`
 
 Check the following weather conditions when activating the shading. Be cautious when making your selection, as weather forecasts may not always be accurate and could lead to incorrect shading decisions. And as mentioned above, weather conditions can only be checked if a weather entity has been configured under ‘Forecast Weather Sensor’. <br /><br /> **Only works with weather entity, not with temperature sensor.** <br /> Be cautious: weather forecasts may not always be accurate.
+
+---
 
 <a id="shading_config"></a>
 
 ## 🥵 Sun Shading - Configuration
 
-*Blueprint input: `shading_config`*
+> 🧩 Input: `shading_config`
 
 These options allow you to fine-tune how the system handles temperature-based shading. <p><em>Click on the titles to get further help.</em></p> 
 
@@ -397,27 +481,33 @@ This activates an extended comparison for the independent shading path. The shad
   This mechanism improves the responsiveness and reliability of the shading system by using real-time sensor input as an optional condition, especially when forecast data is uncertain.
   Note: This function has nothing to do with normal temperature comparison, but is used exclusively in the context of the forecast function.
 
+---
+
 <a id="shading_independent_temp"></a>
 
 ## 🥵 Sun Shading - Independent Temperature Threshold
 
-*Blueprint input: `shading_independent_temp`* *(default: `25`)*
+> 🧩 Input: `shading_independent_temp` · Default: `25`
 
 Temperature threshold used exclusively by the <em>"Independent Shading via Temperature Comparison"</em> mode. Shading is activated independently of all other conditions (brightness, sun azimuth <em>and</em> elevation, etc.) when either the forecasted temperature or (if enabled) <em>"Temperature Sensor 2"</em> exceeds this value. <br /><br /> Set this lower than <em>"Forecast Temperature Value"</em> to allow the independent path to trigger on warmer-than-average days without tightening the normal forecast gate.
+
+---
 
 <a id="shading_waitingtime_start"></a>
 
 ## 🥵 Sun Shading - Start Waiting Time
 
-*Blueprint input: `shading_waitingtime_start`* *(default: `300`)*
+> 🧩 Input: `shading_waitingtime_start` · Default: `300`
 
 Waiting time between the initial shading trigger and the actual cover movement. After this time expires, <ins>all</ins> configured start conditions (AND + OR) are re-checked. The cover only moves if conditions are <strong>still valid</strong> at execution time. This waiting time is also used for the periodic condition checks within the retry loop. <br /><br /> <strong>If shading stays at "pending" and never executes:</strong> The conditions were no longer met after the waiting time expired. Check the automation trace for <em>t_shading_start_execution</em>.
+
+---
 
 <a id="shading_start_max_duration"></a>
 
 ## 🥵 Sun Shading - Maximum duration for shading start retry loop
 
-*Blueprint input: `shading_start_max_duration`* *(default: `7200`)*
+> 🧩 Input: `shading_start_max_duration` · Default: `7200`
 
 Maximum time to keep retrying shading start conditions after initial trigger.
 The Start Waiting Time is used for the periodic condition checks during this retry loop.
@@ -430,19 +520,23 @@ when weather is highly unstable (rapidly changing clouds).
 **0 = disabled** (no periodic retry, stops immediately - old "trigger_reset" behavior)
 **Recommended: 3600-7200 seconds (1-2 hours)**
 
+---
+
 <a id="shading_waitingtime_end"></a>
 
 ## 🥵 Sun Shading - End Waiting Time
 
-*Blueprint input: `shading_waitingtime_end`* *(default: `300`)*
+> 🧩 Input: `shading_waitingtime_end` · Default: `300`
 
 To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended. Shading ends if one of the conditions is not fulfilled for the entire waiting time. This waiting time is also used for the periodic condition checks within the retry loop.
+
+---
 
 <a id="shading_end_max_duration"></a>
 
 ## 🥵 Sun Shading - Maximum duration for shading end retry loop
 
-*Blueprint input: `shading_end_max_duration`* *(default: `7200`)*
+> 🧩 Input: `shading_end_max_duration` · Default: `7200`
 
 Maximum time to keep retrying shading end conditions after initial trigger.
 The End Waiting Time is used for the periodic condition checks during this retry loop.
@@ -455,16 +549,22 @@ when weather is highly unstable (rapidly changing clouds).
 **0 = disabled** (no periodic retry, behaves like old version)
 **Recommended: 3600-7200 seconds (1-2 hours)**
 
+---
+
 <a id="shading_end_immediate_by_sun_position"></a>
 
 ## 🥵 End Sun Shading - Immediately When Out Of Range
 
-*Blueprint input: `shading_end_immediate_by_sun_position`* *(default: `False`)*
+> 🧩 Input: `shading_end_immediate_by_sun_position` · Default: `False`
 
 Speeds up the END of shading: once the sun leaves the azimuth or elevation range, shading ends after only a few seconds instead of waiting for the configured end waiting time.
 
 **Important:** This option only controls the *timing* of the end — not *which* conditions actually end the shading. For it to have any effect, "Sun Azimuth" and/or "Sun Elevation" must be part of your END conditions. Put them in the **OR** group if a single axis leaving its range should already end the shading. If they are in the **AND** group, shading ends only once *all* selected AND conditions are out of range at the same time (e.g. azimuth AND elevation together) — a single axis leaving its range is then not enough.
 
 If disabled, the configured end waiting time is always used.
+
+---
+
+[⬅️ Handbook index](index) · Previous: [🚪 Window Contacts & Ventilation](contacts) · Next: [🪟 Tilt Positions (Venetian Blinds)](tilt)
 
 {% endraw %}
