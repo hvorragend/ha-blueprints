@@ -3,13 +3,11 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Time Control Configuration** section of the blueprint.
 
-<center><p><small>
-  Configure the time windows for morning opening and evening closing.<br />
+Configure the time windows for morning opening and evening closing.<br />
   Time control can be enabled and the type selected in the <strong>Automation Options</strong> section above.
   <br />
   For comprehensive explanations, examples, and timing diagrams, see:
   <a href="https://hvorragend.github.io/ha-blueprints/TIME_CONTROL_VISUALIZATION">Time Control Guide</a>
-</small></p></center>
 
 <a id="time_up_early"></a>
 
@@ -98,7 +96,8 @@ When <ins>closing</ins> the blinds, you have the option of checking the times fo
 *Blueprint input: `calendar_entity`*
 
 Select a Home Assistant calendar for time control.
-<details> <summary><code><strong>CLICK HERE:</strong> How to use calendar control</code></summary>
+
+### How to use calendar control
 
 **Event Titles (exact match, case-insensitive):**
   - **"Open Cover"** - Marks the daytime window (cover should be open)
@@ -124,8 +123,6 @@ Select a Home Assistant calendar for time control.
   - Can define different times for each day
   - Can create exceptions (holidays, vacations)
   - Changes take effect immediately without automation reload
-
-</details>
 
 <a id="calendar_open_title"></a>
 

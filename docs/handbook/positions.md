@@ -3,15 +3,13 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Cover Position Settings** section of the blueprint.
 
-<center><p><small>
-  <strong>Important notes on configuring the position values</strong>
+<strong>Important notes on configuring the position values</strong>
   <br />
   Please ensure that all position values are unique and do not conflict with each other.
   <br />
   <strong>Position Logic:</strong><br />
   - For Blinds/Shutters: open_position (100%) > shading_position (25%) > close_position (0%)<br />
-  - For Awnings: open_position (0%) < shading_position (75%) < close_position (100%)<br />
-</small></p></center>
+  - For Awnings: open_position (0%) < shading_position (75%) < close_position (100%)
 
 <a id="position_source"></a>
 
@@ -19,13 +17,13 @@
 
 *Blueprint input: `position_source`* *(default: `current_position_attr`)*
 
-How does your cover provide position information? <details> <summary><code><strong>CLICK HERE: When to use each option</strong></code></summary>
+How does your cover provide position information? 
 
-  - **current_position attribute** (Standard): Most covers use this. If CCA detects positions correctly, keep this setting.
+### When to use each option
+
+- **current_position attribute** (Standard): Most covers use this. If CCA detects positions correctly, keep this setting.
   - **position attribute**: Select this if your cover entity has a 'position' attribute but no 'current_position' attribute. Check in Developer Tools → States if unsure.
   - **Custom sensor**:   Use this if: Your cover doesn't report positions at all / You have an external sensor tracking the cover position / Manual position changes aren't detected with the other options
-
-</details>
 
 <a id="custom_position_sensor"></a>
 
@@ -41,9 +39,11 @@ Select sensor that provides position (0-100%). Only used if 'Custom sensor' sele
 
 *Blueprint input: `cover_type`* *(default: `blind`)*
 
-Select the type of cover you want to control. <br /><br /> <strong>Blind/Roller Shutter:</strong> Position 0% = closed (down), 100% = open (up). Shading uses lower positions. <br /><br /> <strong>Awning/Sunshade:</strong> Position 0% = retracted (closed), 100% = extended (open). Shading uses higher positions. <br /><br /> ⚠️ <strong>Note:</strong> Ventilation and tilt features are not available for awnings. <br /><br /> <details> <summary><code><strong>CLICK HERE:</strong> Position value examples</code></summary>
+Select the type of cover you want to control. <br /><br /> <strong>Blind/Roller Shutter:</strong> Position 0% = closed (down), 100% = open (up). Shading uses lower positions. <br /><br /> <strong>Awning/Sunshade:</strong> Position 0% = retracted (closed), 100% = extended (open). Shading uses higher positions. <br /><br /> ⚠️ <strong>Note:</strong> Ventilation and tilt features are not available for awnings.
+
+### Position value examples
+
 <strong>For Blinds/Shutters:</strong><br /> - Open Position: 100% (fully up)<br /> - Shading Position: 25% (partially down for sun protection)<br /> - Ventilate Position: 30% (slightly down for air flow)<br /> - Close Position: 0% (fully down)<br /> <br /> <strong>For Awnings:</strong><br /> - Open Position: 0% (retracted/closed)<br /> - Shading Position: 75% (extended for sun protection)<br /> - Close Position: 100% (fully extended)<br /> <br /> <em>Note: Ventilate Position is not used for awnings.</em>
-</details>
 
 <a id="open_position"></a>
 

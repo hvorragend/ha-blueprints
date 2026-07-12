@@ -3,12 +3,11 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Sun Shading / Sun Protection** section of the blueprint.
 
-<center><p><small>
-  Settings if the feature '🥵 - Sun Protection / Shading — Partially close when sun shines on window' has been activated above.
+Settings if the feature '🥵 - Sun Protection / Shading — Partially close when sun shines on window' has been activated above.
   <br />
   All these settings are optional / The attributes of default sun sensor (configured above) is used.
-</small></p></center>
-<details> <summary><code><strong>CLICK HERE:</strong> How the shading process works (two phases)</code></summary>
+
+### How the shading process works (two phases)
 
 **Phase 1 — Pending (trigger):**
 When ANY configured shading trigger fires (sun azimuth, elevation, brightness, temperature, forecast), the automation arms a "pending" timer. This sets the status to <em>t_shading_start_pending</em> and starts the waiting time.
@@ -24,7 +23,6 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 - <strong>Helper shows stale data:</strong> Check the input_text helper entity in Developer Tools → States. Look for <code>"pnd":"beg"</code> and verify that <code>"ts.due"</code> is a valid future timestamp.
 
 **Debugging tip:** Enable the Logbook option and check the automation trace after the waiting time expires. Look for the <em>t_shading_start_execution</em> trigger — if it doesn't appear, the template trigger may not be evaluating correctly. If it appears but the trace shows "conditions not met", check which specific condition fails using Developer Tools → Template.
-</details>
 
 <a id="shading_conditions_start_and"></a>
 
@@ -34,9 +32,7 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Conditions that MUST ALL be met to START shading**
 
-<details>
-<summary><code><strong>CLICK HERE:</strong> How START conditions work</code></summary>
-
+### How START conditions work
 
 **Required (AND) conditions for START:**
 
@@ -46,13 +42,11 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 - Use for critical conditions
 
-
 **Example - Conservative approach:**
 
 - Select ALL: Azimuth, Elevation, Brightness, Temperature
 
 - Result: Shading only when everything is perfect
-
 
 **Example - Flexible approach:**
 
@@ -62,10 +56,7 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 - Result: Sun must be in range, plus other criteria
 
-
 **Important:** Conditions without a configured sensor are automatically satisfied (skipped). You can safely leave all conditions selected — only those with a matching sensor configured below will actually be evaluated. However, if a sensor IS configured but returns "unavailable" or "unknown", the condition will FAIL — sun shading then does not start, but the rest of the automation (opening, closing, ventilation) keeps working normally. Once the sensor reports again, the sun shading conditions are re-evaluated, so a shading that was missed while the sensor was down is not lost.
-
-</details>
 
 <a id="shading_conditions_start_or"></a>
 
@@ -74,7 +65,8 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 *Blueprint input: `shading_conditions_start_or`*
 
 **Conditions where AT LEAST ONE must be met to START shading**
-<details> <summary><code><strong>CLICK HERE:</strong> When to use OR conditions</code></summary>
+
+### When to use OR conditions
 
 **Optional (OR) conditions for START:**
 - At least ONE must be valid
@@ -89,7 +81,6 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Combined logic:**
 - Final = (ALL AND conditions) AND (ONE OR condition)
-</details>
 
 <a id="shading_conditions_end_and"></a>
 
@@ -98,7 +89,8 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 *Blueprint input: `shading_conditions_end_and`*
 
 **Conditions that MUST ALL become invalid to END shading**
-<details> <summary><code><strong>CLICK HERE:</strong> How END conditions work</code></summary>
+
+### How END conditions work
 
 **Required (AND) conditions for END:**
 - ALL selected conditions must become invalid
@@ -116,7 +108,6 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 - Result: Keep shading until BOTH brightness AND temp drop
 
 **Tip:** Usually END should be MORE permissive than START
-</details>
 
 <a id="shading_conditions_end_or"></a>
 
@@ -125,7 +116,8 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 *Blueprint input: `shading_conditions_end_or`* *(default: `['cond_azimuth', 'cond_elevation', 'cond_brightness', 'cond_temp1', 'cond_temp2', 'cond_forecast_temp', 'cond_forecast_weather']`)*
 
 **Conditions where AT LEAST ONE must become invalid to END shading**
-<details> <summary><code><strong>CLICK HERE:</strong> Typical END configurations</code></summary>
+
+### Typical END configurations
 
 **Optional (OR) conditions for END:**
 - At least ONE must become invalid to end
@@ -149,7 +141,6 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 **Combined logic:**
 - Final = (ALL AND invalid) OR (ONE OR invalid)
 - The AND group and the OR group are themselves combined with **OR** (unlike START, where they are combined with AND). To require several end conditions together, put them ALL in the AND group and leave the OR group empty.
-</details>
 
 <a id="shading_azimuth_start"></a>
 
@@ -270,10 +261,10 @@ Shading will end only when temperature drops below (minimum - hysteresis value) 
 *Blueprint input: `shading_forecast_sensor`*
 
 Weather entity for forecast data (temperature & conditions). This is the primary and recommended method for forecast-based shading.
-<details>
-  <summary><code><strong>CLICK HERE:</strong> How to configure</code></summary>
 
-  Select a weather entity (e.g., weather.home, weather.openweathermap).
+### How to configure
+
+Select a weather entity (e.g., weather.home, weather.openweathermap).
 
   The system will:
 
@@ -292,8 +283,6 @@ Weather entity for forecast data (temperature & conditions). This is the primary
   So you can define via the forecast that shading is only started at an
   expected daily maximum temperature.
 
-</details>
-
 <a id="shading_forecast_type"></a>
 
 ## 📊 Sun Shading - Forecast Source
@@ -309,10 +298,10 @@ Please select whether you want to use the **daily** or **hourly** weather foreca
 *Blueprint input: `shading_forecast_temp_sensor`*
 
 **Alternative method:** Use a sensor that directly provides forecasted max temperature.
-<details>
-  <summary><code><strong>CLICK HERE:</strong> When to use this</code></summary>
 
-  Use this if:
+### When to use this
+
+Use this if:
 
   - Your weather integration provides dedicated forecast sensors
 
@@ -332,8 +321,6 @@ Please select whether you want to use the **daily** or **hourly** weather foreca
 
   **Limitation:** Weather condition checks are not available with sensors.
 
-</details>
-
 <a id="shading_forecast_temp"></a>
 
 ## 📊 Sun Shading - Forecast Temperature Value
@@ -344,19 +331,16 @@ This setting defines the <strong>minimum temperature threshold</strong> based on
 - Minimum temperature threshold for shading activation.
 - Works with both weather entity and temperature sensor.
 - Leave empty to disable temperature-based forecast shading.
-<details>
-  <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
 
-  To enhance reliability, the system can compare this threshold against two sources:
+### Further description
+
+To enhance reliability, the system can compare this threshold against two sources:
 
   - The forecasted temperature (this comparison is always active)
 
   - Temperature Sensor 2 (e.g. outdoor) (can be enabled via the checkbox in the next configuration field)
 
-
   <strong>Troubleshooting:</strong> If this condition is in your AND list, the forecast source (weather entity or temperature sensor above) MUST provide a valid numeric temperature value. Check Developer Tools → States that your weather entity or sensor shows a numeric temperature, not "unavailable" or "unknown". If the forecast returns no data, this condition will fail and block shading execution.
-
-</details>
 
 <a id="shading_forecast_temp_hysteresis"></a>
 
@@ -384,9 +368,11 @@ Check the following weather conditions when activating the shading. Be cautious 
 
 *Blueprint input: `shading_config`*
 
-These options allow you to fine-tune how the system handles temperature-based shading. <p><em>Click on the titles to get further help.</em></p> <details> <summary><code><strong>Independent Shading via Temperature Comparison</strong></code></summary>
+These options allow you to fine-tune how the system handles temperature-based shading. <p><em>Click on the titles to get further help.</em></p> 
 
-  Enables shading based solely on temperature — <ins>independently of all other conditions</ins> like brightness, sun position (azimuth <em>and</em> elevation), or time of day.
+### Independent Shading via Temperature Comparison
+
+Enables shading based solely on temperature — <ins>independently of all other conditions</ins> like brightness, sun position (azimuth <em>and</em> elevation), or time of day.
   - By default, only the external <em>forecasted temperature</em> is compared with the threshold configured in <em>"Independent Temperature Threshold"</em>.
   - You can also enable another comparison by selecting the other checkbox.
 
@@ -402,15 +388,14 @@ These options allow you to fine-tune how the system handles temperature-based sh
 
   <strong>Note:</strong> The independent path uses its own <em>"Independent Temperature Threshold"</em>, which is separate from <em>"Forecast Temperature Value"</em> used in the normal AND/OR conditions. Set the independent threshold lower to allow early shading on hot days without loosening the normal forecast gate.
 
-</details> <br /> <details> <summary><code><strong>Also trigger if 'Temperature Sensor 2' exceeds 'Forecast Temperature Value'</strong></code></summary>
+### Also trigger if 'Temperature Sensor 2' exceeds 'Forecast Temperature Value'
 
-  This activates an extended comparison for the independent shading path. The shading condition will be true if <em>one</em> of the following conditions is met:
+This activates an extended comparison for the independent shading path. The shading condition will be true if <em>one</em> of the following conditions is met:
   - The external forecasted temperature exceeds the <em>"Independent Temperature Threshold"</em>, or<br />
   - <em>"Temperature Sensor 2"</em> reports a temperature above the <em>"Independent Temperature Threshold"</em>.
 
   This mechanism improves the responsiveness and reliability of the shading system by using real-time sensor input as an optional condition, especially when forecast data is uncertain.
   Note: This function has nothing to do with normal temperature comparison, but is used exclusively in the context of the forecast function.
-</details>
 
 <a id="shading_independent_temp"></a>
 

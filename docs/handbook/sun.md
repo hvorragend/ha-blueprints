@@ -3,11 +3,9 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Sun Elevation Settings** section of the blueprint.
 
-<center><p><small>
-  <strong>Only for morning opening &amp; evening closing!</strong><br />
+<strong>Only for morning opening &amp; evening closing!</strong><br />
   This condition opens the cover when the sun rises above a threshold and closes it when the sun drops below a threshold.<br />
   <strong>This is NOT sun protection / shading</strong> (which controls midday partial closing).
-</small></p></center>
 
 <a id="default_sun_sensor"></a>
 

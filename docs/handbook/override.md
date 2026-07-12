@@ -3,8 +3,6 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Manual Override** section of the blueprint.
 
-<br />
-
 <a id="ignore_after_manual_config"></a>
 
 ## 🖐️ Ignoring/override after manual position changes
@@ -12,7 +10,8 @@
 *Blueprint input: `ignore_after_manual_config`*
 
 Ignore or override the following actions after manual position changes.
-<details> <summary><code><strong>CLICK HERE:</strong> Further description</code></summary>
+
+### Further description
 
 Ultimately, this means that the cover will not be opened, closed, etc. if a manual interaction has previously been made, e.g. using a wall switch.
 
@@ -22,10 +21,6 @@ As soon as a cover has been moved manually, the status is recorded in the Cover 
 
   - If option is not activated: The covers are moved even if a manual correction has been made.
   - If option is activated: The action to open, close, etc. is not performed because a conscious decision was made to do otherwise due to a manual intervention.
-
-
-
-</details>
 
 <a id="reset_override_config"></a>
 

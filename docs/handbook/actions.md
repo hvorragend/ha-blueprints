@@ -3,9 +3,7 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Additional Actions** section of the blueprint.
 
-<center><p><small>
-  All these settings are optional
-</small></p></center>
+All these settings are optional
 
 <a id="auto_up_action_before"></a>
 

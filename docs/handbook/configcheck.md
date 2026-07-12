@@ -3,7 +3,7 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Configuration Check** section of the blueprint.
 
-<center><p><small> <strong>🔗 Use the <a href="https://hvorragend.github.io/ha-blueprints/validator/" target="_blank">Online Configuration Validator</a></strong> <br /> Validate your YAML configuration for errors, typos, and deprecated parameters before deploying. <br /> ✅ Instant feedback • 🔍 Typo detection • ⚠️ Migration guidance • 🔒 Privacy-friendly (client-side) </small></p></center>
+<strong>🔗 Use the <a href="https://hvorragend.github.io/ha-blueprints/validator/" target="_blank">Online Configuration Validator</a></strong> <br /> Validate your YAML configuration for errors, typos, and deprecated parameters before deploying. <br /> ✅ Instant feedback • 🔍 Typo detection • ⚠️ Migration guidance • 🔒 Privacy-friendly (client-side)
 
 <a id="check_config"></a>
 

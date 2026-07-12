@@ -3,11 +3,9 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Contact Sensors for Ventilation** section of the blueprint.
 
-<center><p><small>
-  Settings if the feature ‘💨 - Ventilation Mode — React to open/tilted windows, prevent lockout’ has been activated above.
+Settings if the feature ‘💨 - Ventilation Mode — React to open/tilted windows, prevent lockout’ has been activated above.
   <br />
   All these settings are optional.
-</small></p></center>
 
 <a id="contact_window_opened"></a>
 
@@ -17,21 +15,15 @@
 
 Contact sensor of a door or window handle for detecting <ins>total opening</ins>. If this sensor switches to on/true, the cover is <ins>fully opened</ins>. At the same time, a lockout protection is <ins>always</ins> activated. The cover is not closed and the sun shading is not activated when the contact is open.
 
-<details>
-<summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
+### Further descriptions
 
 It must be a binary two-way contact sensor.
 If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
 See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
 
-
 <strong>Important note:</strong> Please do not enter the same sensor in both fields for the contact sensors. This does not work and leads to strange situations.
 
-
 <strong>If the sensor has no status</strong> — typical for a battery-powered contact after a restart of your hub, which only reports again when the window is next moved — the automation continues with the <ins>last known</ins> window status. It deliberately does not treat the window as closed, because that could lower the cover onto an open window. So while the last known status was <ins>open or tilted</ins>, the automation waits and the cover holds its position; everything resumes as soon as the sensor reports again.
-
-</details>
 
 <a id="contact_window_tilted"></a>
 
@@ -41,21 +33,15 @@ See also the [following posts](https://community.home-assistant.io/t/cover-contr
 
 The contact sensor is required for the <ins>partial</ins> ventilation mode. If the contact changes to on/true, the cover is moved to the <ins>ventilation</ins> position. The prerequisite is that the cover is already closed. After the status changes to off/false, the close position is activated again. The same applies in the shading-out situation.
 
-<details>
-<summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
-
+### Further descriptions
 
 It must be a binary two-way contact sensor.
 If a three-way sensor is available, it must be converted to a binary two-way sensor using a [template sensor](https://www.home-assistant.io/integrations/template/).
 See also the [following posts](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539/593) in the forum.
 
-
 <strong>Important note:</strong> Please do not enter the same sensor in both fields for the contact sensors. This does not work and leads to strange situations.
 
-
 <strong>If the sensor has no status</strong> — typical for a battery-powered contact after a restart of your hub, which only reports again when the window is next moved — the automation continues with the <ins>last known</ins> window status. It deliberately does not treat the window as closed, because that could lower the cover onto an open window. So while the last known status was <ins>open or tilted</ins>, the automation waits and the cover holds its position; everything resumes as soon as the sensor reports again.
-
-</details>
 
 <a id="lockout_tilted_options"></a>
 
@@ -72,10 +58,10 @@ For the tilted window (or door, of course), you can individually specify where a
 *Blueprint input: `auto_ventilate_options`*
 
 Various different ventilation options.
-<details> <summary><code><strong>CLICK HERE:</strong> Further descriptions</code></summary>
 
+### Further descriptions
 
-  - <ins>Disables the drive delay when ventilation starts (window opens/tilts):</ins>
+- <ins>Disables the drive delay when ventilation starts (window opens/tilts):</ins>
     <br />
     By default, the "Fixed Drive Delay" and "Random Drive Delay" are applied to all cover movements — including ventilation start.
     If you use a large fixed delay to stagger many covers (e.g. for Somfy RF queue limits), this can feel sluggish when only one or two covers need to react to a window opening.
@@ -109,8 +95,6 @@ Various different ventilation options.
     <br />
     Useful e.g. for a terrace door: after coming back inside and tilting the door, the cover stays up instead of moving down.
 
-</details>
-
 <a id="contact_delay_trigger"></a>
 
 ## 🕛 Contact Trigger Delay
@@ -135,7 +119,6 @@ This delay is applied inside the contact sensor handling. After the delay, CCA r
 - You switch the window contact and the resident sensor off in quick
   succession — with a delay of 0.5–1 s, CCA will see the resident as
   already gone and return to open instead of close
-
 
 **⚠️ Race Condition: Window closed + Resident off in quick succession:**
 If `contact_window_opened` and the resident sensor are turned off within milliseconds of each other, CCA may still see the resident as present at trigger time and incorrectly close the cover. Setting this delay to **0.5–1 second** gives the resident sensor enough time to settle before CCA makes its routing decision.
