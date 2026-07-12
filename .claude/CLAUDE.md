@@ -535,9 +535,19 @@ Three tiers, and the tier a source belongs to is decided by **what CCA can do wi
 
 **CCA never writes a non-JSON value.** Both `input_text.set_value` calls (`helper_update` and the init step) build a dict literal and emit `| to_json`; there is no path that writes `unknown`. A `unknown` helper state comes from HA, not from the blueprint — the blueprint's job is only to detect and repair it. The payload size is bounded by the schema (~200 chars, timestamps are fixed-width), and a helper whose `max` is below 210 is caught by a `stop` before the main `choose`.
 
-**Tier 2 — last-known fallback (window contacts, resident sensor).** These are **battery devices that only report on change**. After a *hub* restart they can stay stateless for **hours** — until someone actually moves the window. A hard block would park the cover for the rest of the day, which is far worse than the bug it prevents. So the helper's persisted value is used instead:
+**Tier 2 — last-known fallback (window contacts, resident sensor, force entities).** For the first two, these are **battery devices that only report on change**. After a *hub* restart they can stay stateless for **hours** — until someone actually moves the window. A hard block would park the cover for the rest of the day, which is far worse than the bug it prevents. So the helper's persisted value is used instead:
 
 - `state_resident` (and `resident_now` in the contact handler) fall back to `helper_json.res` while the sensor is invalid. Reading a dropped sensor as "away" would silently drop privacy closing.
+- The **force entities** are `input_boolean` **or `switch` / `binary_sensor`** (see the input selectors), so they drop out like any other integration. `is_forced_*` reads "not `on`" — which is what an invalid state produces — so an unreadable switch would read as *turned off*. `live_force` therefore falls back to `helper_state_force`, but **only when the entity of the force the helper actually records is the unreadable one** (`force_helper_unreadable`) and nothing else is live:
+
+```jinja2
+{{ helper_state_force if candidates.best == 'non' and force_helper_unreadable else candidates.best }}
+```
+
+  The scoping matters in both directions. A force whose *own* switch is readable and `off` really did end → clear it (BRANCH 8 depends on this: it runs on exactly that transition). An unrelated switch dropping out must not resurrect a force that ended. And a genuinely live force always beats the fallback.
+
+  **Why a fallback and not a gate:** `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` are `from: "on"` / `from: "off"` state triggers, so `unavailable → on` and `unavailable → off` **do not fire them**. Without the fallback, a recovery run that lands while the switch is still out writes `frc: 'non'`, drives the cover to the scheduled target, and the force is gone **permanently** — no trigger ever re-establishes it. The force entities therefore also carry a `t_recovery` trigger; that is what re-syncs `frc` once the switch is readable again.
+
 - Window contacts have no equivalent single read (the raw `states(contact_window_*) in ['true','on']` pattern is spread across every handler and reads an invalid contact as "closed"). Rather than sweeping all of them, the gate makes that reading *safe*: a run is blocked **only** while a configured contact is invalid **and** the last known `win` is not `cls`.
 
 ```jinja2
@@ -564,26 +574,54 @@ Three tiers, and the tier a source belongs to is decided by **what CCA can do wi
 
 **No grace-period setting.** An "assume closed after N minutes" knob was considered and rejected: it either guesses (unsafe for lockout) or does nothing the last-known fallback does not already do — and it would ask the user to tune a value they cannot reason about.
 
+#### Half 1b — the automation is switched off and on again
+
+This is **not** a restart, and it is the harder case. Nothing reports it: no entity became `unavailable`, no entity came back, and `homeassistant: start` does not fire when an automation is merely toggled. HA just re-attaches the triggers. Meanwhile the automation may have been off for **days**, so the helper is arbitrarily old — and every *latching* trigger from the orphan audit below (`t_shading_*_execution`, `t_reset_timeout`, `t_reset_position`) is **already true at attach time**. A template trigger arms on `false` and fires on the `false → true` edge, so a condition that is true from the start can never fire. The override stays forever, the dead pending stays forever.
+
+Three pieces, and the first one is the only non-obvious part.
+
+**1. The resume trigger — how to fire on a condition that is already true.** `this` is a **snapshot** HA takes when it attaches the triggers (`state.as_dict()`), so `this.last_changed` is the moment the automation was switched on. The template therefore starts out *false* and arms itself:
+
+```jinja2
+{{ attached > 0 and (helper.t | default(0) | int) > 0 and
+   as_timestamp(now()) > attached + 60 and
+   (helper.t | default(0) | int) < attached }}
+```
+
+At attach time `now()` is within the 60 s offset → `false` → **armed**. A minute later it flips → fires `t_recovery`. Once the recovery has written the helper, `t` overtakes the attach time → `false` again → re-armed for next time. **Without the offset this trigger would never fire at all** — the exact trap it exists to escape. It polls nothing: an automation that was never off never fires it (any normal trigger writing the helper within that minute also cancels it). It also covers reload and restart, which is why the "a source that never went `unavailable`" limitation is now largely academic.
+
+**2. Any trigger on a resumed run is claimed by the recovery.** `automation_resumed` (`helper_ts_write < this.last_changed`) is a second entry condition of BRANCH 12, and **that is why BRANCH 12 is first in the `choose`**. The cover only ever moves through a trigger, so making every trigger recalculate first means acting on an untrusted helper is *structurally impossible*, not merely unlikely. It self-clears the moment the recovery writes the helper. This is the safety net under piece 1: even if the resume trigger never fired, nothing can move on stale state.
+
+**3. The manual-override gate moved out of the branch conditions.** BRANCH 12 used to be skipped entirely on `man == 1`. That would mean a stale shading or a dead pending survives the recovery whenever an override is active. The gate now lives in `recovery_allowed`, so the **helper hygiene always runs** and only the *drive* is blocked (lockout still overrules, Invariant 6).
+
+**Stale day — the midnight reset that never ran.** `stale_day` = the helper was last written on an earlier date. BRANCH 11 clears `shd`/`pnd` every night at 23:55; if the automation was off, it did not. So a shading from three days ago still reads as active and the first trigger would drive the cover into the shading position — at night, even. The recovery therefore emulates that reset: `recovered_shade` drops `shd`, `pending_is_stale` also fires on `stale_day`, and `ts.opn`/`ts.cls` are zeroed (they gate the once-per-day open/close guards and must not suppress today's run).
+
+**But `ts.shd` is deliberately *not* stamped** when `shd` is cleared 1→0 here. BRANCH 11 may stamp it because it runs at 23:55 on the **same** day; this branch runs on the **new** day, and stamping today's date would make the once-per-day guard block today's shading (Bug Pattern V). Same field, opposite rule — the difference is *which day the code runs on*.
+
 #### Half 2 — the recovery (`t_recovery` → BRANCH 12)
 
 A blocked automation **silently loses** every event of the outage: time/calendar triggers of that period never fire again, and template/numeric triggers fire only on a `false → true` transition — which is consumed while the run is blocked. Nothing replays them.
 
-**Trigger set:** `homeassistant: start` plus one state trigger per source (`from: [unavailable, unknown]`, `not_to: [unavailable, unknown]`, `for: 30s`), all sharing the id `t_recovery`. This includes the *condition-only* sources (brightness, sun, forecast, calendar, workday) — they never block a run, but their return is what makes a missed shading start re-evaluable.
+**Trigger set:** `homeassistant: start`, the resume trigger above, plus one state trigger per source (`from: [unavailable, unknown]`, `not_to: [unavailable, unknown]`, `for: 30s`), all sharing the id `t_recovery`. **Every entity CCA reads gets one** — that is the rule, and the reason is that the three tiers of the gate say nothing about *replay*. A Tier-3 source never blocks a run but its return is what makes a missed shading start re-evaluable; a Tier-2 source falls back to the helper but the fallback must eventually be *corrected*. So: cover, status helper, position sensor, both window contacts, resident, brightness, sun, forecast, calendar, both workday sensors, the four force entities and the force pause.
 
-**The last source to return performs the recalculation.** A source returning early fires `t_recovery`, but while any *critical* entity is still missing, the gate stops that run — so the run that survives is the one after the last critical entity is back. Runs triggered by a later-returning *condition-only* source are not suppressed either: they re-run BRANCH 12 with fresh data (idempotent — the drive is a no-op via the `cover_move_action` tolerance guard, and an already-armed pending is preserved rather than re-armed). `max:` is 20 because a restart can queue one run per recovering source, and dropping one would drop exactly the run that had the data.
+**The last source to return performs the recalculation.** A source returning early fires `t_recovery`, but while any *critical* entity is still missing, the gate stops that run — so the run that survives is the one after the last critical entity is back. Runs triggered by a later-returning *condition-only* source are not suppressed either: they re-run BRANCH 12 with fresh data (idempotent — the drive is a no-op via the `cover_move_action` tolerance guard, and an already-armed pending is preserved rather than re-armed). `max:` is 25 because a restart can queue one run per recovering source (18) plus normal traffic, and dropping one would drop exactly the run that had the data.
 
 **What BRANCH 12 restores:**
 
 - `recovered_base` — base state re-derived from the schedule/calendar (`is_evening_phase` / `is_daytime_phase`). Nothing else moves `bas` back: it is only ever written by the scheduled handlers, and their triggers will not fire again.
 - `recovered_window` — live contact sensors (lockout / vent floor).
-- `live_force` — the force state re-derived from the **live** force entities ("last activated wins"). A force switched on or off during the outage left `frc` stale in the helper; `live_force` is the single source of truth and is also what the force-disable handler (BRANCH 8) uses.
-- `recovered_state` — **mirrors `effective_state`, but on `recovered_base` and `live_force`.** The duplication is deliberate: `effective_state` reads `helper_json.bas`/`.frc`, which are exactly the stale values the recovery must correct, and HA templates cannot be parameterized. **Keep both in sync — every change to the `effective_state` cascade must be applied to `recovered_state` (Invariant 13).**
+- `live_force` — the force state re-derived from the **live** force entities ("last activated wins"), falling back to `helper_state_force` while the recorded force's own entity is unreadable (Tier 2 above). A force switched on or off during the outage left `frc` stale in the helper; `live_force` is the single source of truth and is also what the force-disable handler (BRANCH 8) uses.
+- `res` — re-read from `state_resident` and **persisted**. The resident handler's trigger was swallowed by the outage, so nothing else corrects `res` — and `res` is exactly the value `state_resident` falls back to on the *next* dropout. Leaving it stale poisons that fallback.
+- `recovered_state` — **mirrors `effective_state`, but on `recovered_base` and `live_force`.** The duplication is deliberate: `effective_state` reads `helper_json.bas`/`.frc`, which are exactly the stale values the recovery must correct, and HA templates cannot be parameterized. **Keep both in sync — every change to the `effective_state` cascade must be applied to `recovered_state` (Invariant 13).** `TestCascadeParity` renders both side by side; `TestRecoveredStateUsesRecoveredInputs` additionally feeds them *diverging* base/force, which parity by construction cannot see.
 - `recovered_pending` — shading is **re-evaluated**, not replayed: with `shd == 0` and `shading_start_warranted` (fresh forecast — `t_recovery` is in the forecast-load gate, Bug Pattern T) a start pending is armed; with `shd == 1` and `shading_end_conditions_met` an end pending is armed. Due/arm mirror the arming branches, including the pre-window deferral (Bug Patterns L/S). The existing execution triggers then take over — the recovery deliberately does **not** duplicate the shading execution.
 - A **stale pending** (`ts.due` already past) is cleared first: its execution trigger fired during the outage and was blocked, so there is no further `false → true` transition and it can never run. Leaving it armed would make the opening handler defer into a dead flow (Bug Pattern R/AG family).
 - `defer_to_shading` — when a start pending is armed and the target would be `opn`, the drive is skipped and the shading execution does the movement (mirrors the #555 opening handler), **unless** the lockout window is open (Bug Pattern AG: the shading execution only stores the intent there and would never open the cover).
-- **Manual override survives** the outage (`not helper_state_manual or effective_state == 'lock'`) — only lockout overrules it, per Invariant 6.
+- `recovered_shade` / `stale_day` — a shading (and a pending) from an earlier day is dropped, because the 23:55 reset never ran. See Half 1b; note the `ts.shd` rule there, it is the opposite of BRANCH 11's.
+- **Manual override survives** the outage — the gate sits in `recovery_allowed` (`not helper_state_manual or override_expired or recovered_state == 'lock'`), **not** in the branch conditions, so it blocks the *drive* while the helper hygiene still runs. Only lockout overrules it, per Invariant 6. When `override_expired` clears `man`, the branch also runs the user's `auto_override_reset_action`, exactly as BRANCH 10 does — a reset caught up by the recovery must not silently skip the notification/scene the user wired to it.
 
-**Known limitation:** a source that never went `unavailable` (many helpers restore straight to their value) produces no recovery trigger — the `homeassistant: start` trigger covers that case.
+**Known limitation 1:** a source that never went `unavailable` (many helpers restore straight to their value) produces no recovery trigger — the `homeassistant: start` trigger covers that case.
+
+**Known limitation 2 (`for: 30s`):** a HA state trigger with `for` requires the entity to *stay in the state it recovered into* for the whole period. If it changes again within those 30 s — a cover going `unavailable → open → closed` because something drives it — the pending trigger is cancelled and never fires. After a restart `homeassistant: start` covers this; for a mid-day integration outage the run is simply lost until the next trigger. The settle time is the price for not firing on a flapping entity; do not remove it without replacing that protection.
 
 #### The orphan audit — what a dropped run costs, and who repairs it
 
@@ -596,12 +634,14 @@ Every gate creates the same hazard: a run that is blocked (or a trigger that fir
 | `t_shading_*_execution` | **yes** (`now >= ts.due` stays true) | pending armed forever, opening handler defers into a dead flow | BRANCH 12 `pending_is_stale` (clears it) |
 | `t_shading_tilt_*` | **yes** (sun stage stays true) | slats keep the previous angle | BRANCH 12 drives tilt when `recovered_state == 'shd'` |
 | `t_shading_reset` (23:55) | yes, until midnight | `shd` stays 1 overnight | BRANCH 12 arms an end-pending when the end conditions hold |
-| `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` | no (state) | `frc` stale in the helper | BRANCH 12 `live_force` (re-read from the switches) |
+| `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` | no (state), but `from: "on"`/`"off"` means **`unavailable → on/off` never fires them at all** | force **permanently lost**: a recovery run while the switch is out reads it as "off", clears `frc` and drives to the scheduled target — and nothing re-establishes it | `live_force` falls back to `helper_state_force` while that force's own entity is unreadable, **plus** a `t_recovery` trigger on each force entity to re-sync once it is back |
 | `t_contact_*` | no (state) | `win` stale → **deadlock** (the gate blocks the very event that would clear it) | **gate exemption** for the two contact trigger ids |
 | `t_manual_position` / `t_manual_tilt` | no (state/attribute) | manual intervention unrecorded → recovery overrules the user | **gate exemption** (contact gate only; handler never drives) |
-| `t_resident_update` | no (state) | `res` stale | `state_resident` falls back to `helper_json.res`; BRANCH 12 re-reads |
+| `t_resident_update` | no (state) | `res` stale → poisons the fallback on the *next* dropout | `state_resident` falls back to `helper_json.res`; BRANCH 12 re-reads **and persists `res`** |
 | `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — and BRANCH 12 skips on `man == 1`, so it cannot heal either | BRANCH 12 `override_expired` (re-evaluates the reset rules and clears `man`) |
 | `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` |
+| `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | BRANCH 12 `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) |
+| *(the automation itself is switched off and on)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | the **resume trigger** (`this.last_changed` + 60 s offset) fires it; `automation_resumed` makes BRANCH 12 claim any trigger as a backstop |
 | *(helper is `unknown`)* | — | init/repair step unreachable → automation permanently dead | helper gate blocks on `unavailable` **only** |
 
 `override_expired` is a global variable, not a branch-local one, because BRANCH 12's *conditions* need it — the branch is skipped on `man == 1`, and an expired override must lift that skip. It clears `man` without driving, a deliberate Invariant 7 exception (same class as the midnight reset).
@@ -856,7 +896,9 @@ prevent_flags.shading_multiple_times and now().strftime('%Y-%m-%d') != helper_ts
 
 The `t_shading_start_execution` bypass (third OR-clause) is kept so an already-armed pending can still execute. Manual override is still respected via the separate `not (helper_state_manual and override_flags.shading)` gate.
 
-**`ts.shd` is the only consumer of this guard, and it is not polluted like `ts.opn`/`ts.cls`** — it changes only on a real `shd` 0↔1 transition (Invariant 8). The opening/closing guards are intentionally **left unchanged** (they keep the manual clause) because their timestamps *are* polluted by non-driving syncs, so removing the clause there would reintroduce Issue #311. The user-reported "opening multiple times" symptom is a side-effect of the shading loop, not an independent opening bug.
+**`ts.shd` is the only consumer of this guard, and it is not polluted like `ts.opn`/`ts.cls`** — it changes only on a real `shd` 0↔1 transition (Invariant 8). The opening/closing guards **keep the manual clause** because their timestamps *are* polluted by non-driving syncs, so removing the clause there would reintroduce Issue #311. The user-reported "opening multiple times" symptom is a side-effect of the shading loop, not an independent opening bug.
+
+**The date compare in the opening guard was fixed separately.** It used `now().day != helper_ts_open | timestamp_custom('%-d') | int` — a **day-of-month** compare, which collapses across months: a `ts.opn` from exactly one month ago reads as "already opened today" and suppresses the opening. It now compares the full date (`'%Y-%m-%d'`), like the shading guard. This is orthogonal to the manual clause, which stays. The **closing** guard needs no fix — it compares `helper_ts_close < today_at(time_down_early_today)`, which is already date-safe.
 
 **Why the midnight reset (BRANCH 11) needs no special handling:** `t_shading_reset` fires at **23:55 the same day** (`now() >= today_at('23:55:00')`), so even though it clears `shd` 1→0 and writes `ts.shd: "now"`, the stamp lands on the *current* day — never the next one. The full-date guard compares `ts.shd`'s day against today, so the following day is still a different date → shading is allowed. The old CHANGELOG #365 failure (reset stamping the *new* day and blocking it) cannot occur with the 23:55 trigger; no `ts.shd` omission is required.
 
