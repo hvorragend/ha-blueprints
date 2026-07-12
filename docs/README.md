@@ -19,6 +19,7 @@
 - **Resident Detection** — Privacy protection and sleep schedule integration
 - **Force Functions** — Weather protection (rain, wind, frost) with background state tracking
 - **Force Pause** — Suspend all movements while keeping state in sync
+- **Outage Recovery** — Catches up on what was missed while a restart or a sensor outage kept it from acting
 
 ## Quick Start (5 Steps)
 

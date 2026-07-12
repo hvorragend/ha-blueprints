@@ -241,6 +241,21 @@ bare `trigger.id + update_values` is genuinely insufficient for debugging.
 to `update_values` requires no logbook changes — they are dumped automatically
 via `to_json`.
 
+### ⚠️ Invariant 13: `recovered_state` must mirror `effective_state`
+
+BRANCH 12 (recovery) duplicates the priority cascade in `recovered_state` —
+deliberately, because `effective_state` reads `helper_json.bas`/`.frc`, which
+are exactly the stale values the recovery must correct, and HA templates
+cannot be parameterized (see the design decision "Restart / outage handling").
+
+**Every change to the `effective_state` cascade must be applied to
+`recovered_state` in the same commit** — new priorities, new gates
+(e.g. the #553 `is_opening_scheduled` schedule gate), changed conditions.
+The parity tests (`tests/test_restart_recovery.py::TestCascadeParity`) render
+both templates with identical inputs and fail when they drift apart — extend
+them with a scenario covering the change, do not weaken them to make a
+divergence pass.
+
 ---
 
 ## Design Decisions (intentional deviations from the general patterns)
@@ -356,6 +371,115 @@ The fix is applied **at the trigger**, not in a global condition: each of the th
 **Why `not_to` (not `to`):** Contact/resident sensors can report `on`/`off` *or* `true`/`false`, so an allow-list (`to: [...]`) would be fragile. `not_to: [unavailable, unknown]` only excludes the dropout sentinels, keeps every real transition, and aligns with the existing `invalid_states` handling (the `to_state` invalid-state guard in the global conditions and the contact handler). The `from`-side recovery guard (#505) stays in the action conditions — `not_to` does not touch it.
 
 **Scope:** Only contact + resident. The manual triggers (`t_manual_position`, `t_manual_tilt`) deliberately react to attribute changes (`current_position` / `current_tilt_position`) and must **not** get `not_to`.
+
+### Restart / outage handling: block on state-critical entities, recover via `t_recovery`
+
+Two halves of one mechanism. Neither works without the other.
+
+#### Half 1 — the gate (global conditions)
+
+Three tiers, and the tier a source belongs to is decided by **what CCA can do without it**.
+
+**Tier 1 — hard block (`critical_entities`).** No substitute exists, so the run is blocked, period:
+
+| Entity | Failure mode when invalid |
+|---|---|
+| `blind` | no `current_position` → `101` sentinel; `\|101 − 100\| ≤ position_tolerance` makes `in_open_position` **true**, so a dead cover reads as "open" |
+| `custom_position_sensor` (when it is the position source) | same as `blind` |
+
+```jinja2
+{% set ns = namespace(ready=true) %}
+{% for entity in critical_entities %}
+  {% if states(entity) in invalid_states %}{% set ns.ready = false %}{% endif %}
+{% endfor %}
+{{ ns.ready }}
+```
+
+**Tier 1b — the status helper, and why it needs its own gate.** It is state-critical (`helper_json` falls back to a fresh default JSON, so a write would destroy the persisted state) — but it is **not** in `critical_entities`, because it must stay **repairable**:
+
+```jinja2
+{{ cover_status_helper == [] or states(cover_status_helper) != 'unavailable' }}
+```
+
+- `unavailable` → the entity exists but is not loaded yet; its stored value is intact. **Block** — writing defaults here would destroy a good state.
+- `unknown` / empty / non-JSON → there is no value left to protect. **Must pass**, because the actions contain the repair: the *"Initialise empty helper with JSON default values"* step rewrites a fresh v6 JSON on any run. Gating it with the full `invalid_states` list makes that repair unreachable and the automation **permanently dead** — an `unknown` helper could never be rewritten (Bug Pattern AF family: an upstream gate must not orphan a downstream repair). This is not hypothetical; a helper can end up `unknown` after being recreated in the UI or after a failed state restore.
+
+**CCA never writes a non-JSON value.** Both `input_text.set_value` calls (`helper_update` and the init step) build a dict literal and emit `| to_json`; there is no path that writes `unknown`. A `unknown` helper state comes from HA, not from the blueprint — the blueprint's job is only to detect and repair it. The payload size is bounded by the schema (~200 chars, timestamps are fixed-width), and a helper whose `max` is below 210 is caught by a `stop` before the main `choose`.
+
+**Tier 2 — last-known fallback (window contacts, resident sensor).** These are **battery devices that only report on change**. After a *hub* restart they can stay stateless for **hours** — until someone actually moves the window. A hard block would park the cover for the rest of the day, which is far worse than the bug it prevents. So the helper's persisted value is used instead:
+
+- `state_resident` (and `resident_now` in the contact handler) fall back to `helper_json.res` while the sensor is invalid. Reading a dropped sensor as "away" would silently drop privacy closing.
+- Window contacts have no equivalent single read (the raw `states(contact_window_*) in ['true','on']` pattern is spread across every handler and reads an invalid contact as "closed"). Rather than sweeping all of them, the gate makes that reading *safe*: a run is blocked **only** while a configured contact is invalid **and** the last known `win` is not `cls`.
+
+```jinja2
+{% set last_window_closed = helper in invalid_states or helper | regex_search('"win"\s*:\s*"cls"') %}
+{{ last_window_closed or not contact_missing }}
+```
+
+  - Last known **closed** + contact stateless → run. "Reads as closed" agrees with the last known truth, so every raw read in every handler is correct. This is the normal case after a hub restart (windows are usually shut) — CCA keeps working.
+  - Last known **open/tilted** + contact stateless → block. CCA would otherwise treat the window as closed and drop the lockout. Blocking holds the cover in its current lockout/vent position — which is exactly what lockout wants. It self-heals: closing the window makes the contact report, which fires `t_recovery`.
+
+**The contact triggers themselves are exempt from that gate** (`trigger.id in ['t_contact_opened_changed', 't_contact_tilted_changed']`). Without the exemption the gate **deadlocks**: with `win == 'opn'` and one contact stateless, the very event that would write `win: 'cls'` — the other contact reporting the window shut — is the one the gate blocks, so `win` stays `opn` forever. A contact trigger carries a *valid* `to_state` by construction (`not_to` on the trigger plus the `invalid_states` guards in the handler), so letting it through is safe.
+
+**The manual triggers are exempt too** (`t_manual_position`, `t_manual_tilt`). The manual-detection handler only records the intervention (`man: 1`, `ts.man`, base-state sync) — it never drives the cover, so it cannot act on the unknown window state. Without the exemption a manual move during a contact outage would go unrecorded, and the recovery would later overrule the user's intervention (BRANCH 12 skips only on `helper_state_manual`). The critical-entities and helper gates still apply to these triggers — with the cover unavailable there is no position data to detect a manual change from.
+
+**Dead battery = parked cover.** If a contact never reports again while `win` is `opn`/`tlt`, the cover stays at its lockout/vent position indefinitely. That is the deliberate trade: never lower a cover onto a window last known to be open. The failing condition is visible in the trace; there is no log warning (a condition cannot log).
+
+**Tier 3 — never blocks (sun, brightness, weather/forecast, calendar, workday).** *Condition-only*: an invalid state can only stop shading from starting, never produce a wrong target. Blocking on them would turn a flaky outdoor sensor into a **permanently dead cover automation**.
+
+**Group semantics are intended:** `states(blind)` on a cover group is the *group* state (HA: `available = any(member available)`), so the gate fires exactly when **all** members are gone. A partially-degraded group keeps running on the remaining members' averaged position — the check is deliberately **not** per group member (`expand(blind)`).
+
+**Not gated on the position sentinel:** the gate checks the *state*, not `current_position != 101`. A sentinel gate would permanently silence the `check_config` messages *"Cover entity is missing the required 'current_position' attribute"* and *"Position source set to … but cover doesn't have this attribute"*, which live in the `default:` branch of the actions — a misconfigured cover would then produce no diagnostics at all (Bug Pattern AF family: an upstream gate must not orphan a downstream validation). An unconfigured helper (`cover_status_helper == []`) is likewise excluded from the list, so the MANDATORY HELPER VALIDATION stays reachable.
+
+**The helper is the fallback truth.** While a run is blocked nothing writes, so the helper keeps its last valid content across the whole outage — and it is that content (`win`, `res`, `bas`, `shd`, `frc`) which every fallback above reads. This is why the helper is Tier 1: lose it and there is nothing left to fall back to.
+
+**No grace-period setting.** An "assume closed after N minutes" knob was considered and rejected: it either guesses (unsafe for lockout) or does nothing the last-known fallback does not already do — and it would ask the user to tune a value they cannot reason about.
+
+#### Half 2 — the recovery (`t_recovery` → BRANCH 12)
+
+A blocked automation **silently loses** every event of the outage: time/calendar triggers of that period never fire again, and template/numeric triggers fire only on a `false → true` transition — which is consumed while the run is blocked. Nothing replays them.
+
+**Trigger set:** `homeassistant: start` plus one state trigger per source (`from: [unavailable, unknown]`, `not_to: [unavailable, unknown]`, `for: 30s`), all sharing the id `t_recovery`. This includes the *condition-only* sources (brightness, sun, forecast, calendar, workday) — they never block a run, but their return is what makes a missed shading start re-evaluable.
+
+**The last source to return performs the recalculation.** A source returning early fires `t_recovery`, but while any *critical* entity is still missing, the gate stops that run — so the run that survives is the one after the last critical entity is back. Runs triggered by a later-returning *condition-only* source are not suppressed either: they re-run BRANCH 12 with fresh data (idempotent — the drive is a no-op via the `cover_move_action` tolerance guard, and an already-armed pending is preserved rather than re-armed). `max:` is 20 because a restart can queue one run per recovering source, and dropping one would drop exactly the run that had the data.
+
+**What BRANCH 12 restores:**
+
+- `recovered_base` — base state re-derived from the schedule/calendar (`is_evening_phase` / `is_daytime_phase`). Nothing else moves `bas` back: it is only ever written by the scheduled handlers, and their triggers will not fire again.
+- `recovered_window` — live contact sensors (lockout / vent floor).
+- `live_force` — the force state re-derived from the **live** force entities ("last activated wins"). A force switched on or off during the outage left `frc` stale in the helper; `live_force` is the single source of truth and is also what the force-disable handler (BRANCH 8) uses.
+- `recovered_state` — **mirrors `effective_state`, but on `recovered_base` and `live_force`.** The duplication is deliberate: `effective_state` reads `helper_json.bas`/`.frc`, which are exactly the stale values the recovery must correct, and HA templates cannot be parameterized. **Keep both in sync — every change to the `effective_state` cascade must be applied to `recovered_state` (Invariant 13).**
+- `recovered_pending` — shading is **re-evaluated**, not replayed: with `shd == 0` and `shading_start_warranted` (fresh forecast — `t_recovery` is in the forecast-load gate, Bug Pattern T) a start pending is armed; with `shd == 1` and `shading_end_conditions_met` an end pending is armed. Due/arm mirror the arming branches, including the pre-window deferral (Bug Patterns L/S). The existing execution triggers then take over — the recovery deliberately does **not** duplicate the shading execution.
+- A **stale pending** (`ts.due` already past) is cleared first: its execution trigger fired during the outage and was blocked, so there is no further `false → true` transition and it can never run. Leaving it armed would make the opening handler defer into a dead flow (Bug Pattern R/AG family).
+- `defer_to_shading` — when a start pending is armed and the target would be `opn`, the drive is skipped and the shading execution does the movement (mirrors the #555 opening handler), **unless** the lockout window is open (Bug Pattern AG: the shading execution only stores the intent there and would never open the cover).
+- **Manual override survives** the outage (`not helper_state_manual or effective_state == 'lock'`) — only lockout overrules it, per Invariant 6.
+
+**Known limitation:** a source that never went `unavailable` (many helpers restore straight to their value) produces no recovery trigger — the `homeassistant: start` trigger covers that case.
+
+#### The orphan audit — what a dropped run costs, and who repairs it
+
+Every gate creates the same hazard: a run that is blocked (or a trigger that fires while HA is starting) is **gone**. `trigger: template` and `trigger: numeric_state` fire only on a `false → true` transition, so a **latching** condition — one that stays true after the drop — never fires again. This table is the checklist to re-run whenever a gate or a trigger is added:
+
+| Trigger | Latches? | Cost of a dropped run | Repaired by |
+|---|---|---|---|
+| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | BRANCH 12 `recovered_base` (re-derived from schedule/calendar) |
+| `t_shading_*_pending_*` (numeric/template) | **yes** (condition stays true) | shading never starts/ends that day | BRANCH 12 `recovered_pending` (re-evaluates and re-arms) |
+| `t_shading_*_execution` | **yes** (`now >= ts.due` stays true) | pending armed forever, opening handler defers into a dead flow | BRANCH 12 `pending_is_stale` (clears it) |
+| `t_shading_tilt_*` | **yes** (sun stage stays true) | slats keep the previous angle | BRANCH 12 drives tilt when `recovered_state == 'shd'` |
+| `t_shading_reset` (23:55) | yes, until midnight | `shd` stays 1 overnight | BRANCH 12 arms an end-pending when the end conditions hold |
+| `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` | no (state) | `frc` stale in the helper | BRANCH 12 `live_force` (re-read from the switches) |
+| `t_contact_*` | no (state) | `win` stale → **deadlock** (the gate blocks the very event that would clear it) | **gate exemption** for the two contact trigger ids |
+| `t_manual_position` / `t_manual_tilt` | no (state/attribute) | manual intervention unrecorded → recovery overrules the user | **gate exemption** (contact gate only; handler never drives) |
+| `t_resident_update` | no (state) | `res` stale | `state_resident` falls back to `helper_json.res`; BRANCH 12 re-reads |
+| `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — and BRANCH 12 skips on `man == 1`, so it cannot heal either | BRANCH 12 `override_expired` (re-evaluates the reset rules and clears `man`) |
+| `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` |
+| *(helper is `unknown`)* | — | init/repair step unreachable → automation permanently dead | helper gate blocks on `unavailable` **only** |
+
+`override_expired` is a global variable, not a branch-local one, because BRANCH 12's *conditions* need it — the branch is skipped on `man == 1`, and an expired override must lift that skip. It clears `man` without driving, a deliberate Invariant 7 exception (same class as the midnight reset).
+
+**Rule for any new gate:** before adding a condition that stops a run, list every trigger it can suppress and ask *"if this fires exactly once and I drop it, does anything ever fire again?"* If the answer is no, the gate needs an exemption (contact triggers), a repair path (helper init), or a re-evaluation in BRANCH 12 (override, shading, force, base). Two of the three gates in this design needed one — assume the next one does too.
+
+**Not repairable, by design:** `auto_global_condition` (the user's own global condition). If it is false when the recovery run fires, the run is dropped and nothing re-triggers when it later becomes true — CCA cannot watch an arbitrary user condition. This is pre-existing behavior for every trigger, not new.
 
 ---
 
@@ -848,6 +972,19 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 
 ---
 
+### Bug Pattern AI: Unavailable cover corrupts the helper via the 101 position sentinel
+
+**Symptom:** After a HA restart or an outage of the cover integration, CCA keeps reacting to time/sun/contact triggers while the cover itself is `unavailable`. Symptoms vary: movements are silently skipped (the cover is mistaken for "already open"), runs abort mid-sequence with `HomeAssistantError: Entity cover.x is not available` so the helper is never written, and — the worst case — a helper write derived from the bogus position **overwrites a still-correct state**, e.g. an active shading (`shd: 1`) from before the restart.
+
+**Cause:** The global conditions only validated the **triggering** entity (`trigger.to_state.state not in invalid_states`). The cover was never checked. With the cover unavailable, `state_attr(blind, 'current_position')` is `None` and `current_position` falls back to the `101` sentinel — which is not a neutral value: `|101 − open_position(100)| ≤ position_tolerance(5)` makes `in_open_position` **true**. So the automation reasons about a cover that "is open" and persists conclusions drawn from a phantom position.
+
+**Fix:** A global condition over `critical_entities` — every entity whose invalid state would make the cascade compute a *wrong* target must be usable, not just the trigger source. Use the shared `invalid_states` constant, **not** `!= 'unavailable'`: an `unknown` entity (restart before restore, deleted entity) is just as broken. Paired with the `t_recovery` trigger set + BRANCH 12, because a blocked automation silently loses every event of the outage window. See the design decision *"Restart / outage handling: block on state-critical entities, recover via `t_recovery`"* for the entity list, the group semantics, why condition-only sensors are excluded, and why the check is on the **state** and not on the position sentinel.
+
+**Rule:** A guard that stops the automation from acting on bad data must be paired with a way to *catch up* once the data is good again — otherwise the guard converts a corruption bug into a silent-miss bug. Blocking is only half a fix; the recovery path is the other half. And the guard must cover *every* input the cascade reads, not just the one that surfaced the bug: a dropped window contact reads as "closed" and silently disables the lockout exactly like a dropped cover reads as "open".
+
+
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
@@ -868,6 +1005,18 @@ Home Assistant distinguishes between *full* and *limited* template contexts. See
 | `sequence:` / `action:` | No | Full template access |
 
 **Unavailable in limited templates:** `states()`, `is_state()`, `state_attr()`, and any integration-specific runtime function.
+
+### Boolean variables must render as a single `{{ … }}` expression
+
+HA parses a rendered template with `literal_eval`. `{{ some_bool }}` renders `True`/`False` and parses back to a bool — but a **bare word inside a `{% if %}` block** does not:
+
+```jinja2
+{% if resident_sensor == [] %}false{% else %}{{ … }}{% endif %}   ← renders the STRING "false"
+```
+
+`literal_eval("false")` fails (Python needs `False`), so HA keeps the string — and a non-empty string is **truthy**. A variable meant to be `False` silently becomes `True`. This nearly shipped in `state_resident`: with no resident sensor configured it would have reported "resident present", which flips `resident_flags.allow_open` to `false` and closes the cover instead of opening it.
+
+**Rule:** any variable consumed as a boolean must be one `{{ … }}` expression (use inline `if`/`else` inside it). Multi-branch `{% if %}` blocks are fine only for variables consumed as **strings** (`effective_state`, `recovered_state`, …) or numbers.
 
 ---
 

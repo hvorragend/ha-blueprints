@@ -94,10 +94,14 @@ def _find_trigger_by_id(blueprint: dict, trigger_id: str):
 
 
 def _global_condition_template(blueprint: dict) -> str:
+    # Select the shading-pending gate by content, not by position — the
+    # global conditions list contains several template conditions.
     for cond in blueprint.get("conditions", []):
-        if isinstance(cond, dict) and "value_template" in cond:
+        if isinstance(cond, dict) and "t_shading_start_pending" in cond.get(
+            "value_template", ""
+        ):
             return cond["value_template"]
-    raise AssertionError("global template condition not found")
+    raise AssertionError("global shading-pending gate not found")
 
 
 def _branch_update_values(branch: dict) -> dict:

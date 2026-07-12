@@ -28,6 +28,8 @@ blueprint:
 
         Using a cover group? See [FAQ: Can I use a cover group?](https://hvorragend.github.io/ha-blueprints/FAQ#q-can-i-use-a-cover-group)
 
+        While the cover is unavailable (e.g. during a restart), the automation pauses — without a position it cannot decide anything. As soon as the cover is back, it catches up on everything that was missed in the meantime.
+
       selector:
         entity:
           filter:
@@ -1173,6 +1175,9 @@ blueprint:
 
             <strong>Important note:</strong> Please do not enter the same sensor in both fields for the contact sensors. This does not work and leads to strange situations.
 
+
+            <strong>If the sensor has no status</strong> — typical for a battery-powered contact after a restart of your hub, which only reports again when the window is next moved — the automation continues with the <ins>last known</ins> window status. It deliberately does not treat the window as closed, because that could lower the cover onto an open window. So while the last known status was <ins>open or tilted</ins>, the automation waits and the cover holds its position; everything resumes as soon as the sensor reports again.
+
             </details>
           default: []
           selector:
@@ -1201,6 +1206,9 @@ blueprint:
 
 
             <strong>Important note:</strong> Please do not enter the same sensor in both fields for the contact sensors. This does not work and leads to strange situations.
+
+
+            <strong>If the sensor has no status</strong> — typical for a battery-powered contact after a restart of your hub, which only reports again when the window is next moved — the automation continues with the <ins>last known</ins> window status. It deliberately does not treat the window as closed, because that could lower the cover onto an open window. So while the last known status was <ins>open or tilted</ins>, the automation waits and the cover holds its position; everything resumes as soon as the sensor reports again.
 
             </details>
           default: []
@@ -1428,7 +1436,7 @@ blueprint:
             - Result: Sun must be in range, plus other criteria
 
 
-            **Important:** Conditions without a configured sensor are automatically satisfied (skipped). You can safely leave all conditions selected — only those with a matching sensor configured below will actually be evaluated. However, if a sensor IS configured but returns "unavailable" or "unknown", the condition will FAIL.
+            **Important:** Conditions without a configured sensor are automatically satisfied (skipped). You can safely leave all conditions selected — only those with a matching sensor configured below will actually be evaluated. However, if a sensor IS configured but returns "unavailable" or "unknown", the condition will FAIL — sun shading then does not start, but the rest of the automation (opening, closing, ventilation) keeps working normally. Once the sensor reports again, the sun shading conditions are re-evaluated, so a shading that was missed while the sensor was down is not lost.
 
             </details>
           default:
@@ -2182,7 +2190,10 @@ blueprint:
       input:
         resident_sensor:
           name: "🛌 Resident Sensor"
-          description: "You can use this to define a resident for the room"
+          description: >-
+            You can use this to define a resident for the room.
+
+            If the sensor has no status (e.g. after a restart), the automation continues with the last known presence instead of assuming that nobody is there.
           default: []
           selector:
             entity:
@@ -2963,6 +2974,14 @@ trigger_variables:
     - 'query failed'        # Failed sensor queries
     - []                    # Empty list
 
+  # Entities without which no decision is possible - the automation is blocked while
+  # any of them has no usable state. Battery devices (window contacts, resident) and
+  # condition-only sources are deliberately not listed; they fall back instead.
+  # The status helper has its own gate (it must stay repairable).
+  critical_entities: >-
+    {{ ([blind] if blind != [] else []) +
+       ([custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else []) }}
+
 ################################################################################
 # VARIABLES
 ################################################################################
@@ -3352,7 +3371,11 @@ variables:
   # LIVE RESIDENT STATE - Read directly from sensor, not from helper.
   # Use this (and resident_flags which depends on it) wherever the real-time sensor state matters,
   # e.g. in the resident arriving/leaving handler where helper_json.res hasn't been updated yet.
-  state_resident: "{{ resident_sensor != [] and states(resident_sensor) in ['on', 'true'] }}"
+  # Falls back to the last known presence from the helper while the sensor has no usable state
+  state_resident: >-
+    {{ (helper_json.res | default(0) | int == 1)
+       if (resident_sensor != [] and states(resident_sensor) in invalid_states)
+       else (resident_sensor != [] and states(resident_sensor) in ['on', 'true']) }}
 
   # EFFECTIVE STATE - The actual state the cover should be in based on priority cascade
   # Replaces v5's state_current (which was just an alias with old names vpart/vfull)
@@ -3419,9 +3442,24 @@ variables:
   helper_ts_pending_arm: "{{ helper_json.ts.arm | default(0) | int }}"
   helper_ts_man: "{{ helper_json.ts.man | default(0) | int }}"
 
+  # OVERRIDE EXPIRED - Should the manual override already have been reset?
+  # The reset triggers latch (template triggers only fire on false->true), so a reset
+  # whose moment fell into an outage or a restart never fires again. Re-evaluated here.
+  override_expired: >-
+    {{ helper_state_manual and not is_reset_disabled and (
+         (is_reset_timeout and helper_ts_man > 0 and
+          as_timestamp(now()) >= helper_ts_man + 60 * (reset_override_timeout | int(0))) or
+         (is_reset_fixed_time and now() >= today_at(reset_override_time) and
+          helper_ts_man < as_timestamp(today_at(reset_override_time))) or
+         (is_reset_position and in_reset_override_position)
+       ) }}
+
   # SHADED STATUS - Is cover currently shaded (not pending)?
   # True when shade == 1 AND no pending start armed
   helper_state_is_shaded: "{{ helper_json.shd | default(0) | int == 1 and helper_json.pnd | default('non') != 'beg' }}"
+
+  # PENDING PHASE - Which shading pending is armed? (non|beg|end)
+  helper_state_pending: "{{ helper_json.pnd | default('non') }}"
 
   # PENDING START - Is shading start pending?
   helper_state_pending_start: "{{ helper_json.pnd | default('non') == 'beg' }}"
@@ -3460,6 +3498,27 @@ variables:
 
   # Is any force active? (realtime)
   is_forced: "{{ is_forced_open or is_forced_close or is_forced_shade or is_forced_vent }}"
+
+  # Which force is active right now? (realtime, "last activated wins") - non|opn|cls|shd|vnt
+  live_force: >-
+    {% set candidates = namespace(best='non', best_ts=-1) %}
+    {% if is_forced_open %}
+      {% set t = as_timestamp(states[auto_up_force].last_changed) | float(0) %}
+      {% if t > candidates.best_ts %}{% set candidates.best = 'opn' %}{% set candidates.best_ts = t %}{% endif %}
+    {% endif %}
+    {% if is_forced_close %}
+      {% set t = as_timestamp(states[auto_down_force].last_changed) | float(0) %}
+      {% if t > candidates.best_ts %}{% set candidates.best = 'cls' %}{% set candidates.best_ts = t %}{% endif %}
+    {% endif %}
+    {% if is_forced_shade %}
+      {% set t = as_timestamp(states[auto_shading_start_force].last_changed) | float(0) %}
+      {% if t > candidates.best_ts %}{% set candidates.best = 'shd' %}{% set candidates.best_ts = t %}{% endif %}
+    {% endif %}
+    {% if is_forced_vent %}
+      {% set t = as_timestamp(states[auto_ventilate_force].last_changed) | float(0) %}
+      {% if t > candidates.best_ts %}{% set candidates.best = 'vnt' %}{% set candidates.best_ts = t %}{% endif %}
+    {% endif %}
+    {{ candidates.best }}
 
   # Does force allow movement in each direction? (realtime)
   # Each action is allowed if no conflicting force is active
@@ -3554,7 +3613,7 @@ variables:
 # - Each trigger is processed in order with current sensor values
 # - This ensures no trigger is lost due to timing issues
 mode: queued
-max: 10
+max: 20 # A restart queues one recovery run per recovering source
 max_exceeded: warning
 
 ################################################################################
@@ -4035,6 +4094,105 @@ triggers:
       minutes: 1
     enabled: "{{ is_cover_tilt_enabled }}"
 
+  ########################################
+  # Trigger for recovery after a restart or an outage
+  ########################################
+
+  - trigger: homeassistant
+    event: start
+    id: "t_recovery"
+
+  - trigger: state
+    entity_id: !input blind
+    from: &invalid_recovery_states
+      - "unavailable"
+      - "unknown"
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: &recovery_settle
+      seconds: 30
+
+  - trigger: state
+    entity_id: !input cover_status_helper
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ cover_status_helper != [] }}"
+
+  - trigger: state
+    entity_id: !input custom_position_sensor
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ position_source == 'custom_sensor' and custom_position_sensor != [] }}"
+
+  - trigger: state
+    entity_id: !input contact_window_opened
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
+
+  - trigger: state
+    entity_id: !input contact_window_tilted
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
+
+  - trigger: state
+    entity_id: !input resident_sensor
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ resident_sensor != [] }}"
+
+  # Condition-only sources
+  - trigger: state
+    entity_id: !input default_brightness_sensor
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ is_shading_enabled and default_brightness_sensor != [] }}"
+
+  - trigger: state
+    entity_id: !input default_sun_sensor
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
+
+  - trigger: state
+    entity_id: !input shading_forecast_sensor
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
+
+  - trigger: state
+    entity_id: !input calendar_entity
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ is_calendar_enabled and calendar_entity != [] }}"
+
+  - trigger: state
+    entity_id: !input workday_sensor
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ workday_sensor_today != [] }}"
+
   # Resets
   - trigger: template
     value_template: "{{ now() >= today_at(reset_override_time) }}"
@@ -4080,6 +4238,27 @@ conditions:
   - or:
       - "{{ trigger.to_state is not defined }}" # for "trigger: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger
+  - condition: template # State-critical entities must be usable, not just the triggering one
+    value_template: >-
+      {% set ns = namespace(ready=true) %}
+      {% for entity in critical_entities %}
+        {% if states(entity) in invalid_states %}{% set ns.ready = false %}{% endif %}
+      {% endfor %}
+      {{ ns.ready }}
+  # Only an unavailable helper blocks (its stored value is intact, just not loaded yet).
+  # An unknown/empty/corrupt helper must pass, so the init step can rewrite it.
+  - condition: template
+    value_template: "{{ cover_status_helper == [] or states(cover_status_helper) != 'unavailable' }}"
+  - condition: template # Stateless window contact: only blocks while the window was last known open/tilted
+    value_template: >-
+      {% set helper = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
+      {% set last_window_closed = helper in invalid_states or helper | regex_search('"win"\s*:\s*"cls"') %}
+      {% set contact_missing = is_ventilation_enabled and (
+           (contact_window_opened != [] and states(contact_window_opened) in invalid_states) or
+           (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
+      {{ last_window_closed or not contact_missing or
+         trigger.id | default('') in ['t_contact_opened_changed', 't_contact_tilted_changed',
+                                      't_manual_position', 't_manual_tilt'] }}
   - condition: template
     value_template: >-
       {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
@@ -4345,7 +4524,7 @@ actions:
       - "{{ forecast_source.use_weather and not forecast_source.prevent_service }}"
       - "{{ states(shading_forecast_sensor) not in invalid_states }}"
       - "{{ trigger.id is defined }}"
-      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start)') }}" # All shading-start triggers AND every opening trigger (so the opening handler can evaluate shading_start_warranted while a pending is armed, #514 follow-up)
+      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery)') }}" # All shading-start triggers, every opening trigger (so the opening handler can evaluate shading_start_warranted while a pending is armed, #514 follow-up) and the recovery
     then:
       - action: weather.get_forecasts
         target:
@@ -6277,7 +6456,10 @@ actions:
               contact_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
               # Live resident check — like contact sensors above, must be read after delay
               # to detect race conditions when both window and resident change quickly
-              resident_now: "{{ resident_sensor != [] and states(resident_sensor) in ['on', 'true'] }}"
+              resident_now: >-
+                {{ (helper_json.res | default(0) | int == 1)
+                   if (resident_sensor != [] and states(resident_sensor) in invalid_states)
+                   else (resident_sensor != [] and states(resident_sensor) in ['on', 'true']) }}
               # Present resident suppresses the open base state only when privacy-closing
               # is enabled or opening is not permitted (mirrors effective_state's privacy
               # and allow_open gates). Mere presence does NOT close the cover.
@@ -7081,27 +7263,7 @@ actions:
                 {% elif trigger.id == 't_force_disabled_shading' %}shd
                 {% elif trigger.id == 't_force_disabled_ventilate' %}vnt
                 {% else %}non{% endif %}
-              # Find the most recently activated force still ON, using entity last_changed.
-              # This ensures "last activated wins" instead of a fixed priority chain.
-              next_active_force: >-
-                {% set candidates = namespace(best='non', best_ts=-1) %}
-                {% if auto_up_force != [] and states(auto_up_force) in ['on', 'true'] %}
-                  {% set t = as_timestamp(states[auto_up_force].last_changed) | float(0) %}
-                  {% if t > candidates.best_ts %}{% set candidates.best = 'opn' %}{% set candidates.best_ts = t %}{% endif %}
-                {% endif %}
-                {% if auto_down_force != [] and states(auto_down_force) in ['on', 'true'] %}
-                  {% set t = as_timestamp(states[auto_down_force].last_changed) | float(0) %}
-                  {% if t > candidates.best_ts %}{% set candidates.best = 'cls' %}{% set candidates.best_ts = t %}{% endif %}
-                {% endif %}
-                {% if auto_shading_start_force != [] and states(auto_shading_start_force) in ['on', 'true'] %}
-                  {% set t = as_timestamp(states[auto_shading_start_force].last_changed) | float(0) %}
-                  {% if t > candidates.best_ts %}{% set candidates.best = 'shd' %}{% set candidates.best_ts = t %}{% endif %}
-                {% endif %}
-                {% if auto_ventilate_force != [] and states(auto_ventilate_force) in ['on', 'true'] %}
-                  {% set t = as_timestamp(states[auto_ventilate_force].last_changed) | float(0) %}
-                  {% if t > candidates.best_ts %}{% set candidates.best = 'vnt' %}{% set candidates.best_ts = t %}{% endif %}
-                {% endif %}
-                {{ candidates.best }}
+              next_active_force: "{{ live_force }}"
           # First check: Is another force still active? ("Last Wins" logic)
           - choose:
               - alias: "Force disabled: not the active frc — keep current state"
@@ -7654,6 +7816,164 @@ actions:
                   arm: 0
           - *helper_update
           - stop: "Midnight Reset executed"
+
+      ############################################################
+      # BRANCH (12): RECOVERY AFTER RESTART / OUTAGE
+      #   Trigger: Home Assistant start, or a source that became usable again
+      #   Source: Any state
+      #   Target: The state the cascade demands right now
+      #   Note: Re-evaluates all inputs from scratch - schedule, window, resident,
+      #         force and shading - because the events of the outage are lost
+      ############################################################
+
+      - alias: "Recovery after restart or outage - restore target state"
+        conditions:
+          - "{{ trigger.id is defined }}"
+          - "{{ trigger.id == 't_recovery' }}"
+          - "{{ not helper_state_manual or override_expired or effective_state == 'lock' }}" # Manual override survives, unless it is expired or overruled by lockout
+        sequence:
+          - variables:
+              # Base state re-derived from the schedule
+              recovered_base: >-
+                {% if is_time_control_disabled %}{{ helper_state_base }}
+                {% elif is_down_enabled and is_evening_phase %}cls
+                {% elif is_up_enabled and is_daytime_phase %}opn
+                {% else %}{{ helper_state_base }}{% endif %}
+              recovered_window: >-
+                {% set s_opn = contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
+                {% set s_tlt = contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
+                {{ 'opn' if s_opn else 'tlt' if s_tlt else helper_state_window if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' }}
+          - variables:
+              # Priority cascade - mirrors effective_state, but on the re-derived base state and live_force
+              recovered_state: >-
+                {% if live_force != 'non' %}
+                  {{ live_force }}
+                {% elif recovered_window == 'opn' %}
+                  lock
+                {% else %}
+                  {% if state_resident and resident_flags.closing_trigger %}
+                    {% set base_target = 'cls' %}
+                  {% elif helper_state_shade and resident_flags.allow_shade %}
+                    {% set base_target = 'shd' %}
+                  {% elif recovered_base == 'opn' and not resident_flags.allow_open %}
+                    {% set base_target = 'cls' %}
+                  {% else %}
+                    {% set base_target = recovered_base %}
+                  {% endif %}
+                  {% if recovered_window == 'tlt' and resident_flags.allow_ventilate and not (base_target == 'opn' and is_opening_scheduled) %}
+                    vnt
+                  {% else %}
+                    {{ base_target }}
+                  {% endif %}
+                {% endif %}
+              # A pending whose due time has passed can no longer execute - its trigger will not re-fire
+              pending_is_stale: "{{ helper_state_pending != 'non' and helper_ts_pending_due <= as_timestamp(now()) | round(0) }}"
+          - variables:
+              # Shading start/end re-evaluated from the current conditions
+              recovered_pending: >-
+                {% if not is_shading_enabled or (helper_state_pending != 'non' and not pending_is_stale) %}
+                  non
+                {% elif not helper_state_shade and shading_start_warranted and
+                        (not prevent_flags.shading_multiple_times or
+                         now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d')) %}
+                  beg
+                {% elif helper_state_shade and shading_end_conditions_met %}
+                  end
+                {% else %}
+                  non
+                {% endif %}
+          - variables:
+              # Mirrors the arming branches, incl. the deferral to the shading window start
+              recovered_due: >-
+                {% if recovered_pending == 'beg' %}
+                  {% set wait_due = (as_timestamp(now()) + shading_waitingtime_start | int) | int %}
+                  {% if is_time_control_disabled or is_shading_allowed_window %}
+                    {{ wait_due }}
+                  {% elif is_time_field_enabled %}
+                    {{ [wait_due, as_timestamp(today_at(time_up_early_today)) | int + 1] | max }}
+                  {% elif is_calendar_enabled and calendar_open_start is not none %}
+                    {{ [wait_due, calendar_open_start | int + 1] | max }}
+                  {% else %}
+                    {{ wait_due }}
+                  {% endif %}
+                {% elif recovered_pending == 'end' %}
+                  {{ (as_timestamp(now()) + shading_waitingtime_end | int) | int }}
+                {% elif pending_is_stale %}
+                  0
+                {% else %}
+                  {{ helper_ts_pending_due }}
+                {% endif %}
+              recovered_arm: >-
+                {% if recovered_pending == 'beg' %}
+                  {% set ts = as_timestamp(now()) | int %}
+                  {% if is_time_control_disabled or is_shading_allowed_window %}
+                    {{ ts }}
+                  {% elif is_time_field_enabled %}
+                    {{ [ts, as_timestamp(today_at(time_up_early_today)) | int] | max }}
+                  {% elif is_calendar_enabled and calendar_open_start is not none %}
+                    {{ [ts, calendar_open_start | int] | max }}
+                  {% else %}
+                    {{ ts }}
+                  {% endif %}
+                {% elif recovered_pending == 'end' %}
+                  {{ as_timestamp(now()) | int }}
+                {% elif pending_is_stale %}
+                  0
+                {% else %}
+                  {{ helper_ts_pending_arm }}
+                {% endif %}
+              lockout_blocks_shading: >-
+                {{ is_ventilation_enabled and
+                   (recovered_window == 'opn' or
+                    (lockout_tilted_when_shading_starts and recovered_window == 'tlt')) }}
+          - variables:
+              new_pending: "{{ recovered_pending if recovered_pending != 'non' else ('non' if pending_is_stale else helper_state_pending) }}"
+              # Let the shading execution do the movement instead of opening first
+              defer_to_shading: "{{ recovered_pending == 'beg' and recovered_state == 'opn' and not lockout_blocks_shading }}"
+              target_position: >-
+                {{ open_position if recovered_state in ['lock', 'opn']
+                   else ventilate_position if recovered_state == 'vnt'
+                   else shading_position if recovered_state == 'shd'
+                   else close_position }}
+              target_tilt_position: >-
+                {{ (open_tilt_position if recovered_state in ['lock', 'opn']
+                    else ventilate_tilt_position if recovered_state == 'vnt'
+                    else shading_tilt_position if recovered_state == 'shd'
+                    else close_tilt_position) | int }}
+          - variables:
+              recovery_allowed: >-
+                {{ not defer_to_shading and
+                   (force_allows_ventilate if recovered_state in ['lock', 'vnt']
+                    else force_allows_open if recovered_state == 'opn'
+                    else force_allows_shade if recovered_state == 'shd'
+                    else force_allows_close) }}
+              recovery_in_position: >-
+                {{ (target_position | int) >= (current_position | int) - (position_tolerance | int(0)) and
+                   (target_position | int) <= (current_position | int) + (position_tolerance | int(0)) }}
+              log_extra: >-
+                Recovery: base {{ helper_state_base }}->{{ recovered_base }},
+                frc {{ helper_state_force }}->{{ live_force }},
+                pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
+                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}
+          - variables:
+              update_values:
+                # Re-apply the cascade after the outage
+                bas: "{{ recovered_base }}"
+                win: "{{ recovered_window }}"
+                frc: "{{ live_force }}"
+                man: "{{ 0 if override_expired or (recovery_allowed and not recovery_in_position) else helper_json.man | default(0) | int }}"
+                pnd: "{{ new_pending }}"
+                ts:
+                  opn: "{{ 'now' if recovered_base == 'opn' and helper_state_base != 'opn' else helper_ts_open }}"
+                  cls: "{{ 'now' if recovered_base == 'cls' and helper_state_base != 'cls' else helper_ts_close }}"
+                  due: "{{ recovered_due | int }}"
+                  arm: "{{ recovered_arm | int }}"
+          - if: "{{ recovery_allowed }}"
+            then:
+              - *cover_move_action
+              - *tilt_move_action
+          - *helper_update
+          - stop: "Recovery executed (state: {{ recovered_state }}, pending: {{ new_pending }})"
 
     ############################################################
     # DEFAULT BRANCH - CONFIG CHECK
