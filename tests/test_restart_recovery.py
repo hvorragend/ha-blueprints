@@ -156,6 +156,33 @@ def _branch_var(alias_prefix: str, name: str) -> str:
     raise AssertionError(f"variable {name!r} not found in branch {alias_prefix!r}")
 
 
+def _action_var(name: str):
+    """Pull one variable out of the action-level `variables:` steps (the shared
+    projections the refactor introduced: state_targets, shading_once_guard_ok, ...)."""
+    for step in BP["actions"]:
+        if isinstance(step, dict) and name in step.get("variables", {}):
+            return step["variables"][name]
+    raise AssertionError(f"action-level variable {name!r} not found")
+
+
+def _top_var(name: str) -> str:
+    return BP["variables"][name]
+
+
+def _state_targets(**variables) -> dict:
+    """Render the real state_targets map from the blueprint, so tests that build a
+    drive_plan exercise the same projection the automation uses (incl. the
+    alternate shading position)."""
+    return {
+        state: {key: _render(tpl, {}, **variables) for key, tpl in params.items()}
+        for state, params in _action_var("state_targets").items()
+    }
+
+
+def _shading_once_guard_ok(**variables) -> bool:
+    return _render_bool(_action_var("shading_once_guard_ok"), {}, **variables)
+
+
 RECOVERY = "Recovery after restart or outage"
 
 
@@ -688,6 +715,10 @@ class TestRecoveredPending:
             helper_ts_shade=0,
         )
         base.update(over)
+        # The once-per-day guard is the shared action-level projection; render the real
+        # one from the blueprint so this still exercises prevent_flags / helper_ts_shade.
+        base["shading_once_guard_ok"] = _shading_once_guard_ok(
+            prevent_flags=base["prevent_flags"], helper_ts_shade=base["helper_ts_shade"])
         return _render(self.TPL(), {}, **base)
 
     def _new(self, recovered, stale, current):
@@ -864,13 +895,32 @@ class TestRecoveryDrive:
                      open_tilt_position=100, close_tilt_position=0,
                      ventilate_tilt_position=60, shading_tilt_position=40)
 
+    def _targets(self, state, effective_shading_position=30):
+        """Drive parameters via the real state_targets projection from the blueprint."""
+        targets = _state_targets(effective_shading_position=effective_shading_position,
+                                 **self.POSITIONS)
+        return (int(_render(self.TARGET(), {}, recovered_state=state, state_targets=targets)),
+                int(_render(self.TILT(), {}, recovered_state=state, state_targets=targets)))
+
     @pytest.mark.parametrize("state,pos,tilt", [
         ("lock", 100, 100), ("opn", 100, 100), ("vnt", 50, 60),
         ("shd", 30, 40), ("cls", 0, 0),
     ])
     def test_target_per_state(self, state, pos, tilt):
-        assert int(_render(self.TARGET(), {}, recovered_state=state, **self.POSITIONS)) == pos
-        assert int(_render(self.TILT(), {}, recovered_state=state, **self.POSITIONS)) == tilt
+        assert self._targets(state) == (pos, tilt)
+
+    def test_the_shading_target_honours_the_alternate_shading_position(self):
+        """#580: every other shading drive uses effective_shading_position. If the recovery
+        used the plain shading_position, a restart while the alternate position is active
+        would drag the cover back to the normal one - and recovery_in_position (which
+        compares against the recovery's own target) would not even notice."""
+        assert self._targets("shd", effective_shading_position=70) == (70, 40)
+
+    def test_the_recovery_drives_through_the_shared_projection(self):
+        """Guard against re-hardcoding the position chain: the target must come from
+        state_targets, not from a local if/else over the position inputs."""
+        assert "state_targets" in self.TARGET()
+        assert "state_targets" in self.TILT()
 
     # --- recovery_allowed ---
     def _allowed(self, state, **over):

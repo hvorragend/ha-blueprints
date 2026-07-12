@@ -5011,9 +5011,7 @@ actions:
               recovered_pending: >-
                 {% if not is_shading_enabled or (helper_state_pending != 'non' and not pending_is_stale) %}
                   non
-                {% elif not recovered_shade and shading_start_warranted and
-                        (not prevent_flags.shading_multiple_times or
-                         now().strftime('%Y-%m-%d') != helper_ts_shade | timestamp_custom('%Y-%m-%d')) %}
+                {% elif not recovered_shade and shading_start_warranted and shading_once_guard_ok %}
                   beg
                 {% elif recovered_shade and shading_end_conditions_met %}
                   end
@@ -5068,16 +5066,10 @@ actions:
               new_pending: "{{ recovered_pending if recovered_pending != 'non' else ('non' if pending_is_stale else helper_state_pending) }}"
               # Let the shading execution do the movement instead of opening first
               defer_to_shading: "{{ recovered_pending == 'beg' and recovered_state == 'opn' and not lockout_blocks_shading }}"
-              target_position: >-
-                {{ open_position if recovered_state in ['lock', 'opn']
-                   else ventilate_position if recovered_state == 'vnt'
-                   else shading_position if recovered_state == 'shd'
-                   else close_position }}
-              target_tilt_position: >-
-                {{ (open_tilt_position if recovered_state in ['lock', 'opn']
-                    else ventilate_tilt_position if recovered_state == 'vnt'
-                    else shading_tilt_position if recovered_state == 'shd'
-                    else close_tilt_position) | int }}
+              # Drive parameters from the shared reconciler projection, so the shading
+              # target honours the alternate shading position like every other drive
+              target_position: "{{ state_targets[recovered_state].target | int }}"
+              target_tilt_position: "{{ state_targets[recovered_state].target_tilt | int }}"
           - variables:
               # A manual override still blocks the DRIVE (only lockout overrules it, Invariant 6),
               # but it must not block the helper hygiene above - otherwise a stale shading or a
