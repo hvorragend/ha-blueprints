@@ -5,7 +5,7 @@ Two halves that only work together:
 
   1. The GATE (global conditions) stops a run while a state-critical entity has no
      usable state, so no wrong status can be persisted.
-  2. The RECOVERY (t_recovery -> BRANCH 12) replays what the outage swallowed:
+  2. The RECOVERY (t_recovery -> the recovery gate) replays what the outage swallowed:
      time/calendar triggers of that period never fire again, and template/numeric
      triggers only fire on a false->true transition, which is consumed while the
      run is blocked.
@@ -17,7 +17,7 @@ and each has a test here:
                            that would clear `win`, deadlocking itself)
   * helper `unknown`    -> gate blocks on `unavailable` only (else the init/repair
                            step is unreachable and the automation is dead forever)
-  * override reset      -> re-evaluated in BRANCH 12 (`override_expired`), because
+  * override reset      -> re-evaluated in the recovery gate (`override_expired`), because
                            t_reset_timeout/t_reset_position latch and never re-fire
 
 All templates are extracted verbatim from the blueprint, so these tests exercise
@@ -142,15 +142,32 @@ def _top_level_branches() -> list[dict]:
 
 
 def _branch(alias_prefix: str) -> dict:
+    """A dispatch branch of the main choose, or a pre-dispatch step (the recovery gate,
+    which is deliberately NOT one of the numbered branches - it runs before the dispatch)."""
     for b in _top_level_branches():
         if b.get("alias", "").startswith(alias_prefix):
             return b
+    for step in BP["actions"]:
+        if isinstance(step, dict) and str(step.get("alias", "")).startswith(alias_prefix):
+            return step
     raise AssertionError(f"branch {alias_prefix!r} not found")
 
 
+def _branch_body(alias_prefix: str) -> list:
+    """The steps a branch runs: `sequence:` in a choose branch, `then:` in an if-step."""
+    b = _branch(alias_prefix)
+    return b.get("sequence") or b.get("then")
+
+
+def _branch_gate(alias_prefix: str) -> list:
+    """The entry conditions: `conditions:` in a choose branch, `if:` in an if-step."""
+    b = _branch(alias_prefix)
+    return b.get("conditions") or b.get("if")
+
+
 def _branch_var(alias_prefix: str, name: str) -> str:
-    """Pull one variable template out of a branch's sequence."""
-    for step in _branch(alias_prefix)["sequence"]:
+    """Pull one variable template out of a branch's body."""
+    for step in _branch_body(alias_prefix):
         if isinstance(step, dict) and name in step.get("variables", {}):
             return step["variables"][name]
     raise AssertionError(f"variable {name!r} not found in branch {alias_prefix!r}")
@@ -401,12 +418,12 @@ class TestOverrideExpired:
         """The gate lives in recovery_allowed, NOT in the branch conditions. If it gated the
         branch, a manual override would also block the stale-day cleanup - so a shading from
         three days ago would survive the recovery whenever man == 1."""
-        assert not any("helper_state_manual" in str(c) for c in _branch(RECOVERY)["conditions"])
+        assert not any("helper_state_manual" in str(c) for c in _branch_gate(RECOVERY))
         allowed = _branch_var(RECOVERY, "recovery_allowed")
         assert "helper_state_manual" in allowed and "override_expired" in allowed
 
     def test_recovery_clears_man_when_expired(self):
-        for step in _branch(RECOVERY)["sequence"]:
+        for step in _branch_body(RECOVERY):
             uv = step.get("variables", {}).get("update_values") if isinstance(step, dict) else None
             if uv and "man" in uv:
                 assert "override_expired" in uv["man"]
@@ -415,7 +432,7 @@ class TestOverrideExpired:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: base state re-derived from the schedule
+# Recovery gate: base state re-derived from the schedule
 # ════════════════════════════════════════════════════════════════════════════
 class TestRecoveredBase:
     TPL = staticmethod(lambda: _branch_var(RECOVERY, "recovered_base"))
@@ -450,7 +467,7 @@ class TestRecoveredBase:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: recovered_state must stay in sync with effective_state
+# Recovery gate: recovered_state must stay in sync with effective_state
 # ════════════════════════════════════════════════════════════════════════════
 class TestCascadeParity:
     """recovered_state mirrors effective_state, but on the re-derived base state and
@@ -527,7 +544,7 @@ class TestCascadeParity:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: recovered_state on inputs that DIVERGE from the helper
+# Recovery gate: recovered_state on inputs that DIVERGE from the helper
 #
 # The parity test above feeds both cascades the same base/force, so by construction
 # it can never see whether recovered_state accidentally reads the stale helper. That
@@ -661,7 +678,7 @@ class TestLiveForceFallback:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: recovered_window
+# Recovery gate: recovered_window
 # ════════════════════════════════════════════════════════════════════════════
 class TestRecoveredWindow:
     TPL = staticmethod(lambda: _branch_var(RECOVERY, "recovered_window"))
@@ -692,7 +709,7 @@ class TestRecoveredWindow:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: the shading pending - re-evaluated, not replayed
+# Recovery gate: the shading pending - re-evaluated, not replayed
 # ════════════════════════════════════════════════════════════════════════════
 class TestRecoveredPending:
     STALE = staticmethod(lambda: _branch_var(RECOVERY, "pending_is_stale"))
@@ -779,7 +796,7 @@ class TestRecoveredPending:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: recovered_due / recovered_arm mirror the arming branches
+# Recovery gate: recovered_due / recovered_arm mirror the arming branches
 # ════════════════════════════════════════════════════════════════════════════
 class TestRecoveredDueAndArm:
     DUE = staticmethod(lambda: _branch_var(RECOVERY, "recovered_due"))
@@ -842,7 +859,7 @@ class TestRecoveredDueAndArm:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: the drive - defer, lockout, target, force gate
+# Recovery gate: the drive - defer, lockout, target, force gate
 # ════════════════════════════════════════════════════════════════════════════
 class TestRecoveryDrive:
     LOCKOUT = staticmethod(lambda: _branch_var(RECOVERY, "lockout_blocks_shading"))
@@ -987,7 +1004,7 @@ class TestRecoveryDrive:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# BRANCH 12: what actually lands in the helper
+# Recovery gate: what actually lands in the helper
 # ════════════════════════════════════════════════════════════════════════════
 class TestRecoveryPersists:
     """A recovery that computes the right thing and then writes the stale one is
@@ -1042,7 +1059,7 @@ class TestRecoveryPersists:
     def test_the_users_override_reset_action_runs_for_a_swallowed_reset(self):
         """BRANCH 10 runs it on every reset. A reset caught up by the recovery must not
         silently skip the notification/scene the user wired to it."""
-        steps = _branch(RECOVERY)["sequence"]
+        steps = _branch_body(RECOVERY)
         assert any(
             isinstance(s, dict) and "override_expired" in str(s.get("if", ""))
             and "auto_override_reset_action" in str(s.get("then", ""))
@@ -1131,20 +1148,31 @@ class TestResumeTrigger:
 
 
 class TestResumedRunClaimsEveryTrigger:
-    def test_the_recovery_branch_is_first_in_the_choose(self):
-        """On a resumed run the recovery accepts ANY trigger id. If it were not first, an
-        earlier branch would act on the untrusted helper before the recovery could fix it."""
-        assert _top_level_branches()[0]["alias"].startswith(RECOVERY)
+    def test_the_recovery_gate_runs_before_the_dispatch(self):
+        """On a resumed run the recovery accepts ANY trigger id. If a dispatch branch could
+        run first, it would act on the untrusted helper before the recovery could fix it.
+        The gate is a pre-dispatch step, not a numbered branch - so it cannot be reordered
+        into the choose by accident, and it leaves the branch indices alone."""
+        steps = BP["actions"]
+        gate = next(i for i, s in enumerate(steps)
+                    if isinstance(s, dict) and str(s.get("alias", "")).startswith(RECOVERY))
+        choose = next(i for i, s in enumerate(steps)
+                      if isinstance(s, dict) and isinstance(s.get("choose"), list)
+                      and len(s["choose"]) > 5)
+        assert gate < choose
+        assert "if" in steps[gate] and "then" in steps[gate]
+        assert not any(b.get("alias", "").startswith(RECOVERY) for b in _top_level_branches()), \
+            "the recovery must not also live inside the dispatch choose"
 
     def test_any_trigger_is_claimed_while_resumed(self):
-        gate = next(c for c in _branch(RECOVERY)["conditions"] if "trigger.id ==" in str(c))
+        gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
         for tid in ["t_open_1", "t_close_5", "t_contact_opened_changed", "t_manual_position",
                     "t_shading_start_pending_1", "t_reset_timeout"]:
             assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
                                 automation_resumed=True) is True, tid
 
     def test_normal_runs_are_not_claimed(self):
-        gate = next(c for c in _branch(RECOVERY)["conditions"] if "trigger.id ==" in str(c))
+        gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
         for tid in ["t_open_1", "t_close_5", "t_manual_position"]:
             assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
                                 automation_resumed=False) is False, tid
@@ -1323,8 +1351,9 @@ class TestBranchDispatch:
     def _matching_branches(self, trigger_id: str) -> list[str]:
         trigger = types.SimpleNamespace(id=trigger_id)
         hits = []
-        for b in _top_level_branches():
-            gates = [c for c in b.get("conditions", []) if isinstance(c, str) and "trigger.id" in c]
+        for b in [_branch(RECOVERY)] + _top_level_branches():
+            entry = b.get("conditions") or b.get("if") or []
+            gates = [c for c in entry if isinstance(c, str) and "trigger.id" in c]
             if gates and all(_render_bool(g, {}, strict=False, trigger=trigger) for g in gates):
                 hits.append(b.get("alias", "?"))
         return hits
@@ -1347,7 +1376,7 @@ class TestBranchDispatch:
         )
 
     def test_recovery_is_reached_by_exactly_one_branch(self):
-        """Hence the position of the recovery branch in the choose is irrelevant."""
+        """t_recovery is claimed by the pre-dispatch gate and by no dispatch branch."""
         hits = self._matching_branches("t_recovery")
         assert len(hits) == 1, hits
         assert hits[0].startswith(RECOVERY)
