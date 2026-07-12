@@ -6201,34 +6201,6 @@ actions:
                       - stop: "Shading End Pending: Waiting"
 
                   ######################################
-                  # Only tilt open after shading ends
-                  ######################################
-                  - alias: "Only tilt open after shading ends"
-                    conditions:
-                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                      - "{{ helper_state_pending_end }}"
-                      - "{{ is_cover_tilt_enabled_and_possible }}"
-                      - "{{ prevent_flags.opening_after_shading_end}}"
-                    sequence:
-                      - variables:
-                          target_tilt_position: 50 # Moving the cover to open tilt position
-                          update_values:
-                            # Clear shading, tilt only
-                            shd: 0
-                            man: "{{ 0 if not is_forced else helper_json.man | default(0) | int }}"
-                            pnd: 'non'
-                            ts:
-                              shd: "now"
-                              due: 0
-                              arm: 0 # Clear retry anchor (sequence ended)
-                      - if:
-                          - "{{ not is_forced }}"
-                        then:
-                          - *tilt_move_action
-                      - *helper_update
-                      - stop: "Shading End: Tilt executed"
-
-                  ######################################
                   # Lockout protection when shading ends
                   ######################################
                   - alias: "Lockout protection when shading ends"
@@ -6309,6 +6281,34 @@ actions:
                             default: !input auto_ventilate_action
                       - *helper_update
                       - stop: "Shading End: Ventilation activated"
+
+                  ######################################
+                  # Only tilt open after shading ends
+                  ######################################
+                  - alias: "Only tilt open after shading ends"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ helper_state_pending_end }}"
+                      - "{{ is_cover_tilt_enabled_and_possible }}"
+                      - "{{ prevent_flags.opening_after_shading_end}}"
+                    sequence:
+                      - variables:
+                          target_tilt_position: "{{ open_tilt_position | int }}" # Moving the cover to open tilt position
+                          update_values:
+                            # Clear shading, tilt only
+                            shd: 0
+                            man: "{{ 0 if not is_forced else helper_json.man | default(0) | int }}"
+                            pnd: 'non'
+                            ts:
+                              shd: "now"
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
+                      - if:
+                          - "{{ not is_forced }}"
+                        then:
+                          - *tilt_move_action
+                      - *helper_update
+                      - stop: "Shading End: Tilt executed"
 
                   ########################################################
                   # Move cover after shading end - conditions still valid
