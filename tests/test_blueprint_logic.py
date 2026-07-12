@@ -764,19 +764,23 @@ class TestManualUnknownClearsShadingState:
         return _load_blueprint_yaml(BLUEPRINT_PATH)
 
     def _get_update_values(self) -> dict:
+        # The unknown-position case is the default of the classification
+        # choose inside "Checking for manual position changes".
         blueprint = self._load_blueprint()
-        branch = _find_branch_by_alias(
-            blueprint, "Manual: position cannot be assigned (unknown)"
-        )
+        branch = _find_branch_by_alias(blueprint, "Checking for manual position changes")
         assert branch is not None, (
-            "Could not find 'Manual: position cannot be assigned (unknown)' branch"
+            "Could not find 'Checking for manual position changes' branch"
         )
-        seq = branch.get("sequence", [])
+        classify = branch["sequence"][0]
+        assert "choose" in classify and "default" in classify, (
+            "Expected the classification choose with an unknown-position default"
+        )
         variables_step = next(
-            (s for s in seq if isinstance(s, dict) and "variables" in s), None
+            (s for s in classify["default"] if isinstance(s, dict) and "variables" in s),
+            None,
         )
         assert variables_step is not None, (
-            "No 'variables:' step found in manual-unknown sequence"
+            "No 'variables:' step found in manual-unknown default"
         )
         return variables_step["variables"].get("update_values", {})
 
@@ -2040,12 +2044,15 @@ class TestForcePauseDisabledHasBackgroundOpen:
     the cover drives to open when the background state says open.
     """
 
-    def test_force_pause_disabled_has_background_open_branch(self):
+    def test_force_pause_disabled_drives_open_for_effective_state_opn(self):
+        # The handler is a switch over effective_state; 'opn' (and any
+        # unexpected value) is served by the choose default, which must drive
+        # to the open position with the auto_up action set.
         blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
 
         def walk(node):
             if isinstance(node, dict):
-                if node.get("alias") == "Force pause disabled: drive to OPEN target (background, base=opn)":
+                if node.get("alias") == "Drive to target position after force pause disabled":
                     return node
                 for v in node.values():
                     r = walk(v)
@@ -2058,12 +2065,23 @@ class TestForcePauseDisabledHasBackgroundOpen:
                         return r
             return None
 
-        branch = walk(blueprint)
-        assert branch is not None, (
-            "Missing background-open branch in Force-Pause-Disabled handler — "
-            "with bas=opn + tilted window the effective_state is now 'opn' and "
-            "needs an explicit drive branch."
+        handler = walk(blueprint)
+        assert handler is not None, "Force-Pause-Disabled handler missing"
+        switch = next(s for s in handler["sequence"] if isinstance(s, dict) and "choose" in s)
+        # No branch may claim effective_state == 'opn'; it must fall to default.
+        for branch in switch["choose"]:
+            assert "effective_state == 'opn'" not in str(branch.get("conditions", "")), (
+                "open must be handled by the default, not a dedicated branch"
+            )
+        default = switch.get("default")
+        assert default, (
+            "Missing open/default drive in Force-Pause-Disabled handler — "
+            "with bas=opn + tilted window the effective_state is 'opn' and "
+            "must still be driven after unpausing."
         )
+        variables_step = next(s for s in default if isinstance(s, dict) and "variables" in s)
+        assert variables_step["variables"].get("target_position") == "open_position"
+        assert "auto_up_action" in str(default)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

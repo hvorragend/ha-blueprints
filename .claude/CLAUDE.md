@@ -161,10 +161,11 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 - `pnd: 'non'` always implies `ts.due == 0` and `ts.arm == 0`. Terminal branches must set all three together.
 - Retry-continuation branches must set `pnd: 'beg'` (or `'end'`) and the new `ts.due`, but **not** `ts.arm` — `helper_update` preserves the existing value automatically when a key is omitted.
 - Terminal branches that clear pending:
-  - Start: Drive, Lockout-skip, Save-for-future, both Abort branches
-  - End: Tilt-only, Lockout, Ventilation, Move-cover (both then/else), Stop retry, stale-pending cleanup (#395)
+  - Start: Drive, Lockout-skip, Save-for-future, no-drive default of the drive choose, Abort (shared retry routine)
+  - End: Tilt-only, Lockout, Ventilation, Move-cover (then/else and the opening-prevented else), Stop retry, stale-pending cleanup (#395)
   - Midnight reset (BRANCH 11, "Reset shading status")
   - Incidental clears in non-shading branches (force, manual) — also clear all three for hygiene.
+- **Every execution path must be terminal** (Bug Pattern AK): any path reachable from `t_shading_start_execution` / `t_shading_end_execution` must end in a helper write that either re-arms (`pnd` + new `ts.due`) or clears (`pnd: 'non'`, `ts.due/arm: 0`). The execution templates compare `now() >= ts.due`; once due is in the past they stay true forever and never re-fire — a path that stops without a helper write leaves the pending armed until the midnight reset. Drive chooses inside the execution handlers therefore need a default, and `if:` steps before a `stop:` need an else.
 - **Contact handler branches must NOT reset `pnd`/`ts.due`/`ts.arm`.** Window open/close events are orthogonal to shading pending state. Omit these keys from `update_values` so `helper_update` preserves the existing values (#484).
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
@@ -255,6 +256,35 @@ The parity tests (`tests/test_restart_recovery.py::TestCascadeParity`) render
 both templates with identical inputs and fail when they drift apart — extend
 them with a scenario covering the change, do not weaken them to make a
 divergence pass.
+
+### ⚠️ Invariant 14: Anchor bodies are rendered as variables on every run
+
+The anchors `&cover_move_action`, `&tilt_move_action`, `&drive_with_actions`
+and `&helper_update` are defined as **values of a top-level `variables:`
+step**. Home Assistant renders variable values recursively when that step
+executes, so every template inside those anchor bodies is evaluated once per
+run **outside** its real execution context (no `repeat`, no `wait`, no
+`target_position`, no `drive_action_set`).
+
+**Rule:** Every runtime-context reference inside an anchor body must be
+template-guarded:
+
+- `{{ repeat.item if repeat is defined else '' }}` — never plain `repeat.item`
+- `{{ wait.completed if wait is defined else '' }}`
+- `target_position | default(101)`, `drive_action_set | default('')`, …
+
+These guards look like dead defensive code but are load-bearing: removing
+them makes the anchor-definition step raise `UndefinedError` on every run.
+Anchors that must not be pre-rendered (e.g. `&shading_start_retry`) are
+instead defined at their first use inside the action tree — such anchors are
+only evaluated in their real context, but can only be aliased *after* their
+textual position in the file.
+
+The shared drive idiom `&drive_with_actions` (before-action → cover move →
+tilt move → after-action) is selected via the `drive_action_set` variable
+(`up` / `down` / `ventilate` / `shading_start` / `shading_end`). Delays and
+`*helper_update` deliberately stay at the call site so ordering and timing
+remain visible per branch.
 
 ---
 
@@ -998,6 +1028,18 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 
 ---
 
+### Bug Pattern AK: Pending execution path ends without a helper write → pending stuck until midnight
+
+**Symptom:** A shading start (or end) never executes and never retries. The helper shows `pnd: 'beg'` (or `'end'`) with a `ts.due` in the past, and no further `t_shading_*_execution` run appears in the traces. New pending triggers are blocked (arm branches gate on `not helper_state_pending_*`). The state only clears at the 23:55 midnight reset.
+
+**Cause:** The execution triggers are template triggers on `now() >= ts.due`. For a past `ts.due` the template stays `true` forever — there is no new FALSE→TRUE edge, so the trigger never re-fires. Any execution path that ends **without** a helper write (neither re-arm nor clear) therefore freezes the pending. Two instances found and fixed (CCA 2026.07.12 V2):
+
+- The shading-start drive choose (lockout / start shading / save-for-future) had **no default**. A non-tilt cover resting exactly at the shading position (neither `current_above_shading` nor `current_below_shading`), or a cover held at the ventilation floor (`effective_state == 'vnt'`, third OR-alternative requires `'opn'`), matched no branch → fall-through without helper write.
+- "Move cover after shading end" wrapped its whole body in `if not prevent_flags.opening_after_shading_end` with **no else**, followed by `stop:`. With the prevent option set and tilt not possible (the tilt-only branch requires tilt), the sequence stopped without a helper write.
+
+**Fix:** Give every drive choose inside the execution handlers a `default:` that records the state and clears the pending, and give every `if:` before a `stop:` an `else:` that clears the pending. See the "Every execution path must be terminal" rule in Invariant 8.
+---
+
 ## Language & Style Conventions
 
 - **CLAUDE.md**: Written in English.
@@ -1073,7 +1115,7 @@ Do **not** use `{# ... #}` comments inside Jinja2 templates. They clutter the te
 The version string exists in **two** locations — both must be updated together:
 
 1. **Description** (user-facing): line ~7 → `**Version**: YYYY.MM.DD`
-2. **Variable** (runtime): line ~2756 → `version: "YYYY.MM.DD"`
+2. **Variable** (runtime): the `version:` entry at the top of the `variables:` block → `version: "YYYY.MM.DD"` (find it with `grep -n 'version: "20' <blueprint>`)
 
 The **changelog** is at `docs/CHANGELOG.md` (symlinked from `blueprints/automation/CHANGELOG.md`). Add a new `# CCA YYYY.MM.DD` section at the top with the changes. Use the existing emoji/format conventions (🐛 Fix, 🔧 Improvement, ✨ Feature).
 

@@ -1,7 +1,7 @@
 {% raw %}
 # ❓ Cover Control Automation (CCA) - Frequently Asked Questions
 
-This comprehensive FAQ covers the most common questions about Cover Control Automation. For additional support, visit the [CCA Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539), check out the [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/) for debugging, or report issues on [GitHub](https://github.com/hvorragend/ha-blueprints/issues).
+This comprehensive FAQ covers the most common questions about Cover Control Automation. Looking for the full reference of every blueprint input? See the [📖 CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/). For additional support, visit the [CCA Community Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539), check out the [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/) for debugging, or report issues on [GitHub](https://github.com/hvorragend/ha-blueprints/issues).
 
 ---
 
