@@ -268,6 +268,29 @@ single (non-staged) shading tilt.
 
 Do not re-add a `tp`/last-tilt helper field to "fix" this.
 
+### Alternate shading position resolves live via `effective_shading_position` (#580)
+
+An optional second shading depth (`shading_position_alt`) is active while the
+gating entity (`shading_position_alt_entity`, `binary_sensor`/`input_boolean`)
+is `on`. The single source of truth is the `effective_shading_position`
+variable (full `variables:` block — it calls `states()`, so it must not move
+into `trigger_variables:`, Invariant 10). **Every** shading consumer reads it:
+`in_shading_position`, all shading-related `position_comparisons`, and every
+drive site (`target_position`). Never reference the raw `shading_position`
+input in a consumer — that silently breaks the alt depth.
+
+The mid-shading depth switch is handled by `t_shading_position_alt` + the
+"Check for alternate shading position" branch (3b), modeled on "Check for
+shading tilt": only while `shd == 1`, gated on force/resident/window/manual.
+It re-applies the shading **tilt** after the position move (a position drive
+physically disturbs the slat angle on tilt covers) and clears `man` only when
+it actually drives (`not in_shading_position` in the if-guard, Invariants 1+7).
+A depth change is **not** a shading start: `shd`, `ts.shd`, and the pending
+keys stay untouched, so `prevent_shading_multiple_times` is unaffected. No
+helper field stores the active depth (same rationale as #558 — the helper
+holds logical state; the brief `in_shading_position` volatility after a switch
+is accepted and healed by the re-drive trigger).
+
 ### Resident handler bypasses `helper_state_manual` / `override_flags.*`
 
 The resident sensor handler (`resident_leaving` / `resident_arriving`) does **not** check `not (helper_state_manual and override_flags.X)` in any of its branches. All other handlers (Open, Close, Shading-Start, Shading-End, Contact, Manual) do.
@@ -909,7 +932,29 @@ When the lockout applies, execution falls through to "Normal opening", which dri
 
 ---
 
-### Bug Pattern AH: Unavailable cover corrupts the helper via the 101 position sentinel
+### Bug Pattern AH: Time-control disable path unreachable through the UI (Issue #544)
+
+**Symptom:** Unchecking the *"⏲️ Time Control"* checkbox in `auto_options` has no effect for installations created after the options consolidation (~2026.05). Brightness-/sun-only setups stay gated by the default Early/Late time windows; there is no way to disable time control through the UI.
+
+**Cause:** `is_time_control_disabled` required **both** `'time_control_enabled' not in auto_options` **and** `'time_control_disabled' in time_control` — but the `time_control` selector no longer offered a `disabled` option, so the second clause could never become true for new installs. The state "`time_control_enabled` missing from `auto_options`" is ambiguous by itself: it means either "legacy pre-consolidation install (keep time control)" or "new user deliberately unchecked (wants it off)" — the checkbox alone cannot be made authoritative without silently disabling time control for every legacy install.
+
+**Fix (maintainer decision — deliberate breaking change):** The `time_control_enabled` checkbox in `auto_options` is the single authoritative switch; the legacy `time_control` selector only picks the *source* (time fields vs calendar) and its old `time_control_disabled` value is no longer evaluated:
+
+```yaml
+is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options }}"
+is_time_field_enabled: "{{ 'time_control_enabled' in auto_options and 'time_control_input' in time_control }}"
+is_calendar_enabled: "{{ 'time_control_enabled' in auto_options and 'time_control_calendar' in time_control and calendar_entity != [] }}"
+```
+
+Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essential: the time/calendar triggers carry `enabled: "{{ is_time_field_enabled }}"` / `is_calendar_enabled`, so without the gate the Late trigger would still fire while time control is "disabled". The checkbox stays in the `default:` list (new installs get the Late safety net by default). The `time_control_disabled` option is **not** offered in the dropdown — one switch, one mechanism. Pre-consolidation configs that had chosen `time_control_disabled` remain disabled (checkbox absent), matching their original intent. The config validator (`docs/validator/validator.js`) mirrors the logic and warns about the breaking change.
+
+**Accepted breakage:** Pre-consolidation installs with `time_control_input`/`time_control_calendar` (no `time_control_enabled` stored) silently lose time control after the update until the automation is re-saved with the checkbox enabled — for pure time-schedule users this stops opening/closing entirely. The ambiguity ("value missing = legacy install or deliberate uncheck") cannot be resolved from stored data; the maintainer chose the clean end state over keeping a permanently ambiguous hybrid clause, with prominent CHANGELOG/FAQ communication instead of silent compat.
+
+**Rule:** When one UI input must be authoritative and the stored data cannot distinguish legacy absence from deliberate absence, do not encode the ambiguity into a hybrid AND-clause forever — pick the authoritative input, document the one-time breakage loudly, and make every dependent flag (`is_time_field_enabled`, `is_calendar_enabled`, trigger `enabled:` gates) follow the same single switch.
+
+---
+
+### Bug Pattern AI: Unavailable cover corrupts the helper via the 101 position sentinel
 
 **Symptom:** After a HA restart or an outage of the cover integration, CCA keeps reacting to time/sun/contact triggers while the cover itself is `unavailable`. Symptoms vary: movements are silently skipped (the cover is mistaken for "already open"), runs abort mid-sequence with `HomeAssistantError: Entity cover.x is not available` so the helper is never written, and — the worst case — a helper write derived from the bogus position **overwrites a still-correct state**, e.g. an active shading (`shd: 1`) from before the restart.
 
@@ -918,6 +963,7 @@ When the lockout applies, execution falls through to "Normal opening", which dri
 **Fix:** A global condition over `critical_entities` — every entity whose invalid state would make the cascade compute a *wrong* target must be usable, not just the trigger source. Use the shared `invalid_states` constant, **not** `!= 'unavailable'`: an `unknown` entity (restart before restore, deleted entity) is just as broken. Paired with the `t_recovery` trigger set + BRANCH 12, because a blocked automation silently loses every event of the outage window. See the design decision *"Restart / outage handling: block on state-critical entities, recover via `t_recovery`"* for the entity list, the group semantics, why condition-only sensors are excluded, and why the check is on the **state** and not on the position sentinel.
 
 **Rule:** A guard that stops the automation from acting on bad data must be paired with a way to *catch up* once the data is good again — otherwise the guard converts a corruption bug into a silent-miss bug. Blocking is only half a fix; the recovery path is the other half. And the guard must cover *every* input the cascade reads, not just the one that surfaced the bug: a dropped window contact reads as "closed" and silently disables the lockout exactly like a dropped cover reads as "open".
+
 
 ---
 

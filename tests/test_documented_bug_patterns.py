@@ -1113,3 +1113,87 @@ class TestPatternAGOpeningLockoutNotDeferredToShading:
         assert "is_ventilation_enabled" in conds
         assert "contact_window_opened" in conds
         assert "lockout_tilted_when_shading_starts" in conds
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #544: Time Control disable must be reachable via the UI —
+# the time_control_enabled checkbox in auto_options is the single
+# authoritative switch; the legacy selector value is no longer evaluated.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_time_flag(flag, auto_options, time_control, calendar_entity=None):
+    blueprint = _load_blueprint_yaml()
+    template = blueprint["trigger_variables"][flag]
+    out = jinja2.Environment().from_string(template).render(
+        auto_options=auto_options,
+        time_control=time_control,
+        calendar_entity=calendar_entity if calendar_entity is not None else [],
+    )
+    return out.strip() == "True"
+
+
+class TestIssue544TimeControlDisable:
+    """#544: the auto_options checkbox is the single authoritative switch."""
+
+    def test_selector_does_not_offer_legacy_disabled_value(self):
+        blueprint = _load_blueprint_yaml()
+        inputs = blueprint["blueprint"]["input"]["feature_section"]["input"]
+        options = inputs["time_control"]["selector"]["select"]["options"]
+        values = [o["value"] for o in options]
+        assert "time_control_disabled" not in values
+        assert values == ["time_control_input", "time_control_calendar"]
+
+    def test_checkbox_is_offered_and_in_defaults(self):
+        blueprint = _load_blueprint_yaml()
+        inputs = blueprint["blueprint"]["input"]["feature_section"]["input"]
+        auto = inputs["auto_options"]
+        values = [o["value"] for o in auto["selector"]["select"]["options"]]
+        assert "time_control_enabled" in values
+        assert "time_control_enabled" in auto["default"]
+
+    def test_unchecked_checkbox_disables(self):
+        # The bug: this had no effect. Now it is the single disable path.
+        assert _render_time_flag(
+            "is_time_control_disabled", ["auto_up_enabled"], "time_control_input"
+        ) is True
+
+    def test_checked_checkbox_enables(self):
+        assert _render_time_flag(
+            "is_time_control_disabled",
+            ["auto_up_enabled", "time_control_enabled"],
+            "time_control_input",
+        ) is False
+
+    def test_legacy_disabled_value_is_ignored_but_config_stays_disabled(self):
+        # Pre-consolidation config that chose 'disabled': the value itself is no
+        # longer evaluated, but the missing checkbox disables — original intent kept.
+        assert _render_time_flag(
+            "is_time_control_disabled", ["auto_up_enabled"], "time_control_disabled"
+        ) is True
+        # Even with the checkbox on, the legacy value must not disable.
+        assert _render_time_flag(
+            "is_time_control_disabled",
+            ["time_control_enabled"],
+            "time_control_disabled",
+        ) is False
+
+    def test_time_fields_gated_on_checkbox(self):
+        # Without the checkbox the time triggers (enabled: is_time_field_enabled)
+        # must be off, or the Late trigger would fire despite "disabled".
+        assert _render_time_flag(
+            "is_time_field_enabled", [], "time_control_input"
+        ) is False
+        assert _render_time_flag(
+            "is_time_field_enabled", ["time_control_enabled"], "time_control_input"
+        ) is True
+
+    def test_calendar_gated_on_checkbox(self):
+        assert _render_time_flag(
+            "is_calendar_enabled", [], "time_control_calendar",
+            calendar_entity="calendar.covers",
+        ) is False
+        assert _render_time_flag(
+            "is_calendar_enabled", ["time_control_enabled"], "time_control_calendar",
+            calendar_entity="calendar.covers",
+        ) is True

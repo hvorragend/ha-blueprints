@@ -407,21 +407,19 @@ class CCAValidator {
         // Apply the blueprint default (time_control_input) when the field is omitted,
         // so an unset selector is not mistaken for "disabled".
         const timeControl = c.time_control || 'time_control_input';
-        // Hybrid backward-compat logic: matches blueprint is_time_control_disabled
-        const isTimeControlDisabled = !autoOptions.includes('time_control_enabled') && timeControl === 'time_control_disabled';
+        // The time_control_enabled checkbox in auto_options is authoritative (issue #544):
+        // matches blueprint is_time_control_disabled
+        const isTimeControlDisabled = !autoOptions.includes('time_control_enabled');
 
         if (isTimeControlDisabled) {
-            this.addInfo('⏰ Time control is disabled - skipping time validation');
+            this.addInfo('⏰ Time control is disabled (time_control_enabled not in auto_options) - skipping time validation');
+            this.addWarning('⚠️ Breaking change (2026.07.12): time control is disabled whenever "time_control_enabled" is missing from auto_options. If this configuration predates the options consolidation (~2026.05) and you still want time windows, add time_control_enabled to auto_options.');
             return;
         }
 
         if (timeControl === 'time_control_disabled') {
-            // Still active because time_control_enabled overrides it, but warn about legacy usage
-            this.addWarning('⚠️ time_control: time_control_disabled is the legacy way to disable time control. Prefer unchecking "Time Control" (time_control_enabled) in auto_options instead.');
-        }
-
-        if (!autoOptions.includes('time_control_enabled') && timeControl !== 'time_control_disabled') {
-            this.addInfo('ℹ️ time_control_enabled is not in auto_options. Time control remains active for backward compatibility. Add "time_control_enabled" to auto_options to use the new consolidated control.');
+            this.addWarning('⚠️ time_control: time_control_disabled is obsolete and no longer evaluated. Time control is enabled (time_control_enabled in auto_options) but no time source is selected - set time_control to time_control_input or time_control_calendar.');
+            return;
         }
 
         if (timeControl === 'time_control_calendar') {
