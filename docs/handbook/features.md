@@ -68,7 +68,7 @@ However, the numeric state triggers only trigger under certain circumstances. Se
 
 *Blueprint input: `time_control`* *(default: `time_control_input`)*
 
-Select how time-based opening and closing is scheduled. *(Only relevant when **Time Control** is enabled above — uncheck **⏲️ Time Control** in the options list to disable the time windows entirely.)*
+Select how time-based opening and closing is scheduled. *(Only relevant when **⏲️ Time Control** is checked in the **👉 What should CCA control?** list above — uncheck it there to disable the time windows entirely.)*
 
 ### Further descriptions
 
@@ -87,8 +87,9 @@ Create calendar events with titles "Open Cover" (for daytime) or "Close Cover" (
 The automation reacts immediately when events start or end.
 <br /><br />
 <ins>Disabling time control</ins><br />
-Uncheck <strong>⏲️ Time Control</strong> in the options list above to disable the time
-windows entirely — Brightness and Sun Elevation triggers may then fire at any time of day.
+Uncheck <strong>⏲️ Time Control</strong> in the <strong>👉 What should CCA control?</strong>
+list to disable the time windows entirely — Brightness and Sun Elevation triggers may then
+fire at any time of day.
 <strong>Warning:</strong> without time windows there is no guaranteed <strong>Late</strong>
 opening/closing safety net; the cover only moves when a sensor condition is actually met.
 
