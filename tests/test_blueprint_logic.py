@@ -685,6 +685,27 @@ class TestBaseStatusUpdateWhenTiltedAtClosingTime:
 # Tests: Lockout protection in close handler must update base state (#402)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _find_variable_definition(blueprint: dict, name: str):
+    """Walk the blueprint to find a variables-step key with the given name."""
+    def walk(node):
+        if isinstance(node, dict):
+            variables = node.get("variables")
+            if isinstance(variables, dict) and name in variables:
+                return variables[name]
+            for v in node.values():
+                found = walk(v)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(blueprint)
+
+
 def _find_branch_by_alias(blueprint: dict, alias: str) -> dict | None:
     """Walk the blueprint to find a choose branch by its alias."""
     def walk(node):
@@ -968,31 +989,34 @@ class TestOpenHandlerShadingRespectsEffectiveState:
 
     def test_drive_guard_gates_on_effective_state_shd(self):
         """
-        The inner if: that wraps the drive must require effective_state == 'shd'
-        in addition to force_allows_shade.
+        The drive gate (will_drive, consumed by drive_plan.run) must require
+        effective_state == 'shd' in addition to force_allows_shade.
         """
         branch = self._load_branch()
         seq = branch.get("sequence", [])
-        if_step = next(
-            (s for s in seq if isinstance(s, dict) and "if" in s and "then" in s),
+        variables_step = next(
+            (s for s in seq if isinstance(s, dict) and "variables" in s),
             None,
         )
-        assert if_step is not None, "Drive guard 'if/then' step missing"
-        guard = if_step["if"]
-        guard_str = guard if isinstance(guard, str) else yaml.safe_dump(guard)
-        assert "force_allows_shade" in guard_str, (
-            f"Drive guard must include force_allows_shade: {guard!r}"
+        assert variables_step is not None, "variables: step missing"
+        will_drive = str(variables_step["variables"].get("will_drive", ""))
+        assert "force_allows_shade" in will_drive, (
+            f"Drive gate must include force_allows_shade: {will_drive!r}"
         )
-        assert "effective_state == 'shd'" in guard_str, (
-            f"Drive guard must include effective_state == 'shd' so Lockout/Vent/"
-            f"Privacy suppress the drive: {guard!r}"
+        assert "effective_state == 'shd'" in will_drive, (
+            f"Drive gate must include effective_state == 'shd' so Lockout/Vent/"
+            f"Privacy suppress the drive: {will_drive!r}"
+        )
+        plan = variables_step["variables"].get("drive_plan", {})
+        assert "will_drive" in str(plan.get("run", "")), (
+            "drive_plan.run must be gated by will_drive"
         )
 
     def test_man_expression_matches_drive_guard(self):
         """
         Per Invariant 7, man may only be cleared when the cover actually moves.
-        The man expression must therefore include the same effective_state == 'shd'
-        gate as the drive guard.
+        The man expression must therefore reference the same will_drive gate
+        as drive_plan.run.
         """
         branch = self._load_branch()
         seq = branch.get("sequence", [])
@@ -1003,9 +1027,9 @@ class TestOpenHandlerShadingRespectsEffectiveState:
         assert variables_step is not None, "variables: step missing"
         update_values = variables_step["variables"].get("update_values", {})
         man_expr = update_values.get("man", "")
-        assert "force_allows_shade" in man_expr and "effective_state == 'shd'" in man_expr, (
-            f"man expression must clear only when force_allows_shade and "
-            f"effective_state == 'shd': got {man_expr!r}"
+        assert "will_drive" in man_expr, (
+            f"man expression must clear only when the drive gate (will_drive) "
+            f"passes: got {man_expr!r}"
         )
 
 
@@ -1971,83 +1995,45 @@ class TestForceDisabledRecoveryBranchOrder:
     """
 
     def test_recovery_open_before_vent_in_choose_block(self):
+        # The recovery priority now lives in the recovery_target chain: the
+        # opn arm must appear before the vnt arm.
         blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
-
-        def find_choose_with_aliases(node, aliases):
-            if isinstance(node, dict):
-                if "choose" in node and isinstance(node["choose"], list):
-                    found = [b.get("alias") for b in node["choose"] if isinstance(b, dict)]
-                    if all(a in found for a in aliases):
-                        return node["choose"], found
-                for v in node.values():
-                    result = find_choose_with_aliases(v, aliases)
-                    if result is not None:
-                        return result
-            elif isinstance(node, list):
-                for item in node:
-                    result = find_choose_with_aliases(item, aliases)
-                    if result is not None:
-                        return result
-            return None
-
-        target = find_choose_with_aliases(
-            blueprint,
-            [
-                "Force disabled recovery: return to OPEN (base=opn)",
-                "Force disabled recovery: return to VENTILATION (window tilted)",
-            ],
-        )
-        assert target is not None
-        _, aliases = target
-        idx_open = aliases.index("Force disabled recovery: return to OPEN (base=opn)")
-        idx_vent = aliases.index("Force disabled recovery: return to VENTILATION (window tilted)")
+        chain = str(_find_variable_definition(blueprint, "recovery_target"))
+        idx_open = chain.index("%}opn")
+        idx_vent = chain.index("%}vnt")
         assert idx_open < idx_vent, (
-            "OPEN(base=opn) must come before VENTILATION(tilted) in recovery."
+            "OPEN(base=opn) must come before VENTILATION(tilted) in the "
+            "recovery_target chain."
         )
 
     def test_recovery_open_branch_has_no_tilted_exclusion(self):
         """
-        The OPEN(base=opn) recovery branch must NOT exclude tilted windows.
-        With the new cascade, bas=opn + tilted should drive to OPEN.
+        The opn arm of the recovery_target chain must NOT exclude tilted
+        windows. With the new cascade, bas=opn + tilted should drive to OPEN.
         """
         blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
-
-        def find_branch(node, alias):
-            if isinstance(node, dict):
-                if node.get("alias") == alias:
-                    return node
-                for v in node.values():
-                    r = find_branch(v, alias)
-                    if r is not None:
-                        return r
-            elif isinstance(node, list):
-                for item in node:
-                    r = find_branch(item, alias)
-                    if r is not None:
-                        return r
-            return None
-
-        branch = find_branch(blueprint, "Force disabled recovery: return to OPEN (base=opn)")
-        assert branch is not None
-        conditions = branch.get("conditions", [])
-        combined = " ".join(c for c in conditions if isinstance(c, str))
-        assert "contact_window_tilted" not in combined, (
-            "OPEN(base=opn) recovery branch must not check for tilted window — "
+        chain = str(_find_variable_definition(blueprint, "recovery_target"))
+        opn_arm = chain.split("%}opn")[0].rsplit("{%", 1)[1]
+        assert "window_tilted_now" not in opn_arm and "tilted" not in opn_arm, (
+            "opn recovery arm must not check for tilted window — "
             "BASE=OPN beats VENT in the new cascade."
+        )
+        assert "not (is_ventilation_enabled and window_opened_now)" in opn_arm, (
+            "opn recovery arm must still exclude a fully open window (lockout), "
+            "scoped to is_ventilation_enabled (#566)"
         )
 
 
 class TestForcePauseDisabledHasBackgroundOpen:
     """
-    The Force-Pause-Disabled handler must have a branch for
-    `effective_state == 'opn'` (no active force) so that after unpausing,
-    the cover drives to open when the background state says open.
+    The Force-Pause-Disabled handler must serve `effective_state == 'opn'`
+    (no active force) so that after unpausing, the cover drives to open when
+    the background state says open. The handler is a pure reconciler step:
+    resume_state = effective_state (with 'opn' as the fallback), projected
+    onto drive parameters via state_targets.
     """
 
     def test_force_pause_disabled_drives_open_for_effective_state_opn(self):
-        # The handler is a switch over effective_state; 'opn' (and any
-        # unexpected value) is served by the choose default, which must drive
-        # to the open position with the auto_up action set.
         blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
 
         def walk(node):
@@ -2067,21 +2053,28 @@ class TestForcePauseDisabledHasBackgroundOpen:
 
         handler = walk(blueprint)
         assert handler is not None, "Force-Pause-Disabled handler missing"
-        switch = next(s for s in handler["sequence"] if isinstance(s, dict) and "choose" in s)
-        # No branch may claim effective_state == 'opn'; it must fall to default.
-        for branch in switch["choose"]:
-            assert "effective_state == 'opn'" not in str(branch.get("conditions", "")), (
-                "open must be handled by the default, not a dedicated branch"
-            )
-        default = switch.get("default")
-        assert default, (
-            "Missing open/default drive in Force-Pause-Disabled handler — "
-            "with bas=opn + tilted window the effective_state is 'opn' and "
-            "must still be driven after unpausing."
+        variables_step = next(
+            s for s in handler["sequence"] if isinstance(s, dict) and "variables" in s
         )
-        variables_step = next(s for s in default if isinstance(s, dict) and "variables" in s)
-        assert variables_step["variables"].get("target_position") == "open_position"
-        assert "auto_up_action" in str(default)
+        variables = variables_step["variables"]
+        # 'opn' (and any unexpected value) must be the resume_state fallback —
+        # with bas=opn + tilted window the effective_state is 'opn' and must
+        # still be driven after unpausing.
+        resume = str(variables.get("resume_state", ""))
+        assert "else 'opn'" in resume, (
+            "resume_state must fall back to 'opn' for effective_state values "
+            "outside the lock/vnt/shd/cls map"
+        )
+        plan = variables.get("drive_plan", {})
+        assert plan.get("run") is True, "unpausing must always drive"
+        assert "state_targets[resume_state]" in str(plan), (
+            "drive parameters must come from the state_targets projection"
+        )
+        # The projection itself must map 'opn' to the open position + up action.
+        targets = _find_variable_definition(blueprint, "state_targets")
+        assert targets is not None, "state_targets projection missing"
+        assert targets["opn"]["action_set"] == "up"
+        assert "open_position" in str(targets["opn"]["target"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2288,34 +2281,22 @@ class TestWindowClosedReturnRespectsPrivacy:
         assert branch == "shading"
 
     def test_blueprint_branches_use_resident_blocks_open(self):
-        """Static wiring: the actual YAML branches gate on resident_blocks_open."""
+        """Static wiring: the return_target chain gates on resident_blocks_open."""
         blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
-
-        def find_branch(node, alias):
-            if isinstance(node, dict):
-                if node.get("alias") == alias:
-                    return node
-                for value in node.values():
-                    result = find_branch(value, alias)
-                    if result is not None:
-                        return result
-            elif isinstance(node, list):
-                for item in node:
-                    result = find_branch(item, alias)
-                    if result is not None:
-                        return result
-            return None
-
-        for alias in (
-            "Window closed - Return to open position",
-            "Window closed - Return to close position",
-        ):
-            branch = find_branch(blueprint, alias)
-            assert branch is not None, f"Missing branch: {alias}"
-            conds = str(branch.get("conditions", []))
-            assert "resident_blocks_open" in conds, (
-                f"'{alias}' must gate on resident_blocks_open, not bare resident_now."
-            )
+        chain = str(_find_variable_definition(blueprint, "return_target"))
+        assert "not resident_blocks_open" in chain, (
+            "the open arm of return_target must gate on resident_blocks_open, "
+            "not bare resident_now"
+        )
+        assert "or resident_blocks_open" in chain, (
+            "the close arm of return_target must gate on resident_blocks_open"
+        )
+        # The merged return branch must consume the chain.
+        branch = _find_branch_by_alias(
+            blueprint, "Window closed - Return to background state"
+        )
+        assert branch is not None, "merged window-closed return branch missing"
+        assert "return_target" in str(branch.get("conditions", []))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

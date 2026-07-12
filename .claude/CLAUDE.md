@@ -56,6 +56,96 @@ Implementation: `effective_state` first computes `base_target` (the cover state 
 
 ---
 
+## Transition Architecture (CCA 2026.07.03)
+
+The action tree follows an **event → reducer → reconciler** structure within the
+limits of HA YAML (user-supplied `!input` conditions can only be evaluated in
+`conditions:`/`if:`, and variables set inside `if/then` do not propagate — so
+branch *dispatch* stays a `choose:` skeleton, while state computation and
+actuation are centralized).
+
+**Every leaf branch computes exactly two things, then calls one shared anchor:**
+
+```yaml
+sequence:
+  - variables:
+      will_drive: "{{ <drive gate> }}"       # only when a gate exists
+      drive_plan:                             # actuation plan (reconciler output)
+        run: "{{ will_drive }}"               # drive at all? (default false)
+        move: "full"                          # 'full' (default) | 'tilt' (tilt only)
+        action_set: "up"                      # before/after action selector
+        target: "{{ open_position | int }}"
+        target_tilt: "{{ open_tilt_position | int }}"
+        tilt_first: false                     # reposition tilt to 0 first
+        delay_s: "{{ drive_delay_standard }}" # pre-drive delay (0 = none)
+      update_values:                          # state transition (reducer output)
+        bas: "opn"
+        man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
+  - *apply_transition
+  - stop: "..."
+```
+
+`&apply_transition` performs, in fixed order: optional delay (only when driving)
+→ optional drive (`*drive_with_actions`, or `*tilt_move_action` for `move: tilt`)
+→ **unconditional** `*helper_update`. Because the helper write is structural,
+every path through a leaf branch is terminal (Invariant 2 / Bug Pattern AK by
+construction). `tests/test_apply_transition_architecture.py` enforces this:
+no raw `*helper_update` / `*drive_with_actions` / `*tilt_move_action` outside
+the anchor definitions and the v5→v6 migration persist.
+
+**Event normalization** (post-forecast variables block): the live sensor idioms
+are computed once per run and referenced by all branch conditions —
+`window_opened_now`, `window_tilted_now`, `window_any_now`,
+`window_opened_clear` (explicitly closed/unconfigured — NOT the negation of
+`window_opened_now`; an unavailable sensor is neither), `lockout_now.closing/
+shading_start/shading_end`, `shading_once_guard_ok`, `drive_delay_standard`.
+The contact handler re-reads the sensors **after its settle delay** into local
+`contact_opened_now` / `contact_tilted_now` / `was_ventilating` — do not replace
+those with the trigger-time globals. `override_blocks.opening/closing/
+ventilation/shading` (top variables block) centralizes the manual-override
+gates (`helper_state_manual and override_flags.X`).
+
+**Reconciler projection** `state_targets` and **drive gates** `state_gates`:
+`state_targets` maps each state (`lock`/`opn`/`vnt`/`shd`/`cls`) to
+`{target, target_tilt, action_set}`; `state_gates` maps each state to the
+standard drive gate `force_allows_X and (effective_state != X or not
+in_X_position)`. Branches that "drive to state X" (force enable, force
+last-wins, force-pause resume) build their `drive_plan` from them instead of
+repeating position/tilt/action/gate triples. The force-pause-resume handler is
+a pure reconciler step: `resume_state` (= `effective_state` with `'opn'`
+fallback) → `state_targets[resume_state]`.
+
+**Target chains** (CCA 2026.07.03, round 2): handlers that were N nearly
+identical "drive back to the background state" branches are collapsed into a
+single leaf per handler that computes a target variable via a first-match
+Jinja chain mirroring the former branch order, then builds `drive_plan` from
+`state_targets[target]` / `state_gates[target]` and the `update_values` from
+a small per-target template:
+
+- Contact "Window closed" → `return_target` (`shd` → `opn` → `cls` / `non`),
+  one leaf ("Window closed - Return to background state") — all three former
+  branches shared the same gates and `auto_ventilate_end_condition`.
+- Resident leaving → `leave_target` (`lock` → `shd` → `opn` → `cls` / `non`)
+  plus a separate VENT-tilted leaf (needs `auto_ventilate_condition`).
+- Resident arriving → `arrive_target` (`cls` / `non`, lockout suppresses
+  privacy-closing) plus the VENT-hold leaf.
+- Force-disable recovery → `recovery_target` (`cls` → `shd` → `lock` → `opn`
+  → `vnt` / `non`); `vnt` keeps its own leaf (user condition) — it is the
+  lowest-priority target, so the split preserves ordering.
+
+The user-supplied `!input` conditions are the reason VENT targets keep
+dedicated leaves: they can only be evaluated as YAML conditions. Chain
+equivalence with the former branch order was verified by exhaustive
+truth-table simulation. The chosen target is visible in the trace (variable)
+and the logbook (`log_extra`); the per-target stop messages were merged into
+one generic message per handler.
+
+**The `will_drive` pattern encodes Invariant 7:** the drive gate is defined
+once per branch; `drive_plan.run` and the `man:` reset in `update_values` both
+reference it, so `man: 0` can never diverge from the actual drive decision.
+
+---
+
 ## Architectural Invariants — ALWAYS FOLLOW
 
 ### ⚠️ Invariant 1: NEVER put position checks in branch conditions
@@ -63,31 +153,34 @@ Implementation: `effective_state` first computes `base_target` (the cover state 
 **Wrong:**
 ```yaml
 - conditions:
-    - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
+    - "{{ window_opened_now }}"
     - "{{ effective_state != 'lock' or not in_open_position }}"  # ← NOT HERE!
   sequence:
-    - if: "{{ force_allows_ventilate }}"
-      then: ...drive...
+    ...
 ```
 
 **Correct:**
 ```yaml
 - conditions:
-    - "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
+    - "{{ window_opened_now }}"
     # No position check here!
   sequence:
-    - if: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
-      then: ...drive...
-    - *helper_update  # Helper is ALWAYS updated
+    - variables:
+        will_drive: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
+        drive_plan:
+          run: "{{ will_drive }}"
+          ...
+        update_values: ...
+    - *apply_transition  # Helper is ALWAYS updated
 ```
 
 **Why:** When the position check is in the branch conditions, the branch is not selected if the cover is already at the target position. This causes the logic to fall through to the next branch (e.g. shading), breaking the priority cascade.
 
-**Rule:** Every branch that has priority must always be consumed (even if no drive is needed). The helper update must always happen.
+**Rule:** Every branch that has priority must always be consumed (even if no drive is needed). The position check belongs in `will_drive`, never in the branch conditions.
 
 ### ⚠️ Invariant 2: Always update the helper
 
-`*helper_update` must be at the end of **every** branch sequence — even when no cover drive occurs. This is the only way to correctly persist the `res` status (and other fields).
+`*apply_transition` must be at the end of **every** branch sequence — even when no cover drive occurs (its helper write is unconditional). This is the only way to correctly persist the `res` status (and other fields). Classification-style handlers (Manual, Reset) set `update_values` inside their choose branches and call `*apply_transition` once in the shared tail. Never call `*helper_update` or `*drive_with_actions` directly from a branch.
 
 ### ⚠️ Invariant 3: Realtime sensor vs. helper state
 
@@ -143,8 +236,8 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 - Pure state changes without movement
 - Win-only helper updates
 
-**Wrong:** `man: 0` in `update_values` for every block that calls `*helper_update`.
-**Correct:** `man: 0` only in `update_values` for blocks that also execute `*cover_move_action`.
+**Wrong:** `man: 0` in `update_values` for every block that calls `*apply_transition`.
+**Correct:** `man: 0` only when the branch actually drives — encoded via the `will_drive` pattern: `man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"` with `drive_plan.run: "{{ will_drive }}"` (see Transition Architecture).
 
 ### ⚠️ Invariant 8: Timestamp invariants
 
@@ -259,12 +352,12 @@ divergence pass.
 
 ### ⚠️ Invariant 14: Anchor bodies are rendered as variables on every run
 
-The anchors `&cover_move_action`, `&tilt_move_action`, `&drive_with_actions`
-and `&helper_update` are defined as **values of a top-level `variables:`
-step**. Home Assistant renders variable values recursively when that step
-executes, so every template inside those anchor bodies is evaluated once per
-run **outside** its real execution context (no `repeat`, no `wait`, no
-`target_position`, no `drive_action_set`).
+The anchors `&cover_move_action`, `&tilt_move_action`, `&drive_with_actions`,
+`&helper_update` and `&apply_transition` are defined as **values of a top-level
+`variables:` step**. Home Assistant renders variable values recursively when
+that step executes, so every template inside those anchor bodies is evaluated
+once per run **outside** its real execution context (no `repeat`, no `wait`,
+no `target_position`, no `drive_action_set`, no `drive_plan`).
 
 **Rule:** Every runtime-context reference inside an anchor body must be
 template-guarded:
@@ -272,6 +365,7 @@ template-guarded:
 - `{{ repeat.item if repeat is defined else '' }}` — never plain `repeat.item`
 - `{{ wait.completed if wait is defined else '' }}`
 - `target_position | default(101)`, `drive_action_set | default('')`, …
+- `(drive_plan | default({})).run | default(false)` — never plain `drive_plan.run`
 
 These guards look like dead defensive code but are load-bearing: removing
 them makes the anchor-definition step raise `UndefinedError` on every run.
@@ -289,52 +383,6 @@ remain visible per branch.
 ---
 
 ## Design Decisions (intentional deviations from the general patterns)
-
-### Tilt is part of status detection, but the last applied tilt is NOT persisted (#558)
-
-The position checkers (`in_open/close/shading/ventilate_position`) compare the
-current tilt against the target tilt within `tilt_position_tolerance` (an
-absolute dead-band, analogous to `position_tolerance`). This lets states that
-share the same cover position be told apart by their tilt angle (e.g.
-`closed`/`shading`/`ventilate` all at position `0`). The same dead-band gates
-manual tilt-change detection so small tilt jitter is not read as manual.
-
-`in_shading_position` compares against the **dynamically computed**
-`shading_tilt_position`. When the sun crosses a tilt-stage threshold, the target
-briefly differs from the physically applied tilt until the `t_shading_tilt_*`
-trigger re-drives — so the checker can read "not in shading position" for that
-short window. This volatility is **intentionally not** stabilized by persisting
-the last applied tilt in the helper (a `tp` field was considered and rejected):
-the status helper holds *logical* state, not the last *physical* tilt. A
-stateless fix (accepting any configured shading stage) is also rejected — it
-would reintroduce the #558 ambiguity (e.g. a closed cover at tilt `0` matching a
-shading stage configured to `0`). The volatility does not occur at all with a
-single (non-staged) shading tilt.
-
-Do not re-add a `tp`/last-tilt helper field to "fix" this.
-
-### Alternate shading position resolves live via `effective_shading_position` (#580)
-
-An optional second shading depth (`shading_position_alt`) is active while the
-gating entity (`shading_position_alt_entity`, `binary_sensor`/`input_boolean`)
-is `on`. The single source of truth is the `effective_shading_position`
-variable (full `variables:` block — it calls `states()`, so it must not move
-into `trigger_variables:`, Invariant 10). **Every** shading consumer reads it:
-`in_shading_position`, all shading-related `position_comparisons`, and every
-drive site (`target_position`). Never reference the raw `shading_position`
-input in a consumer — that silently breaks the alt depth.
-
-The mid-shading depth switch is handled by `t_shading_position_alt` + the
-"Check for alternate shading position" branch (3b), modeled on "Check for
-shading tilt": only while `shd == 1`, gated on force/resident/window/manual.
-It re-applies the shading **tilt** after the position move (a position drive
-physically disturbs the slat angle on tilt covers) and clears `man` only when
-it actually drives (`not in_shading_position` in the if-guard, Invariants 1+7).
-A depth change is **not** a shading start: `shd`, `ts.shd`, and the pending
-keys stay untouched, so `prevent_shading_multiple_times` is unaffected. No
-helper field stores the active depth (same rationale as #558 — the helper
-holds logical state; the brief `in_shading_position` volatility after a switch
-is accepted and healed by the re-drive trigger).
 
 ### Resident handler bypasses `helper_state_manual` / `override_flags.*`
 
@@ -401,6 +449,57 @@ The fix is applied **at the trigger**, not in a global condition: each of the th
 **Why `not_to` (not `to`):** Contact/resident sensors can report `on`/`off` *or* `true`/`false`, so an allow-list (`to: [...]`) would be fragile. `not_to: [unavailable, unknown]` only excludes the dropout sentinels, keeps every real transition, and aligns with the existing `invalid_states` handling (the `to_state` invalid-state guard in the global conditions and the contact handler). The `from`-side recovery guard (#505) stays in the action conditions — `not_to` does not touch it.
 
 **Scope:** Only contact + resident. The manual triggers (`t_manual_position`, `t_manual_tilt`) deliberately react to attribute changes (`current_position` / `current_tilt_position`) and must **not** get `not_to`.
+
+---
+
+++ b/.claude/CLAUDE.md
+### Tilt is part of status detection, but the last applied tilt is NOT persisted (#558)
+
+The position checkers (`in_open/close/shading/ventilate_position`) compare the
+current tilt against the target tilt within `tilt_position_tolerance` (an
+absolute dead-band, analogous to `position_tolerance`). This lets states that
+share the same cover position be told apart by their tilt angle (e.g.
+`closed`/`shading`/`ventilate` all at position `0`). The same dead-band gates
+manual tilt-change detection so small tilt jitter is not read as manual.
+
+`in_shading_position` compares against the **dynamically computed**
+`shading_tilt_position`. When the sun crosses a tilt-stage threshold, the target
+briefly differs from the physically applied tilt until the `t_shading_tilt_*`
+trigger re-drives — so the checker can read "not in shading position" for that
+short window. This volatility is **intentionally not** stabilized by persisting
+the last applied tilt in the helper (a `tp` field was considered and rejected):
+the status helper holds *logical* state, not the last *physical* tilt. A
+stateless fix (accepting any configured shading stage) is also rejected — it
+would reintroduce the #558 ambiguity (e.g. a closed cover at tilt `0` matching a
+shading stage configured to `0`). The volatility does not occur at all with a
+single (non-staged) shading tilt.
+
+Do not re-add a `tp`/last-tilt helper field to "fix" this.
+
+---
+
+### Alternate shading position resolves live via `effective_shading_position` (#580)
+
+An optional second shading depth (`shading_position_alt`) is active while the
+gating entity (`shading_position_alt_entity`, `binary_sensor`/`input_boolean`)
+is `on`. The single source of truth is the `effective_shading_position`
+variable (full `variables:` block — it calls `states()`, so it must not move
+into `trigger_variables:`, Invariant 10). **Every** shading consumer reads it:
+`in_shading_position`, all shading-related `position_comparisons`, and every
+drive site (`target_position`). Never reference the raw `shading_position`
+input in a consumer — that silently breaks the alt depth.
+
+The mid-shading depth switch is handled by `t_shading_position_alt` + the
+"Check for alternate shading position" branch (3b), modeled on "Check for
+shading tilt": only while `shd == 1`, gated on force/resident/window/manual.
+It re-applies the shading **tilt** after the position move (a position drive
+physically disturbs the slat angle on tilt covers) and clears `man` only when
+it actually drives (`not in_shading_position` in the if-guard, Invariants 1+7).
+A depth change is **not** a shading start: `shd`, `ts.shd`, and the pending
+keys stay untouched, so `prevent_shading_multiple_times` is unaffected. No
+helper field stores the active depth (same rationale as #558 — the helper
+holds logical state; the brief `in_shading_position` volatility after a switch
+is accepted and healed by the re-drive trigger).
 
 ### Restart / outage handling: block on state-critical entities, recover via `t_recovery`
 
@@ -980,6 +1079,8 @@ When the lockout applies, execution falls through to "Normal opening", which dri
 
 ---
 
+---
+
 ### Bug Pattern AH: Time-control disable path unreachable through the UI (Issue #544)
 
 **Symptom:** Unchecking the *"⏲️ Time Control"* checkbox in `auto_options` has no effect for installations created after the options consolidation (~2026.05). Brightness-/sun-only setups stay gated by the default Early/Late time windows; there is no way to disable time control through the UI.
@@ -1032,12 +1133,13 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 
 **Symptom:** A shading start (or end) never executes and never retries. The helper shows `pnd: 'beg'` (or `'end'`) with a `ts.due` in the past, and no further `t_shading_*_execution` run appears in the traces. New pending triggers are blocked (arm branches gate on `not helper_state_pending_*`). The state only clears at the 23:55 midnight reset.
 
-**Cause:** The execution triggers are template triggers on `now() >= ts.due`. For a past `ts.due` the template stays `true` forever — there is no new FALSE→TRUE edge, so the trigger never re-fires. Any execution path that ends **without** a helper write (neither re-arm nor clear) therefore freezes the pending. Two instances found and fixed (CCA 2026.07.12 V2):
+**Cause:** The execution triggers are template triggers on `now() >= ts.due`. For a past `ts.due` the template stays `true` forever — there is no new FALSE→TRUE edge, so the trigger never re-fires. Any execution path that ends **without** a helper write (neither re-arm nor clear) therefore freezes the pending. Two instances found and fixed (CCA 2026.07.01):
 
 - The shading-start drive choose (lockout / start shading / save-for-future) had **no default**. A non-tilt cover resting exactly at the shading position (neither `current_above_shading` nor `current_below_shading`), or a cover held at the ventilation floor (`effective_state == 'vnt'`, third OR-alternative requires `'opn'`), matched no branch → fall-through without helper write.
 - "Move cover after shading end" wrapped its whole body in `if not prevent_flags.opening_after_shading_end` with **no else**, followed by `stop:`. With the prevent option set and tilt not possible (the tilt-only branch requires tilt), the sequence stopped without a helper write.
 
 **Fix:** Give every drive choose inside the execution handlers a `default:` that records the state and clears the pending, and give every `if:` before a `stop:` an `else:` that clears the pending. See the "Every execution path must be terminal" rule in Invariant 8.
+
 ---
 
 ## Language & Style Conventions
@@ -1060,18 +1162,6 @@ Home Assistant distinguishes between *full* and *limited* template contexts. See
 | `sequence:` / `action:` | No | Full template access |
 
 **Unavailable in limited templates:** `states()`, `is_state()`, `state_attr()`, and any integration-specific runtime function.
-
-### Boolean variables must render as a single `{{ … }}` expression
-
-HA parses a rendered template with `literal_eval`. `{{ some_bool }}` renders `True`/`False` and parses back to a bool — but a **bare word inside a `{% if %}` block** does not:
-
-```jinja2
-{% if resident_sensor == [] %}false{% else %}{{ … }}{% endif %}   ← renders the STRING "false"
-```
-
-`literal_eval("false")` fails (Python needs `False`), so HA keeps the string — and a non-empty string is **truthy**. A variable meant to be `False` silently becomes `True`. This nearly shipped in `state_resident`: with no resident sensor configured it would have reported "resident present", which flips `resident_flags.allow_open` to `false` and closes the cover instead of opening it.
-
-**Rule:** any variable consumed as a boolean must be one `{{ … }}` expression (use inline `if`/`else` inside it). Multi-branch `{% if %}` blocks are fine only for variables consumed as **strings** (`effective_state`, `recovered_state`, …) or numbers.
 
 ---
 
@@ -1107,6 +1197,20 @@ Do **not** use `{# ... #}` comments inside Jinja2 templates. They clutter the te
 ```jinja2
 {% if new_shd == current_shd %}
 ```
+
+---
+
+### Boolean variables must render as a single `{{ … }}` expression
+
+HA parses a rendered template with `literal_eval`. `{{ some_bool }}` renders `True`/`False` and parses back to a bool — but a **bare word inside a `{% if %}` block** does not:
+
+```jinja2
+{% if resident_sensor == [] %}false{% else %}{{ … }}{% endif %}   ← renders the STRING "false"
+```
+
+`literal_eval("false")` fails (Python needs `False`), so HA keeps the string — and a non-empty string is **truthy**. A variable meant to be `False` silently becomes `True`. This nearly shipped in `state_resident`: with no resident sensor configured it would have reported "resident present", which flips `resident_flags.allow_open` to `false` and closes the cover instead of opening it.
+
+**Rule:** any variable consumed as a boolean must be one `{{ … }}` expression (use inline `if`/`else` inside it). Multi-branch `{% if %}` blocks are fine only for variables consumed as **strings** (`effective_state`, `recovered_state`, …) or numbers.
 
 ---
 

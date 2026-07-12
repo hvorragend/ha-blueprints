@@ -47,6 +47,28 @@ def _load_blueprint_yaml() -> dict:
         return yaml.load(f, Loader=_Loader)  # noqa: S506
 
 
+def _find_variable_definition(blueprint: dict, name: str):
+    """Depth-first search for a variables-step key with the given name."""
+
+    def walk(node):
+        if isinstance(node, dict):
+            variables = node.get("variables")
+            if isinstance(variables, dict) and name in variables:
+                return variables[name]
+            for v in node.values():
+                found = walk(v)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(blueprint)
+
+
 def _find_branch_by_alias(blueprint: dict, alias: str) -> dict | None:
     """Depth-first search for a choose-branch dict with the given alias."""
 
@@ -262,16 +284,12 @@ class TestPatternMSunPositionEndSplit:
 N_FIXED_BRANCH_ALIASES = [
     "Window opened - Full ventilation (lockout)",
     "Window tilted - Partial ventilation",
-    "Window closed - Return to shading",
-    "Window closed - Return to open position",
-    "Window closed - Return to close position",
+    "Window closed - Return to background state",
 ]
 
-# "Window closed" return branches that must not gate "was ventilating" on position.
+# "Window closed" return branch that must not gate "was ventilating" on position.
 N_RETURN_BRANCH_ALIASES = [
-    "Window closed - Return to shading",
-    "Window closed - Return to open position",
-    "Window closed - Return to close position",
+    "Window closed - Return to background state",
 ]
 
 
@@ -296,27 +314,28 @@ class TestPatternNContactPreservesPending:
     def test_branch_does_not_reset_pending_keys(self, blueprint, alias):
         branch = _find_branch_by_alias(blueprint, alias)
         assert branch is not None, f"branch not found: {alias!r}"
-        uv = _branch_update_values(branch)
-        assert "pnd" not in uv, f"{alias}: must not reset pnd (#484)"
-        ts = uv.get("ts", {}) or {}
-        assert "due" not in ts, f"{alias}: must not reset ts.due (#484)"
-        assert "arm" not in ts, f"{alias}: must not reset ts.arm (#484)"
+        # update_values is either a YAML dict or (for target-chain leaves) a
+        # Jinja template building the dict — neither may mention the pending
+        # keys, so helper_update preserves them.
+        flat = str(_branch_update_values(branch))
+        assert "pnd" not in flat, f"{alias}: must not reset pnd (#484)"
+        assert "due" not in flat, f"{alias}: must not reset ts.due (#484)"
+        assert "arm" not in flat, f"{alias}: must not reset ts.arm (#484)"
 
     @pytest.mark.parametrize("alias", N_RETURN_BRANCH_ALIASES)
     def test_was_ventilating_not_gated_on_open_position(self, blueprint, alias):
-        # #484 Fix B: "was ventilating before" OR must not include in_open_position,
-        # otherwise it spuriously matches when win == 'cls' the whole time.
+        # #484 Fix B: the shared "was ventilating before" gate must not include
+        # in_open_position, otherwise it spuriously matches when win == 'cls'
+        # the whole time. The gate lives in the was_ventilating variable that
+        # all three return branches reference.
         branch = _find_branch_by_alias(blueprint, alias)
         assert branch is not None, f"branch not found: {alias!r}"
-        or_clauses = [
-            c["or"]
-            for c in branch["conditions"]
-            if isinstance(c, dict) and "or" in c
-        ]
-        flat = " ".join(str(clause) for clause in or_clauses)
-        assert "in_ventilate_position" in flat, f"{alias}: expected vent-position clause"
-        assert "in_open_position" not in flat, (
-            f"{alias}: 'was ventilating' must not gate on in_open_position (#484 Fix B)"
+        flat = " ".join(str(c) for c in branch["conditions"])
+        assert "was_ventilating" in flat, f"{alias}: expected was_ventilating gate"
+        definition = str(_find_variable_definition(blueprint, "was_ventilating"))
+        assert "in_ventilate_position" in definition, "expected vent-position clause"
+        assert "in_open_position" not in definition, (
+            "'was ventilating' must not gate on in_open_position (#484 Fix B)"
         )
 
 
@@ -443,12 +462,21 @@ class TestPatternVShadeOncePerDay:
         return _find_branch_by_alias(_load_blueprint_yaml(), "Check for shading start")
 
     def _once_per_day_clauses(self, branch):
+        # The guard itself lives in the shared shading_once_guard_ok variable;
+        # the branch's once-per-day OR references it plus the bypass clauses.
         for cond in branch["conditions"]:
             if isinstance(cond, dict) and "or" in cond:
                 flat = " ".join(str(c) for c in cond["or"])
-                if "prevent_flags.shading_multiple_times" in flat:
+                if "shading_once_guard_ok" in flat:
                     return cond["or"], flat
         raise AssertionError("once-per-day OR not found in shading-start branch")
+
+    def _guard_definition(self):
+        definition = _find_variable_definition(
+            _load_blueprint_yaml(), "shading_once_guard_ok"
+        )
+        assert definition is not None, "shading_once_guard_ok variable must exist"
+        return str(definition)
 
     def test_branch_exists(self, branch):
         assert branch is not None, "Check for shading start branch must exist"
@@ -456,8 +484,8 @@ class TestPatternVShadeOncePerDay:
     def test_no_manual_short_circuit_clause(self, branch):
         # The `helper_ts_man <= helper_ts_shade` clause defaulted to True for
         # users who never touch the cover, disabling the guard entirely.
-        _, flat = self._once_per_day_clauses(branch)
-        assert "helper_ts_man" not in flat, (
+        self._once_per_day_clauses(branch)
+        assert "helper_ts_man" not in self._guard_definition(), (
             "shading once-per-day guard must not use helper_ts_man "
             "(always-true short-circuit, Bug Pattern V)"
         )
@@ -465,8 +493,8 @@ class TestPatternVShadeOncePerDay:
     def test_guard_is_calendar_day_based(self, branch):
         # Full-date comparison guards against month-rollover and a fresh
         # ts.shd == 0 (which '%-d' rendered as day 1).
-        _, flat = self._once_per_day_clauses(branch)
-        assert "%Y-%m-%d" in flat, (
+        self._once_per_day_clauses(branch)
+        assert "%Y-%m-%d" in self._guard_definition(), (
             "shading once-per-day guard must compare full calendar dates"
         )
 
@@ -500,23 +528,34 @@ class TestPatternWTiltedClosingIdempotent:
         assert branch is not None, f"branch not found: {TILTED_CLOSE_ALIAS!r}"
 
     def test_drive_is_position_guarded(self, branch):
-        # The drive `if:` must gate on the in-ventilation position check so a
-        # cover that is already venting is not re-driven on every closing
-        # trigger (e.g. the repeating sun-based t_close_5).
-        flat = str(branch["sequence"])
-        assert "force_allows_ventilate and (effective_state != 'vnt'" in flat, (
-            "tilted-closing drive must be guarded by the in-ventilation check (#538)"
+        # The drive gate (will_drive = state_gates.vnt) must include the
+        # in-ventilation position check so a cover that is already venting is
+        # not re-driven on every closing trigger (e.g. the repeating sun-based
+        # t_close_5).
+        variables = branch["sequence"][0]["variables"]
+        will_drive = str(variables.get("will_drive", ""))
+        assert "state_gates.vnt" in will_drive, (
+            "tilted-closing drive must use the shared vnt gate (#538)"
         )
-        assert "not in_ventilate_position" in flat, (
-            "tilted-closing drive must check in_ventilate_position (#538)"
+        gates = _find_variable_definition(_load_blueprint_yaml(), "state_gates")
+        vnt_gate = str(gates["vnt"])
+        assert "force_allows_ventilate and (effective_state != 'vnt'" in vnt_gate, (
+            "state_gates.vnt must be guarded by the in-ventilation check (#538)"
+        )
+        assert "not in_ventilate_position" in vnt_gate, (
+            "state_gates.vnt must check in_ventilate_position (#538)"
+        )
+        plan = variables.get("drive_plan", {})
+        assert "will_drive" in str(plan.get("run", "")), (
+            "drive_plan.run must be gated by will_drive (#538)"
         )
 
     def test_man_reset_only_when_driving(self, branch):
-        # man: 0 must carry the same guard so it is not cleared without a drive
-        # (Invariant 7).
+        # man: 0 must carry the same guard (via will_drive) so it is not
+        # cleared without a drive (Invariant 7).
         uv = _branch_update_values(branch)
         man = str(uv.get("man", ""))
-        assert "effective_state != 'vnt' or not in_ventilate_position" in man, (
+        assert "will_drive" in man, (
             "man:0 must be gated on actually driving the cover (Invariant 7, #538)"
         )
 
@@ -639,7 +678,7 @@ class TestIssue554CancelPendingShadingEnd:
         for cond in start_branch["conditions"]:
             if isinstance(cond, dict) and "or" in cond:
                 flat = " ".join(str(c) for c in cond["or"])
-                if "prevent_flags.shading_multiple_times" in flat:
+                if "shading_once_guard_ok" in flat:
                     assert "helper_state_pending_end" in flat, (
                         "once-per-day guard must allow entry while an end-pending "
                         "is active so the cancel branch stays reachable (#554)"
@@ -864,55 +903,38 @@ class TestPatternACForceRecoveryVentilationGate:
     def blueprint(self):
         return _load_blueprint_yaml()
 
-    def _string_conditions(self, branch):
-        return [str(c) for c in branch["conditions"]]
+    def _chain_arm(self, blueprint, target: str) -> str:
+        # The recovery targets live in the recovery_target chain; extract the
+        # condition text of the arm that yields the given target.
+        chain = str(_find_variable_definition(blueprint, "recovery_target"))
+        assert f"%}}{target}" in chain, f"recovery_target has no {target!r} arm"
+        return chain.split(f"%}}{target}")[0].rsplit("{%", 1)[1]
 
-    @pytest.mark.parametrize(
-        "alias",
-        [
-            RECOVERY_VENT_ALIAS,
-            RECOVERY_LOCKOUT_ALIAS,
-            RECOVERY_CLOSE_ALIAS,
-            RECOVERY_SHADING_ALIAS,
-            RECOVERY_OPEN_ALIAS,
-        ],
-    )
-    def test_branch_exists(self, blueprint, alias):
-        assert _find_branch_by_alias(blueprint, alias) is not None, (
-            f"branch not found: {alias!r}"
+    def test_vent_branch_exists(self, blueprint):
+        assert _find_branch_by_alias(blueprint, RECOVERY_VENT_ALIAS) is not None, (
+            f"branch not found: {RECOVERY_VENT_ALIAS!r}"
         )
 
-    @pytest.mark.parametrize("alias", [RECOVERY_VENT_ALIAS, RECOVERY_LOCKOUT_ALIAS])
-    def test_drive_branches_require_ventilation_enabled(self, blueprint, alias):
-        # The ventilation-target branches read the contact sensors directly and
+    @pytest.mark.parametrize("target", ["vnt", "lock"])
+    def test_drive_targets_require_ventilation_enabled(self, blueprint, target):
+        # The ventilation-target arms read the contact sensors directly and
         # therefore bypass the trigger-level gate — they need their own gate.
-        branch = _find_branch_by_alias(blueprint, alias)
-        conds = self._string_conditions(branch)
-        assert any(c.strip() == "{{ is_ventilation_enabled }}" for c in conds), (
-            f"{alias!r} must gate on is_ventilation_enabled (#566)"
+        arm = self._chain_arm(blueprint, target)
+        assert "is_ventilation_enabled" in arm, (
+            f"recovery_target {target!r} arm must gate on is_ventilation_enabled (#566)"
         )
 
-    @pytest.mark.parametrize(
-        "alias",
-        [RECOVERY_CLOSE_ALIAS, RECOVERY_SHADING_ALIAS, RECOVERY_OPEN_ALIAS],
-    )
-    def test_window_exclusions_scoped_to_ventilation_enabled(self, blueprint, alias):
-        # A stuck open/tilted contact must not block these branches when the
+    @pytest.mark.parametrize("target", ["cls", "shd", "opn"])
+    def test_window_exclusions_scoped_to_ventilation_enabled(self, blueprint, target):
+        # A stuck open/tilted contact must not block these targets when the
         # ventilation automation is disabled — every negative window-contact
         # check must be scoped to is_ventilation_enabled.
-        branch = _find_branch_by_alias(blueprint, alias)
-        for cond in self._string_conditions(branch):
-            for sensor in ("contact_window_opened", "contact_window_tilted"):
-                if f"not ({sensor}" in cond.replace("  ", " "):
-                    raise AssertionError(
-                        f"{alias!r} has an unscoped {sensor} exclusion — "
-                        f"must be 'not (is_ventilation_enabled and {sensor} ...' (#566)"
-                    )
-                if sensor in cond and "not (" in cond:
-                    assert "is_ventilation_enabled" in cond, (
-                        f"{alias!r}: window exclusion on {sensor} must be scoped "
-                        f"to is_ventilation_enabled (#566)"
-                    )
+        arm = self._chain_arm(blueprint, target)
+        window_flag = "window_any_now" if target in ("cls", "shd") else "window_opened_now"
+        assert f"not (is_ventilation_enabled and {window_flag})" in arm, (
+            f"recovery_target {target!r} arm must scope its window exclusion to "
+            f"is_ventilation_enabled (#566)"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -943,16 +965,17 @@ class TestPatternAEShadingStartVentilationFloor:
         assert branch is not None, f"branch not found: {VENT_FLOOR_ALIAS!r}"
 
     def test_drives_to_ventilation_position(self, branch):
-        variables = _sequence_variables(branch)
-        assert variables.get("target_position") == "ventilate_position", (
+        plan = _sequence_variables(branch).get("drive_plan", {})
+        assert "ventilate_position" in str(plan.get("target", "")), (
             "vnt-floor branch must drive to the ventilation position, not shading"
         )
+        assert plan.get("action_set") == "ventilate"
 
     def test_gated_on_tilted_not_opened_and_floor(self, branch):
         conds = " ".join(str(c) for c in branch["conditions"])
-        assert "contact_window_tilted" in conds
+        assert "window_tilted_now" in conds
         # opened beats tilted (Invariant 5)
-        assert "contact_window_opened" in conds
+        assert "not window_opened_now" in conds
         assert "position_comparisons.shading_below_ventilate" in conds
         assert "force_allows_ventilate" in conds
         assert "resident_flags.allow_ventilate" in conds
@@ -966,15 +989,18 @@ class TestPatternAEShadingStartVentilationFloor:
         )
 
     def test_terminal_pending_clear_and_manual_guard(self, branch):
-        uv = _sequence_variables(branch).get("update_values", {})
+        variables = _sequence_variables(branch)
+        uv = variables.get("update_values", {})
         # terminal branch clears pending together (Invariant 8)
         assert uv.get("pnd") == "non"
         assert uv.get("ts", {}).get("due") == 0
         assert uv.get("ts", {}).get("arm") == 0
         assert uv.get("shd") == 1
         assert uv.get("win") == "tlt"
-        # man only cleared when actually driving (Invariant 7)
-        assert "not in_ventilate_position" in str(uv.get("man", ""))
+        # man only cleared when actually driving (Invariant 7): the gate lives
+        # in will_drive, referenced by both man and drive_plan.run
+        assert "not in_ventilate_position" in str(variables.get("will_drive", ""))
+        assert "will_drive" in str(uv.get("man", ""))
 
     def test_position_comparison_defined(self):
         text = _blueprint_text()
@@ -1026,9 +1052,30 @@ def _select_opening_branch(entity_states: dict, variables: dict) -> str | None:
     from conftest import make_jinja_env
 
     env = make_jinja_env(entity_states)
+    # Derive the normalized event flags the blueprint computes once per run
+    # (post-forecast variables block) from the mocked entity states.
+    opened = entity_states.get("binary_sensor.window_opened") in ("on", "true")
+    tilted = entity_states.get("binary_sensor.window_tilted") in ("on", "true")
+    v = dict(variables)
+    v.setdefault("window_opened_now", opened)
+    v.setdefault("window_tilted_now", tilted)
+    v.setdefault("window_any_now", opened or tilted)
+    v.setdefault(
+        "lockout_now",
+        {
+            "closing": opened,
+            "shading_start": opened
+            or (v.get("lockout_tilted_when_shading_starts", False) and tilted),
+            "shading_end": opened,
+        },
+    )
+    v.setdefault(
+        "shading_once_guard_ok",
+        not v.get("prevent_flags", {}).get("shading_multiple_times", False),
+    )
     for branch in _opening_choose_branches():
         if all(
-            _eval_ha_condition(env, c, variables) for c in branch["conditions"]
+            _eval_ha_condition(env, c, v) for c in branch["conditions"]
         ):
             return branch["alias"]
     return None
@@ -1107,12 +1154,18 @@ class TestPatternAGOpeningLockoutNotDeferredToShading:
 
     @pytest.mark.parametrize("alias", [AG_DEFER_ALIAS, AG_ARM_ALIAS])
     def test_gate_present_in_both_branches(self, alias):
-        branch = _find_branch_by_alias(_load_blueprint_yaml(), alias)
+        blueprint = _load_blueprint_yaml()
+        branch = _find_branch_by_alias(blueprint, alias)
         assert branch is not None, f"branch not found: {alias!r}"
         conds = " ".join(str(c) for c in branch["conditions"])
-        assert "is_ventilation_enabled" in conds
-        assert "contact_window_opened" in conds
-        assert "lockout_tilted_when_shading_starts" in conds
+        assert "not (is_ventilation_enabled and lockout_now.shading_start)" in conds, (
+            f"{alias!r} must gate on the shading-start lockout window (Pattern AG)"
+        )
+        # The shared lockout flag itself must implement the full check.
+        lockout_now = _find_variable_definition(blueprint, "lockout_now")
+        gate = str(lockout_now["shading_start"])
+        assert "window_opened_now" in gate
+        assert "lockout_tilted_when_shading_starts" in gate and "window_tilted_now" in gate
 
 
 # ─────────────────────────────────────────────────────────────────────────────

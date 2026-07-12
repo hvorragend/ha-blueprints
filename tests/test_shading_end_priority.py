@@ -135,6 +135,14 @@ def _base_execution_vars(entity_states: dict) -> dict:
         "lockout_tilted_when_shading_ends": False,
         "contact_window_opened": "binary_sensor.window_opened",
         "contact_window_tilted": "binary_sensor.window_tilted",
+        # Normalized event flags (computed once per run in the blueprint's
+        # post-forecast variables block), derived from the mocked states.
+        "window_opened_now": entity_states.get("binary_sensor.window_opened") in ("on", "true"),
+        "window_tilted_now": entity_states.get("binary_sensor.window_tilted") in ("on", "true"),
+        "window_opened_clear": entity_states.get("binary_sensor.window_opened") in ("off", "false", None),
+        "lockout_now": {
+            "shading_end": entity_states.get("binary_sensor.window_opened") in ("on", "true"),
+        },
         "position_comparisons": {
             "current_below_ventilate": True,
             "current_above_ventilate": False,
@@ -157,11 +165,11 @@ class TestTiltOnlyTarget:
         assert branch is not None
         for step in branch["sequence"]:
             if isinstance(step, dict) and "variables" in step:
-                target = step["variables"]["target_tilt_position"]
+                target = step["variables"]["drive_plan"]["target_tilt"]
                 assert "open_tilt_position" in str(target)
                 assert target != 50
                 return
-        raise AssertionError("target_tilt_position not found in tilt-only branch")
+        raise AssertionError("drive_plan.target_tilt not found in tilt-only branch")
 
 
 # ════════════════════════════════════════════════════════════════════════════

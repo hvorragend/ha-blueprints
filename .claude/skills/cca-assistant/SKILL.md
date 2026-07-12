@@ -198,30 +198,60 @@ and simple Jinja2 expressions. Move state-reading variables to action `variables
 Set inside each sequence branch locally, never as a global variable.
 Delays between steps would make a global value stale.
 
-### Helper updates — use `*helper_update` anchor
-Never write the helper update inline; always use the YAML anchor.
-The anchor handles JSON merging, timestamp guards, and optional logbook logging.
+### Leaf branches — the transition architecture (CCA 2026.07.03)
+Every leaf branch computes exactly two things, then calls `*apply_transition`:
+`update_values` (the state transition) and optionally `drive_plan` (the
+actuation plan: `run`, `move: full|tilt`, `action_set`, `target`,
+`target_tilt`, `tilt_first`, `delay_s`). The anchor performs delay → drive →
+**unconditional** helper write. Never call `*helper_update`,
+`*drive_with_actions` or `*tilt_move_action` directly from a branch —
+`tests/test_apply_transition_architecture.py` enforces this. The drive gate is
+defined once per branch as `will_drive`; both `drive_plan.run` and the `man:`
+reset reference it (Invariant 7 by construction).
+
+Normalized event flags (computed once per run, use instead of raw sensor
+idioms in conditions): `window_opened_now`, `window_tilted_now`,
+`window_any_now`, `window_opened_clear`, `lockout_now.closing/shading_start/
+shading_end`, `override_blocks.opening/closing/ventilation/shading`,
+`shading_once_guard_ok`, `drive_delay_standard`. The contact handler re-reads
+after its settle delay into local `contact_opened_now` / `contact_tilted_now` /
+`was_ventilating` / `return_target`. The reconciler projection `state_targets`
+maps `lock/opn/vnt/shd/cls` → `{target, target_tilt, action_set}` and
+`state_gates` maps each state to its standard drive gate; "drive to state X"
+branches (force enable / last-wins / pause-resume) build their plans from them.
+
+**Target chains:** background-return handlers are single leaves computing a
+target via a first-match Jinja chain (mirroring the former branch order), then
+`drive_plan = dict(state_targets[target], run=will_drive, ...)`:
+`return_target` (window closed: shd→opn→cls/non), `leave_target` (resident
+leaving: lock→shd→opn→cls/non), `arrive_target` (resident arriving: cls/non),
+`recovery_target` (force recovery: cls→shd→lock→opn→vnt/non). VENT targets
+keep dedicated leaves — they are gated by user-supplied `!input` conditions,
+which can only be evaluated as YAML conditions. The chosen target is visible
+in the trace variables and the logbook `log_extra`.
 
 ### YAML anchors
 - `&cover_move_action` — actual cover movement with position tolerance
 - `&tilt_move_action` — tilt positioning with wait strategy
 - `&drive_with_actions` — the shared drive idiom: before-action → cover move →
   tilt move → after-action, selected via the `drive_action_set` variable
-  (`up` / `down` / `ventilate` / `shading_start` / `shading_end`). Delays and
-  the helper update stay at the call site.
+  (`up` / `down` / `ventilate` / `shading_start` / `shading_end`).
 - `&helper_update` — JSON state persistence + logbook
+- `&apply_transition` — the single leaf-branch epilogue: optional delay
+  (only when driving) → optional drive (full or tilt-only) → unconditional
+  `*helper_update`. Parameterized by `drive_plan` + `update_values`.
 - `&shading_start_retry` — shared retry routine (waiting-for-window /
   continue / abort) for the shading-start execution; call sites set
   `shading_start_retry_reason` for the log line. Defined at its first use
   inside the shading-start branch, not in the anchor variables block.
 
-**⚠️ Anchor bodies are rendered on every run:** the first four anchors are
+**⚠️ Anchor bodies are rendered on every run:** the first five anchors are
 defined as values of a top-level `variables:` step. HA renders variable values
 recursively, so every template inside those anchor bodies is ALSO evaluated
 once per run outside its real context. Guards like
-`repeat.item if repeat is defined else ''` and `| default(...)` filters in
-anchor bodies are load-bearing — never remove them, and template-guard all
-runtime-context references in any new anchor.
+`repeat.item if repeat is defined else ''`, `| default(...)` filters and
+`(drive_plan | default({}))` in anchor bodies are load-bearing — never remove
+them, and template-guard all runtime-context references in any new anchor.
 
 ---
 
@@ -229,9 +259,10 @@ runtime-context references in any new anchor.
 
 Full details in CLAUDE.md. Key rules:
 
-1. **Never put position checks in branch conditions** — move into `if:` guards
-   inside the branch sequence. The branch must always be consumed.
-2. **Always call `*helper_update`** at the end of every branch.
+1. **Never put position checks in branch conditions** — encode them in the
+   branch's `will_drive` gate. The branch must always be consumed.
+2. **Always call `*apply_transition`** at the end of every branch (its helper
+   write is unconditional).
 3. **Realtime vs. helper state** — use `states(sensor)` for current values,
    `helper_json.*` is persisted and may be stale.
 4. **`resident_flags.*` uses live sensor** — no stale-state problem.
@@ -317,18 +348,27 @@ move covers on noise.
 
 ## `update_values` Pattern
 
-Every branch sets `update_values` before calling `*helper_update`:
+Every branch sets `update_values` (and optionally `drive_plan`) before calling
+`*apply_transition`:
 ```yaml
 - variables:
+    will_drive: "{{ force_allows_open }}"
+    drive_plan:
+      run: "{{ will_drive }}"
+      action_set: "up"
+      target: "{{ open_position | int }}"
+      target_tilt: "{{ open_tilt_position | int }}"
+      delay_s: "{{ drive_delay_standard }}"
     update_values:
       bas: 'opn'
       shd: 0
       pnd: 'non'
-      man: 0
+      man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
       ts:
         opn: 'now'
         due: 0
         arm: 0
+- *apply_transition
 ```
 
 The `helper_update` anchor merges these into the current helper JSON.

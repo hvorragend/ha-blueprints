@@ -70,6 +70,28 @@ def _env(entity_states: dict | None = None) -> jinja2.Environment:
     return env
 
 
+def _find_variable_definition(blueprint, name: str):
+    """Depth-first search for a variables-step key with the given name."""
+
+    def walk(node):
+        if isinstance(node, dict):
+            variables = node.get("variables")
+            if isinstance(variables, dict) and name in variables:
+                return variables[name]
+            for v in node.values():
+                found = walk(v)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(blueprint)
+
+
 def _find_branch_by_alias(node, alias: str):
     if isinstance(node, dict):
         if node.get("alias") == alias:
@@ -235,20 +257,21 @@ class TestConsumersUseEffective:
             # No bare (non-effective) shading_position must remain.
             assert not re.search(r"(?<!effective_)shading_position", pc[key]), key
 
-    def test_all_drive_sites_plus_redrive_use_effective(self):
+    def test_all_shading_drive_sites_use_effective(self):
+        # In the transition architecture the "drive to shd" sites resolve their
+        # target through the shared state_targets projection (one place) plus
+        # three explicit drive plans (opening shading-detected, Start Shading,
+        # the alt-position re-drive).
+        blueprint = _load_blueprint_yaml()
+        targets = _find_variable_definition(blueprint, "state_targets")
+        assert "effective_shading_position" in str(targets["shd"]["target"])
         text = _blueprint_text()
-        # 7 direct drive sites (incl. the re-drive branch) plus the two
-        # parametrized force sequences (force-enabled and last-wins), whose
-        # kind->position mappings must also resolve 'shd' to the effective
-        # position.
         assert (
-            text.count('target_position: "{{ effective_shading_position | int }}"')
-            == 7
+            text.count('target: "{{ effective_shading_position | int }}"') == 4
         )
-        assert text.count("'shd': effective_shading_position}") == 2
         # No drive site still hard-wires the raw input.
         assert "target_position: !input shading_position" not in text
-        assert "'shd': shading_position}" not in text
+        assert 'target: "{{ shading_position | int }}"' not in text
 
     def test_start_shading_guard_compares_against_effective(self):
         text = _blueprint_text()
@@ -399,12 +422,19 @@ class TestReDriveBranch:
         conds = str(branch["conditions"])
         assert "force_allows_shade" in conds
         assert "resident_flags.allow_shade" in conds
-        assert "helper_state_manual and override_flags.shading" in conds
+        assert "not override_blocks.shading" in conds
 
     def test_lockout_window_checks_present(self, branch):
+        # The branch gates on the normalized window_any_now flag, whose
+        # definition covers both contact sensors.
         conds = str(branch["conditions"])
-        assert "contact_window_opened" in conds
-        assert "contact_window_tilted" in conds
+        assert "not window_any_now" in conds
+        blueprint = _load_blueprint_yaml()
+        definition = str(_find_variable_definition(blueprint, "window_any_now"))
+        opened = str(_find_variable_definition(blueprint, "window_opened_now"))
+        tilted = str(_find_variable_definition(blueprint, "window_tilted_now"))
+        assert "window_opened_now" in definition and "window_tilted_now" in definition
+        assert "contact_window_opened" in opened and "contact_window_tilted" in tilted
 
     def test_drives_position_via_effective(self, branch):
         seq = str(branch["sequence"])
@@ -427,10 +457,8 @@ class TestReDriveBranch:
         drive site (position + tilt as a pair)."""
         for step in branch["sequence"]:
             if isinstance(step, dict) and "variables" in step:
-                assert (
-                    step["variables"].get("target_tilt_position")
-                    == "{{ shading_tilt_position | int }}"
-                )
+                plan = step["variables"].get("drive_plan", {})
+                assert plan.get("target_tilt") == "{{ shading_tilt_position | int }}"
                 break
         else:
             raise AssertionError("variables step not found")
@@ -441,12 +469,10 @@ class TestReDriveBranch:
         """Invariant 7: man may only be cleared when the cover actually moves.
         Both the man template and the drive guard must carry the position check
         (in the if-guard, not the branch conditions — Invariant 1)."""
+        variables = branch["sequence"][0]["variables"]
         uv = _branch_update_values(branch)
-        assert "not in_shading_position" in uv["man"]
-        drive_if = next(
-            step["if"]
-            for step in branch["sequence"]
-            if isinstance(step, dict) and "if" in step
-        )
-        assert "not in_shading_position" in str(drive_if)
+        # The drive gate lives in will_drive; man and drive_plan.run reference it.
+        assert "not in_shading_position" in str(variables.get("will_drive", ""))
+        assert "will_drive" in uv["man"]
+        assert "will_drive" in str(variables.get("drive_plan", {}).get("run", ""))
         assert "not in_shading_position" not in str(branch["conditions"])
