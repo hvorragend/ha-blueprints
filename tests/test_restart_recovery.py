@@ -245,6 +245,13 @@ class TestContactGate:
         the gate blocks - so `win` stays 'opn' forever and CCA never runs again."""
         assert self._run(contact_state="unavailable", win="opn", trigger_id=trigger_id) is True
 
+    @pytest.mark.parametrize("trigger_id", ["t_manual_position", "t_manual_tilt"])
+    def test_manual_triggers_are_exempt(self, trigger_id):
+        """A manual move during a contact outage must still be recorded (`man: 1`) -
+        the handler only writes the helper, it never drives the cover. Without the
+        exemption the recovery would later overrule the user's manual intervention."""
+        assert self._run(contact_state="unavailable", win="opn", trigger_id=trigger_id) is True
+
     def test_healthy_contact_always_passes(self):
         assert self._run(contact_state="on", win="opn") is True
 
