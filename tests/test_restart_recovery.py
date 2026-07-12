@@ -922,6 +922,32 @@ class TestRecoveryDrive:
         assert "state_targets" in self.TARGET()
         assert "state_targets" in self.TILT()
 
+    # --- the user's drive actions on a caught-up movement ---
+    def _action_set(self, state, in_position):
+        plan = _branch_var(RECOVERY, "drive_plan")
+        targets = _state_targets(effective_shading_position=30, **self.POSITIONS)
+        return _render(plan["action_set"], {}, recovered_state=state,
+                       state_targets=targets, recovery_in_position=in_position)
+
+    @pytest.mark.parametrize("state,action_set", [
+        ("opn", "up"), ("cls", "down"), ("vnt", "ventilate"),
+        ("shd", "shading_start"), ("lock", "ventilate"),
+    ])
+    def test_a_caught_up_movement_runs_the_users_drive_actions(self, state, action_set):
+        """A closing the outage swallowed and the recovery catches up IS a closing - it
+        must run auto_down_action, exactly like the scheduled handler would have."""
+        assert self._action_set(state, in_position=False) == action_set
+
+    @pytest.mark.parametrize("state", ["opn", "cls", "vnt", "shd", "lock"])
+    def test_no_drive_actions_when_the_cover_does_not_move(self, state):
+        """recovery_allowed carries NO position check (unlike state_gates) - it must stay
+        true so a tilt-only correction still runs. So drive_plan.run is true on virtually
+        every recovery run and cover_move_action no-ops via its tolerance guard. But the
+        before/after actions in drive_with_actions sit OUTSIDE that guard: without this
+        gate each of the ~19 recovery sources would re-fire the user's notifications and
+        scenes after a restart although nothing moved."""
+        assert self._action_set(state, in_position=True) == ""
+
     # --- recovery_allowed ---
     def _allowed(self, state, **over):
         base = dict(force_allows_open=True, force_allows_close=True,
