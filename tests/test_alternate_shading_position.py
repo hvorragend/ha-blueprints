@@ -411,3 +411,33 @@ class TestReDriveBranch:
             )
         # It may only (optionally) reset the manual flag when it actually drives.
         assert set(uv.keys()) <= {"man"}
+
+    def test_reapplies_shading_tilt_after_position_move(self, branch):
+        """A position drive physically disturbs the slat angle on tilt covers,
+        so the branch must re-apply the shading tilt like every other shading
+        drive site (position + tilt as a pair)."""
+        for step in branch["sequence"]:
+            if isinstance(step, dict) and "variables" in step:
+                assert (
+                    step["variables"].get("target_tilt_position")
+                    == "{{ shading_tilt_position | int }}"
+                )
+                break
+        else:
+            raise AssertionError("variables step not found")
+        seq = str(branch["sequence"])
+        assert "set_cover_tilt_position" in seq
+
+    def test_man_reset_gated_on_actual_drive(self, branch):
+        """Invariant 7: man may only be cleared when the cover actually moves.
+        Both the man template and the drive guard must carry the position check
+        (in the if-guard, not the branch conditions — Invariant 1)."""
+        uv = _branch_update_values(branch)
+        assert "not in_shading_position" in uv["man"]
+        drive_if = next(
+            step["if"]
+            for step in branch["sequence"]
+            if isinstance(step, dict) and "if" in step
+        )
+        assert "not in_shading_position" in str(drive_if)
+        assert "not in_shading_position" not in str(branch["conditions"])

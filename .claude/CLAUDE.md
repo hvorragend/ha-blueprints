@@ -268,6 +268,29 @@ single (non-staged) shading tilt.
 
 Do not re-add a `tp`/last-tilt helper field to "fix" this.
 
+### Alternate shading position resolves live via `effective_shading_position` (#580)
+
+An optional second shading depth (`shading_position_alt`) is active while the
+gating entity (`shading_position_alt_entity`, `binary_sensor`/`input_boolean`)
+is `on`. The single source of truth is the `effective_shading_position`
+variable (full `variables:` block — it calls `states()`, so it must not move
+into `trigger_variables:`, Invariant 10). **Every** shading consumer reads it:
+`in_shading_position`, all shading-related `position_comparisons`, and every
+drive site (`target_position`). Never reference the raw `shading_position`
+input in a consumer — that silently breaks the alt depth.
+
+The mid-shading depth switch is handled by `t_shading_position_alt` + the
+"Check for alternate shading position" branch (3b), modeled on "Check for
+shading tilt": only while `shd == 1`, gated on force/resident/window/manual.
+It re-applies the shading **tilt** after the position move (a position drive
+physically disturbs the slat angle on tilt covers) and clears `man` only when
+it actually drives (`not in_shading_position` in the if-guard, Invariants 1+7).
+A depth change is **not** a shading start: `shd`, `ts.shd`, and the pending
+keys stay untouched, so `prevent_shading_multiple_times` is unaffected. No
+helper field stores the active depth (same rationale as #558 — the helper
+holds logical state; the brief `in_shading_position` volatility after a switch
+is accepted and healed by the re-drive trigger).
+
 ### Resident handler bypasses `helper_state_manual` / `override_flags.*`
 
 The resident sensor handler (`resident_leaving` / `resident_arriving`) does **not** check `not (helper_state_manual and override_flags.X)` in any of its branches. All other handlers (Open, Close, Shading-Start, Shading-End, Contact, Manual) do.

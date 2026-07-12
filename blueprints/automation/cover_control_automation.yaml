@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.05 V2
+    **Version**: 2026.07.12
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2956,7 +2956,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.05 V2"
+  version: "2026.07.12"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5921,8 +5921,10 @@ actions:
       #   Trigger: Alternate-shading-position gating entity toggled
       #   Source: Shading (already active)
       #   Target: Re-drive to the effective shading position (normal or alternate)
-      #   Note: Position-only sibling of the tilt adjustment; NOT a shading start
-      #         (shd stays 1, ts.shd untouched), so "shade once per day" is unaffected
+      #   Note: Re-applies the shading tilt after the position move (a position
+      #         drive physically disturbs the slat angle on tilt covers);
+      #         NOT a shading start (shd stays 1, ts.shd untouched), so
+      #         "shade once per day" is unaffected
       ############################################################
 
       - alias: "Check for alternate shading position"
@@ -5940,9 +5942,13 @@ actions:
         sequence:
           - variables:
               target_position: "{{ effective_shading_position | int }}"
+              target_tilt_position: "{{ shading_tilt_position | int }}"
               update_values:
-                man: "{{ 0 if force_allows_shade else helper_json.man | default(0) | int }}"
-          - *cover_move_action
+                man: "{{ 0 if force_allows_shade and not in_shading_position else helper_json.man | default(0) | int }}"
+          - if: "{{ force_allows_shade and not in_shading_position }}"
+            then:
+              - *cover_move_action
+              - *tilt_move_action
           - *helper_update
           - stop: "Alternate shading position executed"
 

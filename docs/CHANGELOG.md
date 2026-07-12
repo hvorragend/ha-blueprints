@@ -1,11 +1,8 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
-<!-- Proposed entry for the next release. Version heading intentionally left as TBD:
-     the maintainer decides the version number / whether to fold this into an existing
-     release or a V2. No version bump was applied to the blueprint itself. -->
-# CCA TBD
+# CCA 2026.07.12
 
-- ✨ **Feature:** New optional **Alternate Sun Shading Position** (in the *Cover Position* settings, next to the normal shading position). You can now define a second shading position together with a switch entity (a `binary_sensor` or `input_boolean`): while that entity is **on**, the cover shades to the alternate position; while it is **off** (or the fields are left empty), it shades to the normal position exactly as before. If the switch changes while the cover is **already shading**, the cover moves to the matching position right away. This only affects the shading *position* — the shading tilt angle is unchanged — and it does **not** count as an additional sun shading, so *"Only shade once per day"* keeps working normally. Leave both fields empty to keep the previous behavior ([#580](https://github.com/hvorragend/ha-blueprints/issues/580))
+- ✨ **Feature:** New optional **Alternate Sun Shading Position** (in the *Cover Position* settings, next to the normal shading position). You can now define a second shading position together with a switch entity (a `binary_sensor` or `input_boolean`): while that entity is **on**, the cover shades to the alternate position; while it is **off** (or the fields are left empty), it shades to the normal position exactly as before. If the switch changes while the cover is **already shading**, the cover moves to the matching position right away (on tilt covers the shading tilt angle is re-applied after the move). This does **not** count as an additional sun shading, so *"Only shade once per day"* keeps working normally. Leave both fields empty to keep the previous behavior ([#580](https://github.com/hvorragend/ha-blueprints/issues/580))
 
 ---
 
