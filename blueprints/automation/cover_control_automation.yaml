@@ -2762,7 +2762,11 @@ variables:
   # Use this directly instead of the old state_current variable
   effective_state: >-
     {% set h = helper_json %}
-    {% set privacy_active = state_resident and resident_flags.closing_trigger %}
+    {% set resident_present = state_resident %}
+    {% set allow_vent = 'resident_allow_ventilation' in resident_config or not resident_present %}
+    {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %}
+    {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %}
+    {% set privacy_active = resident_present and 'resident_closing_enabled' in resident_config %}
     {% set s_opn = contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
     {% set s_tlt = contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
     {% set w = 'opn' if s_opn else 'tlt' if s_tlt else h.win if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' %}
@@ -2773,15 +2777,15 @@ variables:
     {% else %}
       {% if privacy_active %}
         {% set base_target = 'cls' %}
-      {% elif h.shd | int == 1 and resident_flags.allow_shade %}
+      {% elif h.shd | int == 1 and allow_shade %}
         {% set base_target = 'shd' %}
-      {% elif h.bas == 'opn' and not resident_flags.allow_open %}
+      {% elif h.bas == 'opn' and not allow_open %}
         {% set base_target = 'cls' %}
       {% else %}
         {% set base_target = h.bas %}
       {% endif %}
       {% set base_open_scheduled = base_target == 'opn' and is_opening_scheduled %}
-      {% if w == 'tlt' and resident_flags.allow_ventilate and not base_open_scheduled %}
+      {% if w == 'tlt' and allow_vent and not base_open_scheduled %}
         vnt
       {% else %}
         {{ base_target }}

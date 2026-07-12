@@ -77,6 +77,22 @@ What position should the cover move to when the window is tilted? If closing is 
 
 To which position should the cover be moved for shading?
 
+<a id="shading_position_alt"></a>
+
+## 🥵 Alternate Sun Shading Position
+
+*Blueprint input: `shading_position_alt`*
+
+An optional second shading position. When the gating entity below is 'on', the cover moves to this position for shading instead of the normal shading position. <br /><br />Leave empty to disable the alternate shading position.
+
+<a id="shading_position_alt_entity"></a>
+
+## 🥵 Alternate Sun Shading Position Trigger
+
+*Blueprint input: `shading_position_alt_entity`*
+
+While this entity is 'on', the cover shades to the alternate shading position above instead of the normal shading position. While it is 'off' (or unset), the normal shading position is used. If the cover is already shading when this entity changes, the cover is re-driven to the matching position. <br /><br />Leave empty to disable the alternate shading position.
+
 <a id="position_tolerance"></a>
 
 ## 〰️ Position Tolerance

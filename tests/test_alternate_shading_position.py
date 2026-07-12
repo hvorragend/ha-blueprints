@@ -235,15 +235,20 @@ class TestConsumersUseEffective:
             # No bare (non-effective) shading_position must remain.
             assert not re.search(r"(?<!effective_)shading_position", pc[key]), key
 
-    def test_all_nine_drive_sites_plus_redrive_use_effective(self):
+    def test_all_drive_sites_plus_redrive_use_effective(self):
         text = _blueprint_text()
-        # 9 original drive sites + the new re-drive branch = 10.
+        # 7 direct drive sites (incl. the re-drive branch) plus the two
+        # parametrized force sequences (force-enabled and last-wins), whose
+        # kind->position mappings must also resolve 'shd' to the effective
+        # position.
         assert (
             text.count('target_position: "{{ effective_shading_position | int }}"')
-            == 10
+            == 7
         )
+        assert text.count("'shd': effective_shading_position}") == 2
         # No drive site still hard-wires the raw input.
         assert "target_position: !input shading_position" not in text
+        assert "'shd': shading_position}" not in text
 
     def test_start_shading_guard_compares_against_effective(self):
         text = _blueprint_text()
