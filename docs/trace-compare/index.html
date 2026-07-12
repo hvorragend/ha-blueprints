@@ -1061,20 +1061,75 @@
         // =====================================================================
 
         // Branches 0-11 + Default (Config Check)
+        // Branch definitions from the CCA blueprint, keyed by the branch ALIAS.
+        //
+        // A trace only tells us the POSITIONAL index of the branch that ran
+        // ("action/N/choose/M"), never its name. Resolving M through a hardcoded
+        // index map breaks silently the moment a branch is inserted into the
+        // choose: - which has happened repeatedly, mislabelling every trace from
+        // the insertion point on. Aliases do not move, so they are the key here.
+        //
+        // BRANCH_ORDER is the fallback for traces whose config section is missing,
+        // and MUST match the choose: order.
+        //
+        // tests/test_trace_tools_branch_map.py fails if either the order or a
+        // definition drifts away from the blueprint.
+        const BRANCH_ORDER = [
+            'Check for opening',
+            'Check for closing cover',
+            'Check for shading start',
+            'Check for shading tilt',
+            'Check for alternate shading position',
+            'Check for shading end',
+            'Contact sensor state changed',
+            'Resident sensor status change handler',
+            'Force function triggered',
+            'Drive to target position after force pause disabled',
+            'Return to background position after force disable',
+            'Checking for manual position changes',
+            'Reset manual detection',
+            'Reset shading status that is no longer required - but still saved',
+            'Recovery after restart or outage - restore target state'
+        ];
+
         const BRANCH_DEFINITIONS = {
-            0: { name: 'Opening', description: 'Automatic cover opening', icon: '🔼' },
-            1: { name: 'Closing', description: 'Automatic cover closing', icon: '🔻' },
-            2: { name: 'Shading Start', description: 'Activates sun protection', icon: '☀️' },
-            3: { name: 'Shading Tilt', description: 'Adjusts tilt during shading', icon: '📐' },
-            4: { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
-            5: { name: 'Contact Sensor', description: 'Window/door state change (ventilation/lockout)', icon: '🪟' },
-            6: { name: 'Resident Update', description: 'Resident sensor changed – moves cover', icon: '👤' },
-            7: { name: 'Force Functions', description: 'Forced position (open/close/vent/shade)', icon: '⚡' },
-            8: { name: 'Return After Force', description: 'Returns to background state after force', icon: '↩️' },
-            9: { name: 'Manual Detection', description: 'Manual position change detected', icon: '🖐️' },
-            10: { name: 'Reset Override', description: 'Resets manual override', icon: '🔄' },
-            11: { name: 'Midnight Reset', description: 'End of day reset', icon: '🌙' }
+            'Check for opening': { name: 'Opening', description: 'Automatic cover opening', icon: '🔼' },
+            'Check for closing cover': { name: 'Closing', description: 'Automatic cover closing', icon: '🔻' },
+            'Check for shading start': { name: 'Shading Start', description: 'Activates sun protection', icon: '☀️' },
+            'Check for shading tilt': { name: 'Shading Tilt', description: 'Adjusts tilt during shading', icon: '📐' },
+            'Check for alternate shading position': { name: 'Alternate Shading Position', description: 'Switches between normal and alternate shading position', icon: '🔀' },
+            'Check for shading end': { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
+            'Contact sensor state changed': { name: 'Contact Sensor', description: 'Window/door state change (ventilation/lockout)', icon: '🪟' },
+            'Resident sensor status change handler': { name: 'Resident Update', description: 'Resident sensor changed – moves cover', icon: '👤' },
+            'Force function triggered': { name: 'Force Functions', description: 'Forced position (open/close/vent/shade)', icon: '⚡' },
+            'Drive to target position after force pause disabled': { name: 'Force Pause Resumed', description: 'Force pause ended – drives to the target state again', icon: '▶️' },
+            'Return to background position after force disable': { name: 'Return After Force', description: 'Returns to background state after force', icon: '↩️' },
+            'Checking for manual position changes': { name: 'Manual Detection', description: 'Manual position change detected', icon: '🖐️' },
+            'Reset manual detection': { name: 'Reset Override', description: 'Resets manual override', icon: '🔄' },
+            'Reset shading status that is no longer required - but still saved': { name: 'Midnight Reset', description: 'End of day reset', icon: '🌙' },
+            'Recovery after restart or outage - restore target state': { name: 'Recovery', description: 'Restores the target state after a restart or an outage', icon: '🩹' }
         };
+
+        function branchAliasesFromConfig(config) {
+            const actions = (config && (config.actions || config.action)) || [];
+            for (const step of actions) {
+                const choose = step && step.choose;
+                if (Array.isArray(choose) && choose.length > 5) {
+                    return choose.map(b => (b && b.alias) || null);
+                }
+            }
+            return null;
+        }
+
+        function resolveBranch(branchNum, config) {
+            const aliases = branchAliasesFromConfig(config) || BRANCH_ORDER;
+            const alias = aliases[branchNum];
+            const def = alias ? BRANCH_DEFINITIONS[alias] : null;
+            if (def) return { number: branchNum, alias, ...def };
+            // Unknown alias: say so instead of guessing.
+            return { number: branchNum, alias, name: alias || `Branch ${branchNum}`,
+                     description: 'Unknown branch', icon: '❓' };
+        }
 
         // Trigger explanations
         const TRIGGER_EXPLANATIONS = {
@@ -1477,8 +1532,7 @@
             let branch = null;
             const branchMatch = lastStep.match(/choose\/(\d+)/);
             if (branchMatch) {
-                const num = parseInt(branchMatch[1]);
-                branch = { number: num, ...BRANCH_DEFINITIONS[num] };
+                branch = resolveBranch(parseInt(branchMatch[1]), trace.config);
             }
 
             // Status Merger: Treat "finished" and "stopped" as Finished
@@ -1671,12 +1725,12 @@
             if (loadedTraces.length < 2) return;
 
             const branchCounts = {};
-            for (let i = 0; i < 12; i++) branchCounts[i] = 0;
+            BRANCH_ORDER.forEach(alias => { branchCounts[alias] = 0; });
 
             let finished = 0, stopped = 0, failed = 0;
 
             loadedTraces.forEach(t => {
-                if (t.branch) branchCounts[t.branch.number]++;
+                if (t.branch && t.branch.alias in branchCounts) branchCounts[t.branch.alias]++;
                 if (t.state === 'finished') finished++;
                 else if (t.state === 'failed') failed++;
                 else stopped++;
@@ -1999,9 +2053,9 @@
             const counts = Object.values(analyzedData.branchCounts);
             const max = Math.max(...counts, 1);
 
-            container.innerHTML = Object.keys(BRANCH_DEFINITIONS).map(num => {
-                const count = analyzedData.branchCounts[num];
-                const def = BRANCH_DEFINITIONS[num];
+            container.innerHTML = BRANCH_ORDER.map(alias => {
+                const count = analyzedData.branchCounts[alias];
+                const def = BRANCH_DEFINITIONS[alias];
                 return `
                     <div class="branch-stat-item ${count > 0 ? 'active' : ''}">
                         <div class="branch-stat-icon">${def.icon}</div>
