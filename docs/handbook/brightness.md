@@ -3,12 +3,10 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Brightness Configuration** section of the blueprint.
 
-<center><p><small>
-  <strong>Only for morning opening &amp; evening closing!</strong><br />
+<strong>Only for morning opening &amp; evening closing!</strong><br />
   This condition allows the cover to open earlier in the morning or close earlier in the evening,<br />
   triggered by ambient brightness reaching its threshold.<br />
   <strong>This is NOT related to sun protection / shading.</strong>
-</small></p></center>
 
 <a id="default_brightness_sensor"></a>
 

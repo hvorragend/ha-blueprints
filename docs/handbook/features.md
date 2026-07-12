@@ -3,9 +3,7 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Automation Options** section of the blueprint.
 
-<center><p><small>
-  Configure what CCA controls and how it behaves. Most settings use safe defaults. Expand the descriptions below only if you need details.
-</small></p></center>
+Configure what CCA controls and how it behaves. Most settings use safe defaults. Expand the descriptions below only if you need details.
 
 <a id="auto_options"></a>
 
@@ -16,14 +14,11 @@
 Select which opening, closing, and special behaviors CCA should manage.
 *Not sure? The defaults (Morning Opening, Evening Closing, Time Control) work for most setups.*
 
-<details>
-<summary><code><strong>📖 CLICK HERE:</strong> How these options work together</code></summary>
-
+### How these options work together
 
 **Basic Controls (When to move):**
 
 - **Morning Opening / Evening Closing** — Enable automatic opening and/or closing.
-
 
 **Fine-Tuning (When to trigger):**
 
@@ -36,20 +31,17 @@ Early = earliest the cover may move; Late = guaranteed move (safety net).
 Set the condition logic (AND/OR) when both are active.
 Configure thresholds and sensors in the dedicated sections below.
 
-
 **Advanced Features (How to react):**
 
 - **💨 Ventilation** — React to open/tilted windows, prevent lockout.
 
 - **🥵 Sun Protection** — Partially close when sun shines directly on the window (midday heat).
 
-
 **☀️ Sun Elevation vs. 🥵 Sun Protection are two different things!**
 
 - **Sun Elevation** = *When* to open/close (sunrise/sunset trigger) — configure in *Sun Elevation Settings*
 
 - **Sun Protection** = *Shading* during midday when the sun shines directly on the window
-
 
 **Example: Sun Elevation + Time Control (most common setup)**
 
@@ -65,14 +57,10 @@ Configure thresholds and sensors in the dedicated sections below.
 
 - **22:00** — Late closing time → cover would close regardless (safety net)
 
-
 **Notes on multiple triggering**
 
 Even if multiple opening, closing, shading, etc. is activated, this only works if a trigger is available.
 However, the numeric state triggers only trigger under certain circumstances. See: [FAQ: Why are my numeric triggers not firing?](https://hvorragend.github.io/ha-blueprints/FAQ#q-why-are-my-numeric-triggers-not-firing)
-
-
-</details>
 
 <a id="time_control"></a>
 
@@ -82,8 +70,8 @@ However, the numeric state triggers only trigger under certain circumstances. Se
 
 Select how time-based opening and closing is scheduled. *(Only relevant when **Time Control** is enabled above — uncheck **⏲️ Time Control** in the options list to disable the time windows entirely.)*
 
-<details>
-<summary><code><strong>📖 CLICK HERE:</strong> Further descriptions</code></summary>
+### Further descriptions
+
 <br />
 <ins>Input fields for time control</ins><br /><br />
 The times for opening and closing the cover are configured in the Time Control section below.
@@ -104,9 +92,6 @@ windows entirely — Brightness and Sun Elevation triggers may then fire at any 
 <strong>Warning:</strong> without time windows there is no guaranteed <strong>Late</strong>
 opening/closing safety net; the cover only moves when a sensor condition is actually met.
 
-
-</details>
-
 <a id="brightness_sun_operator"></a>
 
 ## 🔀 Condition Logic: Brightness & Sun Elevation
@@ -115,7 +100,7 @@ opening/closing safety net; the cover only moves when a sensor condition is actu
 
 How should Brightness and Sun Elevation conditions be combined when **both** are active?
 
-<details> <summary><code><strong>📖 CLICK HERE:</strong> OR vs. AND - Which to choose?</code></summary>
+### OR vs. AND - Which to choose?
 
 **⚡ OR** *(Default — recommended for most users)*
 The cover opens/closes as soon as **either** condition is met.
@@ -128,7 +113,6 @@ Example: Opens only when it's bright enough *and* the sun is above the threshold
 More conservative — reduces false triggers on overcast mornings.
 
 *Has no effect when only one of the two conditions is enabled.*
-</details>
 
 <a id="individual_config"></a>
 
@@ -138,14 +122,13 @@ More conservative — reduces false triggers on overcast mornings.
 
 **Fine-tune automation behavior for your specific hardware and preferences.**
 
-<details> <summary><code><strong>📖 CLICK HERE:</strong> What each category controls</code></summary>
+### What each category controls
 
 This section lets you customize how CCA behaves in different scenarios:
 - **Position Management**: Control cover movements between states (e.g., avoid raising when closing for the evening)
 - **Feature Control**: Disable automatic transitions (e.g., stay shaded after sun disappears, don't open after ventilation ends)
 - **Daily Frequency Limits**: Prevent repeated actions (e.g., open only once per day)
 - **Hardware Compatibility**: Work around device-specific quirks with position/tilt commands
-
 
 **Hardware-Specific Details**
 
@@ -156,8 +139,5 @@ Some devices (e.g., Shelly, Homematic) have issues when 'set_cover_position' and
 - Shelly: Use script [cover_position_tilt.yaml](https://gist.github.com/lukasvice/b364724d84c3ac4e160f7a7d8fa37066)
 - Homematic: Use custom service [homematicip_local.set_cover_combined_position](https://github.com/SukramJ/custom_homematic?tab=readme-ov-file#homematicip_localset_cover_combined_position)
 - Other devices: Implement via "Additional Actions" in the Service Calls section
-</details>
-
-</details>
 
 {% endraw %}

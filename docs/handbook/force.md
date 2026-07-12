@@ -3,8 +3,7 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Force Features** section of the blueprint.
 
-<center><p><small>
-  Emergency override controls for weather protection and special scenarios
+Emergency override controls for weather protection and special scenarios
   <br />
   Force functions allow you to immediately move covers to specific positions, overriding all other automation logic.
   <br />
@@ -14,7 +13,6 @@
   <br />
   <br />
   All settings in this section are optional
-</small></p></center>
 
 <a id="auto_recover_after_force"></a>
 
@@ -23,7 +21,8 @@
 *Blueprint input: `auto_recover_after_force`* *(default: `auto_recover_disabled`)*
 
 Seamless control with automatic recovery: When enabled, the cover automatically returns to its intended position when a force function is disabled.
-<details> <summary><code><strong>HOW IT WORKS:</strong> Smart Background Tracking</code></summary>
+
+### How it works: Smart Background Tracking
 
 **Continuous Status Tracking:**
 - The helper constantly monitors what the cover *should* be doing (open, close, shading, ventilate)
@@ -36,8 +35,6 @@ Seamless control with automatic recovery: When enabled, the cover automatically 
 - ❄️ Frost Protection (force-open, auto-resume after sunrise)
 - 🔥 Emergency Scenarios (temporary manual control, then auto-recovery)
 - 🏠 Cleaning/Maintenance (force-open, then auto-return when done)
-
-</details>
 
 <a id="force_pause"></a>
 

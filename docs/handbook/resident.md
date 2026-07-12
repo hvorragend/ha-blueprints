@@ -3,8 +3,7 @@
 
 > Part of the [CCA Handbook](index). These options live in the **Resident Settings** section of the blueprint.
 
-<center><p><small>
-  <br />
+<br />
   (1) The purpose of resident mode is to the close the cover (without checking the defined times) when the resident sensor switches to ‘on/true’. For example, when a resident goes to sleep.
   <br />
   (2) The cover will stay closed as long as the sensor remains in this state.
@@ -14,7 +13,6 @@
   (4) In addition, the usual automatic opening of the cover is prevented as long as the sensor is set to ‘on/true’ or the resident.
   <br /><br />
   All these settings are optional.
-</small></p></center>
 
 <a id="resident_sensor"></a>
 
