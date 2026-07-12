@@ -206,11 +206,11 @@ auto_options:
   - auto_shading_enabled     # Sun protection / shading
 ```
 
-**Time control:** The Early/Late time windows are active by default. To disable them (pure sensor control), select **🚫 Disabled** under **Time Control Type** (`time_control: time_control_disabled`). The `time_control_enabled` checkbox in `auto_options` is deprecated and has no function.
+**Time control:** The Early/Late time windows are active by default. To disable them (pure sensor control), select **🚫 Disabled** under **Time Control Type** (`time_control: time_control_disabled`). The `time_control_enabled` checkbox in `auto_options` is deprecated, has no function, and will be removed in a future release — no backward compatibility is provided for it.
 
 **Backward compatibility:**
 - Old configurations that still store `time_control: time_control_disabled` keep working — they mean "time windows disabled", exactly as originally configured.
-- Configurations with or without `time_control_enabled` in `auto_options` behave identically; the checkbox is ignored.
+- Configurations with or without `time_control_enabled` in `auto_options` behave identically; the checkbox is ignored entirely.
 - The `brightness_sun_operator` parameter (AND/OR link between brightness and sun conditions) has moved to this section as well. Its value is preserved; only the UI location changed.
 
 **When to update:** Only when you reconfigure the automation in the UI. No forced migration.
