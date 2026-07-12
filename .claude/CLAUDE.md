@@ -982,6 +982,19 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 
 **Rule:** A guard that stops the automation from acting on bad data must be paired with a way to *catch up* once the data is good again — otherwise the guard converts a corruption bug into a silent-miss bug. Blocking is only half a fix; the recovery path is the other half. And the guard must cover *every* input the cascade reads, not just the one that surfaced the bug: a dropped window contact reads as "closed" and silently disables the lockout exactly like a dropped cover reads as "open".
 
+---
+
+### Bug Pattern AJ: Shading-end tilt-only branch outranks lockout/ventilation and hardcodes the open tilt (Issue #583)
+
+**Symptom:** With *"Stay shaded: Don't open cover when sun shading ends"* (`prevent_opening_after_shading_end`) **and** *"Using the ventilation position when the sun shading is ended"* (`ventilation_after_shading_end`) both enabled, a window **tilted** at shading end leaves the cover at the shading position with slats tilted to 50 — instead of moving to `ventilate_position`/`ventilate_tilt_position`. Independently, the tilt-only slat angle ignored the configured `open_tilt_position` (hardcoded `50`; the input's default is also 50, so only users who changed it noticed).
+
+**Cause A (ordering):** "Only tilt open after shading ends" was placed **before** "Lockout protection when shading ends" and "Ventilation after shading ends" in the shading-end execution `choose:` and carries no window-contact condition — it consumed every execution run on tilt covers with the prevent flag set, swallowing the higher-cascade LOCKOUT (prio 2) and VENT (prio 4) branches (same family as Bug Pattern AA/AB: a correct branch is dead code when an earlier branch consumes its scenario).
+
+**Cause B (hardcoding):** `target_tilt_position: 50` instead of the `open_tilt_position` input, despite the comment "Moving the cover to open tilt position".
+
+**Fix:** Reorder the execution `choose:` to pending → lockout → ventilation → tilt-only → move-cover (cascade order), and use `{{ open_tilt_position | int }}` in the tilt-only branch. With the window closed, or ventilation not configured/enabled, the tilt-only branch still fires as before. Deliberate consequence: with both options enabled and a tilted window, the cover now *rises* from the shading to the ventilation position — VENT is a floor and outranks SHADING; "stay shaded" means "don't open fully", not "stay below the ventilation floor". Tests: `tests/test_shading_end_priority.py`.
+
+**Rule:** Within a `choose:`, branch order must follow the priority cascade. A branch that implements a lower-cascade behavior (shading convenience) must never be placed above lockout/ventilation branches for the same trigger — and any "the remaining cases" branch must actually be reached only by the remaining cases.
 
 ---
 
