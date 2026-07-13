@@ -50,7 +50,9 @@ The variable `effective_state` returns the currently active state from this casc
 
 **Rationale for BASE=OPN before VENT:** A tilted window signals ventilation intent — and a fully open cover provides maximum airflow. So when the time schedule says "open" (`bas=opn`) and nothing else lowers the cover, opening wins over the tilted-vent floor. VENT is a *floor* only when the cover would otherwise go below ventilation position (close, shading, privacy-close, or base=opn with `allow_open=false`).
 
-**BASE=OPN beats VENT only when an opening schedule actually exists** (`is_opening_scheduled = is_up_enabled and not is_time_control_disabled`). `bas` initializes to `'opn'` and is only ever switched to `'cls'` by the scheduled close handler — so in a shading-only setup with no schedule, `bas` stays `'opn'` permanently. Without the schedule gate the VENT floor could never apply there (Issue #553, Bug Pattern Z). When no opening schedule exists, a tilted window therefore still produces `vnt`.
+**BASE=OPN beats VENT only when an opening automation actually exists** (`is_opening_scheduled`). `bas` initializes to `'opn'` and is only ever switched to `'cls'` by the close handler — so in a shading-only setup with no opening automation, `bas` stays `'opn'` permanently. Without the gate the VENT floor could never apply there (Issue #553, Bug Pattern Z). When no opening automation exists, a tilted window therefore still produces `vnt`.
+
+The flag mirrors the `enabled:` gates of the **opening triggers**, not the time control switch: `bas` only ever reaches `'opn'` through the opening handler, and that handler is reached by four sources — time fields (`t_open_1/2`), calendar (`t_calendar_event_start`), brightness (`t_open_4`) and sun elevation (`t_open_5`). The latter two open the cover with time control switched **off** (the opening branch passes them through via `is_time_control_disabled`), so their `bas: 'opn'` is a real intent too. Gating on `not is_time_control_disabled` misread it as the init default and let VENT drag an open cover down to the ventilation position (Bug Pattern AL).
 
 Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT when `win == 'tlt'` and `not (base_target == 'opn' and is_opening_scheduled)`.
 
@@ -1067,7 +1069,7 @@ suppressed **every** manual position trigger fired while the cover is within tol
 
 **Cause:** `bas` initializes to `'opn'` in every init path (fresh init, v6 parse fallback `default('opn')`, v5 migration unless the v5 state was explicitly `close`) and is **only ever** switched to `'cls'` by the scheduled close handler (`t_close_*`, which needs `auto_down_enabled` + a time/calendar source). Without a schedule, `bas` stays `'opn'` forever → `base_target == 'opn'` → the VENT floor condition (`base_target != 'opn'`) is never true → a closed cover ignores a tilted window. The `2026.05.24` changelog had documented "remove the time schedule (so `bas` never reaches `opn`)" as the way to restore v5 behavior — but removing the schedule does **not** make `bas` non-`opn`, so that workaround never worked.
 
-**Fix:** Gate the BASE=OPN-beats-VENT rule on whether an opening schedule actually exists. New `trigger_variables` flag:
+**Fix:** Gate the BASE=OPN-beats-VENT rule on whether an opening automation actually exists. New `trigger_variables` flag (the `not is_time_control_disabled` clause shipped here was too narrow — see Bug Pattern AL for the current definition):
 
 ```yaml
 is_opening_scheduled: "{{ is_up_enabled and not is_time_control_disabled }}"
@@ -1273,6 +1275,29 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 - "Move cover after shading end" wrapped its whole body in `if not prevent_flags.opening_after_shading_end` with **no else**, followed by `stop:`. With the prevent option set and tilt not possible (the tilt-only branch requires tilt), the sequence stopped without a helper write.
 
 **Fix:** Give every drive choose inside the execution handlers a `default:` that records the state and clears the pending, and give every `if:` before a `stop:` an `else:` that clears the pending. See the "Every execution path must be terminal" rule in Invariant 8.
+
+---
+
+### Bug Pattern AL: The VENT floor gate reads "opening is scheduled" as "opening is *time*-scheduled"
+
+**Symptom:** In a setup that opens the cover by **sun elevation** or **brightness** with time control switched **off** (`auto_up_enabled` + `auto_sun_enabled` / `auto_brightness_enabled`, no `time_control_enabled`), the morning opening drives the cover to the open position as expected — but tilting a window afterwards **pulls it back down** to the ventilation position. With time control enabled the identical situation keeps the cover open. The helper shows `bas: 'opn'`, `win: 'tlt'`, and the trace shows `effective_state == 'vnt'`.
+
+**Cause:** `is_opening_scheduled` — the gate that lets BASE=OPN beat the VENT floor (Bug Pattern Z) — was `is_up_enabled and not is_time_control_disabled`. Its purpose is to tell a **real** `bas: 'opn'` (written by the opening handler) apart from the **init default** (`bas` starts at `'opn'` and only the close handler ever moves it). But `bas` reaches `'opn'` through *any* opening trigger, and time control is only two of the four sources: `t_open_4` (brightness) and `t_open_5` (sun elevation) are gated on their own feature flags alone, and the opening branch explicitly passes them through while time control is off (`is_time_control_disabled` is the first alternative of its scenario OR). So a sun-driven opening set `bas: 'opn'` legitimately, and the gate then classified it as the init default and applied the VENT floor to it.
+
+**Fix:** Mirror the `enabled:` gates of the opening triggers instead of the time control switch:
+
+```yaml
+is_opening_scheduled: >-
+  {{ is_up_enabled and (
+       is_time_field_enabled or
+       is_calendar_enabled or
+       (is_brightness_enabled and default_brightness_sensor != []) or
+       (is_sun_elevation_enabled and default_sun_sensor != [])) }}
+```
+
+The sensor-presence clauses are not cosmetic: `t_open_4` / `t_open_5` carry `enabled: "{{ is_brightness_enabled and default_brightness_sensor != [] }}"` (resp. the sun sensor), so a feature flag without its sensor enables no trigger and must not lift the floor. #553 stays fixed by construction — a shading-only setup has no `auto_up_enabled`, and `auto_up_enabled` with *every* source switched off (which has no opening trigger either, so `bas` really is stuck at its default) also still ventilates. `recovered_state` reads the same variable, so the recovery mirror follows automatically (Invariant 13).
+
+**Rule:** A flag that asks "did an automation really write this state?" must be derived from the **triggers that write it**, not from one of the feature switches that happens to enable some of them. Whenever a new source for an existing handler is added, every "does this handler exist?" flag has to be re-derived — the same upstream/downstream mismatch as Bug Pattern AA, just in the variables instead of the gates. `tests/test_opening_schedule_gate.py` pins the flag against the real trigger `enabled:` templates so a fifth opening source cannot silently drift.
 
 ---
 

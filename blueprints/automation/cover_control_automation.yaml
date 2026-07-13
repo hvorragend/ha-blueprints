@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.13 V4
+    **Version**: 2026.07.13 V5
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2371,11 +2371,20 @@ trigger_variables:
   # selector value 'time_control_disabled' is no longer evaluated (its stored configs are
   # disabled via the missing checkbox anyway, matching their original intent).
   is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options }}"
-  # An open base state ('opn') only reflects a real "schedule wants open" intent when an
-  # opening schedule actually exists. Without one, bas stays at its 'opn' init default forever
-  # (it is only ever driven to 'cls' by the scheduled close handler), so the VENT floor could
-  # never apply. Used by effective_state to let VENT beat a non-scheduled bas='opn'.
-  is_opening_scheduled: "{{ is_up_enabled and not is_time_control_disabled }}"
+  # An open base state ('opn') only reflects a real "open" intent when an opening automation
+  # exists that can drive bas to 'opn'. Without one, bas stays at its 'opn' init default forever
+  # (it is only ever driven to 'cls' by the close handler), so the VENT floor could never apply.
+  # The gate therefore mirrors the enabled: gates of the opening triggers: time fields and
+  # calendar are only two of the four sources - brightness and sun elevation open the cover
+  # without any time control (the opening branch passes them through via is_time_control_disabled)
+  # and their bas='opn' is just as real. Used by effective_state (and its recovery mirror) to let
+  # VENT beat a bas='opn' that no opening automation ever set.
+  is_opening_scheduled: >-
+    {{ is_up_enabled and (
+         is_time_field_enabled or
+         is_calendar_enabled or
+         (is_brightness_enabled and default_brightness_sensor != []) or
+         (is_sun_elevation_enabled and default_sun_sensor != [])) }}
 
   # Ventilation and tilt are only available for blinds, not awnings
   is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
@@ -2433,7 +2442,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.13 V4"
+  version: "2026.07.13 V5"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
