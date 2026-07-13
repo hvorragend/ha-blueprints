@@ -5,7 +5,7 @@
 
 Configure what CCA controls and how it behaves. Most settings use safe defaults. Expand the descriptions below only if you need details.
 
-**On this page:** [👉 What should CCA control?](#auto_options) · [⏲️ Time Control Type](#time_control) · [🔀 Condition Logic: Brightness & Sun Elevation](#brightness_sun_operator) · [⚙️ Behavior Customization](#individual_config)
+**On this page:** [👉 What should CCA control?](#auto_options) · [⏲️ Time Control Type](#time_control) · [🔀 Condition Logic: Brightness & Sun Elevation](#brightness_sun_operator) · [⚙️ Behavior Customization](#individual_config) · [🔄 Recovery after a restart or an outage](#enable_recovery)
 
 ---
 
@@ -150,6 +150,27 @@ Some devices (e.g., Shelly, Homematic) have issues when 'set_cover_position' and
 - Shelly: Use script [cover_position_tilt.yaml](https://gist.github.com/lukasvice/b364724d84c3ac4e160f7a7d8fa37066)
 - Homematic: Use custom service [homematicip_local.set_cover_combined_position](https://github.com/SukramJ/custom_homematic?tab=readme-ov-file#homematicip_localset_cover_combined_position)
 - Other devices: Implement via "Additional Actions" in the Service Calls section
+
+---
+
+<a id="enable_recovery"></a>
+
+## 🔄 Recovery after a restart or an outage
+
+> 🧩 Input: `enable_recovery` · Default: `false`
+
+When enabled, CCA recalculates its target state after a Home Assistant restart — and whenever a required source (the cover, the status helper, a position sensor, a window contact, …) becomes usable again after an outage. It then catches up on everything that was missed in the meantime:
+
+- A missed scheduled/calendar **opening or closing** is performed.
+- The **sun-shading conditions** are re-evaluated: if shading is due now, it starts; if it is over, it ends.
+- A **force function** switched on or off during the outage is applied.
+- A **manual-override reset** whose moment fell into the outage is caught up.
+
+**This can move the cover right after a restart** — for example, a shading intent stored before the restart is applied, or a missed morning opening is caught up. A manual override always survives the recovery; only the lockout protection (window fully open) takes precedence.
+
+When **disabled** (default), no recovery run is triggered at all: the cover is never touched after a restart. The trade-off is that events which fell into the restart or outage stay lost — a closing scheduled during a restart simply does not happen, and sun-shading changes that occurred during the outage are not replayed. The automation resumes with the next regular trigger.
+
+**Independent of this switch**, CCA always pauses while the cover, the status helper, or the configured position sensor has no usable state (nothing can be decided without a position), and window contacts / the resident sensor fall back to their last known value while a battery sensor is silent. That protection only *prevents* wrong movements — it never causes any.
 
 ---
 

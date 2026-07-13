@@ -505,6 +505,20 @@ is accepted and healed by the re-drive trigger).
 
 Two halves of one mechanism. Neither works without the other.
 
+**The recovery half is opt-in (`enable_recovery`, default `false`, CCA 2026.07.13).**
+Users reported unwanted cover movements right after a HA restart — the recovery is
+*supposed* to move the cover when the cascade demands it (e.g. applying a stored
+shading intent or catching up a missed opening), but many users prefer "never touch
+the covers after a restart" over catching up. All 12 `t_recovery` triggers carry
+`enabled: "{{ is_recovery_enabled and ... }}"`, so with the switch off no recovery
+run ever starts (no trace, no drive, no helper write — same rationale as #550:
+filter at the trigger). Consequence with the switch off: every "Repaired by
+BRANCH 12" entry in the orphan-audit table below does **not** apply — dropped
+events stay dropped until the next regular trigger, which is the documented
+pre-2026.07.12 behavior the user explicitly chose. **Half 1 (the gate) is
+independent of the switch and always active** — it only prevents wrong movements
+and wrong helper writes, it never causes any.
+
 #### Half 1 — the gate (global conditions)
 
 Three tiers, and the tier a source belongs to is decided by **what CCA can do without it**.

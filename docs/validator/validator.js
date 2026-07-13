@@ -17,7 +17,7 @@ class CCAValidator {
             'alias', 'description', 'trace', 'use_blueprint', 'id', 'mode', 'max', 'max_exceeded',
 
             // Core
-            'blind', 'cover_type', 'auto_options', 'individual_config',
+            'blind', 'cover_type', 'auto_options', 'individual_config', 'enable_recovery',
 
             // Helper
             'cover_status_helper', 'drive_time',
