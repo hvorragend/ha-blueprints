@@ -365,7 +365,7 @@ against *which trigger actually fires it*.
 | `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) | always — this one *prevents* a wrong drive rather than catching one up |
 | *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | the **resume trigger** (`this.last_changed` + 60 s offset) fires it; `automation_resumed` makes the recovery gate claim any trigger as a backstop | always — the resume trigger is the one `t_recovery` trigger without the opt-in gate |
 | *(`instance_active` is off — this instance is not in charge)* | — | **every** trigger of the off period is dropped, so all the latching rows above happen at once, and the helper is arbitrarily old when the instance comes back | `t_instance_activated` (prompt) + the `instance_activated` claim (backstop for a swallowed edge) → the recovery gate re-derives everything | always — an activation is exempt from the opt-in (but **not** from `is_restart_run`) |
-| *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run | its own ungated `t_recovery` trigger | always |
+| *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run — and the outage may have eaten a hand-over's `off → on` flank, which HA never keeps | its own ungated `t_recovery` trigger — and, unlike the five other gate sources, the return run is **not** hygiene-only with the catch-up off: the helper froze while the gate blocked, so `instance_activated` reads true on the return and the run takes over (deliberate — a dropout return is indistinguishable from a swallowed hand-over, losing a real one strands the cover, and the false positive drives to the cascade target anyway) | always — **even with the catch-up off** |
 | *(helper is `unknown`)* | — | init/repair step unreachable → automation permanently dead | helper gate blocks on `unavailable` **only** | always |
 
 `override_expired` is a global variable, not a branch-local one, because `recovery_allowed` and the `man` write both need it, and the reset triggers latch (see the table above). It clears `man` without driving, a deliberate Invariant 7 exception (same class as the midnight reset).
@@ -491,7 +491,15 @@ every run forever with no log line — so the gate lets `states[x] is none` thro
 (`instance_active == [] or states[instance_active] is none or states(...) in ['on', 'true']`)
 and the mandatory entity validation names it and stops the run. `unavailable` (a real dropout)
 **does** block, and the switch carries its own ungated `t_recovery` trigger: it is a sixth gate
-source, so its outage eats the latching triggers exactly like the other five.
+source, so its outage eats the latching triggers exactly like the other five. Unlike the other
+five, though, its return run is **not** hygiene-only with the catch-up off: the helper froze
+while the gate blocked, so `instance_activated` reads true on the return — and a hand-over
+whose `off → on` flank fell into the outage looks exactly the same, because HA only keeps the
+final `on`. The safe read is to take over: losing a real hand-over strands the cover, while the
+false positive drives to the position the cascade wants anyway. (This only matters for
+physically-backed gating entities — `switch`, `binary_sensor` — which can drop out mid-runtime;
+the recommended `input_boolean` only goes `unavailable` around a restart, and there
+`is_restart_run` already holds the proxy back.) Pinned by `TestSwitchDropoutTakesOver`.
 
 **One helper per instance — a shared one is possible and wrong.** CCA cannot enforce it (it
 cannot see its siblings), so this is a documentation-only rule. The reason is what the helper
@@ -524,7 +532,8 @@ helper freezes and goes stale, which is why it needs the full take-over on retur
 needs no recovery at all. Same rule, opposite sides: the pause's `t_recovery` trigger is
 **opt-in gated** (its return leaves nothing stale to correct — the only thing to do would be to
 *drive*, which causes a movement), while `instance_active` is an **ungated gate source** (while
-it is unusable the gate blocks every run, and the repair only *prevents* wrong movements).
+it is unusable the gate blocks every run, and its return run must be free to take over — see
+above — because the outage may have hidden a hand-over).
 
 Using the pause for mutual exclusion **almost** works and fails on exactly one thing: a paused
 instance still watches, and `t_manual_position` is not gated by the pause (the manual handler

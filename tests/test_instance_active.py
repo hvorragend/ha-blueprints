@@ -135,8 +135,9 @@ class TestTriggers:
 
     def test_the_switch_is_also_a_recovery_source(self):
         """While it has no usable state the gate blocks every run, exactly like the cover or a
-        contact - so its outage eats the latching triggers the same way. Same rule as the five
-        gate sources: ungated, because the repair only ever PREVENTS a wrong movement."""
+        contact - so its outage eats the latching triggers the same way. Ungated like the five
+        gate sources - but unlike them its return run is NOT hygiene-only, it takes over
+        (TestSwitchDropoutTakesOver)."""
         t = _trigger_on("instance_active", "t_recovery")
         assert len(t) == 1
         assert "is_recovery_enabled" not in str(t[0]["enabled"])
@@ -231,6 +232,40 @@ class TestCatchUpOnActivation:
         assert self._run(mode="outage") is True
         assert self._run(mode="always") is True
         assert self._run(mode="always", restart=True) is True
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# A dropout of the switch itself - the sixth gate source is not like the five
+# ════════════════════════════════════════════════════════════════════════════
+class TestSwitchDropoutTakesOver:
+    """A mid-runtime dropout of the gating entity (on -> unavailable -> on, no restart) leaves
+    the return run with instance_activated true: the helper froze while the gate blocked every
+    run, and the switch's last_changed moved to the return. That is indistinguishable, by
+    design, from a hand-over whose off -> on flank fell into the outage - HA only keeps the
+    final 'on'. The safe read is to take over: losing a real hand-over strands the cover, while
+    the false positive drives to the position the cascade wants anyway. So unlike the five
+    other gate sources, whose return run is hygiene-only with the catch-up off, this one
+    DRIVES in every recovery mode. Only affects physically-backed gating entities (switch,
+    binary_sensor); an input_boolean drops out around a restart only, where the proxy is held
+    back (test_but_the_timestamp_claim_still_defers_to_a_restart)."""
+
+    def test_the_return_run_claims_the_take_over(self):
+        returned = NOW - datetime.timedelta(seconds=125)   # recovery settle already served
+        assert _render_bool(
+            _top_var("instance_activated"),
+            {SWITCH: "on"}, {SWITCH: returned},
+            instance_active=SWITCH,
+            helper_ts_write=NOW_TS - 7200,                 # last write before the dropout
+        ) is True
+
+    @pytest.mark.parametrize("mode", ["never", "outage", "always"])
+    def test_and_the_claimed_run_drives_in_every_mode(self, mode):
+        assert _render_bool(
+            _top_var("recovery_catch_up"), {},
+            recovery_mode=mode,
+            trigger=types.SimpleNamespace(id="t_recovery"),
+            instance_activated=True, is_restart_run=False,
+        ) is True
 
 
 # ════════════════════════════════════════════════════════════════════════════
