@@ -523,14 +523,31 @@ the covers after a restart" over catching up.
 A mechanism is opt-in when it can *cause* a movement; it is always active when it
 can only *prevent* a wrong one. That single rule places all three pieces:
 
-- **Opt-in.** Every *source* `t_recovery` trigger (a source came back → catch up)
+- **Opt-in.** A *source* `t_recovery` trigger whose source can only be *caught up*
   carries `enabled: "{{ is_recovery_enabled and ... }}"` — filter at the trigger,
-  same rationale as #550: no run, no trace, no drive. Inside the gate, `will_drive`
+  same rationale as #550: no run, no trace, no drive. That is every source whose
+  state CCA does **not** persist: cover, helper, position sensor, contacts, resident,
+  brightness, sun, forecast, custom shading sensor, calendar, workday — **and the
+  force pause** (`is_paused` is read live and nothing about it is stored, so its
+  return leaves no stale claim; the only thing to do would be to drive back into the
+  force the pause suspended). Inside the gate, `will_drive`
   (= `is_recovery_enabled and recovery_allowed`) gates the drive, `new_base` gates
   the re-derived base state (writing `bas: 'cls'` for a swallowed closing is a
   *deferred* movement — a later branch would drive into it), and `recovered_pending`
   refuses to arm a shading pending (it would drive later too).
 - **Always active.** The availability gates of Half 1 — they only block.
+- **Always active: the four force-entity `t_recovery` triggers** (#603). They were
+  gated with the rest, and that misread the rule: `frc` is **persisted** and
+  `effective_state` reads it, so a stale `frc` does not miss an event — it holds the
+  whole cascade in the force state and produces a **wrong movement on every later
+  trigger**. And nothing else corrects it: `t_force_disabled_*` is `from: "on"`, so
+  `unavailable → off` never fires it, and `live_force` deliberately keeps *reading*
+  the recorded force as active while its own entity is unreadable (that is the Tier-2
+  fallback). With the trigger gated off, a force whose switch dropped out and returned
+  as `off` stayed recorded **indefinitely**. Correcting it prevents a wrong movement,
+  so it is always active; with the opt-in off the run is hygiene-only (`will_drive`
+  false). The force *pause* keeps its gate — see above; that asymmetry is the rule
+  applied, not an oversight.
 - **Always active: the resumed-run helper hygiene.** The resume trigger
   (`this.last_changed`, piece 2 below) is the **one** `t_recovery` trigger without
   the opt-in gate, and `automation_resumed` claims any trigger regardless of it.
@@ -545,6 +562,32 @@ can only *prevent* a wrong one. That single rule places all three pieces:
   within 60 s of the resume is consumed by the gate's `stop:` (it cannot hand control
   back to the dispatch — `helper_json` and everything derived from it was rendered
   before the write).
+
+**The `automation_resumed` claim exempts the manual triggers** (`t_manual_position`,
+`t_manual_tilt`, #603) — the same exemption they already have from the contact gate,
+and for the same reason: the manual handler **never drives**, it only *records* the
+intervention (`man: 1`, `ts.man`, base-state sync). Claiming it would mean `man: 1`
+is never written; the recovery then reads the stale `man: 0` as "no override",
+`recovery_allowed` passes, and it drives the cover straight back — actively fighting
+the move the user just made. (With the switch off the run is hygiene-only, but it
+still *consumes* the event, so the intervention goes unrecorded and the next regular
+trigger overrules it.) The exposure is narrow — `automation_resumed` is only true
+between the trigger attach and the first helper write, i.e. until the resume trigger
+fires ~60 s later — but a user who saves the automation and then grabs the cover
+slider lands in it exactly.
+
+**Accepted cost of that exemption:** the manual handler's helper write updates `t`,
+which clears `automation_resumed` and disarms the pending resume trigger
+(`helper.t` overtakes the attach time). In that corner the stale-helper hygiene does
+not run on this resume; it is deferred to the next `t_recovery` source or the 23:55
+reset. That is the right trade: the run records `man: 1`, so the recovery would not
+have been allowed to drive anyway (`recovery_allowed`), and the reset triggers for the
+freshly stamped override arm normally. What is deferred is only the *cleanup* of a
+stale `shd`/`pnd`/`frc`, and none of that can move the cover while the override stands.
+Chaining both (recovery hygiene *and* manual detection in one run) is not possible:
+`helper_json` and everything derived from it is rendered before the first write, so a
+second write in the same run would clobber the first (same reason the gate cannot hand
+control back to the dispatch).
 
 Consequence with the switch off: every "Repaired by the recovery" entry in the
 orphan-audit table below that *catches up* a dropped event does **not** apply —
@@ -599,7 +642,7 @@ Three tiers, and the tier a source belongs to is decided by **what CCA can do wi
 
   The scoping matters in both directions. A force whose *own* switch is readable and `off` really did end → clear it (BRANCH 8 depends on this: it runs on exactly that transition). An unrelated switch dropping out must not resurrect a force that ended. And a genuinely live force always beats the fallback.
 
-  **Why a fallback and not a gate:** `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` are `from: "on"` / `from: "off"` state triggers, so `unavailable → on` and `unavailable → off` **do not fire them**. Without the fallback, a recovery run that lands while the switch is still out writes `frc: 'non'`, drives the cover to the scheduled target, and the force is gone **permanently** — no trigger ever re-establishes it. The force entities therefore also carry a `t_recovery` trigger; that is what re-syncs `frc` once the switch is readable again.
+  **Why a fallback and not a gate:** `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` are `from: "on"` / `from: "off"` state triggers, so `unavailable → on` and `unavailable → off` **do not fire them**. Without the fallback, a recovery run that lands while the switch is still out writes `frc: 'non'`, drives the cover to the scheduled target, and the force is gone **permanently** — no trigger ever re-establishes it. The force entities therefore also carry a `t_recovery` trigger; that is what re-syncs `frc` once the switch is readable again — and it is **not** gated on `is_recovery_enabled` (#603), because without it a force that returned as `off` would stay recorded in the helper forever.
 
 - Window contacts have no equivalent single read (the raw `states(contact_window_*) in ['true','on']` pattern is spread across every handler and reads an invalid contact as "closed"). Rather than sweeping all of them, the gate makes that reading *safe*: a run is blocked **only** while a configured contact is invalid **and** the last known `win` is not `cls`.
 
@@ -682,7 +725,7 @@ A blocked automation **silently loses** every event of the outage: time/calendar
 - `live_force` — the force state re-derived from the **live** force entities ("last activated wins"), falling back to `helper_state_force` while the recorded force's own entity is unreadable (Tier 2 above). A force switched on or off during the outage left `frc` stale in the helper; `live_force` is the single source of truth and is also what the force-disable handler (BRANCH 8) uses.
 - `res` — re-read from `state_resident` and **persisted**. The resident handler's trigger was swallowed by the outage, so nothing else corrects `res` — and `res` is exactly the value `state_resident` falls back to on the *next* dropout. Leaving it stale poisons that fallback.
 - `recovered_state` — **mirrors `effective_state`, but on `recovered_base` and `live_force`.** The duplication is deliberate: `effective_state` reads `helper_json.bas`/`.frc`, which are exactly the stale values the recovery must correct, and HA templates cannot be parameterized. **Keep both in sync — every change to the `effective_state` cascade must be applied to `recovered_state` (Invariant 13).** `TestCascadeParity` renders both side by side; `TestRecoveredStateUsesRecoveredInputs` additionally feeds them *diverging* base/force, which parity by construction cannot see.
-- `recovered_pending` — shading is **re-evaluated**, not replayed: with `shd == 0` and `shading_start_warranted` (fresh forecast — `t_recovery` is in the forecast-load gate, Bug Pattern T) a start pending is armed; with `shd == 1` and `shading_end_conditions_met` an end pending is armed. Due/arm mirror the arming branches, including the pre-window deferral (Bug Patterns L/S). The existing execution triggers then take over — the recovery deliberately does **not** duplicate the shading execution.
+- `recovered_pending` — shading is **re-evaluated**, not replayed: with `shd == 0` and `shading_start_warranted` (fresh forecast — the forecast-load gate matches `t_recovery` **and `automation_resumed`**, because the resumed-run backstop reaches this code through trigger ids the gate does not list; Bug Pattern T, #603) a start pending is armed; with `shd == 1` and `shading_end_conditions_met` an end pending is armed. Due/arm mirror the arming branches, including the pre-window deferral (Bug Patterns L/S). The existing execution triggers then take over — the recovery deliberately does **not** duplicate the shading execution.
 - A **stale pending** (`ts.due` already past) is cleared first: its execution trigger fired during the outage and was blocked, so there is no further `false → true` transition and it can never run. Leaving it armed would make the opening handler defer into a dead flow (Bug Pattern R/AG family).
 - `defer_to_shading` — when a start pending is armed and the target would be `opn`, the drive is skipped and the shading execution does the movement (mirrors the #555 opening handler), **unless** the lockout window is open (Bug Pattern AG: the shading execution only stores the intent there and would never open the cover).
 - The **user's drive actions** (`auto_up_action`, `auto_down_action`, …) run on a caught-up movement — a closing the outage swallowed *is* a closing. `action_set` therefore comes from `state_targets[recovered_state]`, but **only when `not recovery_in_position`**. This gate is load-bearing: unlike `state_gates`, `recovery_allowed` carries **no** position check (it must stay true so a tilt-only correction still runs), so `drive_plan.run` is true on virtually every recovery run and only `cover_move_action`'s internal tolerance guard suppresses the movement. The before/after actions in `drive_with_actions` sit **outside** that guard — without the gate, each of the ~19 recovery sources would re-fire the user's notifications and scenes after a restart although nothing moved. `not recovery_in_position` is the same "we actually drove" predicate that already gates the `man` reset here, and a tilt-only drive setting no `action_set` matches the "Check for shading tilt" branch (`move: 'tilt'`).
@@ -710,9 +753,11 @@ runs either way — via the resumed-run hygiene or an always-on fallback.
 | `t_shading_*_execution` | **yes** (`now >= ts.due` stays true) | pending armed forever, opening handler defers into a dead flow | the recovery gate's `pending_is_stale` (clears it) | always |
 | `t_shading_tilt_*` | **yes** (sun stage stays true) | slats keep the previous angle | the recovery gate drives tilt when `recovered_state == 'shd'` | **opt-in** |
 | `t_shading_reset` (23:55) | yes, until midnight | `shd` stays 1 overnight | the recovery gate arms an end-pending when the end conditions hold | **opt-in** |
-| `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` | no (state), but `from: "on"`/`"off"` means **`unavailable → on/off` never fires them at all** | force **permanently lost**: a recovery run while the switch is out reads it as "off", clears `frc` and drives to the scheduled target — and nothing re-establishes it | `live_force` falls back to `helper_state_force` while that force's own entity is unreadable, **plus** a `t_recovery` trigger on each force entity to re-sync once it is back | fallback: always (it is a `variables:` entry); re-sync trigger: **opt-in** |
+| `t_force_enabled_*` / `t_force_disabled_*` | no (state), but `from: "on"`/`"off"` means **`unavailable → on/off` never fires them at all** | force **permanently lost**: a recovery run while the switch is out reads it as "off", clears `frc` and drives to the scheduled target — and nothing re-establishes it. Conversely, with the re-sync trigger gated off, a force whose switch returned as `off` stays recorded in `frc` **forever** (#603) | `live_force` falls back to `helper_state_force` while that force's own entity is unreadable, **plus** an (ungated) `t_recovery` trigger on each force entity to re-sync `frc` once it is back | always — `frc` is persisted, so a stale one *causes* wrong movements; correcting it moves nothing |
+| `t_force_pause_disabled` | no (state), same `from:` problem | the cover stays where the pause left it — nothing stale is persisted (`is_paused` is read live) | a `t_recovery` trigger on the pause entity, which drives back into the suspended force | **opt-in** — the only thing to repair here *is* a movement |
 | `t_contact_*` | no (state) | `win` stale → **deadlock** (the gate blocks the very event that would clear it) | **gate exemption** for the two contact trigger ids | always |
-| `t_manual_position` / `t_manual_tilt` | no (state/attribute) | manual intervention unrecorded → recovery overrules the user | **gate exemption** (contact gate only; handler never drives) | always |
+| `t_manual_position` / `t_manual_tilt` | no (state/attribute) | manual intervention unrecorded → recovery overrules the user, and with the opt-in on it drives the cover back immediately (#603) | **two exemptions**: from the contact gate, and from the `automation_resumed` claim of the recovery gate (the handler never drives; it must record `man: 1` so `recovery_allowed` can respect it) | always |
+| *(any trigger, on a resumed run, while a forecast shading condition is configured)* | — | `shading_start_warranted` renders false without forecast data → `recovered_pending` refuses a warranted shading, and the helper write clears `automation_resumed` → **permanent for that day** (#603, Bug Pattern T family) | the forecast-load gate also matches `automation_resumed`, not just the opening/shading/recovery trigger ids | **opt-in** (only `recovered_pending` consumes it) |
 | `t_resident_update` | no (state) | `res` stale → poisons the fallback on the *next* dropout | `state_resident` falls back to `helper_json.res`; the recovery gate re-reads **and persists `res`** | always |
 | `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — the cover stays under manual control forever | the recovery gate's `override_expired` (re-evaluates the reset rules and clears `man`). This is why the manual gate sits in `recovery_allowed` (blocking only the *drive*) and not in the gate's conditions: a branch skipped on `man == 1` could never lift an expired override | always — clearing an expired override moves nothing, and gating it would strand the cover in manual **forever** |
 | `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` | always |
@@ -951,6 +996,10 @@ A change only counts as manual when its magnitude *exceeds* `position_tolerance`
 **Fix:** Widen the regex to `^(t_shading_start|t_open|t_calendar_event_start)` so the weather forecast is loaded on every opening-related trigger. This mirrors the top-level "Check for opening" branch gate (`^(t_open|t_calendar_event)`) plus the existing shading-start triggers, ensuring `shading_start_warranted` is evaluated against fresh forecast data whenever the opening handler may need it. The closing handler discards pending unconditionally and never reads `shading_start_warranted`, so it does not need the forecast.
 
 **Why only this user setup hit it:** The original `t_open_1` covered the most common time-based opening. Bug Pattern R (#514, CCA 2026.06.07) added the `shading_start_warranted` gate without revisiting the forecast-load gate — the moment the user's setup uses a calendar trigger or a late/brightness/sun-elevation opening trigger, the gate's premise (forecast already loaded) silently breaks.
+
+**Second recurrence (#603, CCA 2026.07.13 V6):** the recovery gate's `recovered_pending` is a third consumer of `shading_start_warranted`, and the resumed-run backstop (`automation_resumed`) reaches it through **any** trigger id — `t_close_*`, `t_resident_update`, the contact triggers. None of them match the gate's regex, so the forecast was again not loaded, `recovered_pending` refused a warranted shading, and the helper write cleared `automation_resumed` → the miss was permanent for that day. Fix: the gate matches `automation_resumed` in addition to the trigger ids.
+
+**Rule (the recurring shape):** whenever a new code path consumes `shading_start_warranted` — or any variable that depends on the forecast — check *which trigger ids can reach it*. A trigger-id allow-list upstream of a value-based consumer breaks silently every time the set of reaching triggers grows. `tests/test_restart_recovery.py::TestRecoveryTriggers::test_forecast_is_loaded_on_a_resumed_run_claimed_by_any_trigger` pins the resumed-run case.
 
 ---
 

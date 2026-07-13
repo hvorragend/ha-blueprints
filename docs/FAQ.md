@@ -1501,7 +1501,8 @@ This costs nothing and moves nothing. It only removes a status that is no longer
 - A **sun shading left over from an earlier day** is dropped. (The nightly clean-up at 23:55 cannot have run if CCA was not running.) Without this, a days-old shading would still count as active and the next event could drive the cover into the shading position — at night, too.
 - A **waiting period that can no longer run** (sun shading about to start or end) is cleared, so it does not block the next one.
 - An **expired manual override** is lifted — a reset that became due while CCA was down is applied. Without this the override could never be lifted at all, because its timer can only fire once.
-- **Force functions, presence and window status** are re-read from the actual entities.
+- **Force functions, presence and window status** are re-read from the actual entities. This also happens when the **entity of a force function** comes back after an outage of its own: CCA keeps the force function running while its entity has no status (it must not cancel it by accident), so it has to check afterwards whether the function was switched off in the meantime. Without that check the cover would stay in the force position for good.
+- A **manual movement** you make right after a restart or a save is still recorded as one. CCA does not overrule it — it recalculates around it.
 
 This also happens after you switch the automation **off and on again**, and after you **save it** following a settings change — Home Assistant re-creates the automation on a save, which for CCA is the same event. Nothing else in Home Assistant reports either of them.
 

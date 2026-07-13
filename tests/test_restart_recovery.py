@@ -1188,10 +1188,32 @@ class TestResumedRunClaimsEveryTrigger:
 
     def test_any_trigger_is_claimed_while_resumed(self):
         gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
-        for tid in ["t_open_1", "t_close_5", "t_contact_opened_changed", "t_manual_position",
+        for tid in ["t_open_1", "t_close_5", "t_contact_opened_changed",
                     "t_shading_start_pending_1", "t_reset_timeout"]:
             assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
                                 automation_resumed=True) is True, tid
+
+    @pytest.mark.parametrize("tid", ["t_manual_position", "t_manual_tilt"])
+    def test_the_manual_triggers_are_exempt_from_the_claim(self, tid):
+        """The one exception to the claim, and it mirrors the contact gate's exemption:
+        the manual handler never drives, it only RECORDS the intervention (man: 1, ts.man).
+        If the recovery claimed the run, man: 1 would never be written, the recovery would
+        read the stale man: 0 as "no override" and drive the cover back to the cascade target
+        - fighting the move the user just made."""
+        gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
+        assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
+                            automation_resumed=True) is False
+        # ... but an explicit t_recovery run is still a recovery, whatever else is going on
+        assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id="t_recovery"),
+                            automation_resumed=True) is True
+
+    def test_the_manual_handler_is_reachable_on_a_resumed_run(self):
+        """The other half of the exemption: with the recovery not claiming it, the manual
+        branch must actually be the one that runs - it is what writes man: 1."""
+        manual = next(b for b in _top_level_branches()
+                      if "manual position changes" in b.get("alias", ""))
+        gate = [c for c in manual["conditions"] if "trigger.id in" in str(c)]
+        assert gate and _render_bool(gate[0], {}, trigger=types.SimpleNamespace(id="t_manual_position"))
 
     def test_normal_runs_are_not_claimed(self):
         gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
@@ -1344,37 +1366,89 @@ class TestRecoveryTriggers:
     def test_queue_survives_one_run_per_recovering_source(self):
         assert BP["max"] >= len(self._recovery())
 
+    def _forecast_gate(self) -> list[str]:
+        """The conditions of the `weather.get_forecasts` step in the actions."""
+        for step in BP["actions"]:
+            if not isinstance(step, dict) or "if" not in step:
+                continue
+            if any(str(a.get("action")) == "weather.get_forecasts"
+                   for a in step.get("then", []) if isinstance(a, dict)):
+                return [c for c in step["if"] if isinstance(c, str)]
+        raise AssertionError("no weather.get_forecasts step found")
+
     def test_forecast_is_loaded_for_the_recovery(self):
         """Without it shading_start_warranted is false whenever a forecast condition
         is configured, and the recovery would never re-arm shading (Bug Pattern T)."""
-        text = BLUEPRINT_PATH.read_text(encoding="utf-8")
-        gate = [ln for ln in text.splitlines() if "t_calendar_event_start|t_recovery" in ln]
-        assert gate, "t_recovery missing from the weather.get_forecasts gate"
+        gate = next(c for c in self._forecast_gate() if "regex_match" in c)
+        assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id="t_recovery"),
+                            automation_resumed=False) is True
+
+    @pytest.mark.parametrize("tid", ["t_close_1", "t_resident_update", "t_contact_tilted_changed"])
+    def test_forecast_is_loaded_on_a_resumed_run_claimed_by_any_trigger(self, tid):
+        """The resumed-run backstop turns ANY trigger into a recovery, and that run evaluates
+        shading_start_warranted for recovered_pending. Gating the forecast load on trigger ids
+        alone left it unloaded there: forecast_temp_valid / forecast_weather_valid render false
+        whenever the user configured those conditions, so the recovery refuses a shading the
+        conditions actually warrant - and the helper write clears automation_resumed, so the
+        miss is permanent for that day (the shading triggers latched during the off-period).
+        Bug Pattern T, one trigger-id set further out."""
+        gate = next(c for c in self._forecast_gate() if "regex_match" in c)
+        assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
+                            automation_resumed=False) is False, "premise: not an opening trigger"
+        assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
+                            automation_resumed=True) is True
 
     def _resume_trigger(self) -> dict:
         return next(t for t in self._recovery()
                     if t["trigger"] == "template" and "this.last_changed" in t["value_template"])
 
+    FORCE_ENTITIES = ["auto_up_force", "auto_down_force",
+                      "auto_shading_start_force", "auto_ventilate_force"]
+
+    def _ungated(self) -> list[dict]:
+        return [self._resume_trigger()] + [
+            t for t in self._recovery() if t.get("entity_id") in self.FORCE_ENTITIES]
+
     def test_recovery_is_opt_in_and_defaults_to_off(self):
-        """Users must explicitly opt in to cover movements after a restart. Every source
-        recovery trigger exists purely to CATCH UP, so it is gated at the trigger (no run,
-        no trace, no drive while disabled - same rationale as the #550 trigger-level
-        filtering)."""
+        """Users must explicitly opt in to cover movements after a restart. A source recovery
+        trigger that exists to CATCH UP is gated at the trigger (no run, no trace, no drive
+        while disabled - same rationale as the #550 trigger-level filtering)."""
+        ungated = self._ungated()
         for t in self._recovery():
-            if t is self._resume_trigger():
+            if any(t is u for u in ungated):
                 continue
             assert "is_recovery_enabled" in t.get("enabled", ""), t
         section = BP["blueprint"]["input"]["feature_section"]["input"]
         assert section["enable_recovery"]["default"] is False
 
     def test_the_resume_trigger_is_deliberately_not_gated(self):
-        """The one exception, and it must stay one. A resumed automation holds a helper
-        that may be days old; acting on it drives the cover WRONGLY (a shading from an
-        earlier day still reads as active, an override reset that came due while the
-        automation was off can never fire again). The run it starts only cleans the helper
-        and stops - will_drive gates the movement - so it prevents a wrong movement rather
-        than causing one, which is not what the opt-in guards against."""
+        """The first exception, and the reason for the cause-vs-prevent rule. A resumed
+        automation holds a helper that may be days old; acting on it drives the cover WRONGLY
+        (a shading from an earlier day still reads as active, an override reset that came due
+        while the automation was off can never fire again). The run it starts only cleans the
+        helper and stops - will_drive gates the movement - so it prevents a wrong movement
+        rather than causing one, which is not what the opt-in guards against."""
         assert "is_recovery_enabled" not in self._resume_trigger().get("enabled", "")
+
+    @pytest.mark.parametrize("entity_input", FORCE_ENTITIES)
+    def test_the_force_entity_triggers_are_not_gated_either(self, entity_input):
+        """Same rule, second application. frc is a PERSISTED field that effective_state reads,
+        so a stale frc does not merely miss an event - it holds the whole cascade in the force
+        state and produces wrong movements on every later trigger. The force's own trigger uses
+        from: "on", so unavailable -> off never fires it, and live_force deliberately keeps
+        reading the recorded force as active while its entity is unreadable. Without this
+        trigger the force would stay recorded indefinitely with the opt-in off."""
+        t = next(t for t in self._recovery() if t.get("entity_id") == entity_input)
+        assert "is_recovery_enabled" not in t.get("enabled", "")
+        assert entity_input in t["enabled"], "still gated on the input being configured"
+
+    def test_the_force_pause_trigger_stays_gated(self):
+        """The counter-example that keeps the rule honest: is_paused is read live from the
+        entity and nothing about the pause is persisted, so its return leaves no stale claim
+        to correct. All a recovery run could do is drive the cover back into the force position
+        the pause suspended - a catch-up, which is what the opt-in buys."""
+        t = next(t for t in self._recovery() if t.get("entity_id") == "force_pause")
+        assert "is_recovery_enabled" in t.get("enabled", "")
 
     def test_the_opt_in_gates_the_drive_not_the_hygiene(self):
         """The switch buys exactly one thing: permission to MOVE the cover."""
