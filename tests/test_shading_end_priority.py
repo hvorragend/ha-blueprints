@@ -149,6 +149,8 @@ def _base_execution_vars(entity_states: dict) -> dict:
         },
         "current_position": 25,
         "ventilate_position": 50,
+        "current_tilt_position": 0,
+        "ventilate_tilt_position": 60,
         "shading_end_conditions_met": True,
         "shading_end_max_duration": 0,
         "is_shading_allowed_window": True,
@@ -234,5 +236,51 @@ class TestShadingEndBranchSelection:
             "after_shading_end": False,
             "if_lower_enabled": False,
         }
+        alias = _first_matching_alias(_env(entity_states), choose, variables)
+        assert alias == "Only tilt open after shading ends"
+
+    def test_issue_608_tilt_cover_at_ventilate_position_selects_ventilation(self, choose):
+        # Venetian-style setup where shading and ventilation share the same
+        # cover position and only the slat angle differs (e.g. everything at
+        # position 0, ventilate tilt 60). At shading end the cover already
+        # rests AT the ventilate position, so current_below_ventilate is
+        # false — the ventilation branch must still win via the tilt-cover
+        # equality alternative (mirroring the contact handler), instead of
+        # falling through to the tilt-only branch, which would open the
+        # slats to open_tilt_position (Issue #608).
+        entity_states = {
+            "binary_sensor.window_opened": "off",
+            "binary_sensor.window_tilted": "on",
+        }
+        variables = _base_execution_vars(entity_states)
+        variables["position_comparisons"] = {
+            "current_below_ventilate": False,
+            "current_above_ventilate": False,
+        }
+        variables["current_position"] = 0
+        variables["ventilate_position"] = 0
+        variables["current_tilt_position"] = 0  # slats at shading angle
+        variables["ventilate_tilt_position"] = 60
+        alias = _first_matching_alias(_env(entity_states), choose, variables)
+        assert alias == "Ventilation after shading ends"
+
+    def test_slats_already_above_ventilate_tilt_select_tilt_only(self, choose):
+        # Same equality setup, but the slats are already MORE open than the
+        # ventilate tilt: do not pull them down to the ventilate angle
+        # (same policy as the contact handler's tilt alternative) — the
+        # tilt-only branch opens them fully instead.
+        entity_states = {
+            "binary_sensor.window_opened": "off",
+            "binary_sensor.window_tilted": "on",
+        }
+        variables = _base_execution_vars(entity_states)
+        variables["position_comparisons"] = {
+            "current_below_ventilate": False,
+            "current_above_ventilate": False,
+        }
+        variables["current_position"] = 0
+        variables["ventilate_position"] = 0
+        variables["current_tilt_position"] = 80
+        variables["ventilate_tilt_position"] = 60
         alias = _first_matching_alias(_env(entity_states), choose, variables)
         assert alias == "Only tilt open after shading ends"
