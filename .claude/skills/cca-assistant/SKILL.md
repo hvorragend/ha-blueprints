@@ -409,7 +409,7 @@ Optional `log_extra` string for branches with additional context (pending/retry 
 
 ---
 
-## Trigger IDs (45 total)
+## Trigger IDs
 
 **Opening:** `t_open_1`, `t_open_2`, `t_open_4`, `t_open_5`
 **Closing:** `t_close_1`, `t_close_2`, `t_close_4`, `t_close_5`
@@ -419,10 +419,10 @@ Optional `log_extra` string for branches with additional context (pending/retry 
 **Force Close:** `t_force_enabled_close`, `t_force_disabled_close`
 **Contacts:** `t_contact_tilted_changed`, `t_contact_opened_changed`
 **Force Vent:** `t_force_enabled_ventilate`, `t_force_disabled_ventilate`
-**Shading Start:** `t_shading_start_pending_1` to `_7`, `t_shading_start_execution`
+**Shading Start:** `t_shading_start_pending_1` to `_8` (`_8` = custom condition sensor), `t_shading_start_execution`
 **Force Shade:** `t_force_enabled_shading`, `t_force_disabled_shading`, `t_force_pause_disabled`
 **Shading Tilt:** `t_shading_tilt_1` to `_4`
-**Shading End:** `t_shading_end_pending_1` to `_6`, `t_shading_end_execution`
+**Shading End:** `t_shading_end_pending_1` to `_8` (`_8` = custom condition sensor), `t_shading_end_execution`
 **Reset:** `t_shading_reset`, `t_reset_fixedtime`, `t_reset_timeout`
 **Manual:** `t_manual_position` (×3), `t_manual_tilt`
 

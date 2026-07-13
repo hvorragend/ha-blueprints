@@ -30,6 +30,7 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 - [🌞 Shading START - Optional Conditions (OR)](#shading_conditions_start_or)
 - [🌥️ Shading END - Required Conditions (AND)](#shading_conditions_end_and)
 - [🌥️ Shading END - Optional Conditions (OR)](#shading_conditions_end_or)
+- [🧩 Sun Shading - Custom Condition Sensor](#shading_custom_sensor)
 - [📐 Sun Shading - Azimuth Start Value](#shading_azimuth_start)
 - [📐 Sun Shading - Azimuth End Value](#shading_azimuth_end)
 - [📈 Sun Shading - Elevation Minimum Value](#shading_elevation_min)
@@ -183,6 +184,40 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 **Combined logic:**
 - Final = (ALL AND invalid) OR (ONE OR invalid)
 - The AND group and the OR group are themselves combined with **OR** (unlike START, where they are combined with AND). To require several end conditions together, put them ALL in the AND group and leave the OR group empty.
+
+---
+
+<a id="shading_custom_sensor"></a>
+
+## 🧩 Sun Shading - Custom Condition Sensor
+
+> 🧩 Input: `shading_custom_sensor` · Default: (empty)
+
+Optional binary sensor (or toggle helper) evaluated as an additional shading condition.
+
+- While the entity is **on**, the custom **START** condition is met.
+- While it is **off**, the custom **END** condition is met.
+- Select "🧩 Custom Condition Sensor" in the AND/OR lists above to combine it with the built-in conditions. Leave the field empty and the condition is skipped automatically, even where it is selected.
+- A state change of the entity also **triggers** a shading re-evaluation — you do not need an extra automation to poke CCA.
+
+### Use cases
+
+**Override an unreliable forecast (hybrid OR setup):**
+- START (AND): Azimuth, Elevation
+- START (OR): Forecast Weather Conditions, Custom Condition Sensor
+- Point the sensor to an `input_boolean` helper ("shade anyway")
+- Result: Sun must be in range, **and** either the forecast matches or you switched the helper on — a wrong "cloudy" forecast can no longer suppress shading
+
+**Your own periodic condition logic:**
+- Build a Template Sensor that evaluates whatever you need (hourly forecast service, combined sensors, seasonal rules) and updates during the day
+- Add it to the START and END lists
+- When the sensor flips to `on` later in the day, shading starts; when it flips to `off`, shading ends
+
+**Difference to the "Additional Condition When Activating Sun Shading":** the additional condition (in the *Conditions* section) is a pure gate — it is only checked when something else triggers, and it can only block, never trigger. The Custom Condition Sensor is a full condition: it participates in the AND/OR logic **and** fires the shading evaluation on its own.
+
+**Difference to the "Force Sun Shading" switch:** the force function bypasses ALL conditions. The Custom Condition Sensor is combined with the other configured conditions — sun position, brightness etc. still apply.
+
+**Note:** If the sensor reports "unavailable" or "unknown", the condition behaves like the other conditions: the START condition fails (shading does not start because of it) and the END condition does not fire (shading does not end because of it). The rest of the automation keeps working normally.
 
 ---
 

@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.13
+    **Version**: 2026.07.13 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -1081,6 +1081,7 @@ blueprint:
             - cond_temp2
             - cond_forecast_temp
             - cond_forecast_weather
+            - cond_custom
           selector:
             select:
               multiple: true
@@ -1100,6 +1101,8 @@ blueprint:
                   value: "cond_forecast_temp"
                 - label: "🌦️ Forecast Weather Conditions (matching configured conditions)"
                   value: "cond_forecast_weather"
+                - label: "🧩 Custom Condition Sensor (state is 'on')"
+                  value: "cond_custom"
 
         shading_conditions_start_or:
           name: "🌞 Shading START - Optional Conditions (OR)"
@@ -1127,6 +1130,8 @@ blueprint:
                   value: "cond_forecast_temp"
                 - label: "🌦️ Forecast Weather Conditions (matching configured conditions)"
                   value: "cond_forecast_weather"
+                - label: "🧩 Custom Condition Sensor (state is 'on')"
+                  value: "cond_custom"
 
         shading_conditions_end_and:
           name: "🌥️ Shading END - Required Conditions (AND)"
@@ -1154,6 +1159,8 @@ blueprint:
                   value: "cond_forecast_temp"
                 - label: "🌦️ Forecast Weather Conditions (no longer matching configured conditions)"
                   value: "cond_forecast_weather"
+                - label: "🧩 Custom Condition Sensor (state is 'off')"
+                  value: "cond_custom"
 
         shading_conditions_end_or:
           name: "🌥️ Shading END - Optional Conditions (OR)"
@@ -1169,6 +1176,7 @@ blueprint:
             - cond_temp2
             - cond_forecast_temp
             - cond_forecast_weather
+            - cond_custom
           selector:
             select:
               multiple: true
@@ -1188,6 +1196,27 @@ blueprint:
                   value: "cond_forecast_temp"
                 - label: "🌦️ Forecast Weather Conditions (no longer matching configured conditions)"
                   value: "cond_forecast_weather"
+                - label: "🧩 Custom Condition Sensor (state is 'off')"
+                  value: "cond_custom"
+
+        shading_custom_sensor:
+          name: "🧩 Sun Shading - Custom Condition Sensor"
+          description: >-
+            Optional binary sensor (or toggle helper) evaluated as an additional shading condition.<br />
+            When the sensor is **on**, the custom START condition is met; when it is **off**,
+            the custom END condition is met. Add "🧩 Custom Condition Sensor" to the AND/OR lists
+            above to combine it with the built-in conditions — for example, put it into the START (OR)
+            list together with the forecast weather condition to shade when the forecast matches
+            **or** your own sensor says so.<br />
+            You can point this to a Template Sensor with your own logic, or to a toggle helper
+            (input_boolean) you switch manually.
+          default: []
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - binary_sensor
+                    - input_boolean
 
         shading_azimuth_start:
           name: "📐 Sun Shading - Azimuth Start Value"
@@ -2280,6 +2309,7 @@ trigger_variables:
   shading_forecast_temp_hysteresis: !input shading_forecast_temp_hysteresis
   shading_independent_temp: !input shading_independent_temp
   shading_weather_conditions: !input shading_weather_conditions
+  shading_custom_sensor: !input shading_custom_sensor
 
   # Shading condition selections
   shading_conditions_start_and: !input shading_conditions_start_and
@@ -2369,7 +2399,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.13"
+  version: "2026.07.13 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -2599,6 +2629,7 @@ variables:
     temp2: "{{ 'cond_temp2' in shading_conditions_start_and or 'cond_temp2' in shading_conditions_start_or }}"
     forecast_temp: "{{ 'cond_forecast_temp' in shading_conditions_start_and or 'cond_forecast_temp' in shading_conditions_start_or }}"
     forecast_weather: "{{ 'cond_forecast_weather' in shading_conditions_start_and or 'cond_forecast_weather' in shading_conditions_start_or }}"
+    custom: "{{ 'cond_custom' in shading_conditions_start_and or 'cond_custom' in shading_conditions_start_or }}"
 
   # Which END conditions are enabled (combines AND + OR lists)
   shading_end_condition_enabled:
@@ -2609,6 +2640,7 @@ variables:
     temp2: "{{ 'cond_temp2' in shading_conditions_end_and or 'cond_temp2' in shading_conditions_end_or }}"
     forecast_temp: "{{ 'cond_forecast_temp' in shading_conditions_end_and or 'cond_forecast_temp' in shading_conditions_end_or }}"
     forecast_weather: "{{ 'cond_forecast_weather' in shading_conditions_end_and or 'cond_forecast_weather' in shading_conditions_end_or }}"
+    custom: "{{ 'cond_custom' in shading_conditions_end_and or 'cond_custom' in shading_conditions_end_or }}"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # Cover Status Helper – JSON parsing with v5 → v6 migration
@@ -3262,6 +3294,11 @@ triggers:
     id: "t_shading_start_pending_7"
 
   - trigger: template
+    value_template: "{{ states(shading_custom_sensor) not in invalid_states and states(shading_custom_sensor) in ['on', 'true'] }}"
+    enabled: "{{ is_shading_enabled and shading_custom_sensor != [] }}"
+    id: "t_shading_start_pending_8"
+
+  - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
       {% set helper = helper_state | from_json if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
@@ -3405,6 +3442,11 @@ triggers:
     value_template: "{{ states(shading_forecast_temp_sensor) not in invalid_states and states(shading_forecast_temp_sensor) | float(default=shading_forecast_temp) < (shading_forecast_temp - shading_forecast_temp_hysteresis) }}"
     enabled: "{{ is_shading_enabled and shading_forecast_temp_sensor != [] and shading_forecast_temp != [] }}"
     id: "t_shading_end_pending_6"
+
+  - trigger: template
+    value_template: "{{ states(shading_custom_sensor) not in invalid_states and states(shading_custom_sensor) in ['off', 'false'] }}"
+    enabled: "{{ is_shading_enabled and shading_custom_sensor != [] }}"
+    id: "t_shading_end_pending_8"
 
   - trigger: template
     value_template: >-
@@ -3555,6 +3597,14 @@ triggers:
     enabled: "{{ is_recovery_enabled and is_shading_enabled and shading_forecast_sensor != [] }}"
 
   - trigger: state
+    entity_id: !input shading_custom_sensor
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ is_recovery_enabled and is_shading_enabled and shading_custom_sensor != [] }}"
+
+  - trigger: state
     entity_id: !input calendar_entity
     from: *invalid_recovery_states
     not_to: *invalid_recovery_states
@@ -3638,12 +3688,12 @@ conditions:
                                       't_manual_position', 't_manual_tilt'] }}
   - condition: template
     value_template: >-
-      {% if trigger.id is match('^t_shading_start_pending_[1-6]$') %}
+      {% if trigger.id is match('^t_shading_start_pending_([1-6]|8)$') %}
         {% set helper = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
         {% set is_shaded = helper not in invalid_states and helper | regex_search('"shd"\s*:\s*1\s*[,}]') %}
         {% set is_end_pending = helper not in invalid_states and helper | regex_search('"pnd"\s*:\s*"end"') %}
         {{ not is_shaded or is_end_pending }}
-      {% elif trigger.id is match('^t_shading_end_pending_[1-7]$') %}
+      {% elif trigger.id is match('^t_shading_end_pending_[1-8]$') %}
         {{ cover_status_helper != [] and states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
       {% else %}
         true
@@ -4288,6 +4338,20 @@ actions:
               forecast_weather_condition_raw in shading_weather_conditions
             )
           }}
+        custom_valid: >-
+          {{
+            not is_shading_enabled or
+            not shading_start_condition_enabled.custom or
+            shading_custom_sensor == [] or
+            (
+              states(shading_custom_sensor) in invalid_states and
+              trigger is defined and trigger.id == 't_shading_start_pending_8'
+            ) or
+            (
+              states(shading_custom_sensor) not in invalid_states and
+              states(shading_custom_sensor) in ['on', 'true']
+            )
+          }}
 
       # SHADING START - Combined AND/OR Logic
       # START AND: All required conditions must be true
@@ -4321,6 +4385,10 @@ actions:
             ('cond_forecast_weather' not in shading_conditions_start_and or
             shading_weather_conditions == [] or
             shading_start_condition_states.forecast_weather_valid)
+            and
+            ('cond_custom' not in shading_conditions_start_and or
+            shading_custom_sensor == [] or
+            shading_start_condition_states.custom_valid)
           )
         }}
 
@@ -4356,6 +4424,10 @@ actions:
             ('cond_forecast_weather' in shading_conditions_start_or and
             shading_weather_conditions != [] and
             shading_start_condition_states.forecast_weather_valid)
+            or
+            ('cond_custom' in shading_conditions_start_or and
+            shading_custom_sensor != [] and
+            shading_start_condition_states.custom_valid)
           )
         }}
 
@@ -4443,6 +4515,14 @@ actions:
             forecast_weather_condition_raw not in invalid_states and
             forecast_weather_condition_raw not in shading_weather_conditions
           }}
+        custom_invalid: >-
+          {{
+            is_shading_enabled and
+            shading_end_condition_enabled.custom and
+            shading_custom_sensor != [] and
+            states(shading_custom_sensor) not in invalid_states and
+            states(shading_custom_sensor) in ['off', 'false']
+          }}
 
       # SHADING END - Combined AND/OR Logic
       # END AND: All specified conditions must become invalid
@@ -4477,6 +4557,10 @@ actions:
             ('cond_forecast_weather' not in shading_conditions_end_and or
             shading_weather_conditions == [] or
             shading_end_condition_states.forecast_weather_invalid)
+            and
+            ('cond_custom' not in shading_conditions_end_and or
+            shading_custom_sensor == [] or
+            shading_end_condition_states.custom_invalid)
           )
         }}
 
@@ -4505,6 +4589,9 @@ actions:
             or
             ('cond_forecast_weather' in shading_conditions_end_or and
             shading_end_condition_states.forecast_weather_invalid)
+            or
+            ('cond_custom' in shading_conditions_end_or and
+            shading_end_condition_states.custom_invalid)
           )
         }}
 
@@ -6812,6 +6899,8 @@ actions:
                   message: "Sun sensor is missing the required 'azimuth' attribute"
                 - condition: "{{ resident_sensor != [] and states(resident_sensor) not in ['false', 'off', 'true', 'on'] }}"
                   message: "resident_sensor has invalid state. Must be: on, off, true, or false"
+                - condition: "{{ shading_custom_sensor != [] and states(shading_custom_sensor) not in ['false', 'off', 'true', 'on', 'unknown', 'unavailable'] }}"
+                  message: "Sun Shading Custom Condition Sensor has invalid state. Must be binary: on/off"
                 - condition: "{{ is_brightness_enabled and (default_brightness_sensor == [] or not is_number(states(default_brightness_sensor))) }}"
                   message: "Brightness sensor not configured or has non-numeric state"
 
