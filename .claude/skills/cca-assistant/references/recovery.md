@@ -493,6 +493,45 @@ and the mandatory entity validation names it and stops the run. `unavailable` (a
 **does** block, and the switch carries its own ungated `t_recovery` trigger: it is a sixth gate
 source, so its outage eats the latching triggers exactly like the other five.
 
+**One helper per instance — a shared one is possible and wrong.** CCA cannot enforce it (it
+cannot see its siblings), so this is a documentation-only rule. The reason is what the helper
+holds: **not one fact about the cover that is not re-derived live anyway** (`win`, `res`, `frc`
+are read from the entities on every take-over). Everything it *uniquely* stores is an
+**interpretation under one instance's settings** — `bas` ("*my* schedule says open"), `shd`
+("*my* shading is active" — the sibling may not even have shading enabled), `pnd`/`ts.due`/
+`ts.arm` (armed with *my* waiting times and thresholds), `man` ("someone overrode *me*"),
+`ts.opn`/`ts.cls`/`ts.shd` (the once-per-day guards of *my* settings). Sharing does not share
+state, it mixes readings. Three concrete failures:
+
+- `recovered_shade` only drops `shd` on `stale_day`, so a **same-day** hand-over makes the
+  incoming instance inherit a shading it has no concept of.
+- `recovered_pending` deliberately preserves a non-stale pending, so the incoming instance
+  inherits an armed pending and executes it against *its* conditions.
+- The global conditions are evaluated **once per run**: an outgoing run sitting in a `delay:`
+  finishes and writes the helper *after* the flip. With separate helpers it writes its own and
+  nobody cares; with a shared one it clobbers the take-over — and its fresh `t` can even defeat
+  the `instance_activated` claim (the `t_instance_activated` trigger id in `recovery_catch_up`
+  is what keeps the drive alive there, a second reason that clause is not redundant).
+
+The only thing sharing would buy is cross-instance once-per-day guards. Not worth it; the
+handbook points users at an `input_boolean` in the additional shading condition instead.
+
+**`instance_active` vs. the force pause — opposite mechanisms, and the pause must not be
+abused for this.** The pause suppresses the **drive**; the run still executes and still writes
+the helper (`bas`/`shd`/`win`/`frc` all updated — that is what makes the resume instant), and
+nothing about the pause itself is persisted. `instance_active` suppresses the **run**; the
+helper freezes and goes stale, which is why it needs the full take-over on return and the pause
+needs no recovery at all. Same rule, opposite sides: the pause's `t_recovery` trigger is
+**opt-in gated** (its return leaves nothing stale to correct — the only thing to do would be to
+*drive*, which causes a movement), while `instance_active` is an **ungated gate source** (while
+it is unusable the gate blocks every run, and the repair only *prevents* wrong movements).
+
+Using the pause for mutual exclusion **almost** works and fails on exactly one thing: a paused
+instance still watches, and `t_manual_position` is not gated by the pause (the manual handler
+never drives, so no drive gate touches it). It therefore records the *sibling's* drives as
+`man: 1` and comes back refusing to move. That is the same failure the instance gate's **lack
+of trigger exemptions** is designed to prevent — the two facts are one fact.
+
 **Known limitations, accepted, documented in the handbook:** the once-per-day guards
 (`ts.opn`/`ts.cls`/`ts.shd`) are per-helper, so a mid-day hand-over grants one more
 open/close/shade; and the switching automation **must not drive the cover itself** — the

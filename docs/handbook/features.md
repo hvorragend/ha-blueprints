@@ -227,6 +227,37 @@ A **manual override** that this instance still had stored from the last time it 
 
 If your switching automation drives the cover first (say, "when everyone leaves, close the covers, then switch to the away instance"), the incoming instance sees that movement as a **manual override** and politely leaves the cover alone — which is the opposite of what you wanted. Let it do the closing: put the closed position in the away instance's settings instead.
 
+### ⚠️ Every automation needs its **own** status helper
+
+Nothing stops you from pointing two CCA automations at the same *status helper*, and it will even appear to work for a while. **Don't.** Give each automation its own.
+
+The reason is what the status helper actually contains. It holds almost nothing about the *cover* — the window state, presence and the force switches are read live from their entities every time, which is why a hand-over picks them up without a gap. What the helper uniquely stores is **one automation's reading of the situation, under that automation's settings**:
+
+- *"the schedule says open"* — but the summer automation's schedule is not the winter one's.
+- *"sun shading is active"* — the winter automation may not even have shading switched on.
+- *"a sun-shading waiting period is running"* — started with *that* automation's waiting time and thresholds.
+- *"someone overrode me by hand"* — overrode **whom**?
+- *"I already opened / closed / shaded today"* — the counters behind the *only once per day* options.
+
+Share the helper and those readings get mixed together: the incoming automation inherits a shading it has no concept of, or a waiting period that was armed under settings it does not have. It also becomes impossible to tell from the helper which automation put the cover where — and that helper is your main tool when something goes wrong.
+
+There is exactly one thing a shared helper would buy you: the *only once per day* counters would then be shared too (see below). If you need that, use a separate `input_boolean` ("already shaded today") in the *additional shading condition* instead — it costs one helper and breaks nothing.
+
+### Not the same as the ⏸️ Force Pause
+
+Both switches stop the cover from moving, and they look interchangeable. They are opposites.
+
+| | ⏸️ **Force Pause** | 🎚️ **`instance_active` (off)** |
+|---|---|---|
+| The automation keeps running | **yes** — it just does not move the cover | **no** — it does nothing at all |
+| The status helper keeps being updated | **yes**, continuously | **no** — it freezes at the last value |
+| When it is lifted | drives back to the state it tracked all along — **instant, because it never lost track** | recalculates **everything from scratch**, because it does not know what happened |
+| What it means | *"do not move this cover right now"* | *"this automation is not in charge right now — another one is"* |
+
+Use the **Force Pause** when the cover must stay put for a while (someone is cleaning the windows, the terrace door is blocked, a baby is asleep). Use **`instance_active`** when a *different CCA automation* is running the cover.
+
+**Do not try to use the Force Pause for the multi-automation setup.** A paused automation still watches — and it cannot tell the *other* automation's movements apart from you grabbing the slider. It records them as a **manual override** and, once you un-pause it, refuses to touch the cover. `instance_active` switches the automation off entirely, which is exactly what stops that from happening.
+
 ### Things worth knowing
 
 - **The "only once per day" options are per automation.** Each instance has its own status helper, so *Open / Close / Shade cover only once per day* count that instance's own movements. Hand over at noon and the incoming instance may open, close or shade once more that day.

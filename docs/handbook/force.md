@@ -53,6 +53,8 @@ While paused, CCA also does **not** run your *before/after actions* (they announ
 When this entity turns off again, the cover **immediately returns** to its correct target position — no waiting for the next scheduled trigger.
 💡 **Tip:** Use an `input_boolean` as a manual/automatic toggle. Unlike putting a switch in the global condition (which blocks helper state updates too), this force pause only blocks cover movement. The helper always reflects the correct background state, so resuming is instant and reliable.
 
+⚠️ **Not a way to run several CCA automations on one cover.** The force pause keeps the automation *running* — it only stops it from moving the cover. A paused automation therefore still watches, and it cannot tell a *different CCA automation's* movements apart from you grabbing the slider: it records them as a **manual override** and refuses to touch the cover once you un-pause it. For that setup use [🎚️ Only run this automation while this switch is on](features#instance_active), which switches the automation off entirely and hands the cover over properly.
+
 ---
 
 <a id="auto_up_force"></a>
