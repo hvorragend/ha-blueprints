@@ -450,13 +450,27 @@ take-over (`recovery_allowed`). The contact gate exempts `t_manual_position`/`t_
 because that handler records something CCA needs; here there is nothing to record, because CCA
 is not in charge.
 
-**The take-over catches up regardless of `enable_recovery`** — `recovery_catch_up` gets an
-`instance_activated` clause. The opt-in guards against *restarts* moving the cover; an
-activation is an explicit "you are in charge now", and an instance that takes charge and leaves
-the cover where the previous one parked it has done nothing at all. But it is exempt from the
-**opt-in**, not from **`is_restart_run`**: on a restart the gating entity is recreated too, so
-its `last_changed` points at the boot and `instance_activated` reads true — without the
-`not is_restart_run` guard the exemption would smuggle every restart past the opt-in.
+**The take-over catches up regardless of `enable_recovery`.** The opt-in guards against
+*restarts* moving the cover; an activation is an explicit "you are in charge now", and an
+instance that takes charge and leaves the cover where the previous one parked it has done
+nothing at all.
+
+**But the two activation signals are not equally strong, and `recovery_catch_up` must not treat
+them as one** — doing so was a real bug during development:
+
+- **`t_instance_activated` is unambiguous.** Only a real `off → on` flank fires it; a restart
+  returns the entity as `unavailable → on`, which its `from: [off, false]` does not match. It
+  therefore needs **no** `is_restart_run` guard — and must not have one: that flag stays true
+  for 300 s after a re-attach, and **saving the automation is a re-attach**. Guarded, the
+  sequence "save the automation → flip the switch to try the hand-over" leaves the cover
+  standing — which is the first thing anyone does with this feature.
+- **`instance_activated` is a timestamp proxy** (`helper.t < switch.last_changed`), and on a
+  restart the gating entity is recreated with everything else, so its `last_changed` points at
+  the boot and the proxy reads true. This one **must** stay behind `is_restart_run`, or the
+  exemption would smuggle every restart past the opt-in — exactly what the opt-in promises not
+  to do.
+
+Pinned by `TestCatchUpOnActivation` (both halves, in both directions).
 
 **`override_expired` is voided by an activation**, whatever the reset rules say. This is the
 one bug the feature would otherwise have shipped with: an instance that went inactive with

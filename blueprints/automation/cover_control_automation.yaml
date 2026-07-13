@@ -3064,13 +3064,24 @@ variables:
 
   # CATCH UP - Is this run allowed to replay what was missed (re-derive the base state, arm a
   # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
+  #
   # An activation catches up regardless of the opt-in: switching this instance on IS the request
   # to take the cover over, and an instance that took over without positioning the cover has done
-  # nothing at all. It is exempt from the opt-in, not from is_restart_run - on a restart the
-  # gating entity is recreated too, so its last_changed points at the boot and would otherwise
-  # read as an activation on every restart, which is exactly what the opt-in promises not to do.
+  # nothing at all. The two activation signals are NOT equally strong, and treating them as one
+  # is a bug:
+  #
+  #  * t_instance_activated only fires on a real off -> on flank. A restart brings the entity
+  #    back as unavailable -> on, which does not match it - so the trigger is unambiguous and
+  #    needs no protection from is_restart_run. Giving it that protection anyway means a switch
+  #    flipped within the 300 s settle window of a re-attach does not drive: save the automation,
+  #    flip the switch to test it, cover stays put. Which is the first thing anyone does.
+  #  * instance_activated is a TIMESTAMP PROXY (helper.t < switch.last_changed), and on a restart
+  #    the gating entity is recreated too, so its last_changed points at the boot and the proxy
+  #    reads true. It is the one that must stay behind is_restart_run, or the exemption would
+  #    smuggle every restart past the opt-in - exactly what the opt-in promises not to do.
   recovery_catch_up: >-
     {{ recovery_mode == 'always' or
+       (trigger is defined and trigger.id | default('') == 't_instance_activated') or
        ((recovery_mode == 'outage' or instance_activated) and not is_restart_run) }}
 
   # STALE DAY - Was the helper last written on an earlier day?

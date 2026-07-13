@@ -189,11 +189,17 @@ class TestInstanceActivatedClaim:
 # The take-over drives, whatever the recovery opt-in says
 # ════════════════════════════════════════════════════════════════════════════
 class TestCatchUpOnActivation:
+    """The two activation signals are NOT equally strong, and the gate must not treat them as
+    one. The TRIGGER is unambiguous (only a real off -> on flank fires it). The CLAIM is a
+    timestamp proxy that reads true on any restart, because the gating entity is recreated with
+    everything else. So the trigger is exempt from is_restart_run and the claim is not."""
+
     def TPL(self) -> str:
         return _top_var("recovery_catch_up")
 
-    def _run(self, *, mode, activated, restart=False):
+    def _run(self, *, mode, activated=False, restart=False, tid="t_open_1"):
         return _render_bool(self.TPL(), {}, recovery_mode=mode,
+                            trigger=types.SimpleNamespace(id=tid),
                             instance_activated=activated, is_restart_run=restart)
 
     @pytest.mark.parametrize("mode", ["never", "outage", "always"])
@@ -201,19 +207,30 @@ class TestCatchUpOnActivation:
         """Including 'never' - the default, and the mode most users are in. An instance that
         took charge and left the cover where the previous one parked it did nothing."""
         assert self._run(mode=mode, activated=True) is True
+        assert self._run(mode=mode, tid="t_instance_activated") is True
 
-    def test_a_restart_is_still_not_an_activation(self):
-        """On a restart the gating entity is recreated too, so its last_changed points at the
-        boot and instance_activated reads true. Exempting the activation from the opt-in must
-        not smuggle the restart past it - that is precisely what the opt-in promises."""
-        assert self._run(mode="never", activated=True, restart=True) is False
-        assert self._run(mode="outage", activated=True, restart=True) is False
-        assert self._run(mode="always", activated=True, restart=True) is True
+    @pytest.mark.parametrize("mode", ["never", "outage"])
+    def test_the_switch_still_drives_right_after_a_save(self, mode):
+        """The regression this class exists for. is_restart_run stays true for 300 s after a
+        re-attach, and saving the automation IS a re-attach - so gating the trigger on it means:
+        save the automation, flip the switch to try the hand-over, cover stays put. Which is the
+        first thing anyone does with this feature. The explicit off -> on flank cannot be a
+        restart (a restart returns the entity as unavailable -> on, which the trigger's
+        from: [off, false] does not match), so it does not need the guard at all."""
+        assert self._run(mode=mode, tid="t_instance_activated", restart=True) is True
+
+    @pytest.mark.parametrize("mode", ["never", "outage"])
+    def test_but_the_timestamp_claim_still_defers_to_a_restart(self, mode):
+        """The other half: the claim reads true on every restart (the gating entity is recreated
+        too, so its last_changed points at the boot). Exempting it from the opt-in as well would
+        smuggle every restart past it - exactly what the opt-in promises not to do."""
+        assert self._run(mode=mode, activated=True, restart=True) is False
 
     def test_without_an_activation_nothing_changed(self):
-        assert self._run(mode="never", activated=False) is False
-        assert self._run(mode="outage", activated=False) is True
-        assert self._run(mode="always", activated=False) is True
+        assert self._run(mode="never") is False
+        assert self._run(mode="outage") is True
+        assert self._run(mode="always") is True
+        assert self._run(mode="always", restart=True) is True
 
 
 # ════════════════════════════════════════════════════════════════════════════
