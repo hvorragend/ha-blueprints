@@ -1503,7 +1503,7 @@ This costs nothing and moves nothing. It only removes a status that is no longer
 - An **expired manual override** is lifted — a reset that became due while CCA was down is applied. Without this the override could never be lifted at all, because its timer can only fire once.
 - **Force functions, presence and window status** are re-read from the actual entities.
 
-This also happens after you switch the automation **off and on again** — which nothing else in Home Assistant reports.
+This also happens after you switch the automation **off and on again**, and after you **save it** following a settings change — Home Assistant re-creates the automation on a save, which for CCA is the same event. Nothing else in Home Assistant reports either of them.
 
 **What is caught up only if you enable 🔄 Recovery** (*Automation Options*, **off by default** — see [Handbook](handbook/features#enable_recovery)):
 
@@ -1516,6 +1516,9 @@ This also happens after you switch the automation **off and on again** — which
 
 - **With the switch off (default):** the cover **does not move** because of the restart. Whatever was missed stays missed until the next regular trigger — a closing that fell into the restart simply does not happen. You may still see a short CCA run in the trace right after a restart: that is the clean-up above. It updates the status helper and stops.
 - **With the switch on:** the cover **may move** shortly after a restart. That is the catch-up, not a glitch. In the trace it appears as `Recovery executed`.
+- **After you change a setting and save:** the same thing happens, because a save re-creates the automation. With the switch **on**, the cover may move right after saving — it is brought to the state your settings now call for. With the switch **off**, you only get the clean-up run.
+
+**One regular trigger is consumed after a restart or a save.** The recovery run claims the first trigger that fires within the next minute, so that CCA never acts on an outdated status. If a scheduled opening happens to fall into that minute, it is handled by the recovery (with the switch on) or skipped (with it off) — the next trigger runs normally again.
 
 **When a battery sensor stays silent:** window and presence sensors only report when something changes. After a restart of your *hub* they can be without a state for hours. That is expected — CCA continues with the last known values. Only the one case above (window last known open/tilted) makes it wait, and that resolves the moment you next move the window.
 
