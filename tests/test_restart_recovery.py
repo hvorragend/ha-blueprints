@@ -165,10 +165,30 @@ def _branch_gate(alias_prefix: str) -> list:
     return b.get("conditions") or b.get("if")
 
 
+def _walk_steps(seq: list):
+    """Every step of a sequence, including the ones nested in choose/if/sequence blocks.
+
+    The recovery gate keeps its shared body in a YAML anchor behind a choose (the flip
+    direction decides which !input condition applies, and variables do not escape a
+    branch), so its variables live one level down.
+    """
+    for step in seq or []:
+        if not isinstance(step, dict):
+            continue
+        yield step
+        for key in ("sequence", "then", "else", "default"):
+            nested = step.get(key)
+            if isinstance(nested, list):
+                yield from _walk_steps(nested)
+        for branch in step.get("choose") or []:
+            if isinstance(branch, dict):
+                yield from _walk_steps(branch.get("sequence") or [])
+
+
 def _branch_var(alias_prefix: str, name: str) -> str:
     """Pull one variable template out of a branch's body."""
-    for step in _branch_body(alias_prefix):
-        if isinstance(step, dict) and name in step.get("variables", {}):
+    for step in _walk_steps(_branch_body(alias_prefix)):
+        if name in step.get("variables", {}):
             return step["variables"][name]
     raise AssertionError(f"variable {name!r} not found in branch {alias_prefix!r}")
 
@@ -423,8 +443,8 @@ class TestOverrideExpired:
         assert "helper_state_manual" in allowed and "override_expired" in allowed
 
     def test_recovery_clears_man_when_expired(self):
-        for step in _branch_body(RECOVERY):
-            uv = step.get("variables", {}).get("update_values") if isinstance(step, dict) else None
+        for step in _walk_steps(_branch_body(RECOVERY)):
+            uv = step.get("variables", {}).get("update_values")
             if uv and "man" in uv:
                 assert "override_expired" in uv["man"]
                 return
@@ -555,7 +575,9 @@ class TestCascadeParity:
         recovered = _render(
             _branch_var(RECOVERY, "recovered_state"), entities,
             live_force=frc,
-            recovered_base=bas,
+            # new_base is recovered_base after the additional opening/closing condition has
+            # had its say; with no flip to catch up the two are the same value.
+            new_base=bas,
             recovered_window=_render(_branch_var(RECOVERY, "recovered_window"), entities,
                                      helper_state_window=helper["win"], **shared),
             recovered_shade=(shd == 1),
@@ -591,7 +613,9 @@ class TestRecoveredStateUsesRecoveredInputs:
              window="cls", shade=False, present=False, cfg=(), sched=True):
         return _render(
             _branch_var(RECOVERY, "recovered_state"), {},
-            recovered_base=recovered_base,
+            # The base the direction gate settled on (recovered_base once the additional
+            # opening/closing condition allowed the flip) - never the helper's stale one.
+            new_base=recovered_base,
             live_force=live_force,
             recovered_window=window,
             helper_state_base=helper_bas,      # the stale values - must NOT be used
@@ -766,7 +790,7 @@ class TestRecoveredPending:
 
     def _run(self, **over):
         base = dict(
-            is_recovery_enabled=True,
+            recovery_catch_up=True,
             is_shading_enabled=True,
             helper_state_pending="non",
             pending_is_stale=False,
@@ -842,8 +866,8 @@ class TestRecoveredPending:
     # --- the opt-in only gates the arming, never the clean-up ---
     def test_without_the_opt_in_no_pending_is_armed(self):
         """Arming would drive the cover later, so it needs the opt-in."""
-        assert self._run(is_recovery_enabled=False) == "non"
-        assert self._run(is_recovery_enabled=False, recovered_shade=True,
+        assert self._run(recovery_catch_up=False) == "non"
+        assert self._run(recovery_catch_up=False, recovered_shade=True,
                          shading_start_warranted=False,
                          shading_end_conditions_met=True) == "non"
 
@@ -1125,11 +1149,10 @@ class TestRecoveryPersists:
     def test_the_users_override_reset_action_runs_for_a_swallowed_reset(self):
         """BRANCH 10 runs it on every reset. A reset caught up by the recovery must not
         silently skip the notification/scene the user wired to it."""
-        steps = _branch_body(RECOVERY)
         assert any(
-            isinstance(s, dict) and "override_expired" in str(s.get("if", ""))
+            "override_expired" in str(s.get("if", ""))
             and "auto_override_reset_action" in str(s.get("then", ""))
-            for s in steps
+            for s in _walk_steps(_branch_body(RECOVERY))
         ), "override_reset_action is not run when the recovery clears an expired override"
 
 
@@ -1525,21 +1548,55 @@ class TestRecoveryTriggers:
     FORCE_ENTITIES = ["auto_up_force", "auto_down_force",
                       "auto_shading_start_force", "auto_ventilate_force"]
 
+    # The sources of the availability gates. While one of them is unusable the gate blocks
+    # EVERY run, so the outage eats the latching triggers and strands the state the blocked
+    # runs would have written. Their return is the only moment CCA can notice that, and the
+    # repair prevents a wrong movement instead of causing one - so it is not opt-in.
+    GATE_SOURCES = ["blind", "cover_status_helper", "custom_position_sensor",
+                    "contact_window_opened", "contact_window_tilted"]
+
+    # Never blocks a run: their outage strands nothing, their return is pure catch-up.
+    CATCH_UP_ONLY = ["resident_sensor", "default_brightness_sensor", "default_sun_sensor",
+                     "shading_forecast_sensor", "shading_custom_sensor", "calendar_entity",
+                     "workday_sensor", "workday_sensor_tomorrow", "force_pause"]
+
     def _ungated(self) -> list[dict]:
         return [self._resume_trigger()] + [
-            t for t in self._recovery() if t.get("entity_id") in self.FORCE_ENTITIES]
+            t for t in self._recovery()
+            if t.get("entity_id") in self.FORCE_ENTITIES + self.GATE_SOURCES]
 
-    def test_recovery_is_opt_in_and_defaults_to_off(self):
-        """Users must explicitly opt in to cover movements after a restart. A source recovery
-        trigger that exists to CATCH UP is gated at the trigger (no run, no trace, no drive
-        while disabled - same rationale as the #550 trigger-level filtering)."""
-        ungated = self._ungated()
-        for t in self._recovery():
-            if any(t is u for u in ungated):
-                continue
-            assert "is_recovery_enabled" in t.get("enabled", ""), t
+    def test_recovery_is_opt_in_and_defaults_to_never(self):
+        """Users must explicitly opt in to cover movements. A source recovery trigger that
+        exists only to CATCH UP is gated at the trigger (no run, no trace, no drive while
+        disabled - same rationale as the #550 trigger-level filtering)."""
+        for entity_input in self.CATCH_UP_ONLY:
+            t = next(t for t in self._recovery() if t.get("entity_id") == entity_input)
+            assert "is_recovery_enabled" in t.get("enabled", ""), entity_input
         section = BP["blueprint"]["input"]["feature_section"]["input"]
-        assert section["enable_recovery"]["default"] is False
+        assert section["enable_recovery"]["default"] == "never"
+
+    def test_a_restart_is_only_caught_up_in_the_always_mode(self):
+        """The whole point of the three-way split: a Home Assistant restart and a Zigbee
+        gateway that dropped out over the closing time are different events. homeassistant:
+        start fires only for the first one, so it belongs to 'always' alone."""
+        t = next(t for t in self._recovery() if t["trigger"] == "homeassistant")
+        assert t["enabled"] == "{{ recovery_mode == 'always' }}"
+
+    @pytest.mark.parametrize("entity_input", GATE_SOURCES)
+    def test_the_gate_sources_are_not_gated_on_the_opt_in(self, entity_input):
+        """Third application of the cause-vs-prevent rule (after the resume trigger and the
+        force entities). These are the entities the availability gates block on. While one of
+        them is unusable EVERY run is dropped - including the latching ones, which never fire
+        again: a shading execution that came due, an override reset that elapsed. And the frc /
+        win / res a blocked run would have written stays stale, which makes the cascade produce
+        wrong movements on every later trigger. Nothing else reports any of this: no restart
+        happened, so neither homeassistant: start nor the resume trigger fires. Gating these
+        away left the automation permanently broken by a gateway hiccup - with the catch-up
+        off the run they start is hygiene-only (will_drive false)."""
+        t = next(t for t in self._recovery() if t.get("entity_id") == entity_input)
+        assert "is_recovery_enabled" not in t.get("enabled", "")
+        if entity_input != "blind":  # the cover is mandatory, so it carries no enabled: at all
+            assert entity_input in t["enabled"], "still gated on the input being configured"
 
     def test_the_resume_trigger_is_deliberately_not_gated(self):
         """The first exception, and the reason for the cause-vs-prevent rule. A resumed
@@ -1572,31 +1629,126 @@ class TestRecoveryTriggers:
 
     def test_the_opt_in_gates_the_drive_not_the_hygiene(self):
         """The switch buys exactly one thing: permission to MOVE the cover."""
-        assert "is_recovery_enabled" in _branch_var(RECOVERY, "will_drive")
+        assert "recovery_catch_up" in _branch_var(RECOVERY, "will_drive")
         assert _branch_var(RECOVERY, "drive_plan")["run"] == "{{ will_drive }}"
         # ... and the helper clean-up must not depend on it (Invariant 7 keeps man tied
         # to the actual drive, so it may reference will_drive).
         uv = _recovery_update_values()
         for key in ("win", "res", "frc", "shd", "pnd"):
-            assert "is_recovery_enabled" not in str(uv[key]), key
+            assert "recovery_catch_up" not in str(uv[key]), key
             assert "will_drive" not in str(uv[key]), key
+
+    def _direction_gate(self) -> dict:
+        return next(s for s in _branch_body(RECOVERY)
+                    if "additional condition" in str(s.get("alias", "")))
 
     def test_catching_up_the_base_state_needs_the_opt_in(self):
         """Writing bas: 'cls' for a closing the outage swallowed is a deferred movement:
-        a later branch would drive the cover into it. So the WRITE is opt-in, even though
-        it does not drive here."""
-        tpl = _branch_var(RECOVERY, "new_base")
-        assert _render(tpl, {}, is_recovery_enabled=True,
-                       recovered_base="cls", helper_state_base="opn") == "cls"
-        assert _render(tpl, {}, is_recovery_enabled=False,
-                       recovered_base="cls", helper_state_base="opn") == "opn"
+        a later branch would drive the cover into it. So the WRITE is a catch-up, even
+        though this run does not drive - and with the catch-up off the flip branches are
+        not selected and the default keeps the helper's base state."""
+        gate = self._direction_gate()
+        for branch in gate["choose"]:
+            flip = next(c for c in branch["conditions"] if isinstance(c, str))
+            assert "recovery_catch_up" in flip, branch["alias"]
+        assert gate["default"][0]["variables"]["new_base"] == "{{ helper_state_base }}"
         assert _recovery_update_values()["bas"] == "{{ new_base }}"
 
+    def test_the_additional_condition_gates_a_caught_up_base_flip(self):
+        """The recovery used to re-derive the base state from the schedule ALONE, so a
+        scheduled movement the user's additional condition had deliberately suppressed was
+        replayed as if it had merely been missed (real report: opening blocked all morning by
+        an additional condition, a restart flipped bas to opn and the cover opened). The flip
+        direction decides which condition applies, so it has to be a choose - and because
+        variables do not escape a branch, the rest of the gate hangs off a shared anchor."""
+        branches = self._direction_gate()["choose"]
+        by_input = {
+            next(c["condition"] for c in b["conditions"] if isinstance(c, dict)):
+            next(c for c in b["conditions"] if isinstance(c, str))
+            for b in branches
+        }
+        assert set(by_input) == {"auto_up_condition", "auto_down_condition"}
+        assert "'opn'" in by_input["auto_up_condition"]
+        assert "'cls'" in by_input["auto_down_condition"]
+        # Both flip branches and the default run the SAME body (the anchor), so refusing a
+        # flip never costs the hygiene - it only keeps the base state.
+        bodies = [b["sequence"][-1]["default"] for b in branches]
+        bodies.append(self._direction_gate()["default"][-1]["default"])
+        assert all(body is bodies[0] for body in bodies), "the shared body is not one anchor"
+
     def test_recovery_flag_is_a_static_trigger_variable(self):
-        """`enabled:` is evaluated in the limited trigger context (Invariant 10) -
-        the flag must be a plain !input, not a template calling states()."""
-        assert "is_recovery_enabled" in BP["trigger_variables"]
-        assert "states(" not in str(BP["trigger_variables"]["is_recovery_enabled"])
+        """`enabled:` is evaluated in the limited trigger context (Invariant 10) - the flags
+        must not call states(); recovery_mode maps the legacy boolean onto the three modes."""
+        for flag in ("recovery_mode", "is_recovery_enabled"):
+            assert flag in BP["trigger_variables"]
+            assert "states(" not in str(BP["trigger_variables"][flag])
+
+    @pytest.mark.parametrize("stored,expected", [
+        ("never", "never"), ("outage", "outage"), ("always", "always"),
+        (False, "never"), (True, "always"),   # legacy boolean configs
+    ])
+    def test_the_legacy_boolean_maps_onto_the_two_ends(self, stored, expected):
+        assert _render(BP["trigger_variables"]["recovery_mode"], {},
+                       recovery_config=stored) == expected
+
+    @pytest.mark.parametrize("mode,restart,expected", [
+        ("never", False, False),
+        ("never", True, False),
+        ("outage", False, True),     # a source dropped out mid-runtime: catch it up
+        ("outage", True, False),     # ... but a restart / reload / save is not that event
+        ("always", True, True),
+    ])
+    def test_the_outage_mode_catches_up_an_outage_but_not_a_restart(self, mode, restart, expected):
+        assert _render_bool(_top_var("recovery_catch_up"), {},
+                            recovery_mode=mode, is_restart_run=restart) is expected
+
+    # --- is_restart_run: HA's start-up ORDER must not matter ---
+    def _restart_run(self, *, attached_ago, resumed=False, from_state=None) -> bool:
+        trigger = types.SimpleNamespace()
+        if from_state is not None:
+            state, changed_ago = from_state
+            trigger.from_state = types.SimpleNamespace(
+                state=state, last_changed=NOW - datetime.timedelta(seconds=changed_ago))
+        return _render_bool(
+            _top_var("is_restart_run"), {},
+            this=types.SimpleNamespace(last_changed=NOW - datetime.timedelta(seconds=attached_ago)),
+            automation_resumed=resumed, trigger=trigger, invalid_states=INVALID_STATES)
+
+    def test_a_resumed_automation_is_always_a_restart_run(self):
+        """The primary signal, and the reason the start-up order is irrelevant: the
+        availability gates block every run while a critical source is missing, so NOTHING can
+        write the helper - automation_resumed therefore stays armed for the whole start-up,
+        no matter when the integrations load or when homeassistant: start fires."""
+        assert self._restart_run(attached_ago=6 * 3600, resumed=True) is True
+
+    def test_the_settle_window_covers_the_tail_after_the_first_write(self):
+        """Once the first passing run has written the helper, automation_resumed is clear -
+        so a source still returning right after that needs the window."""
+        assert self._restart_run(attached_ago=30) is True
+        assert self._restart_run(attached_ago=3 * 3600) is False
+
+    def test_a_slow_integration_after_a_restart_is_still_a_restart(self):
+        """THE case the plain settle window got wrong: a Zigbee gateway that only answers 40
+        minutes after the restart. On a restart every entity is created unavailable during
+        boot, so the outage this run ends BEGAN at the attach - however long the device then
+        took. Without this clause the return would read as a mid-runtime outage and the
+        'outage' mode would move the cover after a restart, which is exactly what it promises
+        not to do."""
+        assert self._restart_run(attached_ago=40 * 60,
+                                 from_state=("unavailable", 40 * 60 - 5)) is True
+
+    def test_a_mid_runtime_dropout_is_an_outage_however_it_ends(self):
+        """The counter-case: the automation attached this morning, the gateway died at 20:00.
+        The outage began long after the attach, so it is not part of any restart."""
+        assert self._restart_run(attached_ago=12 * 3600,
+                                 from_state=("unavailable", 10 * 60)) is False
+
+    def test_an_ordinary_state_trigger_does_not_look_like_a_restart(self):
+        """The from_state clause is scoped to a transition OUT of an invalid state - the shape
+        of the t_recovery source triggers. Unscoped, a contact that had been 'off' since
+        yesterday would carry a last_changed older than the attach and read as a restart."""
+        assert self._restart_run(attached_ago=3 * 3600,
+                                 from_state=("off", 20 * 3600)) is False
 
 
 # ════════════════════════════════════════════════════════════════════════════

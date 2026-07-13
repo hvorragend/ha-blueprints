@@ -1494,7 +1494,7 @@ Three things happen, and it is worth keeping them apart — only the third one c
 | **Resident sensor** | The **last known** presence applies (not "nobody home") |
 | **Brightness, sun, weather, calendar, workday** | CCA keeps working. These only *influence* decisions — a flaky outdoor sensor must never stop your cover from closing in the evening. Sun shading simply does not start while its sensor is missing |
 
-**What CCA always tidies up when it comes back — with or without the recovery switch:**
+**What CCA always tidies up when it comes back — whatever the catch-up setting says:**
 
 This costs nothing and moves nothing. It only removes a status that is no longer true, so that CCA does not act on it later:
 
@@ -1504,22 +1504,30 @@ This costs nothing and moves nothing. It only removes a status that is no longer
 - **Force functions, presence and window status** are re-read from the actual entities. This also happens when the **entity of a force function** comes back after an outage of its own: CCA keeps the force function running while its entity has no status (it must not cancel it by accident), so it has to check afterwards whether the function was switched off in the meantime. Without that check the cover would stay in the force position for good.
 - A **manual movement** you make right after a restart or a save is still recorded as one. CCA does not overrule it — it recalculates around it.
 
-This also happens after you switch the automation **off and on again**, and after you **save it** following a settings change — Home Assistant re-creates the automation on a save, which for CCA is the same event. Nothing else in Home Assistant reports either of them.
+This also happens after you switch the automation **off and on again**, after you **save it** following a settings change (Home Assistant re-creates the automation on a save, which for CCA is the same event), and after a **cover, status helper or window contact returns from an outage**. Nothing else in Home Assistant reports any of them.
 
-**What is caught up only if you enable 🔄 Recovery** (*Automation Options*, **off by default** — see [Handbook](handbook/features#enable_recovery)):
+**What is caught up depends on 🔄 Catch up on what a restart or an outage swallowed** (*Automation Options* — see [Handbook](handbook/features#enable_recovery)). The setting has three values, because a Home Assistant restart and a Zigbee stick that dropped out over your closing time are not the same event:
 
-- A **missed opening or closing** — the schedule (or calendar) is re-evaluated against the current time and the cover is moved accordingly
+| Setting | Outage of a device / integration | Restart, reload, or saving the automation |
+|---|---|---|
+| **🚫 Never** (default) | nothing is caught up | nothing is caught up |
+| **🔌 Only after an outage** | caught up | **nothing is caught up** |
+| **🔄 Always** | caught up | caught up |
+
+What "caught up" means:
+
+- A **missed opening or closing** — the schedule (or calendar) is re-evaluated against the current time and the cover is moved accordingly. Your *additional opening/closing condition* is evaluated too: a movement it deliberately suppressed was never missed, so it is not replayed
 - **Sun shading** — the conditions are re-evaluated: if shading is due now it starts, if it is over it ends
 - **Lockout, ventilation and privacy closing** are applied from the current window/presence state
 - A **force function** switched during the outage is applied
 
 **What you will see:**
 
-- **With the switch off (default):** the cover **does not move** because of the restart. Whatever was missed stays missed until the next regular trigger — a closing that fell into the restart simply does not happen. You may still see a short CCA run in the trace right after a restart: that is the clean-up above. It updates the status helper and stops.
-- **With the switch on:** the cover **may move** shortly after a restart. That is the catch-up, not a glitch. In the trace it appears as `Recovery executed`.
-- **After you change a setting and save:** the same thing happens, because a save re-creates the automation. With the switch **on**, the cover may move right after saving — it is brought to the state your settings now call for. With the switch **off**, you only get the clean-up run.
+- **When nothing is caught up:** the cover **does not move**. Whatever was missed stays missed until the next regular trigger — a closing that fell into the downtime simply does not happen. You may still see a short CCA run in the trace: that is the clean-up above. It updates the status helper and stops.
+- **When something is caught up:** the cover **may move**. That is the catch-up, not a glitch. In the trace it appears as `Recovery executed`.
+- **After you change a setting and save:** a save re-creates the automation, so it counts as a restart. Only **🔄 Always** moves the cover after a save; with **🔌 Only after an outage** you get the clean-up run and nothing else.
 
-**One regular trigger is consumed after a restart or a save.** The recovery run claims the first trigger that fires within the next minute, so that CCA never acts on an outdated status. If a scheduled opening happens to fall into that minute, it is handled by the recovery (with the switch on) or skipped (with it off) — the next trigger runs normally again. The clean-up run itself waits until the cover and the other required sources are usable, so that minute starts when everything is back — a slow cover after a restart does not stretch the claim into the rest of the day.
+**One regular trigger is consumed after a restart or a save.** The recovery run claims the first trigger that fires within the next minute, so that CCA never acts on an outdated status. If a scheduled opening happens to fall into that minute, it is handled by the recovery (when it may catch up) or skipped (when it may not) — the next trigger runs normally again. The clean-up run itself waits until the cover and the other required sources are usable, so that minute starts when everything is back — a slow cover after a restart does not stretch the claim into the rest of the day.
 
 **When a battery sensor stays silent:** window and presence sensors only report when something changes. After a restart of your *hub* they can be without a state for hours. That is expected — CCA continues with the last known values. Only the one case above (window last known open/tilted) makes it wait, and that resolves the moment you next move the window.
 
