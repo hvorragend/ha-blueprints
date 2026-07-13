@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.14
+    **Version**: 2026.07.14 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2517,7 +2517,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.14"
+  version: "2026.07.14 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3119,6 +3119,12 @@ variables:
 
   # PENDING END - Is shading end pending?
   helper_state_pending_end: "{{ helper_json.pnd | default('non') == 'end' }}"
+
+  # MIDNIGHT RESET MISSED - shd/pnd survived a day boundary, so every run since then was
+  # dropped (the 23:55 reset clears both). A claim like automation_resumed; deliberately
+  # not a helper-age check, a clean helper may be legitimately old.
+  midnight_reset_missed: >-
+    {{ stale_day and (helper_state_shade or helper_state_pending_start or helper_state_pending_end) }}
 
   # ═══════════════════════════════════════════════════════════════════════════
   # COMPUTED FLAGS - Simplified Movement Permissions
@@ -4457,7 +4463,7 @@ actions:
       # trigger the resumed-run or take-over backstop turns into one, because that run evaluates
       # it too
       - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated)')
-            or automation_resumed or instance_activated }}"
+            or automation_resumed or instance_activated or midnight_reset_missed }}"
     then:
       - action: weather.get_forecasts
         target:
@@ -4510,7 +4516,7 @@ actions:
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_shading_end') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or automation_resumed or instance_activated }}"
+          - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or automation_resumed or instance_activated or midnight_reset_missed }}"
     then:
       - action: calendar.get_events
         target:
@@ -5434,12 +5440,12 @@ actions:
   - alias: "Recovery after restart or outage - restore target state"
     if:
       - "{{ trigger.id is defined }}"
-      # A resumed automation - or one that was just handed the cover - converts ANY trigger into
-      # a recovery, so nothing can act on a helper that cannot be trusted. The manual triggers
-      # are exempt (as they are from the contact gate): their handler records the intervention
-      # instead of driving.
+      # A resumed automation - or one that was just handed the cover, or one whose 23:55 reset
+      # was provably blocked - converts ANY trigger into a recovery, so nothing can act on a
+      # helper that cannot be trusted. The manual triggers are exempt (as they are from the
+      # contact gate): their handler records the intervention instead of driving.
       - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or
-            ((automation_resumed or instance_activated) and
+            ((automation_resumed or instance_activated or midnight_reset_missed) and
              trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
     then:
       - variables:
@@ -5583,7 +5589,7 @@ actions:
                         {{ (target_position | int) >= (current_position | int) - (position_tolerance | int(0)) and
                            (target_position | int) <= (current_position | int) + (position_tolerance | int(0)) }}
                       log_extra: >-
-                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}:
+                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
                         base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', additional condition refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
                         frc {{ helper_state_force }}->{{ live_force }},
                         shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},

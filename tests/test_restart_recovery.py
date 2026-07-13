@@ -119,7 +119,8 @@ def _env(entity_states: dict | None = None, last_changed: dict | None = None,
 # tests strict about every OTHER variable. test_instance_active.py passes them explicitly.
 _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "instance_active_value": "",
-                 "instance_active_on_states": ["on", "true"]}
+                 "instance_active_on_states": ["on", "true"],
+                 "midnight_reset_missed": False}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
