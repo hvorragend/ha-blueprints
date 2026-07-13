@@ -221,6 +221,17 @@ Because of that, the take-over **moves the cover regardless of the 🔄 catch-up
 
 A **manual override** that this instance still had stored from the last time it was in charge is discarded on the take-over. It belonged to the previous shift — and while the instance was off it could not even see the cover being moved, so there is nothing left for it to protect.
 
+### One dropdown instead of many switches
+
+> 🧩 Input: `instance_active_value` · Default: *(empty — plain on/off switch)*
+
+The second input, **"... and it counts as on while it shows this value"**, removes the switching automation entirely for most setups. Fill in a value, and the automation is in charge exactly **while the entity above shows that value**.
+
+- **A dropdown as the selector.** Create one *Dropdown* helper (`input_select`) with one option per automation — say *Summer / Winter / Holiday*. Point every CCA automation at that same dropdown and write its own option into this field. A dropdown always shows exactly one value, so **exactly one automation is in charge — guaranteed, by construction**. Change the option (by hand, or from any automation) and the matching CCA automation takes the cover over.
+- **Two automations, one switch.** Write `on` into one automation and `off` into the other, and point both at the same `input_boolean`. One of them is always in charge — never both, never neither.
+
+The value must match the entity's state **exactly** (for a dropdown: the option text, including case). Leave it empty for the normal on/off behavior described above.
+
 ### The one rule for your switching automation
 
 **Do not move the cover yourself when switching over.** Just flip the switches and let the incoming automation position the cover.

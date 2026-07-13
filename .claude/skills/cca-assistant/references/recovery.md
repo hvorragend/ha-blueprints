@@ -435,7 +435,11 @@ the "Not repairable, by design" row of the orphan audit, turned into a feature b
 
 1. **`t_instance_activated`** (`from: [off, false]` → `to: [on, true]`) — the *prompt*. Makes
    the take-over immediate instead of waiting for the next trigger. Not gated on
-   `is_recovery_enabled`.
+   `is_recovery_enabled`. With `instance_active_value` set (a dropdown option, an inverted
+   boolean), a second trigger shape carries the same id: any valid → valid change of the
+   entity, with arrivals at a foreign value dropped by the gate. `not_from:
+   [unavailable, unknown]` keeps it exactly as restart-proof as the plain flank — the
+   `recovery_catch_up` exemption for this trigger id relies on that, in both shapes.
 2. **`instance_activated`** (`helper.t < switch.last_changed`) — the *claim*. A state trigger
    has exactly one edge, and the availability gates can swallow it (the cover was still coming
    back). The claim turns **any** later trigger into the take-over and self-clears on the first

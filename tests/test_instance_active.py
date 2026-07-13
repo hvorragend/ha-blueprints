@@ -123,15 +123,36 @@ class TestGoneSwitchStopsTheRun:
 # ════════════════════════════════════════════════════════════════════════════
 class TestTriggers:
     def test_the_activation_trigger_fires_on_the_on_flank(self):
+        """Two shapes share the id: the plain off -> on flank (no value configured), and the
+        value variant that fires on any valid -> valid change (arrivals at a foreign value are
+        dropped by the gate). Both are restart-proof by construction - a restart returns the
+        entity from unavailable, which neither from: [off, false] nor not_from matches - and
+        the catch-up exemption in recovery_catch_up relies on exactly that."""
         t = _trigger("t_instance_activated")
-        assert len(t) == 1
-        assert t[0]["from"] == ["off", "false"] and t[0]["to"] == ["on", "true"]
+        assert len(t) == 2
+        classic = next(x for x in t if "from" in x)
+        value = next(x for x in t if "not_from" in x)
+        assert classic["from"] == ["off", "false"] and classic["to"] == ["on", "true"]
+        assert value["not_from"] == ["unavailable", "unknown"]
+        assert value["not_to"] == ["unavailable", "unknown"]
+
+    def test_exactly_one_variant_is_armed(self):
+        """The enabled gates are complementary in instance_active_value - never both, never
+        neither (while the entity is configured)."""
+        classic = next(x for x in _trigger("t_instance_activated") if "from" in x)
+        value = next(x for x in _trigger("t_instance_activated") if "not_from" in x)
+        for val, want_classic in [("", True), ("  ", True), ("Sommer", False)]:
+            assert _render_bool(classic["enabled"], {}, instance_active=SWITCH,
+                                instance_active_value=val) is want_classic, val
+            assert _render_bool(value["enabled"], {}, instance_active=SWITCH,
+                                instance_active_value=val) is (not want_classic), val
 
     def test_the_activation_trigger_is_not_gated_on_the_recovery_opt_in(self):
         """The opt-in guards against the cover moving after a RESTART. An activation is not a
         restart - it is an explicit "you are in charge now", and an instance that takes over
         without positioning the cover has done nothing at all."""
-        assert "is_recovery_enabled" not in str(_trigger("t_instance_activated")[0]["enabled"])
+        for t in _trigger("t_instance_activated"):
+            assert "is_recovery_enabled" not in str(t["enabled"])
 
     def test_the_switch_is_also_a_recovery_source(self):
         """While it has no usable state the gate blocks every run, exactly like the cover or a
@@ -184,6 +205,60 @@ class TestInstanceActivatedClaim:
         """states[x] is none - it cannot be read at all, so it cannot claim anything. The run
         is stopped by the entity validation instead."""
         assert _render_bool(self.TPL(), {}, instance_active=SWITCH, helper_ts_write=0) is False
+
+    def test_a_dropdown_option_claims_like_a_switch(self):
+        assert _render_bool(self.TPL(), {SWITCH: "Sommer"}, {SWITCH: NOW},
+                            instance_active=SWITCH, helper_ts_write=0,
+                            instance_active_on_states=["Sommer"]) is True
+
+    def test_a_foreign_option_does_not_claim(self):
+        assert _render_bool(self.TPL(), {SWITCH: "Winter"}, {SWITCH: NOW},
+                            instance_active=SWITCH, helper_ts_write=0,
+                            instance_active_on_states=["Sommer"]) is False
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# The value variant - one dropdown for N instances, or an inverted boolean
+# ════════════════════════════════════════════════════════════════════════════
+class TestActiveValue:
+    """instance_active_value makes the entity count as on while it shows exactly this value.
+    A dropdown (input_select) can only ever show one option, so mutual exclusion between the
+    instances is guaranteed by construction - no switching automation needed. 'off' on a
+    shared boolean gives two complementary instances the same way."""
+
+    def GATE(self) -> str:
+        return _condition("instance_active")
+
+    def _gate(self, state, value):
+        return _render_bool(self.GATE(), {SWITCH: state},
+                            instance_active=SWITCH, instance_active_value=value)
+
+    def test_the_matching_option_runs(self):
+        assert self._gate("Sommer", "Sommer") is True
+
+    def test_a_foreign_option_is_blocked(self):
+        assert self._gate("Winter", "Sommer") is False
+
+    def test_the_inverted_boolean(self):
+        assert self._gate("off", "off") is True
+        assert self._gate("on", "off") is False
+
+    def test_an_unavailable_entity_still_blocks(self):
+        """The value never matches an invalid state, so the availability semantics of the
+        plain switch (block, self-heal via t_recovery) carry over unchanged."""
+        assert self._gate("unavailable", "Sommer") is False
+
+    def test_the_value_is_trimmed(self):
+        assert self._gate("Sommer", " Sommer ") is True
+
+    def test_an_empty_value_keeps_the_plain_switch_semantics(self):
+        assert self._gate("on", "") is True
+        assert self._gate("off", "") is False
+
+    def test_the_on_states_derivation(self):
+        tpl = _top_var("instance_active_on_states")
+        assert _render(tpl, {}, instance_active_value="") == "['on', 'true']"
+        assert _render(tpl, {}, instance_active_value=" Sommer ") == "['Sommer']"
 
 
 # ════════════════════════════════════════════════════════════════════════════

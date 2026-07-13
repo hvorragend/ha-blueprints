@@ -228,7 +228,10 @@ blueprint:
             each with its own status helper and its own settings — for example one for summer and
             one for winter, or one for when you are at home and one for when you are away. Give
             each of them its own switch (an *input_boolean* helper) and make sure only one of them
-            is ever on. Whichever one you switch on takes over: it re-reads the window, the
+            is ever on — or use one shared *Dropdown* helper with the value setting below, which
+            guarantees that by itself. A *schedule* helper works here too: the automation is then
+            in charge while the schedule is active.
+            Whichever one you switch on takes over: it re-reads the window, the
             presence, the force switches and its own schedule, and brings the cover to where *its*
             settings say it belongs. A manual override that was still stored from the last time it
             was in charge is discarded — it belonged to the previous shift.
@@ -257,6 +260,33 @@ blueprint:
                 - domain: binary_sensor
                 - domain: switch
                 - domain: schedule
+                - domain: input_select
+                - domain: select
+
+        instance_active_value:
+          name: "🎚️ ... and it counts as on while it shows this value"
+          description: >-
+            Only used together with the switch above; leave it empty for a normal on/off switch.
+
+            Fill in a value here and the automation is in charge exactly **while the entity above
+            shows this value**. This unlocks two setups that need no switching automation at all,
+            because the entity itself can only ever point one way:
+
+            **A dropdown as the selector.** Create one *Dropdown* helper (*input_select*) with one
+            option per automation — say *Summer / Winter / Holiday* — and give every CCA automation
+            the same dropdown above, each with its own option written here. A dropdown always shows
+            exactly one value, so exactly one automation is in charge, guaranteed. Change the
+            option and the matching automation takes the cover over.
+
+            **Two automations sharing one switch.** Write `on` in one automation and `off` in the
+            other, point both at the same *input_boolean* — one is always in charge, never both,
+            never neither.
+
+            The value must match the entity's state **exactly** (for a dropdown: the option text,
+            case and all).
+          default: ""
+          selector:
+            text:
 
     position_section:
       name: "Cover Position Settings"
@@ -2486,6 +2516,9 @@ trigger_variables:
   # Hand-over switch of the multi-instance setup - while it is off this instance does nothing
   instance_active: !input instance_active
 
+  # Optional state value that counts as "on" for the hand-over entity ('' = plain on/true)
+  instance_active_value: !input instance_active_value
+
   # Invalid states list - Shared constant
   invalid_states:
     - ''                    # Empty string
@@ -3029,12 +3062,17 @@ variables:
     {{ helper_ts_write > 0 and
        helper_ts_write < as_timestamp(this.last_changed | default(0), 0) }}
 
+  # The states in which the hand-over entity counts as "on" (a dropdown option, an inverted
+  # boolean, or the plain on/true default)
+  instance_active_on_states: >-
+    {{ ['on', 'true'] if instance_active_value | trim == '' else [instance_active_value | trim] }}
+
   # INSTANCE ACTIVATED - Was this instance handed the cover and has not run since?
   # The claim to t_instance_activated's prompt, same shape as automation_resumed: any trigger
   # reaching a not-yet-reconciled instance becomes the take-over; the helper write clears it.
   instance_activated: >-
     {{ instance_active != [] and states[instance_active] is not none and
-       states(instance_active) in ['on', 'true'] and
+       states(instance_active) in instance_active_on_states and
        helper_ts_write < as_timestamp(states[instance_active].last_changed | default(0), 0) }}
 
   # RESTART RUN - Does this run belong to a restart / reload / save rather than to the dropout
@@ -3910,7 +3948,17 @@ triggers:
     from: ["off", "false"]
     to: ["on", "true"]
     id: "t_instance_activated"
-    enabled: "{{ instance_active != [] }}"
+    enabled: "{{ instance_active != [] and instance_active_value | trim == '' }}"
+
+  # The value-matched variant (a dropdown option, an inverted boolean). Fires on every valid
+  # state change of the entity; arrivals at a foreign value are dropped by the gate. not_from
+  # keeps it as restart-proof as the flank above - the catch-up exemption relies on that.
+  - trigger: state
+    entity_id: !input instance_active
+    not_from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_instance_activated"
+    enabled: "{{ instance_active != [] and instance_active_value | trim != '' }}"
 
   # ...and the gating entity is a sixth gate source: while it has no usable state the gate
   # blocks every run. Unlike the other five its return run is NOT hygiene-only - a hand-over
@@ -3998,7 +4046,8 @@ conditions:
   - condition: template
     value_template: >-
       {{ instance_active == [] or states[instance_active] is none or
-         states(instance_active) in ['on', 'true'] }}
+         states(instance_active) in (['on', 'true'] if instance_active_value | trim == ''
+                                     else [instance_active_value | trim]) }}
   - or:
       - "{{ trigger.to_state is not defined }}" # for "trigger: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger

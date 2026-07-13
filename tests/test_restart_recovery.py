@@ -116,8 +116,10 @@ def _env(entity_states: dict | None = None, last_changed: dict | None = None,
 
 # The hand-over switch of the multi-instance setup is unconfigured by default (input default:
 # []), which is the state every test that predates it assumes. Supplying it here keeps those
-# tests strict about every OTHER variable. test_instance_active.py passes both explicitly.
-_HANDOVER_OFF = {"instance_active": [], "instance_activated": False}
+# tests strict about every OTHER variable. test_instance_active.py passes them explicitly.
+_HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
+                 "instance_active_value": "",
+                 "instance_active_on_states": ["on", "true"]}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
