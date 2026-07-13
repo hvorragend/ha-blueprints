@@ -2998,9 +2998,7 @@ variables:
   is_forced: "{{ is_forced_open or is_forced_close or is_forced_shade or is_forced_vent }}"
 
   # Is the entity of the force recorded in the helper currently unreadable?
-  # A force entity may be a switch or a binary_sensor, so it can drop out like any
-  # other integration. While its state is unusable, "not on" must not be read as
-  # "turned off" - that would silently cancel an active force.
+  # While its state is unusable, "not on" must not be read as "turned off"
   force_helper_unreadable: >-
     {{ (helper_state_force == 'opn' and auto_up_force != [] and states(auto_up_force) in invalid_states) or
        (helper_state_force == 'cls' and auto_down_force != [] and states(auto_down_force) in invalid_states) or
@@ -3749,19 +3747,10 @@ triggers:
     enabled: "{{ is_recovery_enabled and force_pause != [] }}"
 
   # The automation itself was switched on again (or reloaded, or recreated on restart).
-  # No entity changed, so none of the triggers above fire. `this` is a snapshot taken when
-  # the triggers were attached, so at that moment now() is still within the 60 s offset and
-  # the template renders false - which is what arms it. A template trigger only fires on a
-  # false -> true transition, so without that offset an already-stale helper would never
-  # fire it. A minute later it flips to true and the recovery runs. Once the recovery has
-  # written the helper, t overtakes the attach time and the trigger arms itself again.
-  #
-  # This is the ONE recovery trigger that is not gated on is_recovery_enabled, and it is
-  # deliberate: the helper may be days old here, and acting on it drives the cover WRONGLY
-  # (a shading from an earlier day still reads as active, an override reset that came due
-  # while the automation was off can never fire again). The gate it starts only cleans the
-  # helper and stops when the opt-in is off - will_drive is false, so it cannot move the
-  # cover. Preventing a wrong movement is not what the opt-in guards against.
+  # No entity changed, so none of the triggers above fire. The 60 s offset is what ARMS this:
+  # a template trigger only fires on false -> true, and without it an already-stale helper
+  # would be true from the start. Not gated on is_recovery_enabled - acting on a days-old
+  # helper is what moves the cover wrongly, and the run it starts only cleans the helper.
   - trigger: template
     value_template: >-
       {% set attached = as_timestamp(this.last_changed | default(0), 0) %}
@@ -5131,26 +5120,20 @@ actions:
   #   Target: The state the cascade demands right now
   #   Note: Re-evaluates all inputs from scratch - schedule, window, resident,
   #         force and shading - because the events of the outage are lost
-  #   Note: Deliberately NOT one of the numbered dispatch branches. It is a guard
-  #         that runs BEFORE the dispatch and claims every trigger on a resumed
-  #         automation, so nothing can act on a helper that cannot be trusted.
-  #         Keeping it out of the choose leaves the branch indices untouched.
+  #   Note: Deliberately NOT one of the numbered dispatch branches. It runs BEFORE the
+  #         dispatch, which is what lets it claim every trigger on a resumed automation.
   # ══════════════════════════════════════════════════════════════════════════
   - alias: "Recovery after restart or outage - restore target state"
     if:
       - "{{ trigger.id is defined }}"
-      # A resumed automation converts ANY trigger into a recovery: the cover only ever
-      # moves through a trigger, so recalculating first makes moving on a stale helper
-      # structurally impossible. This is why the gate runs before the dispatch choose.
-      # The manual triggers are exempt, like they are from the contact gate: their handler
-      # never drives, it records the intervention - and the recovery must respect it, not
-      # consume it.
+      # A resumed automation converts ANY trigger into a recovery, so nothing can act on a
+      # helper that cannot be trusted. The manual triggers are exempt (as they are from the
+      # contact gate): their handler records the intervention instead of driving.
       - "{{ trigger.id == 't_recovery' or
             (automation_resumed and trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
     then:
       - variables:
-          # The 23:55 reset did not run while the automation was off, so an old shading
-          # would still read as active. Emulate what that reset would have done.
+          # Emulates the 23:55 reset, which did not run while the automation was off
           recovered_shade: "{{ helper_state_shade and not stale_day }}"
           # Base state re-derived from the schedule
           recovered_base: >-
@@ -5185,15 +5168,13 @@ actions:
                 {{ base_target }}
               {% endif %}
             {% endif %}
-          # A pending whose due time has passed can no longer execute - its trigger will not
-          # re-fire. A pending from an earlier day is dead for the same reason.
+          # A pending whose due time has passed can no longer execute - its trigger will not re-fire
           pending_is_stale: >-
             {{ helper_state_pending != 'non' and
                (stale_day or helper_ts_pending_due <= as_timestamp(now()) | round(0)) }}
       - variables:
-          # Shading start/end re-evaluated from the current conditions. Arming a pending is
-          # a catch-up (it drives later), so it needs the opt-in - clearing a stale one is
-          # hygiene and happens either way, via pending_is_stale in recovered_due/arm.
+          # Shading re-evaluated from the current conditions. Arming needs the opt-in (it drives
+          # later); clearing a stale pending is hygiene and happens either way
           recovered_pending: >-
             {% if not is_recovery_enabled or not is_shading_enabled or (helper_state_pending != 'non' and not pending_is_stale) %}
               non
@@ -5250,21 +5231,15 @@ actions:
                 (lockout_tilted_when_shading_starts and recovered_window == 'tlt')) }}
       - variables:
           new_pending: "{{ recovered_pending if recovered_pending != 'non' else ('non' if pending_is_stale else helper_state_pending) }}"
-          # Re-deriving the base state catches up a missed opening/closing, so it is opt-in:
-          # writing bas: 'cls' without the opt-in would make a later branch drive the cover
-          # into that closing after the fact. recovered_base itself stays pure - it feeds
-          # recovered_state, and that only matters when we are allowed to drive anyway.
+          # Opt-in: a re-derived base state is a deferred movement (a later branch drives into it)
           new_base: "{{ recovered_base if is_recovery_enabled else helper_state_base }}"
           # Let the shading execution do the movement instead of opening first
           defer_to_shading: "{{ recovered_pending == 'beg' and recovered_state == 'opn' and not lockout_blocks_shading }}"
-          # Drive parameters from the shared reconciler projection, so the shading
-          # target honours the alternate shading position like every other drive
+          # From the shared reconciler projection, so the shading target honours the alternate depth
           target_position: "{{ state_targets[recovered_state].target | int }}"
           target_tilt_position: "{{ state_targets[recovered_state].target_tilt | int }}"
       - variables:
-          # A manual override still blocks the DRIVE (only lockout overrules it, Invariant 6),
-          # but it must not block the helper hygiene above - otherwise a stale shading or a
-          # dead pending would survive the recovery whenever man == 1.
+          # A manual override blocks the DRIVE, not the helper hygiene above (lockout still overrules)
           recovery_allowed: >-
             {{ not defer_to_shading and
                (not helper_state_manual or override_expired or recovered_state == 'lock') and
@@ -5283,24 +5258,16 @@ actions:
             pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
             state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}
       - variables:
-          # THE opt-in gate. Everything above is hygiene - it removes stale claims from the
-          # helper (a shading from an earlier day, a pending that can never execute) and
-          # re-reads what is live (force, resident, window). That only ever PREVENTS a wrong
-          # movement, so it runs whether or not the user opted in, exactly like the
-          # availability gates. Driving the cover is the only part that CAUSES a movement,
-          # and that is what the switch buys.
+          # THE opt-in gate. Everything above is hygiene (it only prevents a wrong movement);
+          # driving the cover is the only part that causes one, and that is what the switch buys
           will_drive: "{{ is_recovery_enabled and recovery_allowed }}"
       - variables:
           drive_plan:
             run: "{{ will_drive }}"
             target: "{{ target_position | int }}"
             target_tilt: "{{ target_tilt_position | int }}"
-            # A caught-up opening/closing is a real one, so it runs the user's drive
-            # actions - but only when the cover actually changes position. Unlike
-            # state_gates, recovery_allowed carries no position check (it must stay
-            # true so a tilt-only correction still happens), so without this gate the
-            # before/after actions would re-fire on every one of the ~19 recovery
-            # sources even though cover_move_action no-ops. Same predicate as man.
+            # A caught-up movement is a real one, so it runs the user's drive actions - but only
+            # when the cover actually changes position (recovery_allowed carries no position check)
             action_set: "{{ state_targets[recovered_state].action_set if will_drive and not recovery_in_position else '' }}"
           update_values:
             # Re-apply the cascade after the outage
@@ -5312,9 +5279,8 @@ actions:
             man: "{{ 0 if override_expired or (will_drive and not recovery_in_position) else helper_json.man | default(0) | int }}"
             pnd: "{{ new_pending }}"
             ts:
-              # No ts.shd here even when shd is cleared 1->0: stamping it with today would
-              # make the once-per-day guard block today's shading. The midnight reset may
-              # stamp it because it runs at 23:55 on the same day - this branch may not.
+              # No ts.shd here even when shd is cleared 1->0: today's stamp would make the
+              # once-per-day guard block today's shading (unlike the 23:55 reset, which may stamp it)
               opn: "{{ 'now' if new_base == 'opn' and helper_state_base != 'opn' else (0 if stale_day else helper_ts_open) }}"
               cls: "{{ 'now' if new_base == 'cls' and helper_state_base != 'cls' else (0 if stale_day else helper_ts_close) }}"
               due: "{{ recovered_due | int }}"

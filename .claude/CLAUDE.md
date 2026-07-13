@@ -534,7 +534,9 @@ can only *prevent* a wrong one. That single rule places all three pieces:
   (= `is_recovery_enabled and recovery_allowed`) gates the drive, `new_base` gates
   the re-derived base state (writing `bas: 'cls'` for a swallowed closing is a
   *deferred* movement — a later branch would drive into it), and `recovered_pending`
-  refuses to arm a shading pending (it would drive later too).
+  refuses to arm a shading pending (it would drive later too). Note `recovered_base`
+  itself stays **unconditional** — only the *write* (`new_base`) is gated. It feeds
+  `recovered_state`, and that only matters on a run that is allowed to drive anyway.
 - **Always active.** The availability gates of Half 1 — they only block.
 - **Always active: the four force-entity `t_recovery` triggers** (#603). They were
   gated with the rest, and that misread the rule: `frc` is **persisted** and
