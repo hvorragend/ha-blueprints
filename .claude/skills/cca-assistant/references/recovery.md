@@ -72,7 +72,7 @@ can only *prevent* a wrong one. That single rule places all three pieces:
   Note `recovered_base` itself stays **unconditional** — only the *write* (`new_base`)
   is gated.
 - **Always active: the `t_recovery` triggers of the five gate sources** (cover, status
-  helper, custom position sensor, both window contacts — CCA 2026.07.13 V7). Third
+  helper, custom position sensor, both window contacts — CCA 2026.07.13 V6). Third
   application of the rule, and the one that was missed twice. These are exactly the
   entities Half 1 blocks on, and while one of them is unusable the gate drops **every**
   run — including the *latching* ones from the audit below, which never fire again
@@ -174,7 +174,7 @@ the wrong one for it**, and each failed silently and permanently:
   cascade froze in the force **permanently**.
 
 `states[x] is none` is the **only** way to tell the two apart, and it is where the split is
-made (CCA 2026.07.13 V7):
+made (CCA 2026.07.13 V6):
 
 - **The Tier-1 gate skips missing entities** (`for entity in critical_entities if states[entity]
   is not none`) so the run reaches the **mandatory entity validation** in the actions, which
@@ -339,7 +339,7 @@ up), so the setting buys it. "always" = the repair only *prevents* a wrong movem
 runs either way — via the resumed-run hygiene or an always-on fallback.
 
 **A repair marked "always" is only real if some ungated trigger can reach it.** That is the
-mistake CCA 2026.07.13 V7 fixed: with the opt-in off, the *only* ungated entries into the
+mistake CCA 2026.07.13 V6 fixed: with the opt-in off, the *only* ungated entries into the
 gate were the resume trigger (needs a re-attach) and the force entities (need the *force*
 entity to have dropped out). A mid-runtime outage of the cover, the helper or a contact
 produced neither — so every "always" row below was dead on paper for exactly the scenario
@@ -348,7 +348,7 @@ against *which trigger actually fires it*.
 
 | Trigger | Latches? | Cost of a dropped run | Repaired by | Opt-in? |
 |---|---|---|---|---|
-| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — **but only when the direction's `auto_up_condition`/`auto_down_condition` still allows it** (V7): a movement the user's condition suppressed was not missed | **opt-in** |
+| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — **but only when the direction's `auto_up_condition`/`auto_down_condition` still allows it** (V6): a movement the user's condition suppressed was not missed | **opt-in** |
 | *(a gate source drops out mid-runtime and returns — no restart, no re-attach)* | — | the gate blocks every run of the outage, so **all the latching rows below happen at once**, and the `frc`/`win`/`res` the blocked runs would have written stay stale (a stale `frc` moves the cover wrongly on every later trigger, forever) | the **ungated `t_recovery` triggers of the five gate sources** (cover, helper, position sensor, both contacts) | always — nothing else fires; the run they start is hygiene-only with the catch-up off |
 | `t_shading_*_pending_*` (numeric/template) | **yes** (condition stays true) | shading never starts/ends that day | the recovery gate's `recovered_pending` (re-evaluates and re-arms) | **opt-in** |
 | `t_shading_*_execution` | **yes** (`now >= ts.due` stays true) | pending armed forever, opening handler defers into a dead flow | the recovery gate's `pending_is_stale` (clears it) | always |
@@ -372,7 +372,7 @@ against *which trigger actually fires it*.
 
 **Not repairable, by design:** `auto_global_condition` (the user's own global condition). If it is false when the recovery run fires, the run is dropped and nothing re-triggers when it later becomes true — CCA cannot watch an arbitrary user condition. This is pre-existing behavior for every trigger, not new.
 
-**The direction-specific additional conditions gate a caught-up base flip (CCA 2026.07.13 V7).**
+**The direction-specific additional conditions gate a caught-up base flip (CCA 2026.07.13 V6).**
 `recovered_base` re-derives the base state from the schedule/calendar alone. The
 user-supplied `auto_up_condition` / `auto_down_condition` gate **every** opening/closing
 trigger in the normal flow, so a scheduled movement they suppressed was never "missed" —
