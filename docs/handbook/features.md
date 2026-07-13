@@ -5,7 +5,7 @@
 
 Configure what CCA controls and how it behaves. Most settings use safe defaults. Expand the descriptions below only if you need details.
 
-**On this page:** [👉 What should CCA control?](#auto_options) · [⏲️ Time Control Type](#time_control) · [🔀 Condition Logic: Brightness & Sun Elevation](#brightness_sun_operator) · [⚙️ Behavior Customization](#individual_config) · [🔄 Recovery after a restart or an outage](#enable_recovery)
+**On this page:** [👉 What should CCA control?](#auto_options) · [⏲️ Time Control Type](#time_control) · [🔀 Condition Logic: Brightness & Sun Elevation](#brightness_sun_operator) · [⚙️ Behavior Customization](#individual_config) · [🔄 Catch up after a restart or an outage](#enable_recovery)
 
 ---
 
@@ -155,37 +155,51 @@ Some devices (e.g., Shelly, Homematic) have issues when 'set_cover_position' and
 
 <a id="enable_recovery"></a>
 
-## 🔄 Recovery after a restart or an outage
+## 🔄 Catch up on what a restart or an outage swallowed
 
-> 🧩 Input: `enable_recovery` · Default: `false`
+> 🧩 Input: `enable_recovery` · Default: `never`
 
-When enabled, CCA recalculates its target state after a Home Assistant restart — and whenever a required source (the cover, the status helper, a position sensor, a window contact, …) becomes usable again after an outage. It then catches up on everything that was missed in the meantime:
+While a required entity (the cover, the status helper, a position sensor, a window contact) has no usable state, CCA stops — it cannot decide anything without a position, and it must not lower a cover onto a window it can no longer see. The events of that period are then **lost**: a scheduled closing never fires again, a sun shading never starts that day. This setting decides whether CCA **catches those events up** once everything is usable again.
 
-- A missed scheduled/calendar **opening or closing** is performed.
+| Setting | After an outage of a device / integration | After a Home Assistant restart, a reload, or saving this automation |
+|---|---|---|
+| **🚫 Never** (default) | nothing is caught up | nothing is caught up |
+| **🔌 Only after an outage** | caught up | **nothing is caught up** |
+| **🔄 Always** | caught up | caught up |
+
+**Why the distinction matters.** A Home Assistant restart and a Zigbee stick that dropped out for ten minutes over your closing time are not the same event. Most people who dislike "the covers move after a restart" are perfectly happy for CCA to fix a cover that was left open all night because a gateway hiccupped. **🔌 Only after an outage** is that middle ground.
+
+*(How CCA tells them apart — and why the order in which your integrations load does not matter: a restart, a reload and a save all re-create the automation. Until every required entity is usable again, CCA is blocked and writes nothing, so it still knows it is inside a start-up when the last device finally reports — even if that takes half an hour. And a device that was already unreachable when Home Assistant started stays part of that start-up, however long it then takes to answer. A dropout that **began** while Home Assistant was running is an outage; one that began at boot is not.)*
+
+### What "catching up" does
+
+- A missed scheduled/calendar **opening or closing** is performed — but only if the **additional opening/closing condition** for that direction still allows it (see below). This includes the night: between midnight and the opening time, "closed" counts as the scheduled state (the previous evening continued) — a restart at 2 am after a swallowed evening closing closes the cover instead of opening it.
 - The **sun-shading conditions** are re-evaluated: if shading is due now, it starts; if it is over, it ends.
 - A **force function** switched on or off during the outage is applied.
 - **Lockout, ventilation and privacy closing** are applied from the current window and presence state.
 
-**This can move the cover right after a restart** — for example, a shading intent stored before the restart is applied, or a missed morning opening is caught up. A caught-up movement is a real one, so it also runs the **action you configured for it** (*"Action before/after closing"*, opening, ventilation, sun shading) — a closing that the restart swallowed is still a closing. Those actions only run when the cover actually changes position: if the recovery finds everything already in place (the normal case after a restart), it stays silent.
+**This can move the cover.** A caught-up movement is a real one, so it also runs the **action you configured for it** (*"Action before/after closing"*, opening, ventilation, sun shading) — a closing that the outage swallowed is still a closing. Those actions only run when the cover actually changes position: if CCA finds everything already in place (the normal case), it stays silent.
 
 A **manual override is respected** and blocks the movement — unless its reset has already come due in the meantime (then it is lifted and the cover follows the automation again), or the lockout protection applies (window fully open), which always takes precedence.
 
-**⚠️ Limitation:** The recovery derives the missed opening/closing from the **schedule alone**. The *additional opening/closing conditions* (Conditions section) are **not** re-evaluated — a scheduled movement that your additional condition deliberately suppressed is treated as merely missed and caught up anyway. Only the *global condition* is respected (it drops the whole recovery run). If you use additional conditions to intentionally suppress scheduled movements, mirror that logic in the global condition — or leave the recovery disabled.
+**Your additional conditions are respected.** A scheduled movement that your *additional opening/closing condition* (Conditions section) deliberately suppressed was never "missed", so it is not replayed: before a missed opening or closing is applied, the additional condition for that direction is evaluated. If it says no, CCA keeps the status it had. The *global condition* is respected as well (it drops the whole run). *(Up to `2026.07.13 V6` this was a known limitation — the catch-up derived the movement from the schedule alone and could open a cover your condition had blocked all morning.)*
 
-**⚠️ Saving the automation also triggers the recovery.** When you change a setting and save, Home Assistant re-creates the automation — for CCA that is the same event as switching it off and on again. With this switch **on**, the recovery therefore runs right after you save, and **the cover may move**: it is brought to the state your (possibly just changed) settings now call for. Usually nothing happens, because the cover already is where it belongs. But the limitation above applies here too — if an additional condition suppressed this morning's opening, saving the automation in the afternoon will catch that opening up. This is expected behavior, not a glitch; if it surprises you, leave the recovery disabled.
+**⚠️ Saving the automation counts as a restart.** When you change a setting and save, Home Assistant re-creates the automation — for CCA that is the same event as switching it off and on again. With **🔄 Always**, CCA therefore recalculates right after you save, and **the cover may move**. With **🔌 Only after an outage** it does not — that is one of the reasons to prefer the middle setting.
 
-When **disabled** (default), the cover is never moved because of a restart. The trade-off is that events which fell into the restart or outage stay lost — a closing scheduled during a restart simply does not happen, and sun-shading changes that occurred during the outage are not replayed. The automation resumes with the next regular trigger.
+With **🚫 Never**, the cover is never moved because of a restart or an outage. The trade-off is that events which fell into that period stay lost — a closing scheduled during the downtime simply does not happen, and sun-shading changes are not replayed. The automation resumes with the next regular trigger.
 
-### What still happens when the switch is off
+### What still happens when nothing is caught up
 
-The switch decides whether CCA may **move** the cover. It does not switch off the protections that keep CCA from moving it *wrongly* — those are always active:
+The setting decides whether CCA may **move** the cover. It does not switch off the protections that keep CCA from moving it *wrongly* — those are always active:
 
 - CCA **pauses** while the cover, the status helper, or the configured position sensor has no usable state (nothing can be decided without a position), and window contacts / the resident sensor fall back to their last known value while a battery sensor is silent.
-- CCA **cleans up its status helper** whenever it comes back — after a restart, after being switched off and on again, and after you save the automation (none of which anything else reports). A sun shading left over from an earlier day, a waiting period that can no longer run, and an override reset that came due in the meantime are cleared, and the force/resident/window status is re-read from the live entities.
+- CCA **cleans up its status helper** whenever it comes back — after a restart, after being switched off and on again, after you save the automation, **and after a cover, a status helper or a window contact returns from an outage** (none of which anything else reports). A sun shading left over from an earlier day, a waiting period that can no longer run, and an override reset that came due in the meantime are cleared, and the force/resident/window status is re-read from the live entities.
+- CCA **re-reads a force function** when its own entity comes back after an outage. While that entity has no status, CCA keeps the force function running (it must not cancel it by accident), so afterwards it has to check whether the function was switched off in the meantime — otherwise the cover would stay in the force position forever. The **force pause** is not part of this: bringing the cover back into a force function that the pause had suspended is a *movement*, so that one does need a catch-up setting.
+- CCA **records a manual movement** you make right after a restart or a save, instead of recalculating over it. The recalculation then respects the override like any other.
 
-That clean-up moves nothing. It exists because an outdated status is not a "missed event" — it is a status that would make CCA move the cover wrongly on the *next* regular trigger. Without it, a sun shading from days ago would still count as active and could drive the cover into the shading position at night, and a manual override whose reset fell into the downtime would never be lifted at all.
+That clean-up moves nothing. It exists because an outdated status is not a "missed event" — it is a status that would make CCA move the cover wrongly on the *next* regular trigger. Without it, a sun shading from days ago would still count as active and could drive the cover into the shading position at night, a manual override whose reset fell into the downtime would never be lifted at all, and a force function whose switch dropped out and came back *off* would stay recorded forever.
 
-You will therefore still see a CCA run (and a trace) shortly after a restart — and shortly after you save the automation — even with the switch off. It updates the status helper and stops; it does not drive the cover.
+You will therefore still see a CCA run (and a trace) shortly after a restart, shortly after you save the automation, and shortly after a device comes back — even with **🚫 Never**. It updates the status helper and stops; it does not drive the cover. The run waits until the cover (and, where configured, the position sensor and a window contact whose window was last known open) is actually usable again — after a restart where the cover takes a few minutes to come back, the clean-up simply follows a minute after the cover does.
 
 ---
 

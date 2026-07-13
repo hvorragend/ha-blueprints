@@ -2066,7 +2066,12 @@ class TestForcePauseDisabledHasBackgroundOpen:
             "outside the lock/vnt/shd/cls map"
         )
         plan = variables.get("drive_plan", {})
-        assert plan.get("run") is True, "unpausing must always drive"
+        # Unpausing drives unless a queued run executes after the pause was already
+        # re-enabled - then the run only records (systemic force-pause rule).
+        assert plan.get("run") == "{{ will_drive }}", "unpausing must drive via will_drive"
+        assert variables.get("will_drive") == "{{ not is_paused }}", (
+            "the only thing that may stop the resume drive is a re-enabled pause"
+        )
         assert "state_targets[resume_state]" in str(plan), (
             "drive parameters must come from the state_targets projection"
         )

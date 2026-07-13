@@ -151,6 +151,9 @@ class TestVentFloorAgainstTheRealCascade:
             state_resident=False,
             contact_window_opened=[],
             contact_window_tilted="binary_sensor.tilted",
+            # Every config in this class carries auto_ventilate_enabled; the
+            # vent-disabled scoping has its own tests in test_restart_recovery.
+            is_ventilation_enabled=True,
         )
         return cascade_env.from_string(BP["variables"]["effective_state"]).render(**variables).strip()
 
