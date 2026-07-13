@@ -258,6 +258,14 @@ Use the **Force Pause** when the cover must stay put for a while (someone is cle
 
 **Do not try to use the Force Pause for the multi-automation setup.** A paused automation still watches — and it cannot tell the *other* automation's movements apart from you grabbing the slider. It records them as a **manual override** and, once you un-pause it, refuses to touch the cover. `instance_active` switches the automation off entirely, which is exactly what stops that from happening.
 
+### 💡 Bonus: a "re-sync now" switch — even with just one automation
+
+You do not need a second CCA automation to benefit from this input. Point it at an `input_boolean` that is simply **always on**, and you have a re-sync button: whenever you want CCA to *forget everything and start fresh* — after you have been playing with the cover by hand, after re-arranging your settings, after anything that left the cover somewhere it should not be — flip that switch **off and back on**.
+
+Switching on is a full take-over, and it does not care what came before: it re-reads the window contacts, presence, the force switches, the weather and the schedule, **discards a stored manual override**, and drives the cover to where the settings say it belongs — immediately, and regardless of the 🔄 catch-up setting. It is the clean answer to *"just put it back the way it should be, now."*
+
+(Toggling the whole **automation** off and on gets you something similar, but slower and weaker: the clean-up run starts about a minute later, respects the catch-up setting — so with 🚫 *Never* it tidies the status but does not move the cover — and it keeps a manual override in place. The switch is the stronger tool, because switching it on *means* "take the cover over".)
+
 ### Things worth knowing
 
 - **The "only once per day" options are per automation.** Each instance has its own status helper, so *Open / Close / Shade cover only once per day* count that instance's own movements. Hand over at noon and the incoming instance may open, close or shade once more that day.
