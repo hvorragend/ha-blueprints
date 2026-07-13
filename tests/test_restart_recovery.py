@@ -508,6 +508,21 @@ class TestRecoveryTriggers:
         gate = [ln for ln in text.splitlines() if "t_calendar_event_start|t_recovery" in ln]
         assert gate, "t_recovery missing from the weather.get_forecasts gate"
 
+    def test_recovery_is_opt_in_and_defaults_to_off(self):
+        """Users must explicitly opt in to cover movements after a restart. Every
+        t_recovery trigger is gated at the trigger (no run, no trace, no drive
+        while disabled - same rationale as the #550 trigger-level filtering)."""
+        for t in self._recovery():
+            assert "is_recovery_enabled" in t.get("enabled", ""), t
+        section = BP["blueprint"]["input"]["feature_section"]["input"]
+        assert section["enable_recovery"]["default"] is False
+
+    def test_recovery_flag_is_a_static_trigger_variable(self):
+        """`enabled:` is evaluated in the limited trigger context (Invariant 10) -
+        the flag must be a plain !input, not a template calling states()."""
+        assert "is_recovery_enabled" in BP["trigger_variables"]
+        assert "states(" not in str(BP["trigger_variables"]["is_recovery_enabled"])
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Invariant 13: the top-level choose is a trigger.id dispatcher

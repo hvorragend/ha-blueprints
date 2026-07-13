@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.12 V3
+    **Version**: 2026.07.13
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -28,7 +28,7 @@ blueprint:
 
         Using a cover group? See [FAQ: Can I use a cover group?](https://hvorragend.github.io/ha-blueprints/FAQ#q-can-i-use-a-cover-group)
 
-        While the cover is unavailable (e.g. during a restart), the automation pauses — without a position it cannot decide anything. As soon as the cover is back, it catches up on everything that was missed in the meantime.
+        While the cover is unavailable (e.g. during a restart), the automation pauses — without a position it cannot decide anything. To catch up on missed events once the cover is back, enable **🔄 Recovery after a restart or an outage** in the *Automation Options*.
 
       selector:
         entity:
@@ -168,6 +168,24 @@ blueprint:
               sort: false
               custom_value: false
               mode: list
+
+        enable_recovery:
+          name: "🔄 Recovery after a restart or an outage"
+          description: >-
+            When enabled, CCA recalculates the target state after a Home Assistant restart
+            (or after a required source becomes usable again) and catches up on everything
+            that was missed in the meantime: a missed opening/closing is performed, the sun
+            shading conditions are re-evaluated, and a force function switched during the
+            outage is applied. **This can move the cover right after a restart.**
+
+            When disabled (default), the cover is never touched after a restart — but events
+            that fell into the restart or outage are lost: a missed closing simply does not
+            happen until the next regular trigger fires.
+
+            📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/features#enable_recovery).
+          default: false
+          selector:
+            boolean: {}
 
     position_section:
       name: "Cover Position Settings"
@@ -2299,6 +2317,11 @@ trigger_variables:
   # Ventilation and tilt are only available for blinds, not awnings
   is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
 
+  # Recovery after restart/outage (t_recovery -> BRANCH 12). Opt-in: when disabled,
+  # no recovery trigger fires and the cover is never moved after a restart - missed
+  # events stay missed. The availability gates are independent and always active.
+  is_recovery_enabled: !input enable_recovery
+
   # Reset override flag computation
   reset_override_config: !input reset_override_config
   reset_override_time: !input reset_override_time
@@ -2346,7 +2369,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.12 V3"
+  version: "2026.07.13"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3453,6 +3476,7 @@ triggers:
   - trigger: homeassistant
     event: start
     id: "t_recovery"
+    enabled: "{{ is_recovery_enabled }}"
 
   - trigger: state
     entity_id: !input blind
@@ -3463,6 +3487,7 @@ triggers:
     id: "t_recovery"
     for: &recovery_settle
       seconds: 30
+    enabled: "{{ is_recovery_enabled }}"
 
   - trigger: state
     entity_id: !input cover_status_helper
@@ -3470,7 +3495,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ cover_status_helper != [] }}"
+    enabled: "{{ is_recovery_enabled and cover_status_helper != [] }}"
 
   - trigger: state
     entity_id: !input custom_position_sensor
@@ -3478,7 +3503,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ position_source == 'custom_sensor' and custom_position_sensor != [] }}"
+    enabled: "{{ is_recovery_enabled and position_source == 'custom_sensor' and custom_position_sensor != [] }}"
 
   - trigger: state
     entity_id: !input contact_window_opened
@@ -3486,7 +3511,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
+    enabled: "{{ is_recovery_enabled and is_ventilation_enabled and contact_window_opened != [] }}"
 
   - trigger: state
     entity_id: !input contact_window_tilted
@@ -3494,7 +3519,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
+    enabled: "{{ is_recovery_enabled and is_ventilation_enabled and contact_window_tilted != [] }}"
 
   - trigger: state
     entity_id: !input resident_sensor
@@ -3502,7 +3527,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ resident_sensor != [] }}"
+    enabled: "{{ is_recovery_enabled and resident_sensor != [] }}"
 
   # Condition-only sources
   - trigger: state
@@ -3511,7 +3536,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ is_shading_enabled and default_brightness_sensor != [] }}"
+    enabled: "{{ is_recovery_enabled and is_shading_enabled and default_brightness_sensor != [] }}"
 
   - trigger: state
     entity_id: !input default_sun_sensor
@@ -3519,7 +3544,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
+    enabled: "{{ is_recovery_enabled and is_shading_enabled and default_sun_sensor != [] }}"
 
   - trigger: state
     entity_id: !input shading_forecast_sensor
@@ -3527,7 +3552,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ is_shading_enabled and shading_forecast_sensor != [] }}"
+    enabled: "{{ is_recovery_enabled and is_shading_enabled and shading_forecast_sensor != [] }}"
 
   - trigger: state
     entity_id: !input calendar_entity
@@ -3535,7 +3560,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ is_calendar_enabled and calendar_entity != [] }}"
+    enabled: "{{ is_recovery_enabled and is_calendar_enabled and calendar_entity != [] }}"
 
   - trigger: state
     entity_id: !input workday_sensor
@@ -3543,7 +3568,7 @@ triggers:
     not_to: *invalid_recovery_states
     id: "t_recovery"
     for: *recovery_settle
-    enabled: "{{ workday_sensor_today != [] }}"
+    enabled: "{{ is_recovery_enabled and workday_sensor_today != [] }}"
 
   # Resets
   - trigger: template

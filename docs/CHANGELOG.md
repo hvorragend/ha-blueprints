@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.07.13
+
+- ⚠️ **Change:** The **recovery after a restart or an outage** (introduced in `2026.07.12`) is now **opt-in and disabled by default**. Several users do not want their covers to move right after a Home Assistant restart — the recovery recalculates the target state from scratch and drives the cover if it is not where the cascade says it should be (e.g. catching up on a missed opening or applying a stored sun-shading intent). A new switch **"🔄 Recovery after a restart or an outage"** in the *Automation Options* section controls the feature: when **off** (default), no recovery run is triggered at all — the cover is never touched after a restart, at the cost that events which fell into the restart/outage stay lost until the next regular trigger fires (the pre-`2026.07.12` behavior). When **on**, everything works exactly as introduced in `2026.07.12`. The availability protection from `2026.07.12` (pausing while the cover, status helper, or position sensor has no usable state, plus the last-known fallbacks for window contacts and the resident sensor) is **independent of this switch and always active** — it only prevents wrong movements and wrong helper writes, it never causes any
+
+---
+
 # CCA 2026.07.12 V3
 
 - 🔧 **Improvement:** Internal architecture rework ("transition architecture"), no functional change intended. Every branch of the action tree now computes exactly two things — the state transition (`update_values`) and an optional actuation plan (`drive_plan`: drive yes/no, target position/tilt, action set, pre-drive delay) — and hands both to a single shared epilogue (`apply_transition`) that performs *delay → drive → helper write* in a fixed order. The helper write is unconditional in that epilogue, so **every execution path is terminal by construction**: the "pending armed forever because a path ended without a helper write" bug class (e.g. [#395](https://github.com/hvorragend/ha-blueprints/issues/395) and the two 2026.07.01 fixes) can no longer be reintroduced by a single forgotten step. A new test suite enforces this structurally
