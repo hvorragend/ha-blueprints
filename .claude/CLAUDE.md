@@ -378,7 +378,13 @@ The shared drive idiom `&drive_with_actions` (before-action → cover move →
 tilt move → after-action) is selected via the `drive_action_set` variable
 (`up` / `down` / `ventilate` / `shading_start` / `shading_end`). Delays and
 `*helper_update` deliberately stay at the call site so ordering and timing
-remain visible per branch.
+remain visible per branch. With the Tilt Wait Mode `tilt_before_position`
+(`is_tilt_before_position_mode`, Issue #355 — motors like the Somfy J4 IO
+that restore the previous slat position after every positioning run), the
+inner order flips to tilt move → `tilt_delay` → cover move, and
+`&tilt_move_action` skips its pre-tilt wait (the cover is still idle): the
+motor's own restore re-applies the target tilt after positioning, so no tilt
+command is sent — or waited for — after the movement.
 
 ---
 
