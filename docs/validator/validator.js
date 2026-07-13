@@ -414,6 +414,9 @@ class CCAValidator {
         if (isTimeControlDisabled) {
             this.addInfo('⏰ Time control is disabled (time_control_enabled not in auto_options) - skipping time validation');
             this.addWarning('⚠️ Breaking change (2026.07.12): time control is disabled whenever "time_control_enabled" is missing from auto_options. If this configuration predates the options consolidation (~2026.05) and you still want time windows, add time_control_enabled to auto_options.');
+            if (autoOptions.includes('auto_sun_enabled') || autoOptions.includes('auto_brightness_enabled')) {
+                this.addWarning('⚠️ Sun Elevation / Brightness triggers are enabled WITHOUT time windows: they fire as soon as their threshold is crossed - covers may open around sunrise instead of a configured earliest time, and close late in the evening (issue #595). If that is not intended, add time_control_enabled to auto_options.');
+            }
             return;
         }
 
