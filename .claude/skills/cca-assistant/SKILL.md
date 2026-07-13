@@ -27,6 +27,26 @@ schedules, brightness, sun elevation, window state, and resident presence.
 
 ---
 
+## Reference Files — read the matching file BEFORE working on its area
+
+This SKILL.md is the overview and quick index. The detailed, authoritative
+material lives in `references/` next to this file — it is the single source of
+truth. Do not code against the summaries below in one of these areas without
+loading the reference first:
+
+| Task touches… | Read |
+|---|---|
+| Priority cascade (`effective_state`/`recovered_state`), transition anchors, `state_targets`/`state_gates`, limited template contexts | [references/architecture.md](references/architecture.md) |
+| Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
+| Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
+| Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AL with cause and fix) |
+
+The always-binding rules (the 14 invariants as one-liners, code style, quality
+gates, version bumping) are indexed in `.claude/CLAUDE.md`.
+
+---
+
 ## JSON Helper Schema (v6 compact, stored in `input_text`)
 
 ```json
@@ -43,18 +63,13 @@ schedules, brightness, sun elevation, window state, and resident presence.
 | `frc` | `non` / `opn` / `cls` / `shd` / `vnt` | Force override |
 | `res` | `1` / `0` | Resident present |
 | `man` | `1` / `0` | Manual override active |
-| `ts.opn` | Unix timestamp | Last time base state switched to open |
-| `ts.cls` | Unix timestamp | Last time base state switched to closed |
-| `ts.shd` | Unix timestamp | Last time shading state changed (0↔1) |
+| `ts.opn` / `ts.cls` | Unix timestamp | Last base-state switch to open / closed |
+| `ts.shd` | Unix timestamp | Last shading state change (0↔1) |
 | `ts.due` | Unix timestamp | Fire time of armed pending (`0` when `pnd == 'non'`) |
 | `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (`0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
 
 ### Pending field semantics (`pnd` enum)
-
-- `pnd='non'` → no pending phase active (idle)
-- `pnd='beg'` → shading **start pending** (waiting for conditions / retry)
-- `pnd='end'` → shading **end pending** (waiting for conditions / retry)
 
 Only one phase can be pending at a time (mutually exclusive by schema).
 `pnd='non'` always implies `ts.due == 0` and `ts.arm == 0`.
@@ -82,30 +97,18 @@ used by `shading_start_max_duration` and `shading_end_max_duration`.
 ```
 1. FORCE    → frc != "non"                                       → Force position
 2. LOCKOUT  → win == "opn"                                       → Open position ('lock')
-3. BASE=OPN → bas == "opn" AND no privacy/shading/restriction    → Open position ('opn')
+3. BASE=OPN → bas == "opn" AND is_opening_scheduled AND no privacy/shading/restriction → Open ('opn')
 4. VENT     → win == "tlt" AND base would close/shade/privacy    → Ventilation position ('vnt')
 5. PRIVACY  → resident && closing_enabled                        → Close position ('cls')
 6. SHADING  → shd == 1 && allow_shade                            → Shading position ('shd')
 7. BASE=CLS → bas (with allow_open gate)                         → Close position ('cls')
 ```
 
-`effective_state` returns: `lock | opn | vnt | cls | shd`
-
-**Implementation detail:** `effective_state` first computes `base_target` (the
-cover state without VENT consideration), then applies VENT only when
-`win == 'tlt'` and `base_target != 'opn'`.
-
-```
-base_target logic:
-  1. privacy_active (resident + closing_enabled) → 'cls'
-  2. shd == 1 AND allow_shade                    → 'shd'
-  3. bas == 'opn' AND not allow_open             → 'cls'
-  4. else                                        → h.bas
-```
-
-**Rationale for BASE=OPN before VENT:** A tilted window signals ventilation
-intent — and a fully open cover provides maximum airflow. VENT is a *floor*
-only when the cover would otherwise go below ventilation position.
+`effective_state` returns: `lock | opn | vnt | cls | shd`. VENT is a *floor*,
+not a target: BASE=OPN beats it only when an opening automation actually exists
+(`is_opening_scheduled`, derived from the opening triggers' `enabled:` gates —
+Bug Patterns Z + AL). The `base_target` implementation and the full rationale
+are in [references/architecture.md](references/architecture.md).
 
 **Critical**: `effective_state == 'opn'` can result from EITHER `base='opn'`
 OR `force='opn'`. Never assume `base` is `'opn'` just because `effective_state`
@@ -119,8 +122,10 @@ is `'opn'`.
 ```yaml
 in_open_position      # Current position within tolerance of open_position
 in_close_position     # Current position within tolerance of close_position
-in_shade_position     # Current position within tolerance of shading_position
+in_shading_position   # Current position within tolerance of effective_shading_position
 in_ventilate_position # Current position within tolerance of ventilate_position
+effective_shading_position  # shading_position or shading_position_alt (#580) —
+                            # every shading consumer must read this, never the raw input
 ```
 
 ### State variables
@@ -137,7 +142,8 @@ is_forced_close       # Force close active
 is_forced_shade       # Force shade active
 is_forced_ventilate   # Force ventilate active
 force_allows_ventilate  # not (is_forced_open or is_forced_close or is_forced_shade)
-is_paused             # Force pause entity active
+is_paused             # Force pause entity active — part of EVERY drive gate
+live_force            # Force re-derived from live entities, helper fallback (Tier 2)
 ```
 
 ### Resident flags (based on live sensor, not helper)
@@ -153,231 +159,87 @@ resident_flags:
 ### Override flags (manual override gates)
 ```yaml
 override_flags:
-  opening             # 'ignore_opening_after_manual' configured
-  closing             # 'ignore_closing_after_manual' configured
-  ventilation         # 'ignore_ventilation_after_manual' configured
-  shading             # 'ignore_shading_after_manual' configured
+  opening / closing / ventilation / shading   # 'ignore_X_after_manual' configured
+override_blocks:
+  opening / closing / ventilation / shading   # helper_state_manual and override_flags.X
 ```
 
 ### Prevent flags (daily repetition control)
 ```yaml
 prevent_flags:
-  shading_multiple_times   # Prevent shading more than once per day
-  opening_multiple_times   # Prevent opening more than once per day
-  closing_multiple_times   # Prevent closing more than once per day
+  shading_multiple_times / opening_multiple_times / closing_multiple_times
 ```
 
-### Environment variables
+### Normalized event flags (computed once per run — use these, not raw sensor idioms)
 ```yaml
-environment_allows_opening   # Brightness and/or sun elevation allow opening (OR logic)
-environment_allows_closing   # Brightness and/or sun elevation require closing (OR logic)
+window_opened_now / window_tilted_now / window_any_now / window_opened_clear
+lockout_now.closing / .shading_start / .shading_end
+shading_once_guard_ok
+drive_delay_standard
+environment_allows_opening / environment_allows_closing
 ```
 
 ### Timestamp helpers
 ```yaml
-helper_ts_open          # helper_json.ts.opn (Unix timestamp)
-helper_ts_close         # helper_json.ts.cls
-helper_ts_shade         # helper_json.ts.shd
+helper_ts_open / helper_ts_close / helper_ts_shade / helper_ts_man
 helper_ts_pending_due   # helper_json.ts.due (fire time of armed pending)
 helper_ts_pending_arm   # helper_json.ts.arm (retry anchor)
-helper_ts_man           # helper_json.ts.man
 ```
 
 ---
 
-## YAML Technical Constraints
+## Working Rules (quick index)
 
-### `trigger_variables` — Limited Template only
-No `states()`, `is_state()`, or `state_attr()` allowed here. Only static values
-and simple Jinja2 expressions. Move state-reading variables to action `variables:`.
+Full rationale in [references/invariants.md](references/invariants.md) and
+[references/architecture.md](references/architecture.md); the one-line index of
+all 14 invariants is in `.claude/CLAUDE.md`. The ones that bite most often:
 
-### `ts_now` — Always set at point of use
-```yaml
-{% set ts_now = as_timestamp(now()) | round(0) %}
-```
-Set inside each sequence branch locally, never as a global variable.
-Delays between steps would make a global value stale.
+- Every leaf branch computes `will_drive` + `drive_plan` + `update_values`, then
+  calls `*apply_transition` — never `*helper_update` / `*drive_with_actions` /
+  `*tilt_move_action` directly (enforced by `tests/test_apply_transition_architecture.py`).
+- Position checks belong in the `will_drive` gate, never in branch conditions.
+- `trigger_variables:` is a limited template context — no `states()` there.
+- `ts_now` is always set at the point of use, never globally.
+- Anchor bodies (`&cover_move_action`, `&tilt_move_action`, `&drive_with_actions`,
+  `&helper_update`, `&apply_transition`) are pre-rendered on every run — all
+  runtime-context references inside them need template guards. `&shading_start_retry`
+  is deliberately defined at first use instead.
+- Every cascade change lands in `effective_state` AND `recovered_state`, same
+  commit (`TestCascadeParity`).
 
-### Leaf branches — the transition architecture (CCA 2026.07.03)
-Every leaf branch computes exactly two things, then calls `*apply_transition`:
-`update_values` (the state transition) and optionally `drive_plan` (the
-actuation plan: `run`, `move: full|tilt`, `action_set`, `target`,
-`target_tilt`, `tilt_first`, `delay_s`). The anchor performs delay → drive →
-**unconditional** helper write. Never call `*helper_update`,
-`*drive_with_actions` or `*tilt_move_action` directly from a branch —
-`tests/test_apply_transition_architecture.py` enforces this. The drive gate is
-defined once per branch as `will_drive`; both `drive_plan.run` and the `man:`
-reset reference it (Invariant 7 by construction).
+### `update_values` / `helper_update` merge semantics
 
-Normalized event flags (computed once per run, use instead of raw sensor
-idioms in conditions): `window_opened_now`, `window_tilted_now`,
-`window_any_now`, `window_opened_clear`, `lockout_now.closing/shading_start/
-shading_end`, `override_blocks.opening/closing/ventilation/shading`,
-`shading_once_guard_ok`, `drive_delay_standard`. The contact handler re-reads
-after its settle delay into local `contact_opened_now` / `contact_tilted_now` /
-`was_ventilating` / `return_target`. The reconciler projection `state_targets`
-maps `lock/opn/vnt/shd/cls` → `{target, target_tilt, action_set}` and
-`state_gates` maps each state to its standard drive gate; "drive to state X"
-branches (force enable / last-wins / pause-resume) build their plans from them.
-
-**Target chains:** background-return handlers are single leaves computing a
-target via a first-match Jinja chain (mirroring the former branch order), then
-`drive_plan = dict(state_targets[target], run=will_drive, ...)`:
-`return_target` (window closed: shd→opn→cls/non), `leave_target` (resident
-leaving: lock→shd→opn→cls/non), `arrive_target` (resident arriving: cls/non),
-`recovery_target` (force recovery: cls→shd→lock→opn→vnt/non). VENT targets
-keep dedicated leaves — they are gated by user-supplied `!input` conditions,
-which can only be evaluated as YAML conditions. The chosen target is visible
-in the trace variables and the logbook `log_extra`.
-
-### YAML anchors
-- `&cover_move_action` — actual cover movement with position tolerance
-- `&tilt_move_action` — tilt positioning with wait strategy
-- `&drive_with_actions` — the shared drive idiom: before-action → cover move →
-  tilt move → after-action, selected via the `drive_action_set` variable
-  (`up` / `down` / `ventilate` / `shading_start` / `shading_end`).
-- `&helper_update` — JSON state persistence + logbook
-- `&apply_transition` — the single leaf-branch epilogue: optional delay
-  (only when driving) → optional drive (full or tilt-only) → unconditional
-  `*helper_update`. Parameterized by `drive_plan` + `update_values`.
-- `&shading_start_retry` — shared retry routine (waiting-for-window /
-  continue / abort) for the shading-start execution; call sites set
-  `shading_start_retry_reason` for the log line. Defined at its first use
-  inside the shading-start branch, not in the anchor variables block.
-
-**⚠️ Anchor bodies are rendered on every run:** the first five anchors are
-defined as values of a top-level `variables:` step. HA renders variable values
-recursively, so every template inside those anchor bodies is ALSO evaluated
-once per run outside its real context. Guards like
-`repeat.item if repeat is defined else ''`, `| default(...)` filters and
-`(drive_plan | default({}))` in anchor bodies are load-bearing — never remove
-them, and template-guard all runtime-context references in any new anchor.
+The `helper_update` anchor merges `update_values` into the current helper JSON:
+timestamps accept `'now'` (replaced with `as_timestamp(now())`) or explicit
+values; omitted fields are preserved. Guards: `ts.shd` only updates when `shd`
+actually changes; `pnd`/`ts.due`/`ts.arm` are not reset in win-only updates.
+The canonical leaf-branch skeleton is in
+[references/architecture.md](references/architecture.md).
 
 ---
 
-## Architectural Invariants (Reference)
+## Action Tree Structure
 
-Full details in CLAUDE.md. Key rules:
+**Pre-dispatch steps** (before the main `choose:`): helper init/repair,
+v5→v6 migration, forecast load, calendar load + relevance check, and the
+**recovery gate** (claims every trigger on a resumed run; see
+[references/recovery.md](references/recovery.md)). A new pre-dispatch step that
+can `stop:` a run needs a `PRE_DISPATCH_DEFINITIONS` entry in the trace tools.
 
-1. **Never put position checks in branch conditions** — encode them in the
-   branch's `will_drive` gate. The branch must always be consumed.
-2. **Always call `*apply_transition`** at the end of every branch (its helper
-   write is unconditional).
-3. **Realtime vs. helper state** — use `states(sensor)` for current values,
-   `helper_json.*` is persisted and may be stale.
-4. **`resident_flags.*` uses live sensor** — no stale-state problem.
-5. **`opened` always takes priority over `tilted`** — every tilted branch
-   must check `not (contact_window_opened active)`.
-6. **Lockout is independent of `resident_allow_ventilation`** — safety feature.
-7. **`man: 0` only when driving** — not in pending, lockout-only, or pure state changes.
-   Exception: midnight reset (BRANCH 11).
-8. **Timestamp guards** — `ts.shd` only when `shd` changes; `ts.arm` preserved
-   across retries; `pnd='non'` clears `ts.due` and `ts.arm` together.
-9. **`ts_now` at point of use** — never global.
-10. **`trigger_variables:` limited context** — no `states()`.
-11. **`pnd` is mutually exclusive** — start and end cannot be pending simultaneously.
-12. **Logbook uses `trigger.id` + `update_values`** — no reason-inference table.
+**Dispatch branches** (order pinned by `tests/test_trace_tools_branch_map.py`):
 
----
-
-## Design Decisions (Intentional Deviations)
-
-### Resident handler bypasses manual override
-The resident sensor handler does not check `helper_state_manual` / `override_flags.*`.
-Presence transitions are a hard reset — intentional, do not "harmonize".
-
-### Midnight reset (BRANCH 11) sets `man: 0` without driving
-Intentional exception to Invariant 7. Clears stale overrides for next day's cycle.
-
-### Triggers from/to an invalid sensor state are deliberately ignored
-The contact handler gates on **both** `trigger.from_state.state not in invalid_states`
-and `trigger.to_state.state not in invalid_states` (`invalid_states` = `''`,
-`unavailable`, `unknown`, `none`, `None`). Transitions touching an invalid state
-are sensor dropouts/recoveries, not real physical events — acting on them would
-move covers on noise.
-
-**Consequence (Issue #505):** a sensor going `on → unavailable` (instead of
-`on → off`) while the cover is in lockout (`lock`) and later recovering
-`unavailable → off` is ignored; `win` stays `opn` and remembered shading
-(`shd=1`) is not applied until another trigger updates the window state. This is
-**intentional** — fix the flaky sensor, do **not** remove the `from_state` guard.
-
----
-
-## Branch Structure (Main choose blocks)
-
-### Opening (BRANCH 1-4)
-- Check for opening → already-open guard → shading-detected sub-branch → normal opening
-- Uses `prevent_flags.opening_multiple_times` daily guard
-
-### Closing (BRANCH 5-8)
-- Check for closing → lockout protection → tilted-ventilation → already-close guard → normal closing
-- Base state (`bas: 'cls'`, `ts.cls: 'now'`) always updated regardless of physical position
-
-### Shading Start (BRANCH 9)
-- Detection → pending arm (`pnd: 'beg'`, `ts.due`, `ts.arm`) → execution trigger
-- Lockout skip → drive → save-for-future → blocked/retry → abort branches
-- Uses `shading_start_max_duration` with `helper_ts_pending_arm` as anchor
-
-### Shading Tilt
-- Adjusts tilt position while shading is active
-
-### Shading End (BRANCH 10)
-- Detection → pending arm (`pnd: 'end'`, `ts.due`, `ts.arm`) → execution trigger
-- Tilt-only → lockout → ventilation → move-cover → blocked/retry → abort branches
-- Uses `shading_end_max_duration` with `helper_ts_pending_arm` as anchor
-
-### Contact Sensor (BRANCH)
-- Window opened → lockout (always runs, independent of `resident_allow_ventilation`)
-- Window tilted → partial ventilation (gated by `resident_flags.allow_ventilate`)
-- Window closed → return to shading/open/close based on `effective_state`
-
-### Resident Sensor (BRANCH)
-- Leaving (ON→OFF): targets ventilation-full → ventilation-tilt → shaded → open → close
-- Arriving (OFF→ON): lockout → ventilation-hold → privacy-close branches
-
-### Midnight Reset (BRANCH 11)
-- Resets `shd: 0`, `pnd: 'non'`, `man: 0` when shading was active at midnight
-
-### Force / Manual / Override
-- Force enable/disable handlers with recovery to `effective_state`
-- Manual position/tilt detection → sets `man: 1`
-- Override reset (fixed time / timeout)
-
----
-
-## `update_values` Pattern
-
-Every branch sets `update_values` (and optionally `drive_plan`) before calling
-`*apply_transition`:
-```yaml
-- variables:
-    will_drive: "{{ force_allows_open }}"
-    drive_plan:
-      run: "{{ will_drive }}"
-      action_set: "up"
-      target: "{{ open_position | int }}"
-      target_tilt: "{{ open_tilt_position | int }}"
-      delay_s: "{{ drive_delay_standard }}"
-    update_values:
-      bas: 'opn'
-      shd: 0
-      pnd: 'non'
-      man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
-      ts:
-        opn: 'now'
-        due: 0
-        arm: 0
-- *apply_transition
-```
-
-The `helper_update` anchor merges these into the current helper JSON.
-Timestamps support `'now'` (replaced with `as_timestamp(now())`) or explicit values.
-Omitted fields are preserved from the current helper state.
-
-Guards in `helper_update`:
-- `ts.shd` only updated when `shd` actually changes
-- `pnd`/`ts.due`/`ts.arm` not reset in win-only updates
+- **Opening** — check → already-open guard → shading-detected/defer sub-branches → normal opening
+- **Closing** — check → lockout protection → tilted-ventilation → already-closed guard → normal closing
+- **Shading Start** — detection → pending arm (`pnd: 'beg'`) → execution (lockout skip / vent floor / drive / save-for-future / retry / abort)
+- **Shading Tilt** — adjusts tilt while shading is active
+- **Alternate shading position (3b)** — re-drives depth while `shd == 1` when `shading_position_alt_entity` flips (#580)
+- **Shading End** — detection → pending arm (`pnd: 'end'`) → execution (pending → lockout → ventilation → tilt-only → move-cover, cascade order)
+- **Contact Sensor** — opened → lockout (always runs); tilted → ventilation (gated by `resident_flags.allow_ventilate`); closed → `return_target` chain
+- **Resident Sensor** — leaving: `leave_target` chain + VENT-tilted leaf; arriving: `arrive_target` + VENT-hold leaf
+- **Midnight Reset (23:55)** — clears `shd`/`pnd`/`man`
+- **Force enable/disable** — incl. `recovery_target` chain on disable; force pause resume
+- **Manual detection** — position/tilt → `man: 1` (never drives)
+- **Override reset** — fixed time / timeout / in-position
 
 ---
 
@@ -386,26 +248,20 @@ Guards in `helper_update`:
 ### Logbook (`enable_logbook`)
 When enabled, `*helper_update` writes a logbook entry with `trigger.id`,
 `effective_state`, position, sensor states, and raw `update_values` JSON.
-Optional `log_extra` string for branches with additional context (pending/retry details).
+Optional `log_extra` string for branches with additional context (pending/retry
+details). `trigger.id` is the source of truth for "which path ran".
 
 ### Trace analysis
 - Use the CCA Trace Analyzer for uploaded JSON traces
 - Key fields: `last_step`, which `choose/N` branch fired, `result: {choice: N}`
 - Check `changed_variables` for `update_values`, `effective_state`, `helper_json`
-- `trigger.id` is sprechend (e.g. `t_open_1`, `t_shading_start_pending_2`)
+- A run that ends in a pre-dispatch step (recovery gate, calendar relevance
+  check) carries no `choose/M` — the trace tools resolve it via the step alias.
 
-### Common bug patterns
-| Symptom | Likely cause |
-|---------|-------------|
-| Branch fires every trigger unnecessarily | Missing guard on "already in state" |
-| Force recovery goes to wrong state | `state_base` stale, not updated during Force |
-| Shading detected as inactive when closed | `state_is_shaded` vs `state_shade` confusion |
-| Resident wake-up not opening cover | Stale `state_resident` in helper during transition |
-| `prevent_multiple_times` not working | `ts.opn`/`ts.cls` not updated when cover already in position |
-| Tilted branch fires when window fully open | Missing `not contact_window_opened` check in tilted branch |
-| Lockout disabled without ventilation config | `resident_flags.allow_ventilate` gates entire contact handler |
-| Manual override cleared unexpectedly | `man: 0` in non-movement blocks |
-| Shading retry aborts on fresh day | Duration check uses `ts.shd` instead of `ts.arm` |
+### Regressions
+Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
+(A–AL, each with symptom / cause / fix / derived rule) before writing a fix —
+most "new" bugs are a documented pattern reaching a new code path.
 
 ---
 
@@ -413,18 +269,17 @@ Optional `log_extra` string for branches with additional context (pending/retry 
 
 **Opening:** `t_open_1`, `t_open_2`, `t_open_4`, `t_open_5`
 **Closing:** `t_close_1`, `t_close_2`, `t_close_4`, `t_close_5`
-**Resident:** `t_resident_update`
 **Calendar:** `t_calendar_event_start`, `t_calendar_event_end`
-**Force Open:** `t_force_enabled_open`, `t_force_disabled_open`
-**Force Close:** `t_force_enabled_close`, `t_force_disabled_close`
-**Contacts:** `t_contact_tilted_changed`, `t_contact_opened_changed`
-**Force Vent:** `t_force_enabled_ventilate`, `t_force_disabled_ventilate`
-**Shading Start:** `t_shading_start_pending_1` to `_8` (`_8` = custom condition sensor), `t_shading_start_execution`
-**Force Shade:** `t_force_enabled_shading`, `t_force_disabled_shading`, `t_force_pause_disabled`
-**Shading Tilt:** `t_shading_tilt_1` to `_4`
-**Shading End:** `t_shading_end_pending_1` to `_8` (`_8` = custom condition sensor), `t_shading_end_execution`
-**Reset:** `t_shading_reset`, `t_reset_fixedtime`, `t_reset_timeout`
-**Manual:** `t_manual_position` (×3), `t_manual_tilt`
+**Contacts:** `t_contact_opened_changed`, `t_contact_tilted_changed`
+**Resident:** `t_resident_update`
+**Shading Start:** `t_shading_start_pending_1`–`_8` (`_8` = custom condition sensor), `t_shading_start_execution`
+**Shading End:** `t_shading_end_pending_1`–`_8` (`_8` = custom condition sensor), `t_shading_end_execution`
+**Shading Tilt:** `t_shading_tilt_1`–`_4`
+**Alternate shading position:** `t_shading_position_alt`
+**Force:** `t_force_enabled_open/close/shading/ventilate`, `t_force_disabled_open/close/shading/ventilate`, `t_force_pause_disabled`
+**Manual:** `t_manual_position` (×3 sources), `t_manual_tilt`
+**Reset:** `t_shading_reset` (23:55), `t_reset_fixedtime`, `t_reset_timeout`, `t_reset_position`
+**Recovery:** `t_recovery` (shared id on ~20 triggers: `homeassistant: start`, the resume trigger, one per recovering source — see [references/recovery.md](references/recovery.md))
 
 ---
 
@@ -467,6 +322,5 @@ Types: `fix` / `feat` / `refactor` / `chore` / `docs`
 
 ## Language Conventions
 
-- **CLAUDE.md**: English
-- **Code comments** in blueprint YAML: English
+- **CLAUDE.md, reference docs, code comments**: English
 - **Chat responses**: German
