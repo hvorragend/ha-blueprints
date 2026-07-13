@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.07.13 V7
+
+- 🐛 **Fix:** With *"Using the ventilation position when the sun shading is ended"* enabled and a window **tilted** at the end of the sun shading, tilt covers whose sun-shading position **equals the ventilation position** (a common venetian setup: closed/shading/ventilate all share the same cover position and only the slat angle differs) were not moved to ventilation — the slats were tilted to the **"🔼 Open Tilt Position"** (e.g. 100 %) instead of the **"💨 Ventilate Tilt Position"** (e.g. 60 %). The position check of the ventilation handling only recognized a cover *below* the ventilation position; a cover resting exactly *at* it fell through to the tilt-only handling. The check now also accepts a tilt cover at the ventilation position whose slats are not yet open beyond the ventilation angle — exactly like the window-contact handling has always done ([#608](https://github.com/hvorragend/ha-blueprints/issues/608))
+
+---
+
 # CCA 2026.07.13 V6
 
 - 🐛 **Fix:** A **disabled entity** (switched off in Home Assistant's entity settings, or deleted) was treated like a device that is temporarily unreachable — but it is not: it never comes back, so none of CCA's fallbacks or recovery paths can ever correct it. The consequences were silent and permanent. A disabled **cover** (or position sensor) blocked **every single run of the automation, for good, without a single line in the log** to say why. A disabled **entity of a force function** froze that force function in the status helper **forever** — CCA deliberately keeps the last known force while its entity is unreadable, and no trigger was left that could ever clear it, so the cover stayed in the force position permanently. CCA now tells the two cases apart: a disabled or deleted entity is reported as a **configuration error, by name, in the log** (for a cover or position sensor the run then stops — but audibly instead of silently); a disabled force entity releases the force function instead of freezing it; a disabled *condition-only* sensor (brightness, sun, weather, calendar, workday) is reported as a warning and otherwise ignored, as if it were not configured. Re-enable the entity, or remove it from the automation settings
