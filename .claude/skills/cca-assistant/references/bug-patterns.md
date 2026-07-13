@@ -139,6 +139,8 @@ ts:
 
 Each condition gets its own independent FALSE→TRUE transition. Update condition regex `[1-6]` → `[1-7]` and `is_shading_end_immediate_by_sun_position` check to match both trigger IDs.
 
+*(The regex ranges above are historical. Since the `_8` triggers — custom condition sensor — were added, the live global-gate regexes are `^t_shading_start_pending_([1-6]|8)$` and `^t_shading_end_pending_[1-8]$`; start `_7` deliberately bypasses the global shd-gate.)*
+
 ### Bug Pattern N: Contact handler destroys active shading pending phase (Issue #484)
 
 **Symptom:** Briefly opening and closing a door/window during a shading-start (or shading-end) pending phase prevents shading from ever executing. The pending timer (`ts.due`) is reset to `0`, and the sun-position trigger doesn't re-fire because the azimuth condition hasn't changed (no FALSE→TRUE transition).

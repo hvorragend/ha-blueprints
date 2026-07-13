@@ -26,7 +26,7 @@ The variable `effective_state` returns the currently active state from this casc
 
 The flag mirrors the `enabled:` gates of the **opening triggers**, not the time control switch: `bas` only ever reaches `'opn'` through the opening handler, and that handler is reached by four sources — time fields (`t_open_1/2`), calendar (`t_calendar_event_start`), brightness (`t_open_4`) and sun elevation (`t_open_5`). The latter two open the cover with time control switched **off** (the opening branch passes them through via `is_time_control_disabled`), so their `bas: 'opn'` is a real intent too. Gating on `not is_time_control_disabled` misread it as the init default and let VENT drag an open cover down to the ventilation position (Bug Pattern AL).
 
-Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT when `win == 'tlt'` and `not (base_target == 'opn' and is_opening_scheduled)`.
+Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT when `win == 'tlt'` and `allow_vent` (the resident ventilation gate) and `not (base_target == 'opn' and is_opening_scheduled)`.
 
 ---
 

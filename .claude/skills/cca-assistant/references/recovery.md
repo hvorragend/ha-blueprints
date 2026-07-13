@@ -29,7 +29,7 @@ can only *prevent* a wrong one. That single rule places all three pieces:
   force pause** (`is_paused` is read live and nothing about it is stored, so its
   return leaves no stale claim; the only thing to do would be to drive back into the
   force the pause suspended). Inside the gate, `will_drive`
-  (= `is_recovery_enabled and recovery_allowed`) gates the drive, `new_base` gates
+  (= `is_recovery_enabled and not is_paused and recovery_allowed`) gates the drive, `new_base` gates
   the re-derived base state (writing `bas: 'cls'` for a swallowed closing is a
   *deferred* movement — a later branch would drive into it), and `recovered_pending`
   refuses to arm a shading pending (it would drive later too). Note `recovered_base`

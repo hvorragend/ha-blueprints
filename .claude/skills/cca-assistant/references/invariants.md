@@ -56,7 +56,7 @@ In the `resident_arriving`/`resident_leaving` handler: always check realtime sen
 
 ### ⚠️ Invariant 4: `resident_flags` reads the live sensor — no stale-state problem
 
-`resident_flags.allow_shade/allow_ventilate/allow_open` are based on `state_resident` (line ~3083), which reads the **live** sensor via `states(resident_sensor)` — **not** from `helper_json.res`.
+`resident_flags.allow_shade/allow_ventilate/allow_open` are based on `state_resident` (line ~2832), which reads the **live** sensor via `states(resident_sensor)` — **not** from `helper_json.res`.
 
 In the `resident_leaving` context the sensor has already changed to `off`, so `state_resident == false` and all `resident_flags.allow_*` evaluate to `true` (because `not state_resident == true`). No special handling with `new_resident_status` is needed.
 
@@ -103,7 +103,7 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 
 **ts.shd (shading timestamp):**
 - `ts.shd` may only be set when `shd` actually changes (guard in `helper_update`: only when `new_shd != current.shd`)
-- In the SHADED branch of the `resident_leaving` handler: `shd` was already `1` (precondition) → do **not** set `ts.shd` to `now`, preserve the original activation timestamp
+- In the SHADED path of the `resident_leaving` handler (since the target-chain consolidation: the `leave_target == 'shd'` case): `shd` was already `1` (precondition) → do **not** set `ts.shd` to `now`, preserve the original activation timestamp
 - The midnight reset (BRANCH 11) **does** write `ts.shd: "now"` when it clears `shd` 1→0 — this is fine: the reset fires at **23:55 same day** (`now() >= today_at('23:55:00')`), so the stamp lands on the current day, never the next one. The once-per-day shading guard (full-date compare) therefore still allows shading the following day.
 
 **pnd / ts.due / ts.arm (pending phase + timestamps):**

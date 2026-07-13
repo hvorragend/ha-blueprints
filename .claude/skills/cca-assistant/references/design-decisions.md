@@ -55,7 +55,7 @@ The contact handler ("Contact sensor state changed") gates on **both** the previ
 - "{{ trigger.to_state.state not in invalid_states }}"
 ```
 
-(`invalid_states` = `''`, `unavailable`, `unknown`, `none`, `None`.) The global condition additionally rejects any trigger whose `to_state` is invalid.
+(`invalid_states` = `''`, `unavailable`, `unknown`, `none`, `None`, `null`, `query failed`, `[]`.) The global condition additionally rejects any trigger whose `to_state` is invalid.
 
 **Rationale:** A state transition that touches an invalid state is not a real, trustworthy physical event — it is a sensor dropout (connectivity loss, battery, restart) or a recovery from one. Acting on such transitions would move covers based on noise. CCA therefore ignores transitions **into** an invalid state (`on → unavailable`) **and out of** one (`unavailable → off`).
 
