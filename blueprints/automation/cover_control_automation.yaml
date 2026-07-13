@@ -2479,8 +2479,7 @@ trigger_variables:
   # Cover status helper configuration
   cover_status_helper: !input cover_status_helper
 
-  # Hand-over switch. While it is off this instance does nothing at all, which is what lets a
-  # second CCA automation own the same cover (own helper, own settings) without the two fighting.
+  # Hand-over switch of the multi-instance setup - while it is off this instance does nothing
   instance_active: !input instance_active
 
   # Invalid states list - Shared constant
@@ -3027,12 +3026,8 @@ variables:
        helper_ts_write < as_timestamp(this.last_changed | default(0), 0) }}
 
   # INSTANCE ACTIVATED - Was this instance handed the cover and has not run since?
-  # Same shape as automation_resumed, and for the same reason: t_instance_activated is only the
-  # prompt, this is the claim. The gates can swallow the single on-flank (the cover was still
-  # coming back, say), and a state trigger has no second edge - so the take-over must not hang
-  # off that one run. Any trigger reaching a not-yet-reconciled instance becomes the take-over,
-  # and the helper write clears it. Unlike a switched-on automation there is no re-attach here:
-  # this.last_changed does not move, so automation_resumed cannot see this event at all.
+  # The claim to t_instance_activated's prompt, same shape as automation_resumed: any trigger
+  # reaching a not-yet-reconciled instance becomes the take-over; the helper write clears it.
   instance_activated: >-
     {{ instance_active != [] and states[instance_active] is not none and
        states(instance_active) in ['on', 'true'] and
@@ -3064,21 +3059,9 @@ variables:
 
   # CATCH UP - Is this run allowed to replay what was missed (re-derive the base state, arm a
   # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
-  #
-  # An activation catches up regardless of the opt-in: switching this instance on IS the request
-  # to take the cover over, and an instance that took over without positioning the cover has done
-  # nothing at all. The two activation signals are NOT equally strong, and treating them as one
-  # is a bug:
-  #
-  #  * t_instance_activated only fires on a real off -> on flank. A restart brings the entity
-  #    back as unavailable -> on, which does not match it - so the trigger is unambiguous and
-  #    needs no protection from is_restart_run. Giving it that protection anyway means a switch
-  #    flipped within the 300 s settle window of a re-attach does not drive: save the automation,
-  #    flip the switch to test it, cover stays put. Which is the first thing anyone does.
-  #  * instance_activated is a TIMESTAMP PROXY (helper.t < switch.last_changed), and on a restart
-  #    the gating entity is recreated too, so its last_changed points at the boot and the proxy
-  #    reads true. It is the one that must stay behind is_restart_run, or the exemption would
-  #    smuggle every restart past the opt-in - exactly what the opt-in promises not to do.
+  # An activation catches up regardless of the opt-in. The asymmetry is deliberate: the trigger
+  # (a real off -> on flank, impossible on a restart) is exempt from is_restart_run, the
+  # timestamp proxy (which reads true on every restart) is not.
   recovery_catch_up: >-
     {{ recovery_mode == 'always' or
        (trigger is defined and trigger.id | default('') == 't_instance_activated') or
@@ -3094,13 +3077,8 @@ variables:
   # OVERRIDE EXPIRED - Should the manual override already have been reset?
   # The reset triggers latch (template triggers only fire on false->true), so a reset
   # whose moment fell into an outage or a restart never fires again. Re-evaluated here.
-  #
-  # An activation voids it outright, whatever the reset rules say. The override belongs to the
-  # previous shift of this instance, and while the instance was off it could not even see the
-  # cover being moved - there is nothing left for it to protect. Without this an instance that
-  # went inactive with man == 1 comes back BLOCKED: recovery_allowed is false, so the take-over
-  # never positions the cover, and with a reset rule that cannot fire on its own (no reset
-  # configured, or reset-in-position while the cover is elsewhere) it stays blocked for good.
+  # An activation voids it outright, whatever the reset rules say - the override belongs to
+  # the previous shift, and a take-over blocked by it could stay blocked for good.
   override_expired: >-
     {{ helper_state_manual and (
          instance_activated or (
@@ -3920,11 +3898,9 @@ triggers:
     for: *recovery_settle
     enabled: "{{ is_recovery_enabled and force_pause != [] }}"
 
-  # This instance was handed the cover. Not gated on is_recovery_enabled: an activation is not a
-  # catch-up the user opted out of, it is the take-over itself - an instance that took charge and
-  # then left the cover where the previous one parked it has done nothing. Only the prompt, not
-  # the claim: instance_activated turns any later trigger into the take-over if this edge is
-  # swallowed by the availability gates (a state trigger has no second edge).
+  # This instance was handed the cover. Only the prompt - instance_activated is the claim if
+  # this edge is swallowed. Not gated on is_recovery_enabled: an activation is the take-over
+  # itself, not a catch-up the user opted out of.
   - trigger: state
     entity_id: !input instance_active
     from: ["off", "false"]
@@ -3932,9 +3908,9 @@ triggers:
     id: "t_instance_activated"
     enabled: "{{ instance_active != [] }}"
 
-  # ...and the gating entity is a gate source like the five above: while it has no usable state
-  # this instance is blocked, so the outage eats the latching triggers exactly the same way.
-  # Not gated on is_recovery_enabled either; with the catch-up off the run is hygiene-only.
+  # ...and the gating entity is a sixth gate source: while it has no usable state the gate
+  # blocks every run. Unlike the other five its return run is NOT hygiene-only - a hand-over
+  # whose flank fell into the outage looks identical, so the return takes over.
   - trigger: state
     entity_id: !input instance_active
     from: *invalid_recovery_states
@@ -4012,13 +3988,9 @@ triggers:
 
 conditions:
   - condition: !input auto_global_condition
-  # This instance is only in charge while its switch is on - that is what lets a second CCA
-  # automation own the same cover. No exemptions: while it is off, this instance must not even
-  # record a cover movement as a manual override (the other instance made it), or it would come
-  # back blocked. Everything the off period swallows is re-derived on the take-over, which is
-  # what makes this gate legal at all (t_instance_activated / instance_activated).
-  # A gone entity (disabled or deleted) is let through to the mandatory entity validation, which
-  # names it and then stops the run - a gate must never orphan its own diagnostics.
+  # Multi-instance gate: only in charge while the switch is on. Deliberately no trigger
+  # exemptions (a man: 1 recorded while off would block the take-over); a gone entity is let
+  # through to the mandatory entity validation, which names it and stops the run.
   - condition: template
     value_template: >-
       {{ instance_active == [] or states[instance_active] is none or
@@ -4444,8 +4416,7 @@ actions:
       # All shading-start triggers, every opening trigger (so the opening handler can evaluate
       # shading_start_warranted while a pending is armed, #514 follow-up), the recovery - and any
       # trigger the resumed-run or take-over backstop turns into one, because that run evaluates
-      # it too (Bug Pattern T: a trigger-id allow-list upstream of a value-based consumer breaks
-      # silently every time the set of triggers that can reach the consumer grows)
+      # it too
       - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated)')
             or automation_resumed or instance_activated }}"
     then:

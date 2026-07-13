@@ -440,7 +440,9 @@ the "Not repairable, by design" row of the orphan audit, turned into a feature b
    has exactly one edge, and the availability gates can swallow it (the cover was still coming
    back). The claim turns **any** later trigger into the take-over and self-clears on the first
    helper write. Same shape as `automation_resumed`, and it is what makes the feature robust
-   rather than merely likely to work. Unlike `automation_resumed` it fires on a fresh helper
+   rather than merely likely to work — `automation_resumed` itself cannot stand in for it,
+   because an activation re-attaches nothing: `this.last_changed` does not move, so that claim
+   cannot see the event at all. Unlike `automation_resumed` it fires on a fresh helper
    (`t == 0`): a brand-new instance's first activation *is* a take-over.
 
 **The gate has no trigger exemptions**, and that is deliberate — the one place where it differs
