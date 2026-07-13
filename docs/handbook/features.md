@@ -280,6 +280,7 @@ Switching on is a full take-over, and it does not care what came before: it re-r
 ### Things worth knowing
 
 - **The "only once per day" options are per automation.** Each instance has its own status helper, so *Open / Close / Shade cover only once per day* count that instance's own movements. Hand over at noon and the incoming instance may open, close or shade once more that day.
+- **A calendar can be the switch.** Select a calendar entity above and the automation is in charge **while a calendar event is running** — a "holiday" instance driven by your vacation calendar needs no switching automation at all: it takes over when the event starts and hands back when it ends.
 - **Force functions and window contacts are shared.** They are read live from the entities, so the incoming instance picks up a force function that is already running, and the lockout protection works across a hand-over without a gap.
 - **If the switch itself becomes unavailable**, the automation stops rather than guess — it cannot tell whether it owns the cover, and another instance might. It resumes by itself when the switch comes back.
 - **If you delete or disable the switch**, the automation stops and says so in the log. It is a configuration error, not an outage: nothing would ever bring it back.
