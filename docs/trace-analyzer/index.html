@@ -1486,8 +1486,7 @@
             'Return to background position after force disable',
             'Checking for manual position changes',
             'Reset manual detection',
-            'Reset shading status that is no longer required - but still saved',
-            'Recovery after restart or outage - restore target state'
+            'Reset shading status that is no longer required - but still saved'
         ];
 
         const BRANCH_DEFINITIONS = {
@@ -1504,8 +1503,16 @@
             'Return to background position after force disable': { name: 'Return After Force', description: 'Returns to background state after force disable', icon: '↩️' },
             'Checking for manual position changes': { name: 'Manual Detection', description: 'Detects manual position changes', icon: '🖐️' },
             'Reset manual detection': { name: 'Reset Override', description: 'Resets manual override status', icon: '🔄' },
-            'Reset shading status that is no longer required - but still saved': { name: 'Midnight Reset', description: 'Resets shading status at end of day', icon: '🌙' },
-            'Recovery after restart or outage - restore target state': { name: 'Recovery', description: 'Restores the target state after a restart or an outage', icon: '🩹' }
+            'Reset shading status that is no longer required - but still saved': { name: 'Midnight Reset', description: 'Resets shading status at end of day', icon: '🌙' }
+        };
+
+        // Steps that run BEFORE the dispatch choose: and can end the run on their own
+        // (they stop:). They are not branches, so a trace ending in one carries no
+        // choose/M - it is resolved by the step's alias instead, read from the trace's
+        // own config. Without this a recovery run reads as "No branch executed".
+        const PRE_DISPATCH_DEFINITIONS = {
+            'Recovery after restart or outage - restore target state': { name: 'Recovery', description: 'Restores the target state after a restart or an outage', icon: '🩹' },
+            'Calendar trigger relevance check': { name: 'Calendar Relevance', description: 'Calendar event did not belong to this automation', icon: '📅' }
         };
 
         const UNKNOWN_BRANCH = { name: null, description: 'Unknown branch', icon: '❓' };
@@ -1514,6 +1521,11 @@
         // config when present, so a trace from an older or newer blueprint version
         // still resolves correctly; falls back to BRANCH_ORDER for truncated traces.
         let branchAliases = BRANCH_ORDER;
+
+        // Aliases of the top-level action steps, indexed by their position - so
+        // "action/8/..." can be named even when it never reached the dispatch choose.
+        // Only available when the trace carries its config (see repairTruncatedJson).
+        let actionAliases = [];
 
         function branchAliasesFromConfig(config) {
             const actions = (config && (config.actions || config.action)) || [];
@@ -1528,6 +1540,13 @@
 
         function setBranchAliases(config) {
             branchAliases = branchAliasesFromConfig(config) || BRANCH_ORDER;
+            const actions = (config && (config.actions || config.action)) || [];
+            actionAliases = actions.map(step => (step && step.alias) || null);
+        }
+
+        function preDispatchDefFor(actionNum) {
+            const alias = actionAliases[actionNum];
+            return alias ? PRE_DISPATCH_DEFINITIONS[alias] || null : null;
         }
 
         function branchDefFor(branchNum) {
@@ -2827,6 +2846,24 @@
                     description: 'Stopped at global condition check before branch evaluation',
                     icon: '🚫',
                     matched: false,
+                    outcome: exec.outcome,
+                    stopMsg: exec.stopMsg,
+                    droveCover: exec.droveCover,
+                    wroteHelper: exec.wroteHelper
+                };
+            }
+
+            // Ended in a pre-dispatch step (recovery, calendar relevance): it has an
+            // alias but no choose/M, so resolve it through the config's action aliases.
+            const actionMatch = lastStep.match(/^action\/(\d+)\//);
+            const preDispatch = actionMatch ? preDispatchDefFor(parseInt(actionMatch[1])) : null;
+            if (preDispatch) {
+                return {
+                    number: null,
+                    name: preDispatch.name,
+                    description: preDispatch.description,
+                    icon: preDispatch.icon,
+                    matched: true,
                     outcome: exec.outcome,
                     stopMsg: exec.stopMsg,
                     droveCover: exec.droveCover,

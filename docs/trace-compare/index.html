@@ -1088,8 +1088,7 @@
             'Return to background position after force disable',
             'Checking for manual position changes',
             'Reset manual detection',
-            'Reset shading status that is no longer required - but still saved',
-            'Recovery after restart or outage - restore target state'
+            'Reset shading status that is no longer required - but still saved'
         ];
 
         const BRANCH_DEFINITIONS = {
@@ -1106,8 +1105,15 @@
             'Return to background position after force disable': { name: 'Return After Force', description: 'Returns to background state after force', icon: '↩️' },
             'Checking for manual position changes': { name: 'Manual Detection', description: 'Manual position change detected', icon: '🖐️' },
             'Reset manual detection': { name: 'Reset Override', description: 'Resets manual override', icon: '🔄' },
-            'Reset shading status that is no longer required - but still saved': { name: 'Midnight Reset', description: 'End of day reset', icon: '🌙' },
-            'Recovery after restart or outage - restore target state': { name: 'Recovery', description: 'Restores the target state after a restart or an outage', icon: '🩹' }
+            'Reset shading status that is no longer required - but still saved': { name: 'Midnight Reset', description: 'End of day reset', icon: '🌙' }
+        };
+
+        // Steps that run BEFORE the dispatch choose: and can end the run on their own.
+        // They are not branches, so a trace ending in one carries no choose/M - it is
+        // resolved by the step's alias from the trace's own config instead.
+        const PRE_DISPATCH_DEFINITIONS = {
+            'Recovery after restart or outage - restore target state': { name: 'Recovery', description: 'Restores the target state after a restart or an outage', icon: '🩹' },
+            'Calendar trigger relevance check': { name: 'Calendar Relevance', description: 'Calendar event did not belong to this automation', icon: '📅' }
         };
 
         function branchAliasesFromConfig(config) {
@@ -1129,6 +1135,14 @@
             // Unknown alias: say so instead of guessing.
             return { number: branchNum, alias, name: alias || `Branch ${branchNum}`,
                      description: 'Unknown branch', icon: '❓' };
+        }
+
+        function resolvePreDispatch(actionNum, config) {
+            const actions = (config && (config.actions || config.action)) || [];
+            const step = actions[actionNum];
+            const alias = (step && step.alias) || null;
+            const def = alias ? PRE_DISPATCH_DEFINITIONS[alias] : null;
+            return def ? { number: null, alias, ...def } : null;
         }
 
         // Trigger explanations
@@ -1533,6 +1547,13 @@
             const branchMatch = lastStep.match(/choose\/(\d+)/);
             if (branchMatch) {
                 branch = resolveBranch(parseInt(branchMatch[1]), trace.config);
+            } else {
+                // A run that ended before the dispatch (recovery, calendar relevance)
+                // has an alias but no choose/M.
+                const actionMatch = lastStep.match(/^action\/(\d+)\//);
+                if (actionMatch) {
+                    branch = resolvePreDispatch(parseInt(actionMatch[1]), trace.config);
+                }
             }
 
             // Status Merger: Treat "finished" and "stopped" as Finished

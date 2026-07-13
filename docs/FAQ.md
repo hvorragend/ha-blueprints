@@ -994,7 +994,7 @@ Manual override persists until:
 - You move cover to a defined position
 - You manually trigger reset action (if configured)
 
-> **A restart does not clear it.** The override is stored in the status helper and survives restarts by design — otherwise every restart would silently hand your cover back to the automation. If you configured a timed reset, a reset that became due while Home Assistant was down is applied once it is back up.
+> **A restart does not clear it.** The override is stored in the status helper and survives restarts by design — otherwise every restart would silently hand your cover back to the automation. If you configured a timed reset, a reset that became due while Home Assistant was down is applied once it is back up — this does not depend on the 🔄 Recovery switch, because lifting an expired override does not move the cover.
 
 ---
 
@@ -1480,9 +1480,9 @@ Sharing breaks functionality completely
 
 ### Q: What happens after a restart or when a sensor drops out?
 
-**A:** CCA keeps its state in the status helper, so it knows where it stood. But while Home Assistant is restarting — or while an entity CCA depends on has no state — it **cannot act**, and the events of that period would otherwise be lost forever: a closing at 22:00 that fell into a restart never fires again, and sun-shading triggers only react to a *change* of their condition, not to the condition itself.
+**A:** CCA keeps its state in the status helper, so it knows where it stood. But while Home Assistant is restarting — or while an entity CCA depends on has no state — it **cannot act**, and the events of that period are otherwise lost forever: a closing at 22:00 that fell into a restart never fires again, and sun-shading triggers only react to a *change* of their condition, not to the condition itself.
 
-CCA therefore recalculates once everything is back.
+Three things happen, and it is worth keeping them apart — only the third one can move your cover.
 
 **While something is missing, CCA waits — but only for what it truly cannot substitute:**
 
@@ -1494,15 +1494,28 @@ CCA therefore recalculates once everything is back.
 | **Resident sensor** | The **last known** presence applies (not "nobody home") |
 | **Brightness, sun, weather, calendar, workday** | CCA keeps working. These only *influence* decisions — a flaky outdoor sensor must never stop your cover from closing in the evening. Sun shading simply does not start while its sensor is missing |
 
-**What is caught up once everything reports again:**
+**What CCA always tidies up when it comes back — with or without the recovery switch:**
 
-- A **missed opening or closing** — the schedule (or calendar) is re-evaluated against the current time
-- **Window and presence** — lockout, ventilation and privacy closing are applied from the current sensor states
-- **Force functions** — read from the actual switches, so a force turned on or off during the outage is not stuck
+This costs nothing and moves nothing. It only removes a status that is no longer true, so that CCA does not act on it later:
+
+- A **sun shading left over from an earlier day** is dropped. (The nightly clean-up at 23:55 cannot have run if CCA was not running.) Without this, a days-old shading would still count as active and the next event could drive the cover into the shading position — at night, too.
+- A **waiting period that can no longer run** (sun shading about to start or end) is cleared, so it does not block the next one.
+- An **expired manual override** is lifted — a reset that became due while CCA was down is applied. Without this the override could never be lifted at all, because its timer can only fire once.
+- **Force functions, presence and window status** are re-read from the actual entities.
+
+This also happens after you switch the automation **off and on again** — which nothing else in Home Assistant reports.
+
+**What is caught up only if you enable 🔄 Recovery** (*Automation Options*, **off by default** — see [Handbook](handbook/features#enable_recovery)):
+
+- A **missed opening or closing** — the schedule (or calendar) is re-evaluated against the current time and the cover is moved accordingly
 - **Sun shading** — the conditions are re-evaluated: if shading is due now it starts, if it is over it ends
-- **An expired manual override** — a reset that became due during the outage is applied
+- **Lockout, ventilation and privacy closing** are applied from the current window/presence state
+- A **force function** switched during the outage is applied
 
-**What you will see:** the cover may move shortly after a restart. That is the catch-up, not a glitch. In the trace it appears as `Recovery executed`.
+**What you will see:**
+
+- **With the switch off (default):** the cover **does not move** because of the restart. Whatever was missed stays missed until the next regular trigger — a closing that fell into the restart simply does not happen. You may still see a short CCA run in the trace right after a restart: that is the clean-up above. It updates the status helper and stops.
+- **With the switch on:** the cover **may move** shortly after a restart. That is the catch-up, not a glitch. In the trace it appears as `Recovery executed`.
 
 **When a battery sensor stays silent:** window and presence sensors only report when something changes. After a restart of your *hub* they can be without a state for hours. That is expected — CCA continues with the last known values. Only the one case above (window last known open/tilted) makes it wait, and that resolves the moment you next move the window.
 
