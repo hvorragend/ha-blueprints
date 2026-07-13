@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.07.13 V5
+
+- 🐛 **Fix:** If you open the cover by **sun elevation or brightness with the time control switched off**, a **tilted window pulled the freshly opened cover back down** to the ventilation position — and it stayed there until the next day (or until a force function moved it). The rule that an open cover wins over the ventilation position ("a fully open cover ventilates best") only recognised an opening driven by the **time schedule or the calendar** as a real one; an opening driven by the sun or by brightness was mistaken for the untouched starting value and was overruled by the ventilation position. All four opening sources now count equally. Setups **without any opening automation** (sun shading only) are unaffected: there the ventilation position still applies to a tilted window, exactly as since `2026.05.31`
+
+---
+
 # CCA 2026.07.13 V4
 
 - 🐛 **Fix:** An unavailable **entity of a force function** read as "switched off" — so an outage of that entity (it may be a switch or a binary sensor, not just a helper toggle) **silently cancelled the running force function** and let the cover drive to its scheduled position. This was permanent: the force triggers only react to a real *off → on* / *on → off* change, so an entity returning from "unavailable" straight to "on" never re-activated the force. CCA now keeps the **last known force function** while its entity has no usable status, and re-reads it as soon as the entity reports again — a force function that was genuinely switched off during the outage is still recognised and ended correctly
