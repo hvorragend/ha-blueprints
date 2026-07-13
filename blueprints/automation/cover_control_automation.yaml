@@ -2461,6 +2461,7 @@ trigger_variables:
     {{ ([blind] if blind != [] else []) +
        ([custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else []) }}
 
+
 ################################################################################
 # VARIABLES
 ################################################################################
@@ -2944,6 +2945,32 @@ variables:
   helper_ts_man: "{{ helper_json.ts.man | default(0) | int }}"
   helper_ts_pending_due: "{{ helper_json.ts.due | default(0) | int }}"
 
+  # Every entity CCA reads, so a configured-but-absent one can be named in the diagnostics.
+  configured_entities: >-
+    {{ ([blind] if blind != [] else []) +
+       ([cover_status_helper] if cover_status_helper != [] else []) +
+       ([custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else []) +
+       ([contact_window_opened] if contact_window_opened != [] else []) +
+       ([contact_window_tilted] if contact_window_tilted != [] else []) +
+       ([resident_sensor] if resident_sensor != [] else []) +
+       ([default_brightness_sensor] if default_brightness_sensor != [] else []) +
+       ([default_sun_sensor] if default_sun_sensor != [] else []) +
+       ([shading_forecast_sensor] if shading_forecast_sensor != [] else []) +
+       ([shading_forecast_temp_sensor] if shading_forecast_temp_sensor != [] else []) +
+       ([shading_temperatur_sensor1] if shading_temperatur_sensor1 != [] else []) +
+       ([shading_temperatur_sensor2] if shading_temperatur_sensor2 != [] else []) +
+       ([shading_brightness_sensor] if shading_brightness_sensor != [] else []) +
+       ([shading_custom_sensor] if shading_custom_sensor != [] else []) +
+       ([shading_position_alt_entity] if shading_position_alt_entity != [] else []) +
+       ([calendar_entity] if calendar_entity != [] else []) +
+       ([workday_sensor_today] if workday_sensor_today != [] else []) +
+       ([workday_sensor_tomorrow] if workday_sensor_tomorrow != [] else []) +
+       ([auto_up_force] if auto_up_force != [] else []) +
+       ([auto_down_force] if auto_down_force != [] else []) +
+       ([auto_shading_start_force] if auto_shading_start_force != [] else []) +
+       ([auto_ventilate_force] if auto_ventilate_force != [] else []) +
+       ([force_pause] if force_pause != [] else []) }}
+
   # WRITE TIMESTAMP - When did the automation last write the helper? (every run does)
   helper_ts_write: "{{ helper_json.t | default(0) | int }}"
 
@@ -3051,12 +3078,16 @@ variables:
   is_forced: "{{ is_forced_open or is_forced_close or is_forced_shade or is_forced_vent }}"
 
   # Is the entity of the force recorded in the helper currently unreadable?
-  # While its state is unusable, "not on" must not be read as "turned off"
+  # While its state is unusable, "not on" must not be read as "turned off".
+  # An entity that is GONE from the state machine (disabled or deleted) is not unreadable, it
+  # is over: this fallback exists to survive a dropout, and a disabled entity never returns -
+  # keeping the force recorded would freeze the cascade in it forever, with no trigger left to
+  # clear it. So it must resolve to "no force", not to "last known force".
   force_helper_unreadable: >-
-    {{ (helper_state_force == 'opn' and auto_up_force != [] and states(auto_up_force) in invalid_states) or
-       (helper_state_force == 'cls' and auto_down_force != [] and states(auto_down_force) in invalid_states) or
-       (helper_state_force == 'shd' and auto_shading_start_force != [] and states(auto_shading_start_force) in invalid_states) or
-       (helper_state_force == 'vnt' and auto_ventilate_force != [] and states(auto_ventilate_force) in invalid_states) }}
+    {{ (helper_state_force == 'opn' and auto_up_force != [] and states[auto_up_force] is not none and states(auto_up_force) in invalid_states) or
+       (helper_state_force == 'cls' and auto_down_force != [] and states[auto_down_force] is not none and states(auto_down_force) in invalid_states) or
+       (helper_state_force == 'shd' and auto_shading_start_force != [] and states[auto_shading_start_force] is not none and states(auto_shading_start_force) in invalid_states) or
+       (helper_state_force == 'vnt' and auto_ventilate_force != [] and states[auto_ventilate_force] is not none and states(auto_ventilate_force) in invalid_states) }}
 
   # Which force is active right now? (realtime, "last activated wins") - non|opn|cls|shd|vnt
   # Falls back to the last known force from the helper while its entity is unreadable
@@ -3879,10 +3910,17 @@ conditions:
   - or:
       - "{{ trigger.to_state is not defined }}" # for "trigger: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger
-  - condition: template # State-critical entities must be usable, not just the triggering one
+  # State-critical entities must be usable, not just the triggering one. An entity that is
+  # not in the state machine at all (disabled in the UI, or deleted) is deliberately NOT
+  # blocked here: states() reports 'unknown' for it exactly like a dropout, but it will never
+  # come back on its own - no t_recovery flank, no repair - so a gate that merely blocks makes
+  # the automation permanently and silently dead. It is let through to the mandatory entity
+  # validation in the actions, which names it and stops the run (Bug Pattern AF family: an
+  # upstream gate must not orphan the downstream diagnostics).
+  - condition: template
     value_template: >-
       {% set ns = namespace(ready=true) %}
-      {% for entity in critical_entities %}
+      {% for entity in critical_entities if states[entity] is not none %}
         {% if states(entity) in invalid_states %}{% set ns.ready = false %}{% endif %}
       {% endfor %}
       {{ ns.ready }}
@@ -5123,6 +5161,44 @@ actions:
         }}
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # MANDATORY ENTITY VALIDATION
+  # ═══════════════════════════════════════════════════════════════════════════
+  # A configured entity that is not in the state machine at all was disabled in the UI or
+  # deleted. This is NOT an outage: it never returns, so none of the fallbacks or recovery
+  # paths apply. A state-critical one leaves nothing to decide from, so the run stops - but
+  # loudly, because the availability gate would otherwise kill every run of the automation
+  # for good without ever saying why.
+  - variables:
+      missing_entities: >-
+        {% set ns = namespace(gone=[]) %}
+        {% for entity in configured_entities if states[entity] is none %}
+          {% set ns.gone = ns.gone + [entity] %}
+        {% endfor %}
+        {{ ns.gone }}
+      missing_critical: >-
+        {% set ns = namespace(gone=[]) %}
+        {% for entity in critical_entities if states[entity] is none %}
+          {% set ns.gone = ns.gone + [entity] %}
+        {% endfor %}
+        {{ ns.gone }}
+  - alias: "Configured entity is disabled or deleted"
+    if:
+      - "{{ missing_entities | count > 0 }}"
+    then:
+      - action: system_log.write
+        data:
+          message: >-
+            Cover Control Automation ({{ friendly_name }}): CONFIGURATION ERROR - configured
+            {{ 'entity is' if missing_entities | count == 1 else 'entities are' }} disabled or deleted:
+            {{ missing_entities | join(', ') }}. A disabled entity is not an outage - it never comes
+            back, so CCA cannot fall back or recover. Re-enable it, or remove it from the automation
+            settings so CCA stops expecting it.
+          level: "{{ 'error' if missing_critical | count > 0 else 'warning' }}"
+          logger: "blueprints.hvorragend.cca"
+      - if: "{{ missing_critical | count > 0 or cover_status_helper in missing_entities }}"
+        then:
+          - stop: "Configuration error: state-critical entity disabled or deleted ({{ (missing_critical + [cover_status_helper] if cover_status_helper in missing_entities else missing_critical) | join(', ') }})"
+
   # MANDATORY HELPER VALIDATION
   # ═══════════════════════════════════════════════════════════════════════════
   # Cover Control Automation requires a properly configured Cover Status Helper.

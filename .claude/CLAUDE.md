@@ -669,6 +669,39 @@ reinstate them for almost every user. `tests/test_restart_recovery.py::TestRecov
 pins the split (`test_the_resume_trigger_is_deliberately_not_gated`,
 `test_the_opt_in_gates_the_drive_not_the_hygiene`).
 
+#### Half 0 — a disabled entity is not an outage
+
+HA drops a **disabled** (or deleted) entity out of the state machine entirely. `states(x)`
+reports `'unknown'` for it — indistinguishable from a dropout by that read alone — but it is
+the opposite kind of event: it **never comes back**. No `unavailable → valid` flank, so no
+`t_recovery`, no repair, and no Tier-2 fallback is ever corrected. **Every mechanism below is
+the wrong one for it**, and each failed silently and permanently:
+
+- a disabled **cover** or position sensor → the Tier-1 gate blocks *every* run, forever, with
+  no log line anywhere (a `condition:` cannot log — Bug Pattern AF: the upstream gate orphaned
+  the downstream validation);
+- a disabled **force entity** → `force_helper_unreadable` kept the recorded force alive
+  (that is its whole job during a dropout), and no trigger was left to clear `frc` → the
+  cascade froze in the force **permanently**.
+
+`states[x] is none` is the **only** way to tell the two apart, and it is where the split is
+made (CCA 2026.07.13 V7):
+
+- **The Tier-1 gate skips missing entities** (`for entity in critical_entities if states[entity]
+  is not none`) so the run reaches the **mandatory entity validation** in the actions, which
+  names the entity, logs it, and *then* stops. Same shape as the Tier-1b helper rule: block on
+  `unavailable`, let the unrepairable-by-waiting case through to something that can speak.
+- **`force_helper_unreadable` requires the entity to exist.** Gone ⇒ the force is over, not
+  unreadable.
+- **Condition-only (Tier-3) entities** are logged as a *warning* and otherwise behave exactly
+  as if unconfigured — which is the one place where "pretend it was never configured" is the
+  right answer.
+
+**Do not extend that "pretend it is unconfigured" reading to the window contacts.** It would
+silently disable the lockout (Invariant 6). A disabled contact keeps the Tier-2 rule (blocks
+only while `win != 'cls'`) and is reported by the validation — a parked cover the user can see
+the reason for beats a cover that lowers onto an open window.
+
 #### Half 1 — the gate (global conditions)
 
 Three tiers, and the tier a source belongs to is decided by **what CCA can do without it**.

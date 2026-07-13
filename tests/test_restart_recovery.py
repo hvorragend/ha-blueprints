@@ -72,6 +72,11 @@ class _States:
         return self._states.get(entity_id, "unknown")
 
     def __getitem__(self, entity_id):
+        # HA returns None for an entity that is not in the state machine - disabled in the UI
+        # or deleted. states() still reports 'unknown' for it, so this subscript is the ONLY
+        # way to tell "gone for good" from "temporarily unavailable".
+        if isinstance(entity_id, list) or entity_id not in self._states:
+            return None
         return types.SimpleNamespace(
             state=self(entity_id),
             last_changed=self._last_changed.get(entity_id, NOW),
@@ -271,6 +276,81 @@ class TestCriticalEntitiesGate:
             critical_entities=["cover.x"],
             invalid_states=INVALID_STATES,
         ) is ready
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Disabled or deleted entity - NOT an outage
+#
+# HA drops a disabled entity out of the state machine entirely. states() reports 'unknown'
+# for it, exactly like a dropout - but it never comes back: no unavailable -> valid flank,
+# so no t_recovery, no repair, and none of the Tier-2 fallbacks are ever corrected. Every
+# mechanism CCA has for an outage is therefore the WRONG one here. states[x] is none is the
+# only way to tell the two apart, and this is where that distinction is made.
+# ════════════════════════════════════════════════════════════════════════════
+class TestDisabledEntity:
+    GONE = {}                       # not in the state machine at all
+    DOWN = {"cover.x": "unavailable"}   # exists, but has no usable state
+
+    def test_the_gate_still_blocks_an_unavailable_cover(self):
+        assert _render_bool(_condition("critical_entities"), self.DOWN,
+                            critical_entities=["cover.x"], invalid_states=INVALID_STATES) is False
+
+    def test_the_gate_lets_a_disabled_cover_through_to_the_diagnostics(self):
+        """A blocking condition cannot log. If the gate swallowed a disabled cover too, every
+        run of the automation would be dropped for good and nothing would ever say why - the
+        Bug Pattern AF shape (an upstream gate orphaning the downstream validation). It is let
+        through and stopped by the mandatory entity validation, which names the entity."""
+        assert _render_bool(_condition("critical_entities"), self.GONE,
+                            critical_entities=["cover.x"], invalid_states=INVALID_STATES) is True
+
+    def _validation(self) -> dict:
+        return _branch("Configured entity is disabled or deleted")
+
+    def _missing(self, name, entities, states):
+        step = next(s for s in BP["actions"]
+                    if isinstance(s, dict) and name in s.get("variables", {}))
+        return _render(step["variables"][name], states,
+                       configured_entities=entities, critical_entities=entities)
+
+    def test_a_disabled_entity_is_named_in_the_diagnostics(self):
+        out = self._missing("missing_entities", ["cover.x", "binary_sensor.win"],
+                            {"binary_sensor.win": "off"})
+        assert "cover.x" in out and "binary_sensor.win" not in out
+
+    def test_an_unavailable_entity_is_not_reported_as_disabled(self):
+        """It is coming back - that is what the gate and the recovery are for."""
+        assert self._missing("missing_entities", ["cover.x"], self.DOWN) == "[]"
+
+    def test_a_disabled_critical_entity_stops_the_run(self):
+        step = self._validation()
+        stop = next(s for s in step["then"] if "if" in s)
+        assert "missing_critical" in str(stop["if"])
+        assert any("stop" in s for s in stop["then"])
+
+    def test_a_disabled_condition_only_entity_only_warns(self):
+        """A dead weather sensor must not kill the automation - it can only ever stop a
+        shading from starting (Tier 3). It is still reported, because it is a config error."""
+        log = next(s for s in self._validation()["then"] if s.get("action") == "system_log.write")
+        assert _render(log["data"]["level"], {}, missing_critical=[]) == "warning"
+        assert _render(log["data"]["level"], {}, missing_critical=["cover.x"]) == "error"
+
+    # --- the force fallback must not freeze on an entity that is gone ---
+    def _unreadable(self, states, **over):
+        args = dict(helper_state_force="opn", auto_up_force="input_boolean.f",
+                    auto_down_force=[], auto_shading_start_force=[], auto_ventilate_force=[])
+        args.update(over)
+        return _render_bool(_top_var("force_helper_unreadable"), states,
+                            invalid_states=INVALID_STATES, **args)
+
+    def test_an_unavailable_force_switch_keeps_the_recorded_force(self):
+        """Tier 2, unchanged: a dropout must not read as 'turned off'."""
+        assert self._unreadable({"input_boolean.f": "unavailable"}) is True
+
+    def test_a_disabled_force_switch_releases_the_recorded_force(self):
+        """The fallback exists to survive a dropout. A disabled switch never returns, so
+        keeping the force recorded freezes the whole cascade in it forever - there is no
+        trigger left that could ever clear frc. It must resolve to 'no force' instead."""
+        assert self._unreadable({}) is False
 
 
 # ════════════════════════════════════════════════════════════════════════════
