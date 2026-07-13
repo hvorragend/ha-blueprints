@@ -444,6 +444,11 @@ class TestRecoveredBase:
             is_up_enabled=True,
             is_evening_phase=False,
             is_daytime_phase=False,
+            is_time_field_enabled=True,
+            is_calendar_enabled=False,
+            time_up_early_today="07:00:00",
+            calendar_open_start=None,
+            now_ts=NOW_TS,
             helper_state_base="opn",
         )
         base.update(over)
@@ -456,7 +461,32 @@ class TestRecoveredBase:
     def test_missed_opening_is_caught_up(self):
         assert self._run(is_daytime_phase=True, helper_state_base="cls") == "opn"
 
-    def test_night_keeps_the_helper_base(self):
+    # The clock in these tests stands at 21:00, so an opening time later than that
+    # puts "now" into the night before today's opening.
+    def test_night_before_the_opening_time_catches_up_the_closing(self):
+        """Both phases compare against TODAY's times, so between midnight and the opening
+        time they are both false - but the night is the previous evening continued. A
+        closing the outage swallowed (bas still 'opn', e.g. shading was active) would
+        otherwise drive the cover OPEN on a 2 am restart."""
+        assert self._run(time_up_early_today="22:00:00", helper_state_base="opn") == "cls"
+
+    def test_night_without_a_closing_schedule_keeps_the_helper_base(self):
+        assert self._run(time_up_early_today="22:00:00", is_down_enabled=False,
+                         helper_state_base="opn") == "opn"
+
+    def test_calendar_night_before_the_open_event_closes(self):
+        assert self._run(is_time_field_enabled=False, is_calendar_enabled=True,
+                         calendar_open_start=NOW_TS + 3600, helper_state_base="opn") == "cls"
+
+    def test_calendar_night_without_loaded_events_keeps_the_helper_base(self):
+        """With calendar_open_start none (events not loaded / no event today) the night
+        clause must not guess."""
+        assert self._run(is_time_field_enabled=False, is_calendar_enabled=True,
+                         calendar_open_start=None, helper_state_base="opn") == "opn"
+
+    def test_the_gap_between_phases_keeps_the_helper_base(self):
+        """After the opening time with both phases false (e.g. phase templates degraded)
+        the helper base is the only truth left."""
         assert self._run(helper_state_base="cls") == "cls"
 
     def test_time_control_disabled_keeps_the_helper_base(self):
@@ -475,29 +505,34 @@ class TestCascadeParity:
     documented sync obligation between the two cascades."""
 
     CASES = [
-        # (bas, shd, frc, opened, tilted, resident, cfg, is_opening_scheduled)
-        ("opn", 0, "non", "off", "off", "off", [], True),
-        ("cls", 0, "non", "off", "off", "off", [], True),
-        ("opn", 1, "non", "off", "off", "off", [], True),
-        ("cls", 1, "non", "off", "off", "off", [], True),
-        ("opn", 0, "non", "on", "off", "off", [], True),          # lockout
-        ("cls", 0, "non", "on", "off", "off", [], True),          # lockout
-        ("cls", 0, "non", "on", "on", "off", [], True),           # Invariant 5: opened beats tilted
-        ("cls", 1, "non", "on", "on", "off", [], True),
-        ("opn", 0, "non", "off", "on", "off", [], True),          # base=opn beats vent
-        ("opn", 0, "non", "off", "on", "off", [], False),         # no schedule -> vent (#553)
-        ("cls", 0, "non", "off", "on", "off", [], True),          # vent floor
-        ("cls", 1, "non", "off", "on", "off", [], True),          # vent floor over shading
-        ("opn", 0, "cls", "off", "off", "off", [], True),         # force wins
-        ("opn", 0, "shd", "on", "off", "off", [], True),          # force beats lockout
-        ("opn", 0, "non", "off", "off", "on", ["resident_closing_enabled"], True),   # privacy
-        ("opn", 1, "non", "off", "off", "on", ["resident_allow_shading"], True),
-        ("opn", 0, "non", "off", "off", "on", [], True),          # present, opening not allowed
-        ("cls", 1, "non", "off", "off", "on", [], True),
+        # (bas, shd, frc, opened, tilted, resident, cfg, is_opening_scheduled, vent_enabled)
+        ("opn", 0, "non", "off", "off", "off", [], True, True),
+        ("cls", 0, "non", "off", "off", "off", [], True, True),
+        ("opn", 1, "non", "off", "off", "off", [], True, True),
+        ("cls", 1, "non", "off", "off", "off", [], True, True),
+        ("opn", 0, "non", "on", "off", "off", [], True, True),          # lockout
+        ("cls", 0, "non", "on", "off", "off", [], True, True),          # lockout
+        ("cls", 0, "non", "on", "on", "off", [], True, True),           # Invariant 5: opened beats tilted
+        ("cls", 1, "non", "on", "on", "off", [], True, True),
+        ("opn", 0, "non", "off", "on", "off", [], True, True),          # base=opn beats vent
+        ("opn", 0, "non", "off", "on", "off", [], False, True),         # no schedule -> vent (#553)
+        ("cls", 0, "non", "off", "on", "off", [], True, True),          # vent floor
+        ("cls", 1, "non", "off", "on", "off", [], True, True),          # vent floor over shading
+        ("opn", 0, "cls", "off", "off", "off", [], True, True),         # force wins
+        ("opn", 0, "shd", "on", "off", "off", [], True, True),          # force beats lockout
+        ("opn", 0, "non", "off", "off", "on", ["resident_closing_enabled"], True, True),   # privacy
+        ("opn", 1, "non", "off", "off", "on", ["resident_allow_shading"], True, True),
+        ("opn", 0, "non", "off", "off", "on", [], True, True),          # present, opening not allowed
+        ("cls", 1, "non", "off", "off", "on", [], True, True),
+        # Ventilation disabled: the contacts do not exist (#566, Bug Pattern AC) -
+        # a stuck contact must produce neither lockout nor the vent floor
+        ("cls", 0, "non", "on", "off", "off", [], True, False),
+        ("cls", 1, "non", "off", "on", "off", [], True, False),
+        ("opn", 0, "non", "on", "on", "off", [], True, False),
     ]
 
-    @pytest.mark.parametrize("bas,shd,frc,opened,tilted,resident,cfg,sched", CASES)
-    def test_both_cascades_agree(self, bas, shd, frc, opened, tilted, resident, cfg, sched):
+    @pytest.mark.parametrize("bas,shd,frc,opened,tilted,resident,cfg,sched,vent", CASES)
+    def test_both_cascades_agree(self, bas, shd, frc, opened, tilted, resident, cfg, sched, vent):
         entities = {
             "binary_sensor.opened": opened,
             "binary_sensor.tilted": tilted,
@@ -510,6 +545,7 @@ class TestCascadeParity:
             contact_window_tilted="binary_sensor.tilted",
             state_resident=present,
             is_opening_scheduled=sched,
+            is_ventilation_enabled=vent,
         )
 
         effective = _render(
@@ -683,13 +719,14 @@ class TestLiveForceFallback:
 class TestRecoveredWindow:
     TPL = staticmethod(lambda: _branch_var(RECOVERY, "recovered_window"))
 
-    def _run(self, opened, tilted, helper_win="cls", configured=True):
+    def _run(self, opened, tilted, helper_win="cls", configured=True, vent=True):
         entities = {"binary_sensor.opened": opened, "binary_sensor.tilted": tilted}
         return _render(
             self.TPL(), entities,
             contact_window_opened="binary_sensor.opened" if configured else [],
             contact_window_tilted="binary_sensor.tilted" if configured else [],
             helper_state_window=helper_win,
+            is_ventilation_enabled=vent,
         )
 
     @pytest.mark.parametrize("opened,tilted,expected", [
@@ -700,6 +737,13 @@ class TestRecoveredWindow:
     ])
     def test_contact_precedence(self, opened, tilted, expected):
         assert self._run(opened, tilted) == expected
+
+    @pytest.mark.parametrize("opened,tilted", [("on", "off"), ("off", "on")])
+    def test_ventilation_disabled_means_the_contacts_do_not_exist(self, opened, tilted):
+        """#566 / Bug Pattern AC, recovery edition: with the ventilation automation off,
+        a (possibly stuck) contact must not drive the restart recovery into the
+        lockout/ventilation position - or overrule a manual override via 'lock'."""
+        assert self._run(opened, tilted, vent=False) == "cls"
 
     @pytest.mark.parametrize("helper_win", ["cls", "tlt", "opn"])
     def test_no_contacts_configured_keeps_the_helper_window(self, helper_win):
@@ -1131,15 +1175,32 @@ class TestResumeTrigger:
                 return t["value_template"]
         raise AssertionError("resume trigger not found")
 
-    def _run(self, *, helper_t, attached, now_offset_s):
-        helper = '{"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"v":6,"t":%d}' % helper_t
-        env = _env({"input_text.h": helper})
+    def _run(self, *, helper_t, attached, now_offset_s, helper_win="cls",
+             cover_state="open", opened_state="off", tilted_state="off",
+             position_source="current_position_attr", custom_sensor_state=None,
+             vent=True):
+        helper = ('{"bas":"opn","shd":0,"pnd":"non","win":"%s","frc":"non","res":0,"man":0,"v":6,"t":%d}'
+                  % (helper_win, helper_t))
+        entities = {
+            "input_text.h": helper,
+            "cover.blind": cover_state,
+            "binary_sensor.opened": opened_state,
+            "binary_sensor.tilted": tilted_state,
+            "sensor.pos": custom_sensor_state if custom_sensor_state is not None else "unknown",
+        }
+        env = _env(entities)
         env.globals["now"] = lambda: attached + datetime.timedelta(seconds=now_offset_s)
         env.filters["from_json"] = lambda v, default=None: __import__("json").loads(v)
         out = env.from_string(self._tpl()).render(
             cover_status_helper="input_text.h",
             invalid_states=INVALID_STATES,
             this={"last_changed": attached},
+            blind="cover.blind",
+            position_source=position_source,
+            custom_position_sensor="sensor.pos" if custom_sensor_state is not None else [],
+            contact_window_opened="binary_sensor.opened",
+            contact_window_tilted="binary_sensor.tilted",
+            is_ventilation_enabled=vent,
         ).strip()
         return out == "True"
 
@@ -1163,6 +1224,33 @@ class TestResumeTrigger:
 
     def test_a_fresh_helper_does_not_fire_it(self):
         assert self._run(helper_t=0, attached=self.ATTACHED, now_offset_s=3600) is False
+
+    # The readiness clauses. This trigger has exactly ONE false->true edge; if it fires
+    # into a run the availability gates block, the edge is consumed, the template stays
+    # true, and it never fires again. automation_resumed then claims the first regular
+    # trigger - which with the opt-in OFF is a hygiene-only stop that eats the event
+    # (e.g. the 07:00 opening while the cover took minutes to come back after a restart).
+    def test_it_waits_for_the_cover_to_be_usable(self):
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         cover_state="unavailable") is False
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         cover_state="open") is True
+
+    def test_it_waits_for_the_custom_position_sensor_when_it_is_the_source(self):
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         position_source="custom_sensor", custom_sensor_state="unavailable") is False
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         position_source="custom_sensor", custom_sensor_state="42") is True
+
+    def test_it_waits_for_a_missing_contact_only_while_the_window_was_open(self):
+        """Mirrors the Tier-2 contact gate exactly: a stateless contact only blocks while
+        the last known window state is not 'cls'."""
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         helper_win="opn", opened_state="unavailable") is False
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         helper_win="cls", opened_state="unavailable") is True
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         helper_win="opn", opened_state="unavailable", vent=False) is True
 
     def test_it_is_a_recovery_trigger(self):
         assert any(t.get("value_template") == self._tpl() and t["id"] == "t_recovery"
@@ -1397,6 +1485,38 @@ class TestRecoveryTriggers:
                             automation_resumed=False) is False, "premise: not an opening trigger"
         assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
                             automation_resumed=True) is True
+
+    def _calendar_gate_or(self) -> list[str]:
+        """The trigger-id OR of the `calendar.get_events` step in the actions."""
+        for step in BP["actions"]:
+            if not isinstance(step, dict) or "if" not in step:
+                continue
+            if any(str(a.get("action")) == "calendar.get_events"
+                   for a in step.get("then", []) if isinstance(a, dict)):
+                or_cond = next(c for c in step["if"] if isinstance(c, dict) and "or" in c)
+                return [c for c in or_cond["or"] if isinstance(c, str)]
+        raise AssertionError("no calendar.get_events step found")
+
+    def _calendar_gate_passes(self, tid: str, resumed: bool) -> bool:
+        return any(_render_bool(c, {}, trigger=types.SimpleNamespace(id=tid),
+                                automation_resumed=resumed)
+                   for c in self._calendar_gate_or())
+
+    def test_calendar_events_are_loaded_for_the_recovery(self):
+        """Same shape as the forecast gate, one step further down (Bug Pattern T, again):
+        recovered_base re-derives the base state from is_daytime_phase/is_evening_phase,
+        whose calendar clauses need calendar_open_start/calendar_close_start - and those
+        parse from the calendar.get_events result. Without the load they are none, the
+        phases render false, recovered_base falls back to the stale helper, and the
+        orphan-audit row 'missed calendar opening/closing -> repaired by recovered_base'
+        is silently dead for every calendar-controlled user. recovered_due/arm lose the
+        window-start deferral (Bug Pattern L) the same way."""
+        assert self._calendar_gate_passes("t_recovery", resumed=False) is True
+
+    @pytest.mark.parametrize("tid", ["t_resident_update", "t_reset_timeout", "t_contact_tilted_changed"])
+    def test_calendar_events_are_loaded_on_a_resumed_run_claimed_by_any_trigger(self, tid):
+        assert self._calendar_gate_passes(tid, resumed=False) is False, "premise: not a calendar-gate id"
+        assert self._calendar_gate_passes(tid, resumed=True) is True
 
     def _resume_trigger(self) -> dict:
         return next(t for t in self._recovery()

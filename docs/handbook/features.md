@@ -161,7 +161,7 @@ Some devices (e.g., Shelly, Homematic) have issues when 'set_cover_position' and
 
 When enabled, CCA recalculates its target state after a Home Assistant restart — and whenever a required source (the cover, the status helper, a position sensor, a window contact, …) becomes usable again after an outage. It then catches up on everything that was missed in the meantime:
 
-- A missed scheduled/calendar **opening or closing** is performed.
+- A missed scheduled/calendar **opening or closing** is performed. This includes the night: between midnight and the opening time, "closed" counts as the scheduled state (the previous evening continued) — a restart at 2 am after a swallowed evening closing closes the cover instead of opening it.
 - The **sun-shading conditions** are re-evaluated: if shading is due now, it starts; if it is over, it ends.
 - A **force function** switched on or off during the outage is applied.
 - **Lockout, ventilation and privacy closing** are applied from the current window and presence state.
@@ -187,7 +187,7 @@ The switch decides whether CCA may **move** the cover. It does not switch off th
 
 That clean-up moves nothing. It exists because an outdated status is not a "missed event" — it is a status that would make CCA move the cover wrongly on the *next* regular trigger. Without it, a sun shading from days ago would still count as active and could drive the cover into the shading position at night, and a manual override whose reset fell into the downtime would never be lifted at all.
 
-You will therefore still see a CCA run (and a trace) shortly after a restart — and shortly after you save the automation — even with the switch off. It updates the status helper and stops; it does not drive the cover.
+You will therefore still see a CCA run (and a trace) shortly after a restart — and shortly after you save the automation — even with the switch off. It updates the status helper and stops; it does not drive the cover. The run waits until the cover (and, where configured, the position sensor and a window contact whose window was last known open) is actually usable again — after a restart where the cover takes a few minutes to come back, the clean-up simply follows a minute after the cover does.
 
 ---
 

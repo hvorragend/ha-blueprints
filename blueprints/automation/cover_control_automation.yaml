@@ -2865,8 +2865,8 @@ variables:
     {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %}
     {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %}
     {% set privacy_active = resident_present and 'resident_closing_enabled' in resident_config %}
-    {% set s_opn = contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
-    {% set s_tlt = contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
+    {% set s_opn = is_ventilation_enabled and contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
+    {% set s_tlt = is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
     {% set w = 'opn' if s_opn else 'tlt' if s_tlt else h.win if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' %}
     {% if h.frc != 'non' %}
       {{ h.frc }}
@@ -3751,15 +3751,25 @@ triggers:
   # a template trigger only fires on false -> true, and without it an already-stale helper
   # would be true from the start. Not gated on is_recovery_enabled - acting on a days-old
   # helper is what moves the cover wrongly, and the run it starts only cleans the helper.
+  # The readiness clauses mirror the availability gates (the single edge must not fire
+  # into a blocked run).
   - trigger: template
     value_template: >-
       {% set attached = as_timestamp(this.last_changed | default(0), 0) %}
       {% set helper_state = states(cover_status_helper) %}
       {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+      {% set critical_ready = states(blind) not in invalid_states and
+           (position_source != 'custom_sensor' or custom_position_sensor == [] or
+            states(custom_position_sensor) not in invalid_states) %}
+      {% set contact_missing = is_ventilation_enabled and (
+           (contact_window_opened != [] and states(contact_window_opened) in invalid_states) or
+           (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
+      {% set contact_ready = helper.win | default('cls') == 'cls' or not contact_missing %}
       {{ attached > 0 and
          (helper.t | default(0) | int) > 0 and
          as_timestamp(now()) > attached + 60 and
-         (helper.t | default(0) | int) < attached }}
+         (helper.t | default(0) | int) < attached and
+         critical_ready and contact_ready }}
     enabled: "{{ cover_status_helper != [] }}"
     id: "t_recovery"
 
@@ -3952,6 +3962,9 @@ actions:
       # ═══════════════════════════════════════════════════════════════════════════
       drive_with_actions: &drive_with_actions
         sequence:
+          # No user drive actions while the force pause blocks every movement
+          - condition: template
+            value_template: "{{ not (is_paused | default(false)) }}"
           - choose:
               - conditions: "{{ drive_action_set | default('') == 'up' }}"
                 sequence:
@@ -4262,13 +4275,14 @@ actions:
       - "{{ calendar_entity != [] }}"
       - "{{ states(calendar_entity) not in invalid_states }}"
       - "{{ trigger.id is defined }}"
-      # Performance: Only load on relevant triggers
+      # Performance: Only load on relevant triggers (the recovery is one of them)
       - or:
           - "{{ trigger.id | regex_match('^t_open') }}"
           - "{{ trigger.id | regex_match('^t_close') }}"
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_shading_end') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
+          - "{{ trigger.id == 't_recovery' or automation_resumed }}"
     then:
       - action: calendar.get_events
         target:
@@ -4343,17 +4357,17 @@ actions:
           target_tilt: "{{ close_tilt_position | int }}"
           action_set: "down"
 
-      # Standard drive gate per target state: force permits the move AND the
-      # cover is not already resting there. Branches whose will_drive is
-      # exactly this form reference state_gates[X] instead of restating it.
+      # Standard drive gate per target state: no force pause, force permits the
+      # move AND the cover is not already resting there. Branches whose will_drive
+      # is exactly this form reference state_gates[X] instead of restating it.
       # Branches with a different gate (e.g. no position check in the force
       # recovery, or extra trigger conditions) keep their own expression.
       state_gates:
-        lock: "{{ force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
-        opn: "{{ force_allows_open and (effective_state != 'opn' or not in_open_position) }}"
-        vnt: "{{ force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) }}"
-        shd: "{{ force_allows_shade and (effective_state != 'shd' or not in_shading_position) }}"
-        cls: "{{ force_allows_close and (effective_state != 'cls' or not in_close_position) }}"
+        lock: "{{ not is_paused and force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
+        opn: "{{ not is_paused and force_allows_open and (effective_state != 'opn' or not in_open_position) }}"
+        vnt: "{{ not is_paused and force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) }}"
+        shd: "{{ not is_paused and force_allows_shade and (effective_state != 'shd' or not in_shading_position) }}"
+        cls: "{{ not is_paused and force_allows_close and (effective_state != 'cls' or not in_close_position) }}"
 
       # Forecast data normalisation.
       # Temperature from sensor (priority) or weather entity
@@ -5140,10 +5154,13 @@ actions:
             {% if is_time_control_disabled %}{{ helper_state_base }}
             {% elif is_down_enabled and is_evening_phase %}cls
             {% elif is_up_enabled and is_daytime_phase %}opn
+            {% elif is_down_enabled and (
+                 (is_time_field_enabled and now() < today_at(time_up_early_today)) or
+                 (is_calendar_enabled and calendar_open_start is not none and now_ts < calendar_open_start)) %}cls
             {% else %}{{ helper_state_base }}{% endif %}
           recovered_window: >-
-            {% set s_opn = contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
-            {% set s_tlt = contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
+            {% set s_opn = is_ventilation_enabled and contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
+            {% set s_tlt = is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
             {{ 'opn' if s_opn else 'tlt' if s_tlt else helper_state_window if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' }}
       - variables:
           # Priority cascade - mirrors effective_state, but on the re-derived base state and live_force
@@ -5260,7 +5277,7 @@ actions:
       - variables:
           # THE opt-in gate. Everything above is hygiene (it only prevents a wrong movement);
           # driving the cover is the only part that causes one, and that is what the switch buys
-          will_drive: "{{ is_recovery_enabled and recovery_allowed }}"
+          will_drive: "{{ is_recovery_enabled and not is_paused and recovery_allowed }}"
       - variables:
           drive_plan:
             run: "{{ will_drive }}"
@@ -5361,7 +5378,7 @@ actions:
                   - "{{ not in_shading_position }}" # Even if this is hardly possible, there may be situations that require it. Purely as a precautionary measure in case the target state and actual state do not match.
                 sequence:
                   - variables:
-                      will_drive: "{{ force_allows_shade and effective_state == 'shd' }}"
+                      will_drive: "{{ not is_paused and force_allows_shade and effective_state == 'shd' }}"
                       drive_plan:
                         run: "{{ will_drive }}"
                         action_set: "shading_start"
@@ -5442,7 +5459,7 @@ actions:
                   - "{{ not in_shading_position or not helper_state_shade }}" # Defer to Shading End only while shading is active (shd == 1) - with shd == 0 the shading-end triggers are blocked and the cover would never open (Issue #565)
                 sequence:
                   - variables:
-                      will_drive: "{{ resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) }}"
+                      will_drive: "{{ not is_paused and resident_flags.allow_open and (force_allows_open or trigger.id is match('^t_force_')) }}"
                       drive_plan:
                         run: "{{ will_drive }}"
                         action_set: "up"
@@ -5613,7 +5630,7 @@ actions:
             ###################################
             default:
               - variables:
-                  will_drive: "{{ force_allows_close }}"
+                  will_drive: "{{ not is_paused and force_allows_close }}"
                   drive_plan:
                     run: "{{ will_drive }}"
                     action_set: "down"
@@ -5789,7 +5806,7 @@ actions:
                                   - "{{ position_comparisons.shading_below_ventilate }}"
                                 sequence:
                                   - variables:
-                                      will_drive: "{{ not in_ventilate_position }}"
+                                      will_drive: "{{ not is_paused and not in_ventilate_position }}"
                                       drive_plan:
                                         run: "{{ will_drive }}"
                                         action_set: "ventilate"
@@ -5829,7 +5846,7 @@ actions:
                                   - "{{ resident_flags.allow_shade }}"
                                 sequence:
                                   - variables:
-                                      will_drive: "{{ force_allows_shade }}"
+                                      will_drive: "{{ not is_paused and force_allows_shade }}"
                                       drive_plan:
                                         run: "{{ will_drive }}"
                                         action_set: "shading_start"
@@ -5974,7 +5991,7 @@ actions:
           - "{{ not override_blocks.shading }}"
         sequence:
           - variables:
-              will_drive: "{{ force_allows_shade }}"
+              will_drive: "{{ not is_paused and force_allows_shade }}"
               drive_plan:
                 run: "{{ will_drive }}"
                 move: "tilt"
@@ -6010,7 +6027,7 @@ actions:
           - "{{ not override_blocks.shading }}"
         sequence:
           - variables:
-              will_drive: "{{ force_allows_shade and not in_shading_position }}"
+              will_drive: "{{ not is_paused and force_allows_shade and not in_shading_position }}"
               drive_plan:
                 run: "{{ will_drive }}"
                 target: "{{ effective_shading_position | int }}"
@@ -6119,7 +6136,7 @@ actions:
                           - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                     sequence:
                       - variables:
-                          will_drive: "{{ force_allows_ventilate }}"
+                          will_drive: "{{ not is_paused and force_allows_ventilate }}"
                           drive_plan:
                             run: "{{ will_drive }}"
                             action_set: "ventilate"
@@ -6150,7 +6167,7 @@ actions:
                       - "{{ prevent_flags.opening_after_shading_end}}"
                     sequence:
                       - variables:
-                          will_drive: "{{ not is_forced }}"
+                          will_drive: "{{ not is_paused and not is_forced }}"
                           drive_plan:
                             run: "{{ will_drive }}"
                             move: "tilt"
@@ -6179,7 +6196,7 @@ actions:
                       - if:
                           - "{{ not prevent_flags.opening_after_shading_end}}"
                         then:
-                          - if: "{{ force_allows_open }}"
+                          - if: "{{ not is_paused and force_allows_open }}"
                             then:
                               - variables:
                                   drive_plan:
@@ -6355,7 +6372,7 @@ actions:
                   - condition: !input auto_ventilate_condition
                 sequence:
                   - variables:
-                      will_drive: "{{ force_allows_open }}"
+                      will_drive: "{{ not is_paused and force_allows_open }}"
                       drive_plan:
                         run: "{{ will_drive }}"
                         action_set: "up"
@@ -6422,8 +6439,9 @@ actions:
 
                 sequence:
                   - variables:
+                      will_drive: "{{ not is_paused and force_allows_ventilate }}"
                       drive_plan:
-                        run: "{{ force_allows_ventilate }}"
+                        run: "{{ will_drive }}"
                         action_set: "ventilate"
                         target: "{{ ventilate_position | int }}"
                         target_tilt: "{{ ventilate_tilt_position | int }}"
@@ -6431,7 +6449,7 @@ actions:
                       update_values:
                         # Window is tilted
                         win: "tlt"
-                        man: 0
+                        man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
                   - *apply_transition
                   - stop: "Ventilation Start (Partial) executed"
 
@@ -6481,7 +6499,8 @@ actions:
                 sequence:
                   - variables:
                       will_drive: >-
-                        {{ {'shd': force_allows_shade,
+                        {{ not is_paused and
+                           {'shd': force_allows_shade,
                             'opn': not prevent_flags.opening_after_ventilation_end and force_allows_open,
                             'cls': force_allows_close}[return_target] }}
                       drive_plan: "{{ dict(state_targets[return_target], run=will_drive, delay_s=drive_delay_standard if ventilation_flags.delay_enabled else 0) }}"
@@ -6632,7 +6651,7 @@ actions:
                        or (force_kind == 'vnt' and force_allows_ventilate)
                        or (force_kind == 'shd' and force_allows_shade) }}
                   drive_plan:
-                    run: "{{ force_allows_target }}"
+                    run: "{{ not is_paused and force_allows_target }}"
                     action_set: "{{ state_targets[force_kind].action_set }}"
                     target: "{{ state_targets[force_kind].target | int }}"
                     target_tilt: "{{ state_targets[force_kind].target_tilt | int }}"
@@ -6668,13 +6687,14 @@ actions:
           - variables:
               resume_state: "{{ effective_state if effective_state in ['lock', 'vnt', 'shd', 'cls'] else 'opn' }}"
               log_extra: "force pause disabled; resuming to {{ resume_state }}"
+              will_drive: "{{ not is_paused }}"
               drive_plan:
-                run: true
+                run: "{{ will_drive }}"
                 action_set: "{{ state_targets[resume_state].action_set }}"
                 target: "{{ state_targets[resume_state].target | int }}"
                 target_tilt: "{{ state_targets[resume_state].target_tilt | int }}"
               update_values:
-                man: 0
+                man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
           - *apply_transition
 
       ############################################################
@@ -6717,7 +6737,7 @@ actions:
                            or (next_active_force == 'vnt' and force_allows_ventilate)
                            or (next_active_force == 'shd' and force_allows_shade) }}
                       drive_plan:
-                        run: "{{ force_allows_target }}"
+                        run: "{{ not is_paused and force_allows_target }}"
                         action_set: "{{ state_targets[next_active_force].action_set }}"
                         target: "{{ state_targets[next_active_force].target | int }}"
                         target_tilt: "{{ state_targets[next_active_force].target_tilt | int }}"
@@ -6764,7 +6784,8 @@ actions:
                             sequence:
                               - variables:
                                   will_drive: >-
-                                    {{ {'cls': force_allows_close,
+                                    {{ not is_paused and
+                                       {'cls': force_allows_close,
                                         'shd': force_allows_shade,
                                         'lock': force_allows_ventilate,
                                         'opn': force_allows_open}[recovery_target] }}
@@ -6785,7 +6806,7 @@ actions:
                               - condition: !input auto_ventilate_condition
                             sequence:
                               - variables:
-                                  will_drive: "{{ force_allows_ventilate }}"
+                                  will_drive: "{{ not is_paused and force_allows_ventilate }}"
                                   drive_plan: "{{ dict(state_targets.vnt, run=will_drive) }}"
                                   update_values:
                                     # Force ended, return to ventilation (tilted)

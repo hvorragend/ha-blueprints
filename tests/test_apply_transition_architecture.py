@@ -171,3 +171,95 @@ class TestApplyTransitionAnchorShape:
 
         unguarded = re.findall(r"(?<!\()drive_plan\.\w+", flat)
         assert unguarded == [], f"unguarded drive_plan references: {unguarded}"
+
+
+class TestForcePauseIsPartOfEveryDriveGate:
+    """The force pause suspends every movement. The move actions themselves are
+    guarded (cover_move_action / tilt_move_action check is_paused), but Invariant 7
+    ties the man: reset - and drive_with_actions ties the user's before/after
+    actions - to the DRIVE DECISION, not to the move action. A drive gate that
+    ignores the pause therefore cleared the manual override and fired the user's
+    notifications while nothing could move. Every gate must know the pause."""
+
+    def _walk_drive_gates(self):
+        """Yield (context, will_drive_template, drive_plan) for every leaf branch,
+        tracking whether an enclosing if already checks is_paused."""
+        blueprint = _load_blueprint_yaml()
+        found = []
+
+        def walk(node, pause_guarded):
+            if isinstance(node, dict):
+                guard = pause_guarded or (
+                    "is_paused" in str(node.get("if", "")) or
+                    "is_paused" in str(node.get("conditions", ""))
+                )
+                variables = node.get("variables")
+                if isinstance(variables, dict) and (
+                    "will_drive" in variables or "drive_plan" in variables
+                ):
+                    found.append((variables.get("will_drive"),
+                                  variables.get("drive_plan"), guard))
+                for key, value in node.items():
+                    if key in ("then", "else", "sequence", "default"):
+                        walk(value, guard)
+                    elif key not in ("if", "conditions"):
+                        walk(value, pause_guarded)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item, pause_guarded)
+
+        walk(blueprint["actions"], False)
+        return found
+
+    def test_every_drive_gate_respects_the_force_pause(self):
+        gates = self._walk_drive_gates()
+        assert len(gates) >= 25, "expected to find the leaf-branch drive gates"
+        violations = []
+        for will_drive, drive_plan, guarded in gates:
+            gate = str(will_drive) if will_drive is not None else ""
+            plan = str(drive_plan) if drive_plan is not None else ""
+            if will_drive is not None:
+                # A will_drive definition must carry the pause itself (state_gates do).
+                if "is_paused" not in gate and "state_gates" not in gate:
+                    violations.append(gate[:120])
+                continue
+            # A drive_plan without its own will_drive step: either it references a
+            # will_drive defined in an earlier step of the same branch (checked above,
+            # e.g. the recovery gate), carries the pause itself, sits under an
+            # is_paused-checking if (run: true), or does not drive at all.
+            if ("will_drive" in plan or "is_paused" in plan or guarded
+                    or "run" not in plan):
+                continue
+            violations.append(plan[:120])
+        assert violations == [], violations
+
+    def test_state_gates_block_while_paused(self):
+        import jinja2
+
+        blueprint = _load_blueprint_yaml()
+        gates = None
+        for step in blueprint["actions"]:
+            if isinstance(step, dict) and "state_gates" in step.get("variables", {}):
+                gates = step["variables"]["state_gates"]
+        assert gates is not None
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        permissive = dict(
+            force_allows_ventilate=True, force_allows_open=True,
+            force_allows_shade=True, force_allows_close=True,
+            effective_state="none_of_them",
+            in_open_position=False, in_ventilate_position=False,
+            in_shading_position=False, in_close_position=False,
+        )
+        for state, tpl in gates.items():
+            assert env.from_string(tpl).render(is_paused=False, **permissive).strip() == "True", state
+            assert env.from_string(tpl).render(is_paused=True, **permissive).strip() == "False", state
+
+    def test_the_users_drive_actions_stay_quiet_while_paused(self):
+        """drive_with_actions opens with a condition guard, same mechanic as
+        cover_move_action: a false condition stops only this block, the helper
+        persist after it still runs (Invariant 2)."""
+        blueprint = _load_blueprint_yaml()
+        anchor = blueprint["actions"][0]["variables"]["drive_with_actions"]
+        first = anchor["sequence"][0]
+        assert first.get("condition") == "template"
+        assert "is_paused" in str(first.get("value_template", ""))
