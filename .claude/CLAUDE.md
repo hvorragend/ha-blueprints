@@ -647,17 +647,19 @@ At attach time `now()` is within the 60 s offset → `false` → **armed**. A mi
 
 It sits **before** the main `choose:`, as a plain `if/then` step next to the helper init, the v5 migration, the forecast load and the calendar-relevance check — not as a branch inside the dispatch. It has to run before everything else (on a resumed run it claims every trigger, piece 2 above), and inside the choose that would mean inserting a branch at index 0.
 
-**Never insert a branch into the dispatch `choose:` without checking the trace tools.** The `BRANCH (n)` numbers are not free-form labels: `docs/trace-analyzer` and `docs/trace-compare` parse the HA trace path `action/N/choose/M` and look up `BRANCH_DEFINITIONS[M]` — `M` is the **positional index** in the `choose:`. Inserting a branch renumbers everything after it and silently mislabels every trace from that point on. Renumbering the comments does not help; the tools key on the index.
+**Adding, removing or reordering a branch of the dispatch `choose:` means touching the trace tools.** `docs/trace-analyzer` and `docs/trace-compare` parse the HA trace path `action/N/choose/M` and resolve `M` against the branch **aliases** — primarily those in the trace's own config, and against the static `BRANCH_ORDER` list when the trace was pasted truncated and carries no config. `BRANCH_ORDER` must therefore mirror the `choose:` order exactly, and `BRANCH_DEFINITIONS` (keyed by alias) must have an entry for every branch. `tests/test_trace_tools_branch_map.py` fails when either drifts.
 
-Keeping the recovery out of the choose leaves the indices `0..13` untouched. `stop:` behaves identically in both places, so the control flow is unchanged. `TestResumedRunClaimsEveryTrigger.test_the_recovery_gate_runs_before_the_dispatch` pins the placement and asserts the gate is not *also* inside the choose.
+Because the recovery is *not* a branch, it carries no `choose/M` and would read as "No branch executed". Both tools therefore resolve a run that ended in a pre-dispatch step through the step's own `alias:` (`PRE_DISPATCH_DEFINITIONS`) — same mechanism for the calendar-relevance check. A new pre-dispatch step that can `stop:` a run needs an entry there, or its traces become anonymous.
+
+Keeping the recovery out of the choose leaves the branch indices `0..13` untouched. `stop:` behaves identically in both places, so the control flow is unchanged. `TestResumedRunClaimsEveryTrigger.test_the_recovery_gate_runs_before_the_dispatch` pins the placement and asserts the gate is not *also* inside the choose.
 
 #### Half 2 — the recovery (`t_recovery` → the recovery gate)
 
 A blocked automation **silently loses** every event of the outage: time/calendar triggers of that period never fire again, and template/numeric triggers fire only on a `false → true` transition — which is consumed while the run is blocked. Nothing replays them.
 
-**Trigger set:** `homeassistant: start`, the resume trigger above, plus one state trigger per source (`from: [unavailable, unknown]`, `not_to: [unavailable, unknown]`, `for: 30s`), all sharing the id `t_recovery`. **Every entity CCA reads gets one** — that is the rule, and the reason is that the three tiers of the gate say nothing about *replay*. A Tier-3 source never blocks a run but its return is what makes a missed shading start re-evaluable; a Tier-2 source falls back to the helper but the fallback must eventually be *corrected*. So: cover, status helper, position sensor, both window contacts, resident, brightness, sun, forecast, calendar, both workday sensors, the four force entities and the force pause.
+**Trigger set:** `homeassistant: start`, the resume trigger above, plus one state trigger per source (`from: [unavailable, unknown]`, `not_to: [unavailable, unknown]`, `for: 30s`), all sharing the id `t_recovery`. **Every entity CCA reads gets one** — that is the rule, and the reason is that the three tiers of the gate say nothing about *replay*. A Tier-3 source never blocks a run but its return is what makes a missed shading start re-evaluable; a Tier-2 source falls back to the helper but the fallback must eventually be *corrected*. So: cover, status helper, position sensor, both window contacts, resident, brightness, sun, forecast, the custom shading-condition sensor, calendar, both workday sensors, the four force entities and the force pause.
 
-**The last source to return performs the recalculation.** A source returning early fires `t_recovery`, but while any *critical* entity is still missing, the gate stops that run — so the run that survives is the one after the last critical entity is back. Runs triggered by a later-returning *condition-only* source are not suppressed either: they re-run the recovery gate with fresh data (idempotent — the drive is a no-op via the `cover_move_action` tolerance guard, and an already-armed pending is preserved rather than re-armed). `max:` is 25 because a restart can queue one run per recovering source (18) plus normal traffic, and dropping one would drop exactly the run that had the data.
+**The last source to return performs the recalculation.** A source returning early fires `t_recovery`, but while any *critical* entity is still missing, the gate stops that run — so the run that survives is the one after the last critical entity is back. Runs triggered by a later-returning *condition-only* source are not suppressed either: they re-run the recovery gate with fresh data (idempotent — the drive is a no-op via the `cover_move_action` tolerance guard, and an already-armed pending is preserved rather than re-armed). `max:` is 25 because a restart can queue one run per recovering source (19) plus normal traffic, and dropping one would drop exactly the run that had the data.
 
 **What the recovery gate restores:**
 
@@ -709,6 +711,24 @@ runs either way — via the resumed-run hygiene or an always-on fallback.
 **Rule for any new gate:** before adding a condition that stops a run, list every trigger it can suppress and ask *"if this fires exactly once and I drop it, does anything ever fire again?"* If the answer is no, the gate needs an exemption (contact triggers), a repair path (helper init), or a re-evaluation in the recovery gate (override, shading, force, base). Two of the three gates in this design needed one — assume the next one does too.
 
 **Not repairable, by design:** `auto_global_condition` (the user's own global condition). If it is false when the recovery run fires, the run is dropped and nothing re-triggers when it later becomes true — CCA cannot watch an arbitrary user condition. This is pre-existing behavior for every trigger, not new.
+
+**Known limitation — recovery bypasses the direction-specific additional conditions:**
+`recovered_base` re-derives the base state from the schedule/calendar alone
+(`is_up_enabled and is_daytime_phase` / `is_down_enabled and is_evening_phase`).
+The user-supplied `auto_up_condition` / `auto_down_condition` — which gate **every**
+opening/closing trigger in the normal flow, including the Late safety net — are
+**not** evaluated by the recovery gate. A scheduled movement that the user's additional
+condition deliberately suppressed is therefore "caught up" by the recovery as if
+it had merely been missed (real-world report: opening blocked by an additional
+condition all morning; a restart flipped `bas` to `opn` and the cover opened after
+the end-pending). Structural cause: `!input` conditions can only be evaluated at
+fixed YAML positions (`conditions:`/`if:`), and which condition would have to
+apply depends on the dynamically computed recovery target; evaluating them would
+require splitting the recovery leaf per flip direction. Documented trade-off:
+`auto_global_condition` **is** respected (it is a global condition, so it drops
+the whole recovery run) — users who suppress scheduled movements via additional
+conditions should mirror that logic in the global condition or leave
+`enable_recovery` off (the default).
 
 ---
 

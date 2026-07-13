@@ -44,6 +44,10 @@ START_AND_RESULT = """
   ('cond_forecast_weather' not in shading_conditions_start_and or
   shading_weather_conditions == [] or
   shading_start_condition_states.forecast_weather_valid)
+  and
+  ('cond_custom' not in shading_conditions_start_and or
+  shading_custom_sensor == [] or
+  shading_start_condition_states.custom_valid)
 )
 """
 
@@ -77,6 +81,10 @@ START_OR_RESULT = """
   ('cond_forecast_weather' in shading_conditions_start_or and
   shading_weather_conditions != [] and
   shading_start_condition_states.forecast_weather_valid)
+  or
+  ('cond_custom' in shading_conditions_start_or and
+  shading_custom_sensor != [] and
+  shading_start_condition_states.custom_valid)
 )
 """
 
@@ -110,6 +118,10 @@ shading_conditions_end_and | count > 0 and
   ('cond_forecast_weather' not in shading_conditions_end_and or
   shading_weather_conditions == [] or
   shading_end_condition_states.forecast_weather_invalid)
+  and
+  ('cond_custom' not in shading_conditions_end_and or
+  shading_custom_sensor == [] or
+  shading_end_condition_states.custom_invalid)
 )
 """
 
@@ -136,6 +148,9 @@ shading_conditions_end_or | count > 0 and
   or
   ('cond_forecast_weather' in shading_conditions_end_or and
   shading_end_condition_states.forecast_weather_invalid)
+  or
+  ('cond_custom' in shading_conditions_end_or and
+  shading_end_condition_states.custom_invalid)
 )
 """
 
@@ -155,6 +170,7 @@ def base_vars(**overrides):
         "shading_temperatur_sensor2": [],
         "shading_forecast_temp": [],
         "shading_weather_conditions": [],
+        "shading_custom_sensor": [],
         # Per-condition state dicts
         "shading_start_condition_states": {
             "azimuth_valid": False,
@@ -164,6 +180,7 @@ def base_vars(**overrides):
             "temp2_valid": False,
             "forecast_temp_valid": False,
             "forecast_weather_valid": False,
+            "custom_valid": False,
         },
         "shading_end_condition_states": {
             "azimuth_invalid": False,
@@ -173,6 +190,7 @@ def base_vars(**overrides):
             "temp2_invalid": False,
             "forecast_temp_invalid": False,
             "forecast_weather_invalid": False,
+            "custom_invalid": False,
         },
     }
     v.update(overrides)
@@ -446,5 +464,118 @@ class TestEndOrResult:
                 "temp2_invalid": False,
                 "forecast_temp_invalid": False, "forecast_weather_invalid": False,
             },
+        )
+        assert eval_condition(env, END_OR_RESULT, v) is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# cond_custom (#531): custom binary sensor as an additional shading condition
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _start_states(**overrides):
+    s = {
+        "azimuth_valid": False, "elevation_valid": False,
+        "brightness_valid": False, "temp1_valid": False, "temp2_valid": False,
+        "forecast_temp_valid": False, "forecast_weather_valid": False,
+        "custom_valid": False,
+    }
+    s.update(overrides)
+    return s
+
+
+def _end_states(**overrides):
+    s = {
+        "azimuth_invalid": False, "elevation_invalid": False,
+        "brightness_invalid": False, "temp1_invalid": False, "temp2_invalid": False,
+        "forecast_temp_invalid": False, "forecast_weather_invalid": False,
+        "custom_invalid": False,
+    }
+    s.update(overrides)
+    return s
+
+
+class TestCustomCondition:
+    def test_start_and_custom_selected_without_sensor_is_skipped(self, env):
+        """cond_custom selected (blueprint default) but no sensor ⇒ auto-passes."""
+        v = base_vars(
+            shading_conditions_start_and=["cond_custom"],
+            shading_custom_sensor=[],
+        )
+        assert eval_condition(env, START_AND_RESULT, v) is True
+
+    def test_start_and_custom_sensor_off_blocks(self, env):
+        v = base_vars(
+            shading_conditions_start_and=["cond_custom"],
+            shading_custom_sensor="binary_sensor.shade",
+        )
+        assert eval_condition(env, START_AND_RESULT, v) is False
+
+    def test_start_and_custom_sensor_on_passes(self, env):
+        v = base_vars(
+            shading_conditions_start_and=["cond_custom"],
+            shading_custom_sensor="binary_sensor.shade",
+            shading_start_condition_states=_start_states(custom_valid=True),
+        )
+        assert eval_condition(env, START_AND_RESULT, v) is True
+
+    def test_start_or_custom_overrides_failed_weather(self, env):
+        """#531 use case: forecast weather OR custom sensor — sensor on triggers
+        shading although the forecast condition fails."""
+        v = base_vars(
+            shading_conditions_start_or=["cond_forecast_weather", "cond_custom"],
+            shading_weather_conditions=["sunny"],
+            shading_custom_sensor="binary_sensor.shade_anyway",
+            shading_start_condition_states=_start_states(
+                forecast_weather_valid=False, custom_valid=True,
+            ),
+        )
+        assert eval_condition(env, START_OR_RESULT, v) is True
+
+    def test_start_or_custom_off_and_weather_failed_blocks(self, env):
+        v = base_vars(
+            shading_conditions_start_or=["cond_forecast_weather", "cond_custom"],
+            shading_weather_conditions=["sunny"],
+            shading_custom_sensor="binary_sensor.shade_anyway",
+        )
+        assert eval_condition(env, START_OR_RESULT, v) is False
+
+    def test_start_or_custom_without_sensor_cannot_trigger(self, env):
+        v = base_vars(
+            shading_conditions_start_or=["cond_custom"],
+            shading_custom_sensor=[],
+            shading_start_condition_states=_start_states(custom_valid=True),
+        )
+        assert eval_condition(env, START_OR_RESULT, v) is False
+
+    def test_end_and_custom_selected_without_sensor_is_skipped(self, env):
+        v = base_vars(
+            shading_conditions_end_and=["cond_custom", "cond_brightness"],
+            shading_brightness_sensor="sensor.b",
+            shading_custom_sensor=[],
+            shading_end_condition_states=_end_states(brightness_invalid=True),
+        )
+        assert eval_condition(env, END_AND_RESULT, v) is True
+
+    def test_end_and_custom_still_on_blocks_end(self, env):
+        v = base_vars(
+            shading_conditions_end_and=["cond_custom", "cond_brightness"],
+            shading_brightness_sensor="sensor.b",
+            shading_custom_sensor="binary_sensor.shade",
+            shading_end_condition_states=_end_states(brightness_invalid=True),
+        )
+        assert eval_condition(env, END_AND_RESULT, v) is False
+
+    def test_end_or_custom_off_ends_shading(self, env):
+        v = base_vars(
+            shading_conditions_end_or=["cond_custom"],
+            shading_custom_sensor="binary_sensor.shade",
+            shading_end_condition_states=_end_states(custom_invalid=True),
+        )
+        assert eval_condition(env, END_OR_RESULT, v) is True
+
+    def test_end_or_custom_on_does_not_end(self, env):
+        v = base_vars(
+            shading_conditions_end_or=["cond_custom"],
+            shading_custom_sensor="binary_sensor.shade",
         )
         assert eval_condition(env, END_OR_RESULT, v) is False

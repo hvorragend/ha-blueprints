@@ -1457,22 +1457,106 @@
         // Updated for CCA Blueprint v2026.04.x+ (State Machine v6, JSON Helper v6)
         // =====================================================================
 
-        // Branch definitions from CCA Blueprint
-        // Branches 0-11 + Default (Config Check)
+        // Branch definitions from the CCA blueprint, keyed by the branch ALIAS.
+        //
+        // A trace only tells us the POSITIONAL index of the branch that ran
+        // ("action/N/choose/M"), never its name. Resolving M through a hardcoded
+        // index map breaks silently the moment a branch is inserted into the
+        // choose: - which has happened repeatedly, mislabelling every trace from
+        // the insertion point on. Aliases do not move, so they are the key here.
+        //
+        // The index is still needed as a fallback: a truncated trace has no config
+        // section (see repairTruncatedJson), and then the position is all we have.
+        // BRANCH_ORDER is that fallback and MUST match the choose: order.
+        //
+        // tests/test_trace_tools_branch_map.py fails if either the order or a
+        // definition drifts away from the blueprint. Do not hand-edit one without
+        // running the tests.
+        const BRANCH_ORDER = [
+            'Check for opening',
+            'Check for closing cover',
+            'Check for shading start',
+            'Check for shading tilt',
+            'Check for alternate shading position',
+            'Check for shading end',
+            'Contact sensor state changed',
+            'Resident sensor status change handler',
+            'Force function triggered',
+            'Drive to target position after force pause disabled',
+            'Return to background position after force disable',
+            'Checking for manual position changes',
+            'Reset manual detection',
+            'Reset shading status that is no longer required - but still saved'
+        ];
+
         const BRANCH_DEFINITIONS = {
-            0: { name: 'Opening', description: 'Automatic cover opening control', icon: '🔼' },
-            1: { name: 'Closing', description: 'Automatic cover closing control', icon: '🔻' },
-            2: { name: 'Shading Start', description: 'Activates sun protection/shading', icon: '☀️' },
-            3: { name: 'Shading Tilt', description: 'Adjusts tilt during active shading', icon: '📐' },
-            4: { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
-            5: { name: 'Contact Sensor', description: 'Window/door state changes (ventilation/lockout)', icon: '🪟' },
-            6: { name: 'Resident Update', description: 'Resident sensor changed – updates helper & moves cover', icon: '👤' },
-            7: { name: 'Force Functions', description: 'Forced position via entity (open/close/vent/shade)', icon: '⚡' },
-            8: { name: 'Return After Force', description: 'Returns to background state after force disable', icon: '↩️' },
-            9: { name: 'Manual Detection', description: 'Detects manual position changes', icon: '🖐️' },
-            10: { name: 'Reset Override', description: 'Resets manual override status', icon: '🔄' },
-            11: { name: 'Midnight Reset', description: 'Resets shading status at end of day', icon: '🌙' }
+            'Check for opening': { name: 'Opening', description: 'Automatic cover opening control', icon: '🔼' },
+            'Check for closing cover': { name: 'Closing', description: 'Automatic cover closing control', icon: '🔻' },
+            'Check for shading start': { name: 'Shading Start', description: 'Activates sun protection/shading', icon: '☀️' },
+            'Check for shading tilt': { name: 'Shading Tilt', description: 'Adjusts tilt during active shading', icon: '📐' },
+            'Check for alternate shading position': { name: 'Alternate Shading Position', description: 'Switches between the normal and the alternate shading position', icon: '🔀' },
+            'Check for shading end': { name: 'Shading End', description: 'Deactivates sun protection', icon: '🌥️' },
+            'Contact sensor state changed': { name: 'Contact Sensor', description: 'Window/door state changes (ventilation/lockout)', icon: '🪟' },
+            'Resident sensor status change handler': { name: 'Resident Update', description: 'Resident sensor changed – updates helper & moves cover', icon: '👤' },
+            'Force function triggered': { name: 'Force Functions', description: 'Forced position via entity (open/close/vent/shade)', icon: '⚡' },
+            'Drive to target position after force pause disabled': { name: 'Force Pause Resumed', description: 'Force pause ended – drives to the target state again', icon: '▶️' },
+            'Return to background position after force disable': { name: 'Return After Force', description: 'Returns to background state after force disable', icon: '↩️' },
+            'Checking for manual position changes': { name: 'Manual Detection', description: 'Detects manual position changes', icon: '🖐️' },
+            'Reset manual detection': { name: 'Reset Override', description: 'Resets manual override status', icon: '🔄' },
+            'Reset shading status that is no longer required - but still saved': { name: 'Midnight Reset', description: 'Resets shading status at end of day', icon: '🌙' }
         };
+
+        // Steps that run BEFORE the dispatch choose: and can end the run on their own
+        // (they stop:). They are not branches, so a trace ending in one carries no
+        // choose/M - it is resolved by the step's alias instead, read from the trace's
+        // own config. Without this a recovery run reads as "No branch executed".
+        const PRE_DISPATCH_DEFINITIONS = {
+            'Recovery after restart or outage - restore target state': { name: 'Recovery', description: 'Restores the target state after a restart or an outage', icon: '🩹' },
+            'Calendar trigger relevance check': { name: 'Calendar Relevance', description: 'Calendar event did not belong to this automation', icon: '📅' }
+        };
+
+        const UNKNOWN_BRANCH = { name: null, description: 'Unknown branch', icon: '❓' };
+
+        // Branch aliases of the trace currently loaded. Taken from the trace's own
+        // config when present, so a trace from an older or newer blueprint version
+        // still resolves correctly; falls back to BRANCH_ORDER for truncated traces.
+        let branchAliases = BRANCH_ORDER;
+
+        // Aliases of the top-level action steps, indexed by their position - so
+        // "action/8/..." can be named even when it never reached the dispatch choose.
+        // Only available when the trace carries its config (see repairTruncatedJson).
+        let actionAliases = [];
+
+        function branchAliasesFromConfig(config) {
+            const actions = (config && (config.actions || config.action)) || [];
+            for (const step of actions) {
+                const choose = step && step.choose;
+                if (Array.isArray(choose) && choose.length > 5) {
+                    return choose.map(b => (b && b.alias) || null);
+                }
+            }
+            return null;
+        }
+
+        function setBranchAliases(config) {
+            branchAliases = branchAliasesFromConfig(config) || BRANCH_ORDER;
+            const actions = (config && (config.actions || config.action)) || [];
+            actionAliases = actions.map(step => (step && step.alias) || null);
+        }
+
+        function preDispatchDefFor(actionNum) {
+            const alias = actionAliases[actionNum];
+            return alias ? PRE_DISPATCH_DEFINITIONS[alias] || null : null;
+        }
+
+        function branchDefFor(branchNum) {
+            const alias = branchAliases[branchNum];
+            const def = alias ? BRANCH_DEFINITIONS[alias] : null;
+            if (def) return def;
+            // Unknown alias: a branch this tool has never heard of. Say so instead of
+            // guessing - a confidently wrong label is worse than an honest question mark.
+            return { ...UNKNOWN_BRANCH, name: alias || `Branch ${branchNum}` };
+        }
 
         // Trigger ID explanations
         const TRIGGER_EXPLANATIONS = {
@@ -1838,6 +1922,9 @@
         }
 
         function analyzeTrace(trace) {
+            // Resolve branch names against this trace's own config (see BRANCH_ORDER)
+            setBranchAliases(trace.config);
+
             // Extract main info from trace structure
             const traceInfo = trace.trace || {};
             const lastStep = traceInfo.last_step || 'N/A';
@@ -2408,10 +2495,10 @@
                 const mainAction = getMainChooseAction(innerTrace, lastStep);
 
                 // Analyze all branches to understand which were evaluated
-                for (let i = 0; i < 14; i++) {
+                for (let i = 0; i < branchAliases.length; i++) {
                     const branchPath = `action/${mainAction}/choose/${i}/conditions`;
                     const branchKey = `action/${mainAction}/choose/${i}`;
-                    const branchDef = BRANCH_DEFINITIONS[i];
+                    const branchDef = branchDefFor(i);
 
                     let status = 'skip';
                     let reason = 'Not evaluated';
@@ -2455,9 +2542,9 @@
                         }
                     }
 
-                    const icon = branchDef ? branchDef.icon : '❓';
-                    const name = branchDef ? branchDef.name : `Branch ${i}`;
-                    const desc = branchDef ? branchDef.description : 'Unknown branch';
+                    const icon = branchDef.icon;
+                    const name = branchDef.name;
+                    const desc = branchDef.description;
 
                     let statusIcon = '⊘';
                     if (status === 'pass') statusIcon = '✓';
@@ -2737,12 +2824,12 @@
             const match = lastStep.match(/action\/\d+\/choose\/(\d+)/);
             if (match) {
                 const branchNum = parseInt(match[1]);
-                const branchDef = BRANCH_DEFINITIONS[branchNum];
+                const branchDef = branchDefFor(branchNum);
                 return {
                     number: branchNum,
-                    name: branchDef ? branchDef.name : `Branch ${branchNum}`,
-                    description: branchDef ? branchDef.description : 'Unknown branch',
-                    icon: branchDef ? branchDef.icon : '❓',
+                    name: branchDef.name || `Branch ${branchNum}`,
+                    description: branchDef.description,
+                    icon: branchDef.icon,
                     matched: true,
                     outcome: exec.outcome,
                     stopMsg: exec.stopMsg,
@@ -2759,6 +2846,24 @@
                     description: 'Stopped at global condition check before branch evaluation',
                     icon: '🚫',
                     matched: false,
+                    outcome: exec.outcome,
+                    stopMsg: exec.stopMsg,
+                    droveCover: exec.droveCover,
+                    wroteHelper: exec.wroteHelper
+                };
+            }
+
+            // Ended in a pre-dispatch step (recovery, calendar relevance): it has an
+            // alias but no choose/M, so resolve it through the config's action aliases.
+            const actionMatch = lastStep.match(/^action\/(\d+)\//);
+            const preDispatch = actionMatch ? preDispatchDefFor(parseInt(actionMatch[1])) : null;
+            if (preDispatch) {
+                return {
+                    number: null,
+                    name: preDispatch.name,
+                    description: preDispatch.description,
+                    icon: preDispatch.icon,
+                    matched: true,
                     outcome: exec.outcome,
                     stopMsg: exec.stopMsg,
                     droveCover: exec.droveCover,

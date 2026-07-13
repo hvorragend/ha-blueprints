@@ -170,6 +170,8 @@ When enabled, CCA recalculates its target state after a Home Assistant restart �
 
 A **manual override is respected** and blocks the movement — unless its reset has already come due in the meantime (then it is lifted and the cover follows the automation again), or the lockout protection applies (window fully open), which always takes precedence.
 
+**⚠️ Limitation:** The recovery derives the missed opening/closing from the **schedule alone**. The *additional opening/closing conditions* (Conditions section) are **not** re-evaluated — a scheduled movement that your additional condition deliberately suppressed is treated as merely missed and caught up anyway. Only the *global condition* is respected (it drops the whole recovery run). If you use additional conditions to intentionally suppress scheduled movements, mirror that logic in the global condition — or leave the recovery disabled.
+
 When **disabled** (default), the cover is never moved because of a restart. The trade-off is that events which fell into the restart or outage stay lost — a closing scheduled during a restart simply does not happen, and sun-shading changes that occurred during the outage are not replayed. The automation resumes with the next regular trigger.
 
 ### What still happens when the switch is off

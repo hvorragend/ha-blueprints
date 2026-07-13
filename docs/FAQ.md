@@ -212,6 +212,8 @@ auto_options:
 
 **⚠️ Breaking change (2026.07.12):** Configurations created **before** the options consolidation (~2026.05) do not contain `time_control_enabled` in `auto_options` — after updating the blueprint, their time control is **disabled** until you open the automation, check **⏲️ Time Control**, and save. Configurations created after ~2026.05 are unaffected (the checkbox is part of the defaults). Old configurations that had chosen `time_control: time_control_disabled` stay disabled, exactly as originally configured.
 
+**How the breakage shows up:** With **pure time/calendar control**, the covers simply **stop opening/closing**. With a **hybrid setup (time + Brightness or Sun Elevation)**, the opposite happens: the sensor triggers keep firing but lose their time fence — the covers **open too early in the morning** (e.g. around sunrise, when the sun/brightness threshold is crossed, instead of waiting for the configured earliest time) and can **close too late in the evening**. If your covers suddenly move at unusual times after updating, check the **⏲️ Time Control** checkbox and re-save the automation (see [#595](https://github.com/hvorragend/ha-blueprints/issues/595)).
+
 **Backward compatibility:**
 - The `brightness_sun_operator` parameter (AND/OR link between brightness and sun conditions) has moved to this section as well. Its value is preserved; only the UI location changed.
 

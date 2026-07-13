@@ -77,6 +77,7 @@ class CCAValidator {
             // Shading - Conditions
             'shading_conditions_start_and', 'shading_conditions_start_or',
             'shading_conditions_end_and', 'shading_conditions_end_or',
+            'shading_custom_sensor',
 
             // Shading - Timing
             'shading_waitingtime_start', 'shading_waitingtime_end',
@@ -414,6 +415,9 @@ class CCAValidator {
         if (isTimeControlDisabled) {
             this.addInfo('⏰ Time control is disabled (time_control_enabled not in auto_options) - skipping time validation');
             this.addWarning('⚠️ Breaking change (2026.07.12): time control is disabled whenever "time_control_enabled" is missing from auto_options. If this configuration predates the options consolidation (~2026.05) and you still want time windows, add time_control_enabled to auto_options.');
+            if (autoOptions.includes('auto_sun_enabled') || autoOptions.includes('auto_brightness_enabled')) {
+                this.addWarning('⚠️ Sun Elevation / Brightness triggers are enabled WITHOUT time windows: they fire as soon as their threshold is crossed - covers may open around sunrise instead of a configured earliest time, and close late in the evening (issue #595). If that is not intended, add time_control_enabled to auto_options.');
+            }
             return;
         }
 
@@ -506,7 +510,7 @@ class CCAValidator {
         if (startAnd.length === 0 && startOr.length === 0) {
             if (hasStartAndDefault) {
                 // Using blueprint default for START AND
-                this.addInfo('ℹ️ Shading START: Using blueprint default (7 AND conditions: azimuth, elevation, brightness, temp1, temp2, forecast_temp, forecast_weather)');
+                this.addInfo('ℹ️ Shading START: Using blueprint default (8 AND conditions: azimuth, elevation, brightness, temp1, temp2, forecast_temp, forecast_weather, custom)');
             } else {
                 // Both explicitly configured as empty - ERROR
                 this.addError('🚫 Shading enabled but no START conditions selected. Shading will never activate');
@@ -517,7 +521,7 @@ class CCAValidator {
             if (startAnd.length > 0) {
                 startInfo.push(`${startAnd.length} AND condition(s)`);
             } else if (hasStartAndDefault) {
-                startInfo.push('7 AND conditions (blueprint default)');
+                startInfo.push('8 AND conditions (blueprint default)');
             }
             if (startOr.length > 0) {
                 startInfo.push(`${startOr.length} OR condition(s)`);
@@ -531,7 +535,7 @@ class CCAValidator {
         if (endAnd.length === 0 && endOr.length === 0) {
             if (hasEndOrDefault) {
                 // Using blueprint default for END OR
-                this.addInfo('ℹ️ Shading END: Using blueprint default (7 OR conditions: azimuth, elevation, brightness, temp1, temp2, forecast_temp, forecast_weather)');
+                this.addInfo('ℹ️ Shading END: Using blueprint default (8 OR conditions: azimuth, elevation, brightness, temp1, temp2, forecast_temp, forecast_weather, custom)');
             } else {
                 // Both explicitly configured as empty - WARNING
                 this.addWarning('⏰ No END conditions selected. Shading only ends at midnight reset');
@@ -545,7 +549,7 @@ class CCAValidator {
             if (endOr.length > 0) {
                 endInfo.push(`${endOr.length} OR condition(s)`);
             } else if (hasEndOrDefault) {
-                endInfo.push('7 OR conditions (blueprint default)');
+                endInfo.push('8 OR conditions (blueprint default)');
             }
             if (endInfo.length > 0) {
                 this.addInfo(`✅ Shading END: ${endInfo.join(' + ')}`);
@@ -564,6 +568,16 @@ class CCAValidator {
             const endDuplicates = endAnd.filter(c => endOr.includes(c));
             if (endDuplicates.length > 0) {
                 this.addError(`❌ Same END condition in both AND and OR lists: ${endDuplicates.join(', ')}`);
+            }
+        }
+
+        // cond_custom in an OR list is a deliberate choice — without the sensor the clause can never trigger
+        if (!c.shading_custom_sensor) {
+            if (startOr.includes('cond_custom')) {
+                this.addWarning('⚠️ Shading START (OR) contains "cond_custom" but no Custom Condition Sensor is configured — this OR alternative can never trigger');
+            }
+            if (endOr.includes('cond_custom')) {
+                this.addWarning('⚠️ Shading END (OR) contains "cond_custom" but no Custom Condition Sensor is configured — this OR alternative can never trigger');
             }
         }
     }
