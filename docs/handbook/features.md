@@ -201,6 +201,40 @@ That clean-up moves nothing. It exists because an outdated status is not a "miss
 
 You will therefore still see a CCA run (and a trace) shortly after a restart, shortly after you save the automation, and shortly after a device comes back — even with **🚫 Never**. It updates the status helper and stops; it does not drive the cover. The run waits until the cover (and, where configured, the position sensor and a window contact whose window was last known open) is actually usable again — after a restart where the cover takes a few minutes to come back, the clean-up simply follows a minute after the cover does.
 
+<a id="instance_active"></a>
+
+## 🎚️ Only run this automation while this switch is on
+
+> 🧩 Input: `instance_active` · Default: *(empty — feature off)*
+
+This is what lets you run **several CCA automations for the same cover**, each with its own status helper and its own complete set of settings. One for summer and one for winter. One for when you are at home and one for when you are away. A "holiday" one you switch on for two weeks a year.
+
+Give each automation its own switch — an **`input_boolean`** helper is the natural choice — and select it here. While that switch is off, the automation **does nothing at all** for this cover: no opening, no closing, no shading, no lockout, and it does not react to the cover being moved by anything else either. It is, for that period, not there.
+
+**You are responsible for making sure only one of them is ever on.** CCA does not coordinate the switches; a small automation of your own does (a "summer/winter" `input_select`, a presence trigger, a calendar — whatever fits). If two are on at once they will fight over the cover.
+
+### Handing the cover over
+
+Switching an instance **on** is an explicit *"you are in charge now"*, and it acts like one. The incoming automation re-reads everything from scratch — the window contacts, presence, the force switches, the weather, its own schedule and its own shading settings — and brings the cover to where **its** settings say it belongs. Whatever the previous instance left behind is irrelevant; nothing is inherited.
+
+Because of that, the take-over **moves the cover regardless of the 🔄 catch-up setting above**. That setting exists to stop covers moving after a *restart*; a hand-over is not a restart, and an instance that takes charge and then leaves the cover where the previous one parked it has done nothing at all.
+
+A **manual override** that this instance still had stored from the last time it was in charge is discarded on the take-over. It belonged to the previous shift — and while the instance was off it could not even see the cover being moved, so there is nothing left for it to protect.
+
+### The one rule for your switching automation
+
+**Do not move the cover yourself when switching over.** Just flip the switches and let the incoming automation position the cover.
+
+If your switching automation drives the cover first (say, "when everyone leaves, close the covers, then switch to the away instance"), the incoming instance sees that movement as a **manual override** and politely leaves the cover alone — which is the opposite of what you wanted. Let it do the closing: put the closed position in the away instance's settings instead.
+
+### Things worth knowing
+
+- **The "only once per day" options are per automation.** Each instance has its own status helper, so *Open / Close / Shade cover only once per day* count that instance's own movements. Hand over at noon and the incoming instance may open, close or shade once more that day.
+- **Force functions and window contacts are shared.** They are read live from the entities, so the incoming instance picks up a force function that is already running, and the lockout protection works across a hand-over without a gap.
+- **If the switch itself becomes unavailable**, the automation stops rather than guess — it cannot tell whether it owns the cover, and another instance might. It resumes by itself when the switch comes back.
+- **If you delete or disable the switch**, the automation stops and says so in the log. It is a configuration error, not an outage: nothing would ever bring it back.
+- Leave this input **empty** if you only run one CCA automation for this cover. Nothing changes then.
+
 ---
 
 [⬅️ Handbook index](index) · Previous: [🧱 Basics: Cover & Status Helper](basics) · Next: [📐 Positions](positions)

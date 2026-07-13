@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.13 V7
+    **Version**: 2026.07.13 V8
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -216,6 +216,43 @@ blueprint:
               sort: false
               custom_value: false
               mode: list
+
+        instance_active:
+          name: "🎚️ Only run this automation while this switch is on"
+          description: >-
+            Lets a second automation decide **when** this one is in charge. While the switch is
+            off, CCA does nothing at all for this cover — no opening, no closing, no shading, no
+            lockout — and it does not react to the cover being moved by anything else either.
+
+            This is what makes it safe to have **several CCA automations for the same cover**,
+            each with its own status helper and its own settings — for example one for summer and
+            one for winter, or one for when you are at home and one for when you are away. Give
+            each of them its own switch (an *input_boolean* helper) and make sure only one of them
+            is ever on. Whichever one you switch on takes over: it re-reads the window, the
+            presence, the force switches and its own schedule, and brings the cover to where *its*
+            settings say it belongs. A manual override that was still stored from the last time it
+            was in charge is discarded — it belonged to the previous shift.
+
+            Because switching on is an explicit *"you are in charge now"*, the take-over moves the
+            cover **regardless of the setting above** — that is the point of it, not a side effect.
+
+            Leave this empty (the default) if you only run one CCA automation for this cover.
+
+            **The switching automation must not move the cover itself.** Just switch over and let
+            the incoming automation position the cover — otherwise it sees your movement as a
+            manual override and leaves the cover alone.
+
+
+            📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/features#instance_active).
+          default: []
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: input_boolean
+                - domain: binary_sensor
+                - domain: switch
+                - domain: schedule
 
     position_section:
       name: "Cover Position Settings"
@@ -2442,6 +2479,10 @@ trigger_variables:
   # Cover status helper configuration
   cover_status_helper: !input cover_status_helper
 
+  # Hand-over switch. While it is off this instance does nothing at all, which is what lets a
+  # second CCA automation own the same cover (own helper, own settings) without the two fighting.
+  instance_active: !input instance_active
+
   # Invalid states list - Shared constant
   invalid_states:
     - ''                    # Empty string
@@ -2467,7 +2508,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.13 V7"
+  version: "2026.07.13 V8"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -2969,7 +3010,8 @@ variables:
        ([auto_down_force] if auto_down_force != [] else []) +
        ([auto_shading_start_force] if auto_shading_start_force != [] else []) +
        ([auto_ventilate_force] if auto_ventilate_force != [] else []) +
-       ([force_pause] if force_pause != [] else []) }}
+       ([force_pause] if force_pause != [] else []) +
+       ([instance_active] if instance_active != [] else []) }}
 
   # WRITE TIMESTAMP - When did the automation last write the helper? (every run does)
   helper_ts_write: "{{ helper_json.t | default(0) | int }}"
@@ -2983,6 +3025,18 @@ variables:
   automation_resumed: >-
     {{ helper_ts_write > 0 and
        helper_ts_write < as_timestamp(this.last_changed | default(0), 0) }}
+
+  # INSTANCE ACTIVATED - Was this instance handed the cover and has not run since?
+  # Same shape as automation_resumed, and for the same reason: t_instance_activated is only the
+  # prompt, this is the claim. The gates can swallow the single on-flank (the cover was still
+  # coming back, say), and a state trigger has no second edge - so the take-over must not hang
+  # off that one run. Any trigger reaching a not-yet-reconciled instance becomes the take-over,
+  # and the helper write clears it. Unlike a switched-on automation there is no re-attach here:
+  # this.last_changed does not move, so automation_resumed cannot see this event at all.
+  instance_activated: >-
+    {{ instance_active != [] and states[instance_active] is not none and
+       states(instance_active) in ['on', 'true'] and
+       helper_ts_write < as_timestamp(states[instance_active].last_changed | default(0), 0) }}
 
   # RESTART RUN - Does this run belong to a restart / reload / save rather than to the dropout
   # of a single source? Three signals, and the order in which HA starts its integrations is
@@ -3010,8 +3064,14 @@ variables:
 
   # CATCH UP - Is this run allowed to replay what was missed (re-derive the base state, arm a
   # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
+  # An activation catches up regardless of the opt-in: switching this instance on IS the request
+  # to take the cover over, and an instance that took over without positioning the cover has done
+  # nothing at all. It is exempt from the opt-in, not from is_restart_run - on a restart the
+  # gating entity is recreated too, so its last_changed points at the boot and would otherwise
+  # read as an activation on every restart, which is exactly what the opt-in promises not to do.
   recovery_catch_up: >-
-    {{ recovery_mode == 'always' or (recovery_mode == 'outage' and not is_restart_run) }}
+    {{ recovery_mode == 'always' or
+       ((recovery_mode == 'outage' or instance_activated) and not is_restart_run) }}
 
   # STALE DAY - Was the helper last written on an earlier day?
   # The 23:55 midnight reset clears shd/pnd every night. If the automation was off, that
@@ -3023,13 +3083,24 @@ variables:
   # OVERRIDE EXPIRED - Should the manual override already have been reset?
   # The reset triggers latch (template triggers only fire on false->true), so a reset
   # whose moment fell into an outage or a restart never fires again. Re-evaluated here.
+  #
+  # An activation voids it outright, whatever the reset rules say. The override belongs to the
+  # previous shift of this instance, and while the instance was off it could not even see the
+  # cover being moved - there is nothing left for it to protect. Without this an instance that
+  # went inactive with man == 1 comes back BLOCKED: recovery_allowed is false, so the take-over
+  # never positions the cover, and with a reset rule that cannot fire on its own (no reset
+  # configured, or reset-in-position while the cover is elsewhere) it stays blocked for good.
   override_expired: >-
-    {{ helper_state_manual and not is_reset_disabled and (
-         (is_reset_timeout and helper_ts_man > 0 and
-          as_timestamp(now()) >= helper_ts_man + 60 * (reset_override_timeout | int(0))) or
-         (is_reset_fixed_time and now() >= today_at(reset_override_time) and
-          helper_ts_man < as_timestamp(today_at(reset_override_time))) or
-         (is_reset_position and in_reset_override_position)
+    {{ helper_state_manual and (
+         instance_activated or (
+           not is_reset_disabled and (
+             (is_reset_timeout and helper_ts_man > 0 and
+              as_timestamp(now()) >= helper_ts_man + 60 * (reset_override_timeout | int(0))) or
+             (is_reset_fixed_time and now() >= today_at(reset_override_time) and
+              helper_ts_man < as_timestamp(today_at(reset_override_time))) or
+             (is_reset_position and in_reset_override_position)
+           )
+         )
        ) }}
 
   # SHADED STATUS - Is cover currently shaded (not pending)?
@@ -3838,6 +3909,29 @@ triggers:
     for: *recovery_settle
     enabled: "{{ is_recovery_enabled and force_pause != [] }}"
 
+  # This instance was handed the cover. Not gated on is_recovery_enabled: an activation is not a
+  # catch-up the user opted out of, it is the take-over itself - an instance that took charge and
+  # then left the cover where the previous one parked it has done nothing. Only the prompt, not
+  # the claim: instance_activated turns any later trigger into the take-over if this edge is
+  # swallowed by the availability gates (a state trigger has no second edge).
+  - trigger: state
+    entity_id: !input instance_active
+    from: ["off", "false"]
+    to: ["on", "true"]
+    id: "t_instance_activated"
+    enabled: "{{ instance_active != [] }}"
+
+  # ...and the gating entity is a gate source like the five above: while it has no usable state
+  # this instance is blocked, so the outage eats the latching triggers exactly the same way.
+  # Not gated on is_recovery_enabled either; with the catch-up off the run is hygiene-only.
+  - trigger: state
+    entity_id: !input instance_active
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ instance_active != [] }}"
+
   # The automation itself was switched on again (or reloaded, or recreated on restart).
   # No entity changed, so none of the triggers above fire. The 60 s offset is what ARMS this:
   # a template trigger only fires on false -> true, and without it an already-stale helper
@@ -3907,6 +4001,17 @@ triggers:
 
 conditions:
   - condition: !input auto_global_condition
+  # This instance is only in charge while its switch is on - that is what lets a second CCA
+  # automation own the same cover. No exemptions: while it is off, this instance must not even
+  # record a cover movement as a manual override (the other instance made it), or it would come
+  # back blocked. Everything the off period swallows is re-derived on the take-over, which is
+  # what makes this gate legal at all (t_instance_activated / instance_activated).
+  # A gone entity (disabled or deleted) is let through to the mandatory entity validation, which
+  # names it and then stops the run - a gate must never orphan its own diagnostics.
+  - condition: template
+    value_template: >-
+      {{ instance_active == [] or states[instance_active] is none or
+         states(instance_active) in ['on', 'true'] }}
   - or:
       - "{{ trigger.to_state is not defined }}" # for "trigger: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger
@@ -4327,8 +4432,11 @@ actions:
       - "{{ trigger.id is defined }}"
       # All shading-start triggers, every opening trigger (so the opening handler can evaluate
       # shading_start_warranted while a pending is armed, #514 follow-up), the recovery - and any
-      # trigger the resumed-run backstop turns into one, because that run evaluates it too
-      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery)') or automation_resumed }}"
+      # trigger the resumed-run or take-over backstop turns into one, because that run evaluates
+      # it too (Bug Pattern T: a trigger-id allow-list upstream of a value-based consumer breaks
+      # silently every time the set of triggers that can reach the consumer grows)
+      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated)')
+            or automation_resumed or instance_activated }}"
     then:
       - action: weather.get_forecasts
         target:
@@ -4381,7 +4489,7 @@ actions:
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_shading_end') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id == 't_recovery' or automation_resumed }}"
+          - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or automation_resumed or instance_activated }}"
     then:
       - action: calendar.get_events
         target:
@@ -5204,6 +5312,11 @@ actions:
             Without {{ missing_critical | join(', ') }} there is no cover position to decide from,
             so every run of this automation stops here until you fix it.
             {%- endif %}
+            {%- if instance_active in missing_entities %}
+            The switch that decides when this automation is in charge is gone, so CCA can no
+            longer tell whether it owns this cover - and a second CCA automation may. It stops
+            here rather than risk two automations driving the same cover against each other.
+            {%- endif %}
             {%- if missing_contacts | count > 0 %}
             Window contact {{ missing_contacts | join(', ') }} is gone, so CCA can no longer see
             whether the window is open. The last known window state is
@@ -5216,11 +5329,11 @@ actions:
             protection for this window is DEAD: a gone contact can never report an opening, so
             the cover will close on the schedule even while the window stands open{% endif %}.
             {%- endif %}
-          level: "{{ 'error' if missing_critical | count > 0 else 'warning' }}"
+          level: "{{ 'error' if missing_critical | count > 0 or instance_active in missing_entities else 'warning' }}"
           logger: "blueprints.hvorragend.cca"
-      - if: "{{ missing_critical | count > 0 or cover_status_helper in missing_entities }}"
+      - if: "{{ missing_critical | count > 0 or cover_status_helper in missing_entities or instance_active in missing_entities }}"
         then:
-          - stop: "Configuration error: state-critical entity disabled or deleted ({{ (missing_critical + [cover_status_helper] if cover_status_helper in missing_entities else missing_critical) | join(', ') }})"
+          - stop: "Configuration error: state-critical entity disabled or deleted ({{ (missing_critical + ([cover_status_helper] if cover_status_helper in missing_entities else []) + ([instance_active] if instance_active in missing_entities else [])) | join(', ') }})"
 
   # MANDATORY HELPER VALIDATION
   # ═══════════════════════════════════════════════════════════════════════════
@@ -5300,11 +5413,13 @@ actions:
   - alias: "Recovery after restart or outage - restore target state"
     if:
       - "{{ trigger.id is defined }}"
-      # A resumed automation converts ANY trigger into a recovery, so nothing can act on a
-      # helper that cannot be trusted. The manual triggers are exempt (as they are from the
-      # contact gate): their handler records the intervention instead of driving.
-      - "{{ trigger.id == 't_recovery' or
-            (automation_resumed and trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
+      # A resumed automation - or one that was just handed the cover - converts ANY trigger into
+      # a recovery, so nothing can act on a helper that cannot be trusted. The manual triggers
+      # are exempt (as they are from the contact gate): their handler records the intervention
+      # instead of driving.
+      - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or
+            ((automation_resumed or instance_activated) and
+             trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
     then:
       - variables:
           # Emulates the 23:55 reset, which did not run while the automation was off
@@ -5447,7 +5562,7 @@ actions:
                         {{ (target_position | int) >= (current_position | int) - (position_tolerance | int(0)) and
                            (target_position | int) <= (current_position | int) + (position_tolerance | int(0)) }}
                       log_extra: >-
-                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}:
+                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}:
                         base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', additional condition refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
                         frc {{ helper_state_force }}->{{ live_force }},
                         shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
