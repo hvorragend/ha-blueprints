@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.13 V2
+    **Version**: 2026.07.13 V3
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -372,6 +372,12 @@ blueprint:
             state before sending tilt. Prevents tilt commands from being ignored on
             devices that block tilt during motor movement (e.g., Shelly Qubino Wave Shutter).
 
+            **Tilt First, Then Position (Somfy J4 IO)**: Sends the tilt command before
+            the position command instead of after it. For motors that automatically
+            restore the previous slat position after positioning (e.g., Somfy J4 IO):
+            the motor then restores exactly the target tilt on its own, so no tilt
+            command has to be sent — or waited for — after the movement.
+
             If your tilt positions are unreliable, try switching to 'Wait Until Idle' mode.
           default: "fixed_delay"
           selector:
@@ -381,6 +387,8 @@ blueprint:
                   value: "fixed_delay"
                 - label: "⏸️ Wait Until Idle (Z-Wave devices)"
                   value: "wait_idle"
+                - label: "🔃 Tilt First, Then Position (Somfy J4 IO)"
+                  value: "tilt_before_position"
               mode: dropdown
 
         cover_tilt_wait_timeout:
@@ -403,6 +411,8 @@ blueprint:
             Delay between <em>set_cover_position</em> and <em>set_cover_tilt_position</em>.
             Only necessary when using the tilt functions.
             This separates the two commands in terms of time.
+            In 'Tilt First, Then Position' mode the delay is applied between the
+            tilt command and the following position command instead.
             <br /><br />`Optional`
           default: 0
           selector:
@@ -2243,6 +2253,7 @@ trigger_variables:
   tilt_wait_mode: !input cover_tilt_wait_mode
   tilt_wait_timeout: !input cover_tilt_wait_timeout
   is_tilt_wait_idle_mode: "{{ tilt_wait_mode == 'wait_idle' }}"
+  is_tilt_before_position_mode: "{{ tilt_wait_mode == 'tilt_before_position' }}"
 
   # Time configuration
   time_up_early: !input time_up_early
@@ -2404,7 +2415,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.13 V2"
+  version: "2026.07.13 V3"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3782,6 +3793,11 @@ actions:
                             - if: "{{ wait.completed if wait is defined else '' }}"
                               then:
                                 - delay: 1
+                        # Mode: Tilt before position - no position command has been
+                        # sent yet, the cover is idle, so no wait is needed
+                        - alias: "Tilt wait: skipped (tilt runs before position)"
+                          conditions: "{{ is_tilt_before_position_mode | default(false) }}"
+                          sequence: []
                       # Mode: Standard fixed delay
                       default:
                         - delay:
@@ -3830,8 +3846,23 @@ actions:
                 sequence:
                   - choose: []
                     default: !input auto_shading_end_action_before
-          - *cover_move_action
-          - *tilt_move_action
+          - choose:
+              # Tilt-restoring motors (e.g. Somfy J4 IO) re-apply the last slat
+              # position after positioning - tilting to the target first makes
+              # the motor restore exactly the target tilt, so no tilt command
+              # is needed after the movement
+              - alias: "Drive order: tilt first, then position"
+                conditions: "{{ is_tilt_before_position_mode | default(false) }}"
+                sequence:
+                  - *tilt_move_action
+                  - if: "{{ is_cover_tilt_enabled_and_possible | default(false) and not is_paused | default(false) }}"
+                    then:
+                      - delay:
+                          seconds: !input tilt_delay
+                  - *cover_move_action
+            default:
+              - *cover_move_action
+              - *tilt_move_action
           - choose:
               - conditions: "{{ drive_action_set | default('') == 'up' }}"
                 sequence:
