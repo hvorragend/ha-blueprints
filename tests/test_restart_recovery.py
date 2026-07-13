@@ -722,6 +722,7 @@ class TestRecoveredPending:
 
     def _run(self, **over):
         base = dict(
+            is_recovery_enabled=True,
             is_shading_enabled=True,
             helper_state_pending="non",
             pending_is_stale=False,
@@ -793,6 +794,20 @@ class TestRecoveredPending:
         yesterday = (NOW - datetime.timedelta(days=1)).timestamp()
         assert self._run(prevent_flags={"shading_multiple_times": True},
                          helper_ts_shade=yesterday) == "beg"
+
+    # --- the opt-in only gates the arming, never the clean-up ---
+    def test_without_the_opt_in_no_pending_is_armed(self):
+        """Arming would drive the cover later, so it needs the opt-in."""
+        assert self._run(is_recovery_enabled=False) == "non"
+        assert self._run(is_recovery_enabled=False, recovered_shade=True,
+                         shading_start_warranted=False,
+                         shading_end_conditions_met=True) == "non"
+
+    def test_without_the_opt_in_a_dead_pending_is_still_cleared(self):
+        """Hygiene: a pending whose due time has passed can never execute again (its
+        trigger only fires on false->true). Leaving it armed would block every new
+        pending until the 23:55 reset - and clearing it moves nothing."""
+        assert self._new(recovered="non", stale=True, current="beg") == "non"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -940,11 +955,12 @@ class TestRecoveryDrive:
         assert "state_targets" in self.TILT()
 
     # --- the user's drive actions on a caught-up movement ---
-    def _action_set(self, state, in_position):
+    def _action_set(self, state, in_position, will_drive=True):
         plan = _branch_var(RECOVERY, "drive_plan")
         targets = _state_targets(effective_shading_position=30, **self.POSITIONS)
         return _render(plan["action_set"], {}, recovered_state=state,
-                       state_targets=targets, recovery_in_position=in_position)
+                       state_targets=targets, recovery_in_position=in_position,
+                       will_drive=will_drive)
 
     @pytest.mark.parametrize("state,action_set", [
         ("opn", "up"), ("cls", "down"), ("vnt", "ventilate"),
@@ -964,6 +980,12 @@ class TestRecoveryDrive:
         gate each of the ~19 recovery sources would re-fire the user's notifications and
         scenes after a restart although nothing moved."""
         assert self._action_set(state, in_position=True) == ""
+
+    @pytest.mark.parametrize("state", ["opn", "cls", "vnt", "shd", "lock"])
+    def test_a_hygiene_only_run_runs_no_drive_actions(self, state):
+        """Without the opt-in the gate cleans the helper and stops. It never drives, so
+        the user's before/after actions must not fire either."""
+        assert self._action_set(state, in_position=False, will_drive=False) == ""
 
     # --- recovery_allowed ---
     def _allowed(self, state, **over):
@@ -1014,7 +1036,7 @@ class TestRecoveryPersists:
         return _render(_recovery_update_values()[field], {}, **variables)
 
     def test_the_re_derived_base_is_written(self):
-        assert self._render_field("bas", recovered_base="cls") == "cls"
+        assert self._render_field("bas", new_base="cls") == "cls"
 
     def test_the_re_read_window_is_written(self):
         assert self._render_field("win", recovered_window="tlt") == "tlt"
@@ -1034,13 +1056,13 @@ class TestRecoveryPersists:
     def test_base_timestamps_are_stamped_only_on_a_real_change(self):
         args = dict(helper_ts_open=111, helper_ts_close=222, stale_day=False)
         ts = _recovery_update_values()["ts"]
-        assert _render(ts["cls"], {}, recovered_base="cls", helper_state_base="opn", **args) == "now"
-        assert _render(ts["cls"], {}, recovered_base="cls", helper_state_base="cls", **args) == "222"
-        assert _render(ts["opn"], {}, recovered_base="opn", helper_state_base="cls", **args) == "now"
-        assert _render(ts["opn"], {}, recovered_base="opn", helper_state_base="opn", **args) == "111"
+        assert _render(ts["cls"], {}, new_base="cls", helper_state_base="opn", **args) == "now"
+        assert _render(ts["cls"], {}, new_base="cls", helper_state_base="cls", **args) == "222"
+        assert _render(ts["opn"], {}, new_base="opn", helper_state_base="cls", **args) == "now"
+        assert _render(ts["opn"], {}, new_base="opn", helper_state_base="opn", **args) == "111"
 
     def _man(self, **over):
-        base = dict(override_expired=False, recovery_allowed=True, recovery_in_position=False,
+        base = dict(override_expired=False, will_drive=True, recovery_in_position=False,
                     helper_json={"man": 1})
         base.update(over)
         return _render(_recovery_update_values()["man"], {}, **base)
@@ -1051,7 +1073,7 @@ class TestRecoveryPersists:
     def test_man_is_kept_when_nothing_moves(self):
         """Invariant 7: man: 0 only when the cover is actually driven."""
         assert self._man(recovery_in_position=True) == "1"
-        assert self._man(recovery_allowed=False) == "1"
+        assert self._man(will_drive=False) == "1"
 
     def test_an_expired_override_is_cleared_even_without_a_drive(self):
         assert self._man(override_expired=True, recovery_in_position=True) == "0"
@@ -1227,7 +1249,7 @@ class TestStaleDay:
         """They gate the 'only open/close once a day' guards. A timestamp from days ago
         must not be able to suppress today's opening or closing."""
         ts = _recovery_update_values()["ts"][field]
-        args = {"recovered_base": field, "helper_state_base": field,
+        args = {"new_base": field, "helper_state_base": field,
                 "helper_ts_open": 111, "helper_ts_close": 222}
         assert _render(ts, {}, stale_day=True, **args) == "0"
         assert _render(ts, {}, stale_day=False, **args) == ("111" if field == "opn" else "222")
@@ -1328,6 +1350,59 @@ class TestRecoveryTriggers:
         text = BLUEPRINT_PATH.read_text(encoding="utf-8")
         gate = [ln for ln in text.splitlines() if "t_calendar_event_start|t_recovery" in ln]
         assert gate, "t_recovery missing from the weather.get_forecasts gate"
+
+    def _resume_trigger(self) -> dict:
+        return next(t for t in self._recovery()
+                    if t["trigger"] == "template" and "this.last_changed" in t["value_template"])
+
+    def test_recovery_is_opt_in_and_defaults_to_off(self):
+        """Users must explicitly opt in to cover movements after a restart. Every source
+        recovery trigger exists purely to CATCH UP, so it is gated at the trigger (no run,
+        no trace, no drive while disabled - same rationale as the #550 trigger-level
+        filtering)."""
+        for t in self._recovery():
+            if t is self._resume_trigger():
+                continue
+            assert "is_recovery_enabled" in t.get("enabled", ""), t
+        section = BP["blueprint"]["input"]["feature_section"]["input"]
+        assert section["enable_recovery"]["default"] is False
+
+    def test_the_resume_trigger_is_deliberately_not_gated(self):
+        """The one exception, and it must stay one. A resumed automation holds a helper
+        that may be days old; acting on it drives the cover WRONGLY (a shading from an
+        earlier day still reads as active, an override reset that came due while the
+        automation was off can never fire again). The run it starts only cleans the helper
+        and stops - will_drive gates the movement - so it prevents a wrong movement rather
+        than causing one, which is not what the opt-in guards against."""
+        assert "is_recovery_enabled" not in self._resume_trigger().get("enabled", "")
+
+    def test_the_opt_in_gates_the_drive_not_the_hygiene(self):
+        """The switch buys exactly one thing: permission to MOVE the cover."""
+        assert "is_recovery_enabled" in _branch_var(RECOVERY, "will_drive")
+        assert _branch_var(RECOVERY, "drive_plan")["run"] == "{{ will_drive }}"
+        # ... and the helper clean-up must not depend on it (Invariant 7 keeps man tied
+        # to the actual drive, so it may reference will_drive).
+        uv = _recovery_update_values()
+        for key in ("win", "res", "frc", "shd", "pnd"):
+            assert "is_recovery_enabled" not in str(uv[key]), key
+            assert "will_drive" not in str(uv[key]), key
+
+    def test_catching_up_the_base_state_needs_the_opt_in(self):
+        """Writing bas: 'cls' for a closing the outage swallowed is a deferred movement:
+        a later branch would drive the cover into it. So the WRITE is opt-in, even though
+        it does not drive here."""
+        tpl = _branch_var(RECOVERY, "new_base")
+        assert _render(tpl, {}, is_recovery_enabled=True,
+                       recovered_base="cls", helper_state_base="opn") == "cls"
+        assert _render(tpl, {}, is_recovery_enabled=False,
+                       recovered_base="cls", helper_state_base="opn") == "opn"
+        assert _recovery_update_values()["bas"] == "{{ new_base }}"
+
+    def test_recovery_flag_is_a_static_trigger_variable(self):
+        """`enabled:` is evaluated in the limited trigger context (Invariant 10) -
+        the flag must be a plain !input, not a template calling states()."""
+        assert "is_recovery_enabled" in BP["trigger_variables"]
+        assert "states(" not in str(BP["trigger_variables"]["is_recovery_enabled"])
 
 
 # ════════════════════════════════════════════════════════════════════════════
