@@ -27,6 +27,22 @@ schedules, brightness, sun elevation, window state, and resident presence.
 
 ---
 
+## Reference Files — read the matching file BEFORE working on its area
+
+This SKILL.md is the overview. The detailed, authoritative material lives in
+`references/` next to this file. Do not rely on the summaries below when
+changing code in one of these areas — load the reference first:
+
+| Task touches… | Read |
+|---|---|
+| Priority cascade (`effective_state`/`recovered_state`), transition anchors, `state_targets`/`state_gates`, limited template contexts | [references/architecture.md](references/architecture.md) |
+| Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
+| Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
+| Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AL with cause and fix) |
+
+---
+
 ## JSON Helper Schema (v6 compact, stored in `input_text`)
 
 ```json
@@ -257,7 +273,7 @@ them, and template-guard all runtime-context references in any new anchor.
 
 ## Architectural Invariants (Reference)
 
-Full details in CLAUDE.md. Key rules:
+Full details in [references/invariants.md](references/invariants.md). Key rules:
 
 1. **Never put position checks in branch conditions** — encode them in the
    branch's `will_drive` gate. The branch must always be consumed.
