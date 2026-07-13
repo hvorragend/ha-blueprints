@@ -261,10 +261,11 @@ class TestPatternMSunPositionEndSplit:
         assert "elevation" in tmpl
         assert "azimuth" not in tmpl, "elevation trigger must not mix in azimuth"
 
-    def test_pending_condition_regex_covers_1_to_7(self):
+    def test_pending_condition_regex_covers_1_to_8(self):
         text = _blueprint_text()
-        assert "t_shading_end_pending_[1-7]" in text
-        assert "t_shading_end_pending_[1-6]" not in text, "regex must extend to [1-7]"
+        assert "t_shading_end_pending_[1-8]" in text
+        assert "t_shading_end_pending_[1-6]" not in text, "regex must extend to [1-8]"
+        assert "t_shading_end_pending_[1-7]" not in text, "regex must extend to [1-8]"
 
     def test_immediate_by_sun_position_checks_both_triggers(self):
         text = _blueprint_text()
@@ -757,12 +758,13 @@ class TestPatternAAGlobalGateEndPending:
         # The core #554 scenario: shd == 1 AND pnd == 'end' → the start trigger
         # must reach the actions so the cancel branch can run.
         for trigger_id in ("t_shading_start_pending_1", "t_shading_start_pending_2",
-                           "t_shading_start_pending_6"):
+                           "t_shading_start_pending_6", "t_shading_start_pending_8"):
             assert _render_gate(trigger_id, HELPER_END_PENDING) is True
 
     def test_start_pending_still_blocked_while_shaded_without_pending(self):
         # Noise suppression preserved: shading active, no end-pending → blocked.
         assert _render_gate("t_shading_start_pending_2", HELPER_SHADING_ACTIVE) is False
+        assert _render_gate("t_shading_start_pending_8", HELPER_SHADING_ACTIVE) is False
 
     def test_start_pending_passes_while_not_shaded(self):
         assert _render_gate("t_shading_start_pending_2", HELPER_SHADING_INACTIVE) is True
@@ -772,6 +774,8 @@ class TestPatternAAGlobalGateEndPending:
         # side is a documented retry loop; see Bug Pattern AA in CLAUDE.md).
         assert _render_gate("t_shading_end_pending_3", HELPER_END_PENDING) is True
         assert _render_gate("t_shading_end_pending_3", HELPER_SHADING_INACTIVE) is False
+        assert _render_gate("t_shading_end_pending_8", HELPER_END_PENDING) is True
+        assert _render_gate("t_shading_end_pending_8", HELPER_SHADING_INACTIVE) is False
 
     def test_unrelated_triggers_pass(self):
         assert _render_gate("t_shading_start_execution", HELPER_END_PENDING) is True
