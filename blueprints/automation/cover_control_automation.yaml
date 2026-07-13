@@ -5181,6 +5181,13 @@ actions:
           {% set ns.gone = ns.gone + [entity] %}
         {% endfor %}
         {{ ns.gone }}
+      missing_contacts: >-
+        {% set ns = namespace(gone=[]) %}
+        {% for entity in [contact_window_opened, contact_window_tilted]
+             if entity != [] and states[entity] is none %}
+          {% set ns.gone = ns.gone + [entity] %}
+        {% endfor %}
+        {{ ns.gone }}
   - alias: "Configured entity is disabled or deleted"
     if:
       - "{{ missing_entities | count > 0 }}"
@@ -5191,8 +5198,24 @@ actions:
             Cover Control Automation ({{ friendly_name }}): CONFIGURATION ERROR - configured
             {{ 'entity is' if missing_entities | count == 1 else 'entities are' }} disabled or deleted:
             {{ missing_entities | join(', ') }}. A disabled entity is not an outage - it never comes
-            back, so CCA cannot fall back or recover. Re-enable it, or remove it from the automation
-            settings so CCA stops expecting it.
+            back, so CCA cannot fall back to a last known value and no recovery can correct it.
+            Re-enable it, or remove it from the automation settings so CCA stops expecting it.
+            {%- if missing_critical | count > 0 %}
+            Without {{ missing_critical | join(', ') }} there is no cover position to decide from,
+            so every run of this automation stops here until you fix it.
+            {%- endif %}
+            {%- if missing_contacts | count > 0 %}
+            Window contact {{ missing_contacts | join(', ') }} is gone, so CCA can no longer see
+            whether the window is open. The last known window state is
+            '{{ helper_state_window }}'{% if helper_state_window != 'cls' %}, which is not closed -
+            the cover therefore STAYS WHERE IT IS and no longer follows the schedule: the lockout
+            protection must not lower a cover onto a window it cannot see. Close the window (a
+            working contact would report it), re-enable the contact, or remove it from the
+            automation settings if you want CCA to ignore this window for now - that also turns
+            OFF the lockout protection for it{% else %}, so CCA keeps running - but the lockout
+            protection for this window is DEAD: a gone contact can never report an opening, so
+            the cover will close on the schedule even while the window stands open{% endif %}.
+            {%- endif %}
           level: "{{ 'error' if missing_critical | count > 0 else 'warning' }}"
           logger: "blueprints.hvorragend.cca"
       - if: "{{ missing_critical | count > 0 or cover_status_helper in missing_entities }}"

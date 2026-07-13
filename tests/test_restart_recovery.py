@@ -334,6 +334,35 @@ class TestDisabledEntity:
         assert _render(log["data"]["level"], {}, missing_critical=[]) == "warning"
         assert _render(log["data"]["level"], {}, missing_critical=["cover.x"]) == "error"
 
+    def _message(self, **over) -> str:
+        log = next(s for s in self._validation()["then"] if s.get("action") == "system_log.write")
+        args = dict(friendly_name="Bedroom", missing_entities=["binary_sensor.win"],
+                    missing_critical=[], missing_contacts=["binary_sensor.win"],
+                    helper_state_window="opn")
+        args.update(over)
+        return _render(log["data"]["message"], {}, **args)
+
+    def test_a_gone_contact_says_the_cover_is_parked_and_why(self):
+        """The one place where the user's reading ('the sensor is simply out of the automation
+        for a while') collides with safety: CCA cannot ignore the contact, because that lowers
+        the cover onto a window it can no longer see. So the message has to name the trade and
+        the way out, or the user just sees a cover that stopped following its schedule."""
+        msg = self._message(helper_state_window="opn")
+        assert "STAYS WHERE IT IS" in msg
+        assert "remove it from the automation settings" in msg
+
+    def test_a_gone_contact_on_a_closed_window_says_the_lockout_is_dead(self):
+        """The opposite corner, and the more dangerous one to leave unsaid: with the last known
+        window state 'closed' CCA keeps running normally - so nothing looks broken, while the
+        lockout for that window can never fire again."""
+        msg = self._message(helper_state_window="cls")
+        assert "DEAD" in msg and "STAYS WHERE IT IS" not in msg
+
+    def test_a_gone_critical_entity_says_every_run_stops(self):
+        msg = self._message(missing_entities=["cover.x"], missing_critical=["cover.x"],
+                            missing_contacts=[])
+        assert "every run of this automation stops" in msg
+
     # --- the force fallback must not freeze on an entity that is gone ---
     def _unreadable(self, states, **over):
         args = dict(helper_state_force="opn", auto_up_force="input_boolean.f",
