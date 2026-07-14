@@ -3,6 +3,7 @@
 # CCA 2026.07.14 V2
 
 - 🔧 **Improvement:** A **sun shading that survived midnight** is now treated as proof that CCA was blocked for a whole day (the nightly 23:55 clean-up would otherwise have cleared it — think of a global condition that stayed false for days). The next run tidies up **first** instead of acting on the days-old shading state — previously it could drive straight into a shading position from last week. Deliberately conservative: an old-but-clean status is left alone, because quiet stretches are normal — a setup whose opening and closing times come from the calendar *time control* ("Open Cover"/"Close Cover" events) may legitimately skip whole weekends without a single run
+- 🐛 **Fix:** The nightly 23:55 clean-up could **block the following day's sun shading** when its status write slipped past midnight — it waits a random moment (up to a minute), and a movement still waiting out a long drive delay can hold the queue even longer. The write then recorded the shading as changed on the *new* day, and with *"Shade cover only once per day"* enabled that whole day's shading was suppressed. The clean-up no longer touches the shading timestamp — it never needed it, and the day-boundary race disappears with it
 
 ---
 

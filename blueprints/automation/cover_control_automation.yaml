@@ -5618,7 +5618,7 @@ actions:
                         pnd: "{{ new_pending }}"
                         ts:
                           # No ts.shd here even when shd is cleared 1->0: today's stamp would make the
-                          # once-per-day guard block today's shading (unlike the 23:55 reset, which may stamp it)
+                          # once-per-day guard block today's shading (the 23:55 reset omits it too)
                           opn: "{{ 'now' if new_base == 'opn' and helper_state_base != 'opn' else (0 if stale_day else helper_ts_open) }}"
                           cls: "{{ 'now' if new_base == 'cls' and helper_state_base != 'cls' else (0 if stale_day else helper_ts_close) }}"
                           due: "{{ recovered_due | int }}"
@@ -7418,12 +7418,13 @@ actions:
               seconds: "{{ (range(0, 60) | random | int) }}"
           - variables:
               update_values:
-                # Midnight reset - clear shading status
+                # Midnight reset - clear shading status. Deliberately no ts.shd stamp:
+                # the random delay plus queued runs can push this write past midnight,
+                # and a next-day stamp makes the once-per-day guard block the whole day
                 shd: 0
                 man: 0
                 pnd: 'non'
                 ts:
-                  shd: "now"
                   due: 0
                   arm: 0
           - *apply_transition

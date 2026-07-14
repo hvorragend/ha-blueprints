@@ -79,6 +79,33 @@ class TestRecoveryGateClaimsIt:
         assert self._run("t_open_1") is False
 
 
+class TestMidnightResetDoesNotStampTsShd:
+    """The 23:55 trigger fires same-day, but the WRITE may not land same-day: the branch
+    sleeps a random 0-60 s, and with mode: queued a long run ahead of it (a drive delay can
+    be 10 minutes) delays it further. A write past midnight would stamp ts.shd on the NEW
+    day and the full-date once-per-day guard would block that whole day's shading (the #365
+    failure through the back door). So BRANCH 11 omits the stamp - ts.shd keeps the last
+    real shd transition, which is always same-day-or-earlier and never blocks the next day."""
+
+    def test_branch_11_update_values_has_no_ts_shd(self):
+        branch = next(
+            b
+            for step in BP["actions"] if isinstance(step, dict)
+            for b in step.get("choose") or []
+            if "Reset shading status" in str(b.get("alias", ""))
+        )
+        update_values = next(
+            s["variables"]["update_values"]
+            for s in branch["sequence"]
+            if isinstance(s, dict) and "update_values" in s.get("variables", {})
+        )
+        assert update_values["shd"] == 0, "the reset must still clear shd"
+        assert "shd" not in update_values.get("ts", {}), (
+            "BRANCH 11 must not stamp ts.shd: a queue-delayed write past midnight "
+            "would block the whole next day's shading (once-per-day guard)"
+        )
+
+
 class TestLoadGatesReachTheClaimedRun:
     """Bug Pattern T, fifth recurrence prevented: the claimed run evaluates
     shading_start_warranted (recovered_pending) and the calendar boundaries (recovered_base)
