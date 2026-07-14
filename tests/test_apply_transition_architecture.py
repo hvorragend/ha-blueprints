@@ -257,9 +257,109 @@ class TestForcePauseIsPartOfEveryDriveGate:
     def test_the_users_drive_actions_stay_quiet_while_paused(self):
         """drive_with_actions opens with a condition guard, same mechanic as
         cover_move_action: a false condition stops only this block, the helper
-        persist after it still runs (Invariant 2)."""
+        persist after it still runs (Invariant 2). The pause is read LIVE here,
+        not via the is_paused variable: the plan-time variables are frozen, and
+        a pre-drive delay may have outlived the pause state they captured."""
         blueprint = _load_blueprint_yaml()
         anchor = blueprint["actions"][0]["variables"]["drive_with_actions"]
         first = anchor["sequence"][0]
         assert first.get("condition") == "template"
-        assert "is_paused" in str(first.get("value_template", ""))
+        assert "states(force_pause)" in str(first.get("value_template", ""))
+
+
+def _actuation_gate(anchor: dict) -> str:
+    """The live pause/hand-over condition template of a move/drive anchor."""
+    for step in anchor["sequence"]:
+        if isinstance(step, dict) and "force_pause" in str(step.get("value_template", "")):
+            return str(step["value_template"])
+    raise AssertionError("anchor has no live pause/hand-over gate")
+
+
+class TestActuationPointLiveGates:
+    """A force pause enabled - or a hand-over to another instance - DURING a
+    pre-drive delay must still stop the movement. The branch-level drive gates
+    (will_drive, state_gates) are computed before the delay and are stale by
+    the time the cover actually moves, and with several instances the outgoing
+    one may sit in a delay while the incoming one already repositions the
+    cover. So the three actuation anchors re-read both entities live, at the
+    moment of movement. Same shape as the global instance gate: a GONE entity
+    (states[x] is none) passes, so the entity validation stays the one place
+    that reports it (Bug Pattern AF family)."""
+
+    ANCHORS = ["cover_move_action", "tilt_move_action", "drive_with_actions"]
+
+    def _anchor(self, name: str) -> dict:
+        blueprint = _load_blueprint_yaml()
+        return blueprint["actions"][0]["variables"][name]
+
+    def test_every_actuation_anchor_re_reads_pause_and_instance_live(self):
+        for name in self.ANCHORS:
+            gate = _actuation_gate(self._anchor(name))
+            assert "states(force_pause)" in gate, name
+            assert "instance_active_on_states" in gate, name
+            assert "states[instance_active] is none" in gate, name
+            # Bug Pattern AF: both reads are short-circuit guarded on the input.
+            assert "force_pause != []" in gate, name
+            assert "instance_active == []" in gate, name
+
+    def _render(self, gate: str, *, pause_state=None, instance_state=None,
+                pause_configured=True, instance_configured=True,
+                on_states=("on", "true")):
+        import jinja2
+
+        class _States:
+            """Stub for both call (states(x) -> state string) and item access
+            (states[x] -> state object or None) used by the gate template."""
+
+            def __init__(self, mapping):
+                self._m = mapping
+
+            def __call__(self, entity):
+                value = self._m.get(entity)
+                return "unknown" if value is None else value
+
+            def __getitem__(self, entity):
+                return self._m.get(entity)
+
+        mapping = {}
+        if pause_state is not None:
+            mapping["input_boolean.pause"] = pause_state
+        if instance_state is not None:
+            mapping["input_boolean.instance"] = instance_state
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        rendered = env.from_string(gate).render(
+            states=_States(mapping),
+            force_pause="input_boolean.pause" if pause_configured else [],
+            instance_active="input_boolean.instance" if instance_configured else [],
+            instance_active_on_states=list(on_states),
+            prevent_flags={"default_cover_actions": False},
+            is_cover_tilt_enabled_and_possible=True,
+        )
+        return rendered.strip()
+
+    def test_the_live_gate_blocks_a_pause_enabled_mid_delay(self):
+        for name in self.ANCHORS:
+            gate = _actuation_gate(self._anchor(name))
+            assert self._render(gate, pause_state="off", instance_state="on") == "True", name
+            assert self._render(gate, pause_state="on", instance_state="on") == "False", name
+
+    def test_the_live_gate_blocks_the_outgoing_instance_after_a_hand_over(self):
+        for name in self.ANCHORS:
+            gate = _actuation_gate(self._anchor(name))
+            assert self._render(gate, pause_state="off", instance_state="off") == "False", name
+
+    def test_the_live_gate_matches_the_value_matched_variant(self):
+        gate = _actuation_gate(self._anchor("cover_move_action"))
+        assert self._render(gate, pause_state="off", instance_state="Summer",
+                            on_states=("Summer",)) == "True"
+        assert self._render(gate, pause_state="off", instance_state="Winter",
+                            on_states=("Summer",)) == "False"
+
+    def test_unconfigured_and_gone_entities_do_not_block(self):
+        gate = _actuation_gate(self._anchor("cover_move_action"))
+        # Neither input configured -> the gate is transparent.
+        assert self._render(gate, pause_configured=False,
+                            instance_configured=False) == "True"
+        # Entity deleted mid-run (states[x] is none) -> mirror of the global
+        # instance gate: let it through, the entity validation names it.
+        assert self._render(gate, pause_state="off", instance_state=None) == "True"

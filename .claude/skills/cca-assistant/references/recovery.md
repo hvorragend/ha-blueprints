@@ -547,6 +547,24 @@ never drives, so no drive gate touches it). It therefore records the *sibling's*
 `man: 1` and comes back refusing to move. That is the same failure the instance gate's **lack
 of trigger exemptions** is designed to prevent — the two facts are one fact.
 
+**An in-flight run of the outgoing instance cannot move the cover after the flip
+(CCA 2026.07.14).** The instance gate lives in the global conditions, and HA evaluates
+those at *trigger* time — a run that was already queued, or sitting in a pre-drive delay
+(up to minutes), when the hand-over happened would have driven to its stale target long
+after the flip, racing the incoming instance's take-over. The loser of that race is the
+user: the incoming instance reads the late movement as a manual override (it lands outside
+its `helper.t + drive_time + 60` settle window) and then refuses to position the cover —
+the exact failure the "switching automation must not drive" rule warns about, caused by
+CCA itself. The actuation anchors (`cover_move_action`, `tilt_move_action`,
+`drive_with_actions`) therefore re-read the instance gate **and the force pause** live at
+the moment of movement (see the design decision "The force pause is part of every drive
+gate" for the pause half and the accepted `man: 0` corner). The late run's helper write
+still happens and is harmless — it writes this instance's *own* helper, which the next
+activation re-derives anyway. The gone-entity rule of Half 0 is mirrored
+(`states[x] is none` passes), so the mandatory entity validation stays the one place that
+reports a deleted switch. Pinned by
+`tests/test_apply_transition_architecture.py::TestActuationPointLiveGates`.
+
 **Known limitations, accepted, documented in the handbook:** the once-per-day guards
 (`ts.opn`/`ts.cls`/`ts.shd`) are per-helper, so a mid-day hand-over grants one more
 open/close/shade; and the switching automation **must not drive the cover itself** — the

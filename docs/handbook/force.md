@@ -48,7 +48,7 @@ Seamless control with automatic recovery: When enabled, the cover automatically 
 
 > 🧩 Input: `force_pause`
 
-If the status of this entity changes to on or true, all automatic cover movements are suspended immediately. The background state (target positions) is still tracked continuously in the helper — even while paused.
+If the status of this entity changes to on or true, all automatic cover movements are suspended immediately. This holds even for a movement that was already planned and is waiting out its drive delay when the pause arrives — the pause is re-checked at the moment the cover would actually move. The background state (target positions) is still tracked continuously in the helper — even while paused.
 While paused, CCA also does **not** run your *before/after actions* (they announce a movement that cannot happen) and does **not** clear a manual override — both follow the actual drive decision, which the pause suspends.
 When this entity turns off again, the cover **immediately returns** to its correct target position — no waiting for the next scheduled trigger.
 💡 **Tip:** Use an `input_boolean` as a manual/automatic toggle. Unlike putting a switch in the global condition (which blocks helper state updates too), this force pause only blocks cover movement. The helper always reflects the correct background state, so resuming is instant and reliable.

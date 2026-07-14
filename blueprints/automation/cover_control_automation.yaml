@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.13 V8
+    **Version**: 2026.07.14
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2548,7 +2548,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.13 V8"
+  version: "2026.07.14"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4108,8 +4108,13 @@ actions:
         sequence:
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
+          # Pause and hand-over are re-read live at the moment of movement: the plan-time
+          # variables are frozen, and a pre-drive delay may have outlived both
           - condition: template
-            value_template: "{{ not is_paused }}"
+            value_template: >-
+              {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                 (instance_active == [] or states[instance_active] is none or
+                  states(instance_active) in instance_active_on_states) }}
           - condition: template
             value_template: "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
           - repeat:
@@ -4145,7 +4150,11 @@ actions:
       tilt_move_action: &tilt_move_action
         sequence:
           - condition: template
-            value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible and not is_paused }}"
+            value_template: >-
+              {{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible and
+                 not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                 (instance_active == [] or states[instance_active] is none or
+                  states(instance_active) in instance_active_on_states) }}
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
@@ -4206,9 +4215,13 @@ actions:
       # ═══════════════════════════════════════════════════════════════════════════
       drive_with_actions: &drive_with_actions
         sequence:
-          # No user drive actions while the force pause blocks every movement
+          # No user drive actions while the force pause blocks every movement or the cover
+          # was handed to another instance - read live, same as the move actions
           - condition: template
-            value_template: "{{ not (is_paused | default(false)) }}"
+            value_template: >-
+              {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                 (instance_active == [] or states[instance_active] is none or
+                  states(instance_active) in instance_active_on_states) }}
           - choose:
               - conditions: "{{ drive_action_set | default('') == 'up' }}"
                 sequence:
