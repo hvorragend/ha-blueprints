@@ -214,6 +214,8 @@ auto_options:
 
 **How the breakage shows up:** With **pure time/calendar control**, the covers simply **stop opening/closing**. With a **hybrid setup (time + Brightness or Sun Elevation)**, the opposite happens: the sensor triggers keep firing but lose their time fence — the covers **open too early in the morning** (e.g. around sunrise, when the sun/brightness threshold is crossed, instead of waiting for the configured earliest time) and can **close too late in the evening**. If your covers suddenly move at unusual times after updating, check the **⏲️ Time Control** checkbox and re-save the automation (see [#595](https://github.com/hvorragend/ha-blueprints/issues/595)).
 
+**Since 2026.07.20 CCA detects this itself:** an automation whose time control is off while unused time-window settings (customized times, a workday sensor, or a calendar) are still configured raises a **persistent notification** on the first run after a restart, a reload or a save — including the run right after updating the blueprint. The notification names the affected automation and both ways out (re-check the checkbox, or reset the unused time settings if the uncheck was deliberate). A deliberately disabled time control on a clean configuration is never flagged.
+
 **"I checked ⏲️ Time Control and it still does not open/close"** — work through this checklist:
 
 1. It must be the **checkbox** in the **👉 What should CCA control?** list — not the **Time Control Type** dropdown. The dropdown only picks the source (time fields vs. calendar) and does nothing while the checkbox is off.
