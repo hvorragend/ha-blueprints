@@ -381,6 +381,27 @@ Additionally, the "Check for shading start" branch entry OR ("Check the helper s
 
 **Deliberate asymmetry (reporter's "FWIW"):** The gate still suppresses `t_shading_end_pending_[1-7]` while shading is inactive (`shd == 0`), even though a shading-**start** pending may be armed. This is intentional: the start side is documented as a *retry loop* ("After the waiting time expires, the automation re-evaluates ALL configured conditions. Only if they are still valid at this point, the cover actually moves") — momentary interruptions during the start wait are tolerated by design, and the execution re-check plus `shading_start_max_duration` budget already handle unmet conditions. Canceling a start-pending on an end trigger would also break the pre-window arming flows (Bug Patterns L/S/R). Do not "harmonize" the end side of the gate.
 
+**Known residual window of that asymmetry (documented 2026.07.14, accepted):** a shading-**end**
+condition whose false→true edge falls into the start-pending window is *consumed*, not deferred.
+Between the arming write (`shd` still `0`) and the execution write (`shd: 1`) — potentially the
+whole waiting time — every `t_shading_end_pending_*` event is dropped by the gate at trigger
+time; once `shd` is `1`, that trigger's template is already true, so it never produces a new
+edge. The exposure is smaller than it looks, which is why this is documented rather than fixed:
+
+- When the crossing sensor also feeds a **start** condition (the usual case — hysteresis pairs),
+  the execution re-check sees the start condition fail and retries/aborts instead of shading.
+- The sun-position end triggers (`t_shading_end_pending_5`/`_7`) are enabled for every setup
+  with a sun sensor and produce a **fresh edge** when the sun leaves the azimuth/elevation
+  range — so an end swallowed this way ends *late* (at sun exit), not never.
+- The 23:55 reset (BRANCH 11) is the backstop for everything else.
+
+The residual loss case is an **end-only** sensor (e.g. forecast temperature configured only as
+an end condition) crossing during the pending window in a setup whose other end triggers never
+re-fire that day. Do **not** close it by letting end triggers through while a start pending is
+armed — that is exactly the "harmonization" the paragraph above forbids (it cancels the retry
+loop and breaks the pre-window arming flows L/S/R). If it ever needs fixing, the shape would be
+an end-condition re-check at the *start execution* (after `shd: 1` is decided), not a gate change.
+
 ---
 
 ### Bug Pattern AB: Opening deferred to Shading End although shading is inactive (Issue #565)
