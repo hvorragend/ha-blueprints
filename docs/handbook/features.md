@@ -30,6 +30,9 @@ Select which opening, closing, and special behaviors CCA should manage.
 Keep this ON even when using Brightness or Sun Elevation — the time fields set the boundaries.
 Early = earliest the cover may move; Late = guaranteed move (safety net).
 **Uncheck to disable all time windows** (pure sensor control — no guaranteed Late safety net).
+**⚠️ Without Brightness/Sun sensors the time windows are the *only* opening/closing trigger** —
+a fixed-time schedule ("just close at 22:00") *is* Time Control. Unchecking it then disables
+Morning Opening and Evening Closing entirely, even though both stay checked in this list.
 
 - **🔅 Brightness** / **☀️ Sun Elevation** — Additional triggers that fire *within* the time window.
 Set the condition logic (AND/OR) when both are active.
@@ -98,6 +101,9 @@ list to disable the time windows entirely — Brightness and Sun Elevation trigg
 fire at any time of day.
 <strong>Warning:</strong> without time windows there is no guaranteed <strong>Late</strong>
 opening/closing safety net; the cover only moves when a sensor condition is actually met.
+And without any Brightness/Sun sensors there is <strong>no opening/closing trigger left at
+all</strong> — a pure fixed-time setup must keep <strong>⏲️ Time Control</strong> checked,
+because the Early/Late time fields <em>are</em> its schedule.
 
 ---
 

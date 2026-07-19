@@ -62,6 +62,8 @@ blueprint:
 
             *Not sure? The defaults (Morning Opening, Evening Closing, Time Control) work for most setups.*
 
+            *⚠️ For a fixed-time schedule (open/close at set times, no sensors), **⏲️ Time Control must stay checked** — it is the only trigger for Morning Opening and Evening Closing then. Unchecking it disables both entirely.*
+
 
             📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/features#auto_options).
 
@@ -78,7 +80,7 @@ blueprint:
                   value: "auto_up_enabled"
                 - label: "🔻 Evening Closing — Automatically close the cover each evening"
                   value: "auto_down_enabled"
-                - label: "⏲️ Time Control — Use time windows (Early/Late) to constrain when triggers fire"
+                - label: "⏲️ Time Control — Open/close at the Early/Late times; without Brightness/Sun sensors this is the only opening/closing trigger"
                   value: "time_control_enabled"
                 - label: "🔅 Brightness Control — Trigger opening/closing based on ambient brightness sensor"
                   value: "auto_brightness_enabled"
@@ -96,7 +98,7 @@ blueprint:
         time_control:
           name: "⏲️ Time Control Type"
           description: >-
-            Select how time-based opening and closing is scheduled. *(Only relevant when **⏲️ Time Control** is checked in the **👉 What should CCA control?** list above — uncheck it there to disable the time windows entirely.)*
+            Select how time-based opening and closing is scheduled. *(Only relevant when **⏲️ Time Control** is checked in the **👉 What should CCA control?** list above — uncheck it there to disable the time windows entirely. Careful: without Brightness/Sun sensors the time windows are the only opening/closing trigger, so unchecking stops automatic opening and closing altogether.)*
 
             📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/features#time_control).
 
@@ -7444,6 +7446,18 @@ actions:
                 # ========== RUNTIME CONFIGURATION CHECKS ==========
                 # Only runtime checks remain here. Static configuration checks have been moved
                 # to the online validator: https://hvorragend.github.io/ha-blueprints/validator/
+
+                # ========== SCHEDULING CHECKS ==========
+
+                - condition: >-
+                    {{
+                      (is_up_enabled or is_down_enabled) and
+                      not is_time_field_enabled and
+                      not is_calendar_enabled and
+                      not (is_brightness_enabled and default_brightness_sensor != []) and
+                      not (is_sun_elevation_enabled and default_sun_sensor != [])
+                    }}
+                  message: "Morning Opening / Evening Closing is enabled but has NO trigger source: Time Control is disabled (or the calendar has no entity) and no Brightness/Sun sensor is configured. The cover will never open or close automatically. For fixed-time schedules, enable the '⏲️ Time Control' checkbox in 'What should CCA control?' - the Early/Late time fields are the schedule. Configurations saved before ~2026.05 must re-enable this checkbox once (breaking change 2026.07.12)"
 
                 # ========== ENTITY ATTRIBUTE & STATE CHECKS ==========
 
