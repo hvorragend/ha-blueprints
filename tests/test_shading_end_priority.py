@@ -264,11 +264,16 @@ class TestShadingEndBranchSelection:
         alias = _first_matching_alias(_env(entity_states), choose, variables)
         assert alias == "Ventilation after shading ends"
 
-    def test_slats_already_above_ventilate_tilt_select_tilt_only(self, choose):
+    def test_issue_615_slats_above_ventilate_tilt_still_select_ventilation(self, choose):
         # Same equality setup, but the slats are already MORE open than the
-        # ventilate tilt: do not pull them down to the ventilate angle
-        # (same policy as the contact handler's tilt alternative) — the
-        # tilt-only branch opens them fully instead.
+        # ventilate tilt. Until 2026.07.19 the tilt alternative required
+        # current_tilt_position <= ventilate_tilt_position ("do not pull the
+        # slats down"), which made the configured ventilate state unreachable:
+        # in_ventilate_position checks the tilt angle within tolerance, so a
+        # cover with slats beyond the angle was NOT in the ventilate position,
+        # yet no branch would drive it there (Issue #615). A tilted window now
+        # always resolves to the ventilate target for a tilt cover at or below
+        # the ventilate position, regardless of the current slat angle.
         entity_states = {
             "binary_sensor.window_opened": "off",
             "binary_sensor.window_tilted": "on",
@@ -283,4 +288,4 @@ class TestShadingEndBranchSelection:
         variables["current_tilt_position"] = 80
         variables["ventilate_tilt_position"] = 60
         alias = _first_matching_alias(_env(entity_states), choose, variables)
-        assert alias == "Only tilt open after shading ends"
+        assert alias == "Ventilation after shading ends"
