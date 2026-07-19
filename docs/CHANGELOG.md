@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.07.19
+
+- 🐛 **Fix:** The handbook link in the description of the **Sun Shading / Sun Protection** section pointed to the contact-sensor page (`handbook/contacts#contact_delay_status`) instead of the shading page. It now links to `handbook/shading`
+
+---
+
 # CCA 2026.07.14 V2
 
 - 🔧 **Improvement:** A **sun shading that survived midnight** is now treated as proof that CCA was blocked for a whole day (the nightly 23:55 clean-up would otherwise have cleared it — think of a global condition that stayed false for days). The next run tidies up **first** instead of acting on the days-old shading state — previously it could drive straight into a shading position from last week. Deliberately conservative: an old-but-clean status is left alone, because quiet stretches are normal — a setup whose opening and closing times come from the calendar *time control* ("Open Cover"/"Close Cover" events) may legitimately skip whole weekends without a single run
