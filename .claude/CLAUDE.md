@@ -33,7 +33,7 @@ State is persisted as a JSON string in an `input_text` helper:
 ```json
 {"bas":"opn","shd":1,"pnd":"non","win":"opn","frc":"non","res":1,"man":0,
  "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},
- "v":6,"t":0}
+ "v":6,"t":0,"d":0}
 ```
 
 | Field | Values | Meaning |
@@ -50,6 +50,8 @@ State is persisted as a JSON string in an `input_text` helper:
 | `ts.due` | Unix ts | Fire time of armed pending (`0` when `pnd == 'non'`) |
 | `ts.arm` | Unix ts | First-arming anchor of the retry sequence, preserved across retries (`0` when `pnd == 'non'`) |
 | `ts.man` | Unix ts | Last manual override event |
+| `t` | Unix ts | Last helper write (every run stamps it) |
+| `d` | Unix ts | Last write of a run that drove the cover (`drive_plan.run`) |
 
 ---
 
@@ -85,7 +87,7 @@ One line each; full rationale, examples and edge cases in
 5. **`opened` beats `tilted`** — every tilted branch must check that the opened contact is not active.
 6. **Lockout is independent of `resident_allow_ventilation`** — it is a safety feature; gate only the tilted sub-branch.
 7. **`man: 0` only when actually driving** — encoded via the `will_drive` pattern; never in pending timers or pure state syncs. (Documented exceptions: midnight reset, `override_expired`.)
-8. **Timestamp rules** — `ts.shd` only on a real `shd` 0↔1 change; `ts.arm` preserved across retries; `pnd: 'non'` implies `ts.due`/`ts.arm` = 0; every pending execution path must be terminal (re-arm or clear); contact-handler branches must not touch `pnd`/`ts.due`/`ts.arm`.
+8. **Timestamp rules** — `ts.shd` only on a real `shd` 0↔1 change; `ts.arm` preserved across retries; `pnd: 'non'` implies `ts.due`/`ts.arm` = 0; every pending execution path must be terminal (re-arm or clear); contact-handler branches must not touch `pnd`/`ts.due`/`ts.arm`; `d` only when `drive_plan.run` was true (never on pure state syncs — the manual-detection settle window keys off it).
 9. **`ts_now` at point of use** — never a global variable (delays make it stale).
 10. **`trigger_variables:` is a limited template context** — no `states()` / `is_state()` / `state_attr()`; move state reads into action-scope `variables:`.
 11. **`pnd` is a single enum** — start and end pending are mutually exclusive by schema; both arming branches gate on the opposite pending to prevent ping-pong.

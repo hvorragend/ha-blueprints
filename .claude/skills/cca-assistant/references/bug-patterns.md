@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AO, with cause and fix)
+# CCA Known Bug Patterns (A–AP, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -676,5 +676,24 @@ is_opening_scheduled: >-
 The same source was also missing from the "no trigger source at all" configuration error (config check + online validator, added 2026.07.19): a resident-driven setup **has** a trigger source and must not be flagged.
 
 **Rule:** Bug Pattern AL's rule, restated with its first recurrence: `bas` is written by the opening handler **and** the resident-leaving handler — any future source that writes `bas='opn'` must be added to `is_opening_scheduled` (pinned by `tests/test_opening_schedule_gate.py`) *and* to the scheduling config checks.
+
+---
+
+### Bug Pattern AP: Manual moves swallowed by suppression windows keyed on non-driving activity (Issue #614)
+
+**Symptom:** A manual cover move made shortly after *any* helper write — or while any run of the automation is still executing — is never recorded: `man` stays `0`, `ts.man` unchanged, and the next trigger (shading execution, closing, contact event) drives straight over the position the user set by hand. Because `t_manual_position` carries `for: 60s` and the position then stays stable, the trigger never re-fires — the move is lost for good.
+
+**Cause:** The manual-detection branch had two suppressions that both keyed on the wrong signal:
+
+1. The settle window `now > helper_json.t + drive_time + 60` counted from **every** helper write — but `t` is stamped by pure state syncs too (window/resident updates, shading pending arming, base-only updates). Each such write opened a ~150 s blind window although nothing moved, so there was nothing to suppress.
+2. `this.attributes.current == 0` dropped manual events while **any** run was executing. With `mode: queued` and long in-run waits (fixed+random drive delay up to 10 minutes, contact settle delay, midnight-reset sleep) this window was large — and a hygiene-only run does not move the cover either.
+
+**Fix:** Distinguish "last write" from "last drive". New top-level helper field `d`, stamped by `helper_update` only when `(drive_plan | default({})).run | default(false)` is true — the same `will_drive` decision that gates `man: 0` (Invariant 7). The settle window keys off `d` (`helper_ts_drive`); the `current == 0` condition is removed entirely: under `mode: queued` a manual event always executes *after* the concurrent run's helper write, so a run that drove suppresses via the (now drive-scoped) window, and a run that did not drive must not suppress at all. `t` keeps its stamp-on-every-write semantic — `automation_resumed`, the takeover check and `midnight_reset_missed` depend on it.
+
+**Safety direction preserved:** CCA still never fights its own drive — a queued manual event that fired before a drive but executes after it lands inside the fresh `d` window and is suppressed, which is correct: the drive physically overrode that manual position anyway. The accepted corner (run=true but movement suppressed by the live pause check / tolerance no-op still stamps `d`) errs toward a missed detection, never toward a false `man: 1`.
+
+**Consequence for the helper length:** the compact JSON grows to a worst-case 218 chars, so the minimum-length config check was raised 210 → 225 (recommended length stays 254). `tests/test_manual_detection_drive_window.py` pins the worst-case length against the configured minimum.
+
+**Rule:** A suppression that exists to hide CCA's *own movements* must key off the drive decision (`drive_plan.run` / `d`), never off write activity (`t`) or run activity (`this.attributes.current`) — bookkeeping writes and idle-waiting runs cannot have caused a position change, so suppressing detection around them silently discards real manual moves (same asymmetry family as Bug Pattern Y: suppress only when the thing being muted can actually occur).
 
 ---
