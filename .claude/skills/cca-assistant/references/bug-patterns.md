@@ -619,3 +619,35 @@ This also repairs the arming by construction: at the attach render the state sti
 **Rule:** In a **trigger** template context, treat `this` as "entity id only". Its timestamps describe the state *before* the re-attach (or nothing at all) — any `this.<timestamp>` read in a trigger template or in `trigger_variables` reintroduces this bug. Action-scope templates are different: `async_trigger` re-reads `this` from the state machine at run time, so `automation_resumed` / `is_restart_run` may keep using it. `TestResumeTrigger::test_it_does_not_read_the_this_snapshot` and `::test_it_stays_dark_while_the_automation_still_reads_off` pin both halves.
 
 ---
+
+### Bug Pattern AN: Stateless-contact gate blocks per "any contact invalid" instead of per contradicted reading (Issue #622)
+
+**Symptom:** A window is tilted for a long ventilation; the cover sits at the ventilation
+position, `win: 'tlt'`, `shd: 1`. The shading-end trigger fires but the run stops in the
+global conditions (`condition/4`, the stateless-contact gate) — shading never ends, the
+evening closing is blocked the same way, and the cover is parked at the ventilation position
+until someone moves the window. The trace shows the gate's `entities` list containing only
+the *opened* contact: it is `unavailable` (a battery handle that hubs mark unavailable after
+hours without an event) while the *tilted* contact is alive and `on`.
+
+**Cause:** The gate (2026.07.13 V6, see recovery.md Tier 2) blocked whenever *any* configured
+contact was invalid and the last known `win` was not `'cls'`. But an invalid contact reads as
+"off" in every handler, and that reading only lies when the contact was last known **on**.
+With `win == 'tlt'` the opened contact was last known *off* — its invalid read agrees with the
+last known truth, exactly like the `win == 'cls'` case the gate already let through. The
+blanket block turned a routinely-silent battery sensor into a dead automation in the most
+common ventilation state.
+
+**Fix:** Block per contact, only when the invalid read contradicts `win`: the opened contact
+blocks only while `win == 'opn'`; the tilted contact blocks while `win != 'cls'` (at
+`win == 'opn'` its real state is masked by the opened contact, so it stays conservative).
+Mirrored verbatim in the resume trigger's `contact_ready` clause (recovery.md).
+
+**Rule:** An availability gate that guards a *fallback reading* must block on the
+contradiction between the fallback value and the last known truth, not on mere sensor
+invalidity — otherwise the gate is stricter than the risk it guards and parks the system in
+states the fallback handles correctly. When judging a contact, derive what its last known
+value *was* from the `win` encoding (`opn` ⇔ opened on; `tlt` ⇔ opened off + tilted on;
+`cls` ⇔ both off) instead of treating `win != 'cls'` as "everything is unknown".
+
+---

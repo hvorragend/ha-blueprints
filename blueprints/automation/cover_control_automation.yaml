@@ -3985,7 +3985,8 @@ triggers:
            (position_source != 'custom_sensor' or custom_position_sensor == [] or
             states(custom_position_sensor) not in invalid_states) %}
       {% set contact_missing = is_ventilation_enabled and (
-           (contact_window_opened != [] and states(contact_window_opened) in invalid_states) or
+           (contact_window_opened != [] and states(contact_window_opened) in invalid_states and
+            helper.win | default('cls') == 'opn') or
            (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
       {% set contact_ready = helper.win | default('cls') == 'cls' or not contact_missing %}
       {{ attached > 0 and
@@ -4078,12 +4079,13 @@ conditions:
   # An unknown/empty/corrupt helper must pass, so the init step can rewrite it.
   - condition: template
     value_template: "{{ cover_status_helper == [] or states(cover_status_helper) != 'unavailable' }}"
-  - condition: template # Stateless window contact: only blocks while the window was last known open/tilted
+  - condition: template # Stateless window contact: only blocks while its invalid read ("off") contradicts the last known window state
     value_template: >-
       {% set helper = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
       {% set last_window_closed = helper in invalid_states or helper | regex_search('"win"\s*:\s*"cls"') %}
+      {% set last_window_open = helper not in invalid_states and helper | regex_search('"win"\s*:\s*"opn"') %}
       {% set contact_missing = is_ventilation_enabled and (
-           (contact_window_opened != [] and states(contact_window_opened) in invalid_states) or
+           (contact_window_opened != [] and states(contact_window_opened) in invalid_states and last_window_open) or
            (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
       {{ last_window_closed or not contact_missing or
          trigger.id | default('') in ['t_contact_opened_changed', 't_contact_tilted_changed',
