@@ -416,16 +416,19 @@ class CCAValidator {
 
         // A sensor trigger source exists only when the feature is enabled AND its sensor is set;
         // matches the source list of the blueprint's is_opening_scheduled gate.
+        const residentConfig = c.resident_config || [];
         const hasSensorSource =
             (autoOptions.includes('auto_brightness_enabled') && c.default_brightness_sensor && c.default_brightness_sensor.length > 0) ||
-            (autoOptions.includes('auto_sun_enabled') && c.default_sun_sensor && c.default_sun_sensor.length > 0);
+            (autoOptions.includes('auto_sun_enabled') && c.default_sun_sensor && c.default_sun_sensor.length > 0) ||
+            (c.resident_sensor && c.resident_sensor.length > 0 &&
+                (residentConfig.includes('resident_opening_enabled') || residentConfig.includes('resident_closing_enabled')));
         const upDownEnabled = autoOptions.includes('auto_up_enabled') || autoOptions.includes('auto_down_enabled');
 
         if (isTimeControlDisabled) {
             this.addInfo('⏰ Time control is disabled (time_control_enabled not in auto_options) - skipping time validation');
             this.addWarning('⚠️ Breaking change (2026.07.12): time control is disabled whenever "time_control_enabled" is missing from auto_options. If this configuration predates the options consolidation (~2026.05) and you still want time windows, add time_control_enabled to auto_options.');
             if (upDownEnabled && !hasSensorSource) {
-                this.addError('🚫 Morning Opening / Evening Closing is enabled but has NO trigger source: time control is disabled and no Brightness/Sun sensor is configured - the cover will NEVER open or close automatically. For a fixed-time schedule (e.g. close at 22:00) Time Control IS the schedule: add time_control_enabled to auto_options (check "⏲️ Time Control" in the UI) and set the Early/Late time fields.');
+                this.addError('🚫 Morning Opening / Evening Closing is enabled but has NO trigger source: time control is disabled and no Brightness/Sun sensor or Resident sensor with resident opening/closing is configured - the cover will NEVER open or close automatically. For a fixed-time schedule (e.g. close at 22:00) Time Control IS the schedule: add time_control_enabled to auto_options (check "⏲️ Time Control" in the UI) and set the Early/Late time fields.');
             }
             if (autoOptions.includes('auto_sun_enabled') || autoOptions.includes('auto_brightness_enabled')) {
                 this.addWarning('⚠️ Sun Elevation / Brightness triggers are enabled WITHOUT time windows: they fire as soon as their threshold is crossed - covers may open around sunrise instead of a configured earliest time, and close late in the evening (issue #595). If that is not intended, add time_control_enabled to auto_options.');
@@ -436,7 +439,7 @@ class CCAValidator {
         if (timeControl === 'time_control_disabled') {
             this.addWarning('⚠️ time_control: time_control_disabled is obsolete and no longer evaluated. Time control is enabled (time_control_enabled in auto_options) but no time source is selected - set time_control to time_control_input or time_control_calendar.');
             if (upDownEnabled && !hasSensorSource) {
-                this.addError('🚫 Morning Opening / Evening Closing is enabled but has NO trigger source: the stored legacy value time_control: time_control_disabled selects no time source, and no Brightness/Sun sensor is configured - the cover will NEVER open or close automatically. Set time_control to time_control_input (UI: "Time Control Type" → "Use the time input fields") to make the Early/Late time fields the schedule again.');
+                this.addError('🚫 Morning Opening / Evening Closing is enabled but has NO trigger source: the stored legacy value time_control: time_control_disabled selects no time source, and no Brightness/Sun sensor or Resident sensor with resident opening/closing is configured - the cover will NEVER open or close automatically. Set time_control to time_control_input (UI: "Time Control Type" → "Use the time input fields") to make the Early/Late time fields the schedule again.');
             }
             return;
         }
