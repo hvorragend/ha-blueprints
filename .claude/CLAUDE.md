@@ -67,9 +67,9 @@ State is persisted as a JSON string in an `input_text` helper:
 
 `effective_state` returns `lock | opn | vnt | cls | shd`. VENT is a *floor*, not a
 target: BASE=OPN beats it only when an opening automation actually exists
-(`is_opening_scheduled`, derived from the opening triggers' `enabled:` gates — Bug
-Patterns Z + AL). Full rationale and the `base_target` implementation:
-`references/architecture.md`.
+(`is_opening_scheduled`, derived from the `enabled:` gates of every `bas='opn'`
+writer incl. the resident opening — Bug Patterns Z + AL + AO). Full rationale and
+the `base_target` implementation: `references/architecture.md`.
 
 ---
 

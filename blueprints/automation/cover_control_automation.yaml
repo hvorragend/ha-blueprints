@@ -2296,6 +2296,7 @@ trigger_variables:
   cover_type: !input cover_type
   is_awning: "{{ cover_type == 'awning' }}"
   resident_sensor: !input resident_sensor
+  resident_config: !input resident_config
 
   # Position source configuration
   position_source: !input position_source
@@ -2437,17 +2438,19 @@ trigger_variables:
   # An open base state ('opn') only reflects a real "open" intent when an opening automation
   # exists that can drive bas to 'opn'. Without one, bas stays at its 'opn' init default forever
   # (it is only ever driven to 'cls' by the close handler), so the VENT floor could never apply.
-  # The gate therefore mirrors the enabled: gates of the opening triggers: time fields and
-  # calendar are only two of the four sources - brightness and sun elevation open the cover
-  # without any time control (the opening branch passes them through via is_time_control_disabled)
-  # and their bas='opn' is just as real. Used by effective_state (and its recovery mirror) to let
-  # VENT beat a bas='opn' that no opening automation ever set.
+  # The gate therefore mirrors the enabled: gates of the triggers that write bas='opn': time
+  # fields and calendar are only two of the five sources - brightness and sun elevation open the
+  # cover without any time control (the opening branch passes them through via
+  # is_time_control_disabled), and the resident-leaving handler opens (and writes bas='opn')
+  # when resident opening is configured, all without any other source. Used by effective_state
+  # (and its recovery mirror) to let VENT beat a bas='opn' that no opening automation ever set.
   is_opening_scheduled: >-
     {{ is_up_enabled and (
          is_time_field_enabled or
          is_calendar_enabled or
          (is_brightness_enabled and default_brightness_sensor != []) or
-         (is_sun_elevation_enabled and default_sun_sensor != [])) }}
+         (is_sun_elevation_enabled and default_sun_sensor != []) or
+         ('resident_opening_enabled' in resident_config and resident_sensor != [])) }}
 
   # Ventilation and tilt are only available for blinds, not awnings
   is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
@@ -2885,9 +2888,6 @@ variables:
         }
       }}
     {% endif %}
-
-  # Resident configuration input - defined here so effective_state can reference it
-  resident_config: !input resident_config
 
   # ═══════════════════════════════════════════════════════════════════════════
   # STATE MANAGER v6 - Centralized State Access with Priority Cascade
@@ -7540,9 +7540,12 @@ actions:
                       not is_time_field_enabled and
                       not is_calendar_enabled and
                       not (is_brightness_enabled and default_brightness_sensor != []) and
-                      not (is_sun_elevation_enabled and default_sun_sensor != [])
+                      not (is_sun_elevation_enabled and default_sun_sensor != []) and
+                      not (resident_sensor != [] and
+                           ('resident_opening_enabled' in resident_config or
+                            'resident_closing_enabled' in resident_config))
                     }}
-                  message: "Morning Opening / Evening Closing is enabled but has NO trigger source: Time Control is disabled (or the calendar has no entity) and no Brightness/Sun sensor is configured. The cover will never open or close automatically. For fixed-time schedules, enable the '⏲️ Time Control' checkbox in 'What should CCA control?' - the Early/Late time fields are the schedule. Configurations saved before ~2026.05 must re-enable this checkbox once (breaking change 2026.07.12)"
+                  message: "Morning Opening / Evening Closing is enabled but has NO trigger source: Time Control is disabled (or the calendar has no entity), no Brightness/Sun sensor is configured and no Resident sensor with resident opening/closing is set up. The cover will never open or close automatically. For fixed-time schedules, enable the '⏲️ Time Control' checkbox in 'What should CCA control?' - the Early/Late time fields are the schedule. Configurations saved before ~2026.05 must re-enable this checkbox once (breaking change 2026.07.12)"
 
                 # ========== ENTITY ATTRIBUTE & STATE CHECKS ==========
 

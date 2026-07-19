@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AL, with cause and fix)
+# CCA Known Bug Patterns (A–AO, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -649,5 +649,30 @@ invalidity — otherwise the gate is stricter than the risk it guards and parks 
 states the fallback handles correctly. When judging a contact, derive what its last known
 value *was* from the `win` encoding (`opn` ⇔ opened on; `tlt` ⇔ opened off + tilted on;
 `cls` ⇔ both off) instead of treating `win != 'cls'` as "everything is unknown".
+
+---
+### Bug Pattern AO: The VENT floor gate ignores the resident opening as a `bas='opn'` source (Issue #616)
+
+**Symptom:** In a setup where the **resident sensor does the opening and closing** (`resident_opening_enabled` + `resident_closing_enabled`, `auto_up_enabled`/`auto_down_enabled` checked, no time control, no brightness/sun opening source), the cover **stays at the ventilation position when the resident leaves while a window is tilted** — until the window is closed. Before the VENT-floor rework (≤ 2025.08.20) the identical leave event opened the cover fully. The trace shows the resident-leaving handler taking the "target VENTILATION (window tilted)" leaf because `effective_state == 'vnt'`.
+
+**Cause:** Exactly the Bug Pattern AL rule violated again by the next source: `is_opening_scheduled` mirrored the four *opening-trigger* sources (time fields, calendar, brightness, sun elevation) — but the **resident-leaving handler also writes `bas: 'opn'`** (its `leave_target == 'opn'` case sets `bas='opn'`, `ts.opn`) and opens the cover with no other source configured. In a resident-only setup the flag was therefore `false`, the VENT floor classified the (real) `bas: 'opn'` as the init default, `effective_state` returned `'vnt'` for the tilted window, and the leaving handler's VENT leaf held the ventilation position instead of falling through to the `leave_target` chain that opens.
+
+**Fix:** Add the resident opening as the fifth source of `is_opening_scheduled`, mirroring the gates of the path that writes `bas='opn'` (`t_resident_update` needs a configured sensor; the leave chain requires `resident_flags.opening_trigger`, i.e. `resident_opening_enabled`):
+
+```yaml
+is_opening_scheduled: >-
+  {{ is_up_enabled and (
+       is_time_field_enabled or
+       is_calendar_enabled or
+       (is_brightness_enabled and default_brightness_sensor != []) or
+       (is_sun_elevation_enabled and default_sun_sensor != []) or
+       ('resident_opening_enabled' in resident_config and resident_sensor != [])) }}
+```
+
+(`resident_config` moved from the `variables:` block into `trigger_variables:` for this — both clauses are static `!input` values, so the limited context is fine, Invariant 10.) With the flag true, the leaving handler's VENT leaf is skipped naturally (`effective_state == 'opn'`), the `leave_target` chain opens the cover, and `recovered_state` follows automatically (Invariant 13). While the resident is **present**, nothing changes: privacy-closing (or a denied `allow_open`) makes `base_target != 'opn'`, so the tilted window still yields the VENT floor — the evening-privacy use of the ventilation position (the issue author's main use case) is preserved, as is the arriving handler's VENT-hold leaf. #553 also stays fixed: a resident sensor with only `resident_closing_enabled` (or no sensor at all) opens nothing and must not lift the floor.
+
+The same source was also missing from the "no trigger source at all" configuration error (config check + online validator, added 2026.07.19): a resident-driven setup **has** a trigger source and must not be flagged.
+
+**Rule:** Bug Pattern AL's rule, restated with its first recurrence: `bas` is written by the opening handler **and** the resident-leaving handler — any future source that writes `bas='opn'` must be added to `is_opening_scheduled` (pinned by `tests/test_opening_schedule_gate.py`) *and* to the scheduling config checks.
 
 ---

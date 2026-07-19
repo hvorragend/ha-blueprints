@@ -40,7 +40,7 @@ loading the reference first:
 | Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
-| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AL with cause and fix) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AO with cause and fix) |
 
 The always-binding rules (the 14 invariants as one-liners, code style, quality
 gates, version bumping) are indexed in `.claude/CLAUDE.md`.
@@ -106,8 +106,9 @@ used by `shading_start_max_duration` and `shading_end_max_duration`.
 
 `effective_state` returns: `lock | opn | vnt | cls | shd`. VENT is a *floor*,
 not a target: BASE=OPN beats it only when an opening automation actually exists
-(`is_opening_scheduled`, derived from the opening triggers' `enabled:` gates —
-Bug Patterns Z + AL). The `base_target` implementation and the full rationale
+(`is_opening_scheduled`, derived from the `enabled:` gates of every `bas='opn'`
+writer incl. the resident opening — Bug Patterns Z + AL + AO). The `base_target`
+implementation and the full rationale
 are in [references/architecture.md](references/architecture.md).
 
 **Critical**: `effective_state == 'opn'` can result from EITHER `base='opn'`
@@ -260,7 +261,7 @@ details). `trigger.id` is the source of truth for "which path ran".
 
 ### Regressions
 Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
-(A–AL, each with symptom / cause / fix / derived rule) before writing a fix —
+(A–AO, each with symptom / cause / fix / derived rule) before writing a fix —
 most "new" bugs are a documented pattern reaching a new code path.
 
 ---
