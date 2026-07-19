@@ -1310,15 +1310,26 @@ class TestAutomationResumed:
 
 
 class TestResumeTrigger:
-    """The trigger that makes the resume noticeable at all - without polling."""
+    """The trigger that makes the resume noticeable at all - without polling.
+
+    Since #617 it reads the attach moment LIVE from the automation's own state instead
+    of trusting `this`: on automation.turn_on HA attaches the triggers BEFORE it writes
+    the on-state, so the `this` snapshot still holds the pre-enable state - last_changed
+    is the moment the automation was switched OFF, the template was true from the start,
+    and the single false -> true edge could never happen. On a reload/save the snapshot
+    does not even exist yet. Only `this.entity_id` is trustworthy (an entity id cannot
+    go stale), and it is captured in trigger_variables as `automation_entity`."""
+
+    AUTOMATION = "automation.cca_test"
 
     def _tpl(self) -> str:
         for t in BP["triggers"]:
-            if t.get("id") == "t_recovery" and "this.last_changed" in str(t.get("value_template", "")):
+            if t.get("id") == "t_recovery" and "automation_entity" in str(t.get("value_template", "")):
                 return t["value_template"]
         raise AssertionError("resume trigger not found")
 
     def _run(self, *, helper_t, attached, now_offset_s, helper_win="cls",
+             automation_state="on", automation_entity=None,
              cover_state="open", opened_state="off", tilted_state="off",
              position_source="current_position_attr", custom_sensor_state=None,
              vent=True):
@@ -1326,18 +1337,19 @@ class TestResumeTrigger:
                   % (helper_win, helper_t))
         entities = {
             "input_text.h": helper,
+            self.AUTOMATION: automation_state,
             "cover.blind": cover_state,
             "binary_sensor.opened": opened_state,
             "binary_sensor.tilted": tilted_state,
             "sensor.pos": custom_sensor_state if custom_sensor_state is not None else "unknown",
         }
-        env = _env(entities)
+        env = _env(entities, last_changed={self.AUTOMATION: attached})
         env.globals["now"] = lambda: attached + datetime.timedelta(seconds=now_offset_s)
         env.filters["from_json"] = lambda v, default=None: __import__("json").loads(v)
         out = env.from_string(self._tpl()).render(
             cover_status_helper="input_text.h",
             invalid_states=INVALID_STATES,
-            this={"last_changed": attached},
+            automation_entity=self.AUTOMATION if automation_entity is None else automation_entity,
             blind="cover.blind",
             position_source=position_source,
             custom_position_sensor="sensor.pos" if custom_sensor_state is not None else [],
@@ -1359,6 +1371,30 @@ class TestResumeTrigger:
 
     def test_it_fires_a_minute_after_the_automation_came_back(self):
         assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61) is True
+
+    def test_it_does_not_read_the_this_snapshot(self):
+        """#617: `this` in a trigger template is a snapshot from BEFORE the re-enable
+        (stale timestamps) - or None on a reload. Any `this.` read inside the template
+        reintroduces the dead trigger; only trigger_variables may touch it (entity id)."""
+        assert "this." not in self._tpl()
+
+    def test_it_stays_dark_while_the_automation_still_reads_off(self):
+        """The turn_on sequence: attach happens first, the on-write follows. At the attach
+        render the state machine still holds 'off' with last_changed = the switch-OFF
+        moment, hours old - trusting it would make the template true from the start
+        (the #617 failure). Reading 0 instead keeps the attach render false, which arms
+        the trigger; the on-write then lands as a tracked state change."""
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED - datetime.timedelta(hours=6),
+                         now_offset_s=6 * 3600, automation_state="off") is False
+
+    def test_no_entity_id_degrades_to_never_true(self):
+        """A reload/save re-creates the automation before its first state write: no `this`
+        snapshot at attach, so automation_entity is ''. The template must stay false (not
+        error) - the automation_reloaded event trigger owns that path."""
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=3600,
+                         automation_entity="") is False
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=3600,
+                         automation_entity="automation.gone") is False
 
     def test_it_stays_quiet_when_the_helper_is_current(self):
         """No polling: an automation that was never off never fires this trigger."""
@@ -1400,6 +1436,69 @@ class TestResumeTrigger:
                    for t in BP["triggers"])
 
 
+class TestReloadEventTrigger:
+    """The resume prompt for the path the template trigger cannot see (#617).
+
+    A reload/save re-creates the automation entity BEFORE its first state write, so at
+    trigger attach there is no `this` snapshot and no entity id - the resume template
+    stays dark forever for that path. The automation_reloaded event fires once per
+    reload, after the new entities are attached; the recovery gate claims the run via
+    automation_resumed. The event reaches EVERY automation, so an unclaimed run (someone
+    else's automation was saved) is stopped silently before the dispatch."""
+
+    SILENCER = "Reload event without a resume"
+
+    def _trigger(self) -> dict:
+        return next(t for t in BP["triggers"] if t.get("id") == "t_automation_reloaded")
+
+    def test_it_listens_to_the_reload_event(self):
+        t = self._trigger()
+        assert t["trigger"] == "event"
+        assert t["event_type"] == "automation_reloaded"
+
+    def test_it_is_not_gated_on_the_opt_in(self):
+        """Same rule as the resume trigger: the run it starts only cleans the helper
+        (will_drive gates the movement), so it prevents wrong movements rather than
+        causing one - not what the opt-in guards against."""
+        assert "is_recovery_enabled" not in self._trigger().get("enabled", "")
+        assert "cover_status_helper" in self._trigger()["enabled"]
+
+    def test_a_resumed_run_is_claimed_by_the_recovery_gate(self):
+        gate = next(c for c in _branch_gate(RECOVERY) if "automation_resumed" in str(c))
+        assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id="t_automation_reloaded"),
+                            automation_resumed=True) is True
+
+    def test_an_unclaimed_run_is_stopped_before_the_dispatch(self):
+        """The silencer sits BETWEEN the recovery gate and the dispatch: a claimed run
+        never reaches it (the gate ends in stop:), an unclaimed one must not fall into
+        the dispatch - no branch knows the id, and the config-check default would run
+        on every save of any automation in the household."""
+        steps = BP["actions"]
+        gate = next(i for i, s in enumerate(steps)
+                    if isinstance(s, dict) and str(s.get("alias", "")).startswith(RECOVERY))
+        silencer = next(i for i, s in enumerate(steps)
+                        if isinstance(s, dict) and str(s.get("alias", "")).startswith(self.SILENCER))
+        choose = next(i for i, s in enumerate(steps)
+                      if isinstance(s, dict) and isinstance(s.get("choose"), list)
+                      and len(s["choose"]) > 5)
+        assert gate < silencer < choose
+        step = steps[silencer]
+        assert any("stop" in s for s in step["then"])
+        cond = step["if"][0]
+        assert _render_bool(cond, {}, trigger=types.SimpleNamespace(id="t_automation_reloaded")) is True
+        for tid in ["t_open_1", "t_recovery", "t_manual_position"]:
+            assert _render_bool(cond, {}, trigger=types.SimpleNamespace(id=tid)) is False, tid
+
+    def test_the_silencer_is_known_to_the_trace_tools(self):
+        """recovery.md: a new pre-dispatch step that can stop: a run needs a
+        PRE_DISPATCH_DEFINITIONS entry, or its traces read as 'No branch executed'."""
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parent.parent
+        for tool in ["docs/trace-analyzer/index.html", "docs/trace-compare/index.html"]:
+            html = (root / tool).read_text(encoding="utf-8")
+            assert self.SILENCER in html, tool
+
+
 class TestResumedRunClaimsEveryTrigger:
     def test_the_recovery_gate_runs_before_the_dispatch(self):
         """On a resumed run the recovery accepts ANY trigger id. If a dispatch branch could
@@ -1420,7 +1519,7 @@ class TestResumedRunClaimsEveryTrigger:
     def test_any_trigger_is_claimed_while_resumed(self):
         gate = next(c for c in _branch_gate(RECOVERY) if "automation_resumed" in str(c))
         for tid in ["t_open_1", "t_close_5", "t_contact_opened_changed",
-                    "t_shading_start_pending_1", "t_reset_timeout"]:
+                    "t_shading_start_pending_1", "t_reset_timeout", "t_automation_reloaded"]:
             assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
                                 automation_resumed=True) is True, tid
 
@@ -1663,7 +1762,7 @@ class TestRecoveryTriggers:
 
     def _resume_trigger(self) -> dict:
         return next(t for t in self._recovery()
-                    if t["trigger"] == "template" and "this.last_changed" in t["value_template"])
+                    if t["trigger"] == "template" and "automation_entity" in t["value_template"])
 
     FORCE_ENTITIES = ["auto_up_force", "auto_down_force",
                       "auto_shading_start_force", "auto_ventilate_force"]
@@ -1892,7 +1991,9 @@ class TestBranchDispatch:
     def _matching_branches(self, trigger_id: str) -> list[str]:
         trigger = types.SimpleNamespace(id=trigger_id)
         hits = []
-        for b in [_branch(RECOVERY)] + _top_level_branches():
+        # The two pre-dispatch consumers count as branches here: the recovery gate
+        # (claims t_recovery) and the reload silencer (consumes t_automation_reloaded).
+        for b in [_branch(RECOVERY), _branch(TestReloadEventTrigger.SILENCER)] + _top_level_branches():
             entry = b.get("conditions") or b.get("if") or []
             gates = [c for c in entry if isinstance(c, str) and "trigger.id" in c]
             if gates and all(_render_bool(g, {}, strict=False, trigger=trigger) for g in gates):
