@@ -279,7 +279,7 @@ most "new" bugs are a documented pattern reaching a new code path.
 **Force:** `t_force_enabled_open/close/shading/ventilate`, `t_force_disabled_open/close/shading/ventilate`, `t_force_pause_disabled`
 **Manual:** `t_manual_position` (×3 sources), `t_manual_tilt`
 **Reset:** `t_shading_reset` (23:55), `t_reset_fixedtime`, `t_reset_timeout`, `t_reset_position`
-**Recovery:** `t_recovery` (shared id on ~20 triggers: `homeassistant: start`, the resume trigger, one per recovering source — see [references/recovery.md](references/recovery.md))
+**Recovery:** `t_recovery` (shared id on ~20 triggers: `homeassistant: start`, the resume trigger, one per recovering source), `t_automation_reloaded` (the `automation_reloaded` event — the resume prompt for reload/save, where the resume template is blind; unclaimed runs are stopped pre-dispatch — see [references/recovery.md](references/recovery.md))
 
 ---
 

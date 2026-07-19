@@ -2514,6 +2514,14 @@ trigger_variables:
     {{ ([blind] if blind != [] else []) +
        ([custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else []) }}
 
+  # The automation's own entity id, from the `this` snapshot HA passes at trigger attach.
+  # On automation.turn_on that snapshot still holds the PRE-enable state (HA writes the
+  # on-state only after the triggers are attached), so its timestamps are stale - but the
+  # entity id is not, and it is the only field the resume trigger may read from it.
+  # On a reload/save the entity is re-created before its first state write, so there is
+  # no snapshot at all ('' here); the automation_reloaded event trigger owns that path.
+  automation_entity: "{{ this.entity_id | default('') }}"
+
 
 ################################################################################
 # VARIABLES
@@ -3029,11 +3037,11 @@ variables:
   helper_ts_write: "{{ helper_json.t | default(0) | int }}"
 
   # AUTOMATION RESUMED - Did the automation come back after being switched off?
-  # `this` is a snapshot taken when the triggers were attached, so this.last_changed is
-  # the moment the automation was switched on (or created on restart/reload). A helper
-  # older than that means every event since then is lost and nothing in it can be trusted.
-  # Nothing else reports this: no entity became unavailable, and homeassistant: start
-  # does not fire when an automation is merely turned on again.
+  # Action scope only: here `this` is re-read from the state machine at run time, so
+  # this.last_changed is the moment the automation was switched on (or created on
+  # restart/reload). A helper older than that means every event since then is lost and
+  # nothing in it can be trusted. Do NOT copy this read into a trigger template - there
+  # `this` is a snapshot from BEFORE the re-enable, or none at all (Bug Pattern AM).
   automation_resumed: >-
     {{ helper_ts_write > 0 and
        helper_ts_write < as_timestamp(this.last_changed | default(0), 0) }}
@@ -3953,16 +3961,24 @@ triggers:
     for: *recovery_settle
     enabled: "{{ instance_active != [] }}"
 
-  # The automation itself was switched on again (or reloaded, or recreated on restart).
-  # No entity changed, so none of the triggers above fire. The 60 s offset is what ARMS this:
-  # a template trigger only fires on false -> true, and without it an already-stale helper
-  # would be true from the start. Not gated on is_recovery_enabled - acting on a days-old
-  # helper is what moves the cover wrongly, and the run it starts only cleans the helper.
-  # The readiness clauses mirror the availability gates (the single edge must not fire
-  # into a blocked run).
+  # The automation itself was switched on again (or recreated on restart). No entity
+  # changed, so none of the triggers above fire. The attach moment is read LIVE from the
+  # automation's own state - NOT from the `this` snapshot, whose timestamps are stale on
+  # a re-enable (HA writes the on-state only after attaching the triggers; issue #617).
+  # The off -> on write lands as a tracked state change and re-renders the template, so
+  # it is false while the state still reads 'off' - which is what ARMS it: a template
+  # trigger only fires on false -> true. The 60 s offset then lets any regular trigger
+  # cancel the catch-up by writing the helper first. Not gated on is_recovery_enabled -
+  # acting on a days-old helper is what moves the cover wrongly, and the run it starts
+  # only cleans the helper. The readiness clauses mirror the availability gates (the
+  # edge must not fire into a blocked run). A reload/save re-creates the automation
+  # before its first state write, so automation_entity is '' and this trigger stays
+  # dark for that path - the automation_reloaded event below owns it.
   - trigger: template
     value_template: >-
-      {% set attached = as_timestamp(this.last_changed | default(0), 0) %}
+      {% set automation_state = states[automation_entity] if automation_entity != '' else none %}
+      {% set attached = as_timestamp(automation_state.last_changed, 0)
+           if automation_state is not none and automation_state.state == 'on' else 0 %}
       {% set helper_state = states(cover_status_helper) %}
       {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% set critical_ready = states(blind) not in invalid_states and
@@ -3979,6 +3995,17 @@ triggers:
          critical_ready and contact_ready }}
     enabled: "{{ cover_status_helper != [] }}"
     id: "t_recovery"
+
+  # A reload re-creates the automation entity BEFORE its first state write: the trigger
+  # above has no entity id to read there and can never fire (and every UI save of the
+  # blueprint inputs is a reload of the edited automation). The reload event fires once
+  # per reload, after the new entities are attached, and reaches EVERY automation - the
+  # recovery gate claims the run only while automation_resumed (or a sibling claim) holds;
+  # an unclaimed run is stopped silently before the dispatch.
+  - trigger: event
+    event_type: automation_reloaded
+    id: "t_automation_reloaded"
+    enabled: "{{ cover_status_helper != [] }}"
 
   # Resets
   - trigger: template
@@ -5702,7 +5729,14 @@ actions:
             choose: []
             default: *recovery_apply
 
-
+  # The reload event reaches every automation, not just the one that was saved. A run
+  # the recovery gate did not claim has nothing to catch up - the helper is current -
+  # and none of the dispatch branches know its trigger id, so it ends here.
+  - alias: "Reload event without a resume - nothing to catch up"
+    if:
+      - "{{ trigger.id is defined and trigger.id == 't_automation_reloaded' }}"
+    then:
+      - stop: "Reload event ignored: this automation was not resumed (helper is current)"
 
   - choose:
       ############################################################

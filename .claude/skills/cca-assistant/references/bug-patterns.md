@@ -595,3 +595,27 @@ The sensor-presence clauses are not cosmetic: `t_open_4` / `t_open_5` carry `ena
 
 ---
 
+### Bug Pattern AM: `this` in a trigger template is a pre-enable snapshot — or does not exist (Issue #617)
+
+**Symptom:** The resume trigger (`t_recovery`, the `this.last_changed` template) **never fires** after `automation.turn_on` (or a UI toggle): no run, no trace, no log line — the catch-up only happens when the next regular trigger is claimed by `automation_resumed`, which after an evening re-enable can be hours later. All other triggers work; verifying every clause of the template against recorded states says it *should* have fired.
+
+**Cause:** The trigger design assumed `this` in a trigger template is a snapshot of the **just-enabled** automation, so `this.last_changed` would be the switch-on moment. On current HA it is not, in either of the two paths the trigger was written for:
+
+- **`automation.turn_on` / UI toggle:** HA enables the automation in `_async_enable()`, which is documented in core as *"not expected to write state to the state machine"* — `async_turn_on` writes the `on`-state only **after** the triggers are attached. The `this` snapshot taken at attach therefore still holds the **pre-enable** state: `this.last_changed` is the moment the automation was switched **off**, hours or days earlier. `now() > attached + 60` and `helper.t < attached` are then already true at the arming render → the template is true from the start → a template trigger (which only fires on false → true, and arms only when the setup render is false) can never fire.
+- **Reload / UI save:** the entity is re-created, and `async_added_to_hass` attaches the triggers **before** the entity platform writes the first state. `hass.states.get(entity_id)` returns nothing, so `this` is `None` — `this.last_changed | default(0)` silently yields `0`, the `attached > 0` clause makes the template **permanently false**, and `default()` swallows the undefined so nothing is ever logged.
+
+Both failure modes are silent and both kill the single false→true edge. Unit tests could not see it: they fed the template a hand-built fresh `this`, i.e. they pinned the *assumption*.
+
+**Fix:** Never read a **timestamp** from `this` in a trigger template. The only field of the snapshot that cannot go stale is `this.entity_id` — capture it in `trigger_variables` (`automation_entity`) and read the attach moment **live** from the automation's own state, gated on the state actually being `'on'`:
+
+```jinja2
+{% set automation_state = states[automation_entity] if automation_entity != '' else none %}
+{% set attached = as_timestamp(automation_state.last_changed, 0)
+     if automation_state is not none and automation_state.state == 'on' else 0 %}
+```
+
+This also repairs the arming by construction: at the attach render the state still reads `'off'` → `attached == 0` → false → armed; the `off → on` write lands as a **tracked state change** (the template reads `states[automation_entity]`) and re-renders the template, which then flips true one minute later. For the reload/save path no template can help (`automation_entity` is `''` — there was no snapshot to take an entity id from), so the `automation_reloaded` **event trigger** covers it: it fires once per reload, *after* the new entities are attached, and the recovery gate claims the run via `automation_resumed`; a run the gate does not claim (someone else's automation was saved) is stopped silently by a pre-dispatch step before the dispatch.
+
+**Rule:** In a **trigger** template context, treat `this` as "entity id only". Its timestamps describe the state *before* the re-attach (or nothing at all) — any `this.<timestamp>` read in a trigger template or in `trigger_variables` reintroduces this bug. Action-scope templates are different: `async_trigger` re-reads `this` from the state machine at run time, so `automation_resumed` / `is_restart_run` may keep using it. `TestResumeTrigger::test_it_does_not_read_the_this_snapshot` and `::test_it_stays_dark_while_the_automation_still_reads_off` pin both halves.
+
+---

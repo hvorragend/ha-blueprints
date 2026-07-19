@@ -264,7 +264,7 @@ Three tiers, and the tier a source belongs to is decided by **what CCA can do wi
 
 This is **not** a restart, and it is the harder case. Nothing reports it: no entity became `unavailable`, no entity came back, and `homeassistant: start` does not fire when an automation is merely toggled. HA just re-attaches the triggers. Meanwhile the automation may have been off for **days**, so the helper is arbitrarily old — and every *latching* trigger from the orphan audit below (`t_shading_*_execution`, `t_reset_timeout`, `t_reset_position`) is **already true at attach time**. A template trigger arms on `false` and fires on the `false → true` edge, so a condition that is true from the start can never fire. The override stays forever, the dead pending stays forever.
 
-**Saving the automation is the same event, and it is by far the most common one.** When a user edits the blueprint inputs in the UI, HA removes the automation entity and adds it back, so `last_changed` is stamped with the save time and every trigger is attached anew — mechanically indistinguishable from a toggle. Verified against a live instance: after a restart every automation shares one `last_changed`, while the four re-saved ones each carry their own save timestamp. HA reloads **only the edited automation** (a save on some other automation does not disturb a CCA instance), but `automation.reload` / *"Reload automations"* / a restart re-attaches **all** of them, so every CCA instance resumes at once — `max: 25` covers that.
+**Saving the automation is the same *event*, and it is by far the most common one.** When a user edits the blueprint inputs in the UI, HA removes the automation entity and adds it back, so `last_changed` is stamped with the save time and every trigger is attached anew. Verified against a live instance: after a restart every automation shares one `last_changed`, while the four re-saved ones each carry their own save timestamp. HA reloads **only the edited automation** (a save on some other automation does not disturb a CCA instance — its own attached triggers merely receive the reload *event*, see piece 1b), but `automation.reload` / *"Reload automations"* / a restart re-attaches **all** of them, so every CCA instance resumes at once — `max: 25` covers that. A save is **not** mechanically identical to a toggle, though, and the prompt differs (Bug Pattern AM): a toggle keeps the entity, so the resume *template* sees it come back; a reload re-creates the entity before its first state write, so only the reload *event* reports it.
 
 Two consequences worth knowing, neither of them a defect: with `enable_recovery` on `always`, every save runs the full catch-up, so *changing a setting can move the cover* (a save is a re-attach, so `is_restart_run` is true — `outage` mode does not catch up on one). And a run that is inside a `delay:` when the save lands is killed with the queue, so its helper write is lost — the resume hygiene re-reads `win`/`frc`/`res` and repairs it, but `bas` is only re-derived when the catch-up is allowed.
 
@@ -272,15 +272,51 @@ Two consequences worth knowing, neither of them a defect: with `enable_recovery`
 
 Three pieces, and the first one is the only non-obvious part.
 
-**1. The resume trigger — how to fire on a condition that is already true.** `this` is a **snapshot** HA takes when it attaches the triggers (`state.as_dict()`), so `this.last_changed` is the moment the automation was switched on. The template therefore starts out *false* and arms itself:
+**1. The resume trigger — how to fire on a condition that is already true.** The attach
+moment is read **live** from the automation's own state, not from `this` (Bug Pattern AM,
+issue #617): HA's `_async_enable` is explicitly *"not expected to write state to the state
+machine"*, so on `automation.turn_on` the `this` snapshot taken at trigger attach still
+holds the **pre-enable** state — `this.last_changed` is the switch-**off** moment, and a
+template trusting it is already true at the arming render and can never fire. The only
+snapshot field that cannot go stale is `this.entity_id`; `trigger_variables` captures it
+as `automation_entity`, and the template reads the switch-on time from the state machine,
+gated on the state actually being `'on'`:
 
 ```jinja2
+{% set automation_state = states[automation_entity] if automation_entity != '' else none %}
+{% set attached = as_timestamp(automation_state.last_changed, 0)
+     if automation_state is not none and automation_state.state == 'on' else 0 %}
 {{ attached > 0 and (helper.t | default(0) | int) > 0 and
    as_timestamp(now()) > attached + 60 and
    (helper.t | default(0) | int) < attached }}
 ```
 
-At attach time `now()` is within the 60 s offset → `false` → **armed**. A minute later it flips → fires `t_recovery`. Once the recovery has written the helper, `t` overtakes the attach time → `false` again → re-armed for next time. **Without the offset this trigger would never fire at all** — the exact trap it exists to escape. It polls nothing: an automation that was never off never fires it (any normal trigger writing the helper within that minute also cancels it). It also covers reload and restart, which is why the "a source that never went `unavailable`" limitation is now largely academic.
+At the attach render the state machine still reads `'off'` → `attached == 0` → `false` →
+**armed** (a template trigger arms only on a false setup render). The `off → on` write that
+follows the attach lands as a tracked state change — the template reads
+`states[automation_entity]` — and re-renders: now within the 60 s offset → still false. A
+minute later it flips → fires `t_recovery`. Once the recovery has written the helper, `t`
+overtakes the attach time → `false` again → re-armed for next time. **Without the offset
+this trigger would fire before a regular trigger of the same minute could cancel it**; and
+without the live read it would never fire at all — the exact trap it exists to escape. It
+polls nothing: an automation that was never off never fires it (its own `last_changed` is
+ancient, and the helper has been written since). It also covers a restart when the
+`homeassistant_started` attach happens within the offset of the entity's first state write.
+
+**1b. The reload event — the path no template can see.** A reload or UI save re-creates the
+automation entity, and `async_added_to_hass` attaches the triggers **before** the entity
+platform writes the first state: `this` is `None`, so there is no entity id to capture and
+`automation_entity` is `''` — the resume template stays dark for this path, permanently
+(its variables are frozen at attach). The `automation_reloaded` **event trigger**
+(`t_automation_reloaded`) covers it: HA fires that event once per reload — and every UI
+save of the blueprint inputs is a reload of the edited automation — *after* the new
+entities are attached, so the freshly resumed instance receives it and the recovery gate
+claims the run via `automation_resumed` (action scope, where `this` is re-read at run
+time and reliable). The event reaches **every** automation, not just the saved one; a run
+the gate does not claim is stopped silently by the *"Reload event without a resume"*
+pre-dispatch step (it has a `PRE_DISPATCH_DEFINITIONS` entry in both trace tools). The
+event also makes the sibling claims (`instance_activated`, `midnight_reset_missed`)
+prompt on a reload instead of waiting for the next regular trigger.
 
 **The template also mirrors the availability gates** (CCA 2026.07.13 V6): `critical_ready` (cover, plus the custom position sensor when it is the source) and `contact_ready` (the Tier-2 rule verbatim: a stateless contact only blocks while `helper.win != 'cls'`, scoped to `is_ventilation_enabled`). This is not decoration — the trigger has exactly **one** false→true edge, and an edge that fires into a run the gates block is *consumed*: the template stays true, never re-fires, and `automation_resumed` stays armed until the first regular trigger, which the claim then eats. With the opt-in **off** that claimed run is a hygiene-only `stop:` — a restart where the cover takes longer than ~90 s to come back (Zigbee hub after a host reboot) would swallow e.g. the 07:00 opening, and with the opt-in off no gated `t_recovery` source exists to run the hygiene earlier. With the readiness clauses the edge arrives exactly when the run can pass the gates (the `states()` reads register listeners, so the cover's return re-evaluates the template). The user's `auto_global_condition` can still block the run — not mirrorable, pre-existing, documented under "Not repairable, by design". Tests: `TestResumeTrigger::test_it_waits_for_the_cover_to_be_usable` and siblings.
 
@@ -363,7 +399,7 @@ against *which trigger actually fires it*.
 | `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — the cover stays under manual control forever | the recovery gate's `override_expired` (re-evaluates the reset rules and clears `man`). This is why the manual gate sits in `recovery_allowed` (blocking only the *drive*) and not in the gate's conditions: a branch skipped on `man == 1` could never lift an expired override | always — clearing an expired override moves nothing, and gating it would strand the cover in manual **forever** |
 | `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` | always |
 | `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) — and since 2026.07.19 the `midnight_reset_missed` **claim** makes sure a recovery actually runs: `stale_day and (shd or pnd)` turns the next trigger of any kind into one, so the repair no longer depends on something else entering the gate | always — this one *prevents* a wrong drive rather than catching one up |
-| *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | the **resume trigger** (`this.last_changed` + 60 s offset) fires it; `automation_resumed` makes the recovery gate claim any trigger as a backstop | always — the resume trigger is the one `t_recovery` trigger without the opt-in gate |
+| *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | a toggle: the **resume trigger** (live read of the automation's own `last_changed` + 60 s offset — **not** `this`, whose timestamps are pre-enable; Bug Pattern AM); a reload/save: the **`automation_reloaded` event trigger** (`this` is `None` at a reload attach, so the template path is dark there); `automation_resumed` makes the recovery gate claim any trigger as a backstop for both | always — neither the resume trigger nor the reload event carries the opt-in gate |
 | *(`instance_active` is off — this instance is not in charge)* | — | **every** trigger of the off period is dropped, so all the latching rows above happen at once, and the helper is arbitrarily old when the instance comes back | `t_instance_activated` (prompt) + the `instance_activated` claim (backstop for a swallowed edge) → the recovery gate re-derives everything | always — an activation is exempt from the opt-in (but **not** from `is_restart_run`) |
 | *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run — and the outage may have eaten a hand-over's `off → on` flank, which HA never keeps | its own ungated `t_recovery` trigger — and, unlike the five other gate sources, the return run is **not** hygiene-only with the catch-up off: the helper froze while the gate blocked, so `instance_activated` reads true on the return and the run takes over (deliberate — a dropout return is indistinguishable from a swallowed hand-over, losing a real one strands the cover, and the false positive drives to the cascade target anyway) | always — **even with the catch-up off** |
 | *(helper is `unknown`)* | — | init/repair step unreachable → automation permanently dead | helper gate blocks on `unavailable` **only** | always |
