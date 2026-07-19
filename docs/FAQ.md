@@ -165,11 +165,11 @@ Close Position: 100%     # Fully extended
 **A:** 
 
 **Time Settings:**
-- `time_up_early` must be earlier than `time_up_late`
-- `time_up_early_non_workday` must be earlier than `time_up_late_non_workday`
-- `time_down_early` must be earlier than `time_down_late`
-- `time_down_early_non_workday` must be earlier than `time_down_late_non_workday`
-- ✅ NEW: Times can now be identical for guaranteed execution at exact time
+- `time_up_early` must not be later than `time_up_late`
+- `time_up_early_non_workday` must not be later than `time_up_late_non_workday`
+- `time_down_early` must not be later than `time_down_late`
+- `time_down_early_non_workday` must not be later than `time_down_late_non_workday`
+- ✅ **Identical Early/Late times are valid and fully supported**: the cover then moves exactly once, at that fixed time (the internal Late trigger disables itself to avoid double-firing). This is the recommended setup for pure fixed-time schedules without Brightness/Sun sensors — an Early-to-Late *window* only matters when sensor triggers are supposed to fire inside it
 
 **Position Values (for Blinds):**
 - `open_position` > `shading_position` > `ventilate_position` > `close_position`

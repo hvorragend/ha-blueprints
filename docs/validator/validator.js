@@ -697,8 +697,14 @@ class CCAValidator {
         const t1 = this.config[time1Key];
         const t2 = this.config[time2Key];
         if (!t1 || !t2) return;
-        if (this.parseTime(t1) >= this.parseTime(t2)) {
-            this.addError(`${message} (${t1} >= ${t2})`);
+        // Equal Early/Late is a supported configuration: the blueprint fires a single
+        // trigger at that time (the Late trigger disables itself to avoid double-firing).
+        if (this.parseTime(t1) === this.parseTime(t2)) {
+            this.addInfo(`ℹ️ ${time1Key} and ${time2Key} are identical (${t1}) - valid: the cover moves exactly once at this fixed time. The Early-to-Late window only matters when Brightness/Sun triggers are used.`);
+            return;
+        }
+        if (this.parseTime(t1) > this.parseTime(t2)) {
+            this.addError(`${message} (${t1} > ${t2})`);
         }
     }
 
