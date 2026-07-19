@@ -428,11 +428,11 @@ class TestHelperGate:
 class TestContactGate:
     GATE = staticmethod(lambda: _condition("last_window_closed"))
 
-    def _run(self, *, contact_state, win, trigger_id="t_close_1", vent=True):
+    def _run(self, *, contact_state, win, trigger_id="t_close_1", vent=True, tilted_state="off"):
         helper = '{"bas":"opn","shd":0,"pnd":"non","win":"%s","frc":"non","res":0,"man":0,"v":6}' % win
         return _render_bool(
             self.GATE(),
-            {"input_text.h": helper, "binary_sensor.opened": contact_state, "binary_sensor.tilted": "off"},
+            {"input_text.h": helper, "binary_sensor.opened": contact_state, "binary_sensor.tilted": tilted_state},
             cover_status_helper="input_text.h",
             contact_window_opened="binary_sensor.opened",
             contact_window_tilted="binary_sensor.tilted",
@@ -445,10 +445,24 @@ class TestContactGate:
         """Battery sensor after a hub restart: 'reads as closed' matches the truth."""
         assert self._run(contact_state="unavailable", win="cls") is True
 
-    @pytest.mark.parametrize("win", ["opn", "tlt"])
-    def test_stateless_contact_blocks_when_window_was_open(self, win):
+    def test_stateless_opened_contact_blocks_when_window_was_open(self):
         """Acting would treat the window as closed and drop the lockout."""
-        assert self._run(contact_state="unavailable", win=win) is False
+        assert self._run(contact_state="unavailable", win="opn") is False
+
+    def test_stateless_opened_contact_passes_while_window_is_tilted(self):
+        """Issue #622: win == 'tlt' means the opened contact was last known OFF, so its
+        invalid read ('off') agrees with the last known truth - exactly the same reasoning
+        that lets win == 'cls' pass. The live tilted sensor keeps the VENT floor up; a
+        blanket block here parked the cover at the ventilation position forever (shading
+        never ended, closing never ran) whenever the opened contact went stateless during
+        a long ventilation."""
+        assert self._run(contact_state="unavailable", win="tlt", tilted_state="on") is True
+
+    @pytest.mark.parametrize("win", ["opn", "tlt"])
+    def test_stateless_tilted_contact_blocks_when_window_was_not_closed(self, win):
+        """The tilted contact's invalid read contradicts win == 'tlt' directly, and at
+        win == 'opn' its real state is masked - closing could land on a tilted window."""
+        assert self._run(contact_state="off", tilted_state="unavailable", win=win) is False
 
     @pytest.mark.parametrize("trigger_id", ["t_contact_opened_changed", "t_contact_tilted_changed"])
     def test_contact_triggers_are_exempt(self, trigger_id):
@@ -1423,11 +1437,15 @@ class TestResumeTrigger:
 
     def test_it_waits_for_a_missing_contact_only_while_the_window_was_open(self):
         """Mirrors the Tier-2 contact gate exactly: a stateless contact only blocks while
-        the last known window state is not 'cls'."""
+        its invalid read contradicts the last known window state (#622)."""
         assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
                          helper_win="opn", opened_state="unavailable") is False
         assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
                          helper_win="cls", opened_state="unavailable") is True
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         helper_win="tlt", opened_state="unavailable", tilted_state="on") is True
+        assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
+                         helper_win="tlt", tilted_state="unavailable") is False
         assert self._run(helper_t=self.STALE_T, attached=self.ATTACHED, now_offset_s=61,
                          helper_win="opn", opened_state="unavailable", vent=False) is True
 
