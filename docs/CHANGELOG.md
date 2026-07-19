@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.07.19 V2
+
+- 🐛 **Fix:** The **"Tilt First, Then Position (Somfy J4 IO)"** tilt wait mode did not cover two edge cases of these motors ([#612](https://github.com/hvorragend/ha-blueprints/issues/612)): a cover resting **fully open** ignores tilt commands entirely, and the full open/close commands **overwrite the motor's stored tilt target** with 100 %/0 % — so the slats ended up fully open or fully closed instead of at the configured angle. The mode now works in three steps: before the position command the slats are aligned with the travel direction (a fully open cover is briefly started downwards first, so it accepts tilt commands again); the position command avoids the implicit full open/close commands unless the tilt target matches them anyway; and the final tilt target is sent after the cover has stopped moving (the mode now waits for the cover to become idle, like the *Wait Until Idle* mode, using the same 🔄 Tilt Wait Timeout)
+
+---
+
 # CCA 2026.07.19
 
 - 🔧 **Improvement:** A configuration with **Morning Opening / Evening Closing enabled but no trigger source at all** — ⏲️ Time Control unchecked (or its calendar without an entity) and no Brightness/Sun sensor configured — is now reported instead of failing silently. Such a cover can never move automatically, and after the `2026.07.12` breaking change this is exactly the state that configurations from before ~2026.05 wake up in (user reports: *"evening closing and morning opening no longer work at all"*). The **✔️ Check Configuration** run (manual start) now names the problem in the log, and the [online validator](https://hvorragend.github.io/ha-blueprints/validator/) reports it as an **error** — including the case where a leftover legacy `time_control: time_control_disabled` silently selects no time source even though the checkbox is on

@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.19
+    **Version**: 2026.07.19 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -443,11 +443,12 @@ blueprint:
             state before sending tilt. Prevents tilt commands from being ignored on
             devices that block tilt during motor movement (e.g., Shelly Qubino Wave Shutter).
 
-            **Tilt First, Then Position (Somfy J4 IO)**: Sends the tilt command before
-            the position command instead of after it. For motors that automatically
-            restore the previous slat position after positioning (e.g., Somfy J4 IO):
-            the motor then restores exactly the target tilt on its own, so no tilt
-            command has to be sent — or waited for — after the movement.
+            **Tilt First, Then Position (Somfy J4 IO)**: For motors that ignore tilt
+            commands while fully open and return to the last tilt target after every
+            positioning run (e.g., Somfy J4 IO). Before the position command the slats
+            are aligned with the travel direction — a cover resting fully open is
+            briefly started downwards first, so that it accepts tilt commands again.
+            After the movement has stopped, the final tilt target is sent.
 
             If your tilt positions are unreliable, try switching to 'Wait Until Idle' mode.
           default: "fixed_delay"
@@ -466,7 +467,7 @@ blueprint:
           name: "🔄 Tilt Wait Timeout"
           description: >-
             Maximum time to wait for cover to become idle before sending tilt command.
-            Only used when 'Wait Until Idle' mode is selected.
+            Used when 'Wait Until Idle' or 'Tilt First, Then Position' mode is selected.
           default: 30
           selector:
             number:
@@ -483,7 +484,7 @@ blueprint:
             Only necessary when using the tilt functions.
             This separates the two commands in terms of time.
             In 'Tilt First, Then Position' mode the delay is applied between the
-            tilt command and the following position command instead.
+            preliminary slat alignment and the following position command instead.
             <br /><br />`Optional`
           default: 0
           selector:
@@ -2519,7 +2520,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.19"
+  version: "2026.07.19 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4097,23 +4098,35 @@ actions:
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
+                # Tilt-restoring motors (tilt-before-position mode): open_cover /
+                # close_cover implicitly overwrite the motor's tilt target with
+                # 100 / 0, so the shortcuts are only allowed when the tilt target
+                # matches - otherwise a plain position command is sent
                 - choose:
                     - alias: "Cover move: full close"
-                      conditions: "{{ target_position | default(101) | int == 0 }}"
+                      conditions: >-
+                        {{ target_position | default(101) | int == 0 and
+                           (not is_tilt_before_position_mode | default(false) or
+                            not is_cover_tilt_enabled_and_possible | default(false) or
+                            target_tilt_position | default(101) | int in [0, 101]) }}
                       sequence:
                         - action: cover.close_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
                     - alias: "Cover move: full open"
-                      conditions: "{{ target_position | default(101) | int == 100 }}"
+                      conditions: >-
+                        {{ target_position | default(101) | int == 100 and
+                           (not is_tilt_before_position_mode | default(false) or
+                            not is_cover_tilt_enabled_and_possible | default(false) or
+                            target_tilt_position | default(101) | int in [100, 101]) }}
                       sequence:
                         - action: cover.open_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
-                    - alias: "Cover move: partial position (1-99)"
-                      conditions: "{{ 0 < target_position | default(101) | int < 100 }}"
+                    - alias: "Cover move: position command (0-100)"
+                      conditions: "{{ 0 <= target_position | default(101) | int <= 100 }}"
                       sequence:
                         - action: cover.set_cover_position
                           data:
@@ -4148,10 +4161,12 @@ actions:
                         - delay:
                             seconds: !input tilt_delay
 
-                    # Wait Strategy: Ensure cover is idle before tilting
+                    # Wait Strategy: Ensure cover is idle before tilting.
+                    # Tilt-before-position mode sends its final tilt after the
+                    # position command, so it also waits for the cover to stop
                     - choose:
                         - alias: "Tilt wait: until movement stops"
-                          conditions: "{{ is_tilt_wait_idle_mode | default(false) }}"
+                          conditions: "{{ is_tilt_wait_idle_mode | default(false) or is_tilt_before_position_mode | default(false) }}"
                           sequence:
                             - wait_template: "{{ states(repeat.item if repeat is defined else '') in ['open', 'closed'] }}"
                               timeout: "{{ tilt_wait_timeout | int }}"
@@ -4160,11 +4175,6 @@ actions:
                             - if: "{{ wait.completed if wait is defined else '' }}"
                               then:
                                 - delay: 1
-                        # Mode: Tilt before position - no position command has been
-                        # sent yet, the cover is idle, so no wait is needed
-                        - alias: "Tilt wait: skipped (tilt runs before position)"
-                          conditions: "{{ is_tilt_before_position_mode | default(false) }}"
-                          sequence: []
                       # Mode: Standard fixed delay
                       default:
                         - delay:
@@ -4220,23 +4230,62 @@ actions:
                 sequence:
                   - choose: []
                     default: !input auto_shading_end_action_before
-          - choose:
-              # Tilt-restoring motors (e.g. Somfy J4 IO) re-apply the last slat
-              # position after positioning - tilting to the target first makes
-              # the motor restore exactly the target tilt, so no tilt command
-              # is needed after the movement
-              - alias: "Drive order: tilt first, then position"
-                conditions: "{{ is_tilt_before_position_mode | default(false) }}"
-                sequence:
-                  - *tilt_move_action
-                  - if: "{{ is_cover_tilt_enabled_and_possible | default(false) and not is_paused | default(false) }}"
-                    then:
-                      - delay:
-                          seconds: !input tilt_delay
-                  - *cover_move_action
-            default:
-              - *cover_move_action
-              - *tilt_move_action
+          # Tilt-restoring motors (e.g. Somfy J4 IO, #612) reject tilt commands
+          # while fully open and re-apply the last tilt target after every
+          # positioning run. Before the position command the slats are aligned
+          # with the travel direction - a cover resting at the fully-open
+          # endpoint is briefly started downwards so tilt commands are accepted
+          # again - and the final tilt target is sent after the movement
+          - alias: "Preliminary tilt alignment (tilt before position mode)"
+            if:
+              - >-
+                {{ is_tilt_before_position_mode | default(false) and
+                   is_cover_tilt_enabled_and_possible | default(false) and
+                   not prevent_flags.default_cover_actions }}
+              - >-
+                {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                   (instance_active == [] or states[instance_active] is none or
+                    states(instance_active) in instance_active_on_states) }}
+              - "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities | list }}"
+                  sequence:
+                    - if: "{{ state_attr(repeat.item if repeat is defined else '', 'current_tilt_position') is not none }}"
+                      then:
+                        - variables:
+                            align_position: "{{ state_attr(repeat.item if repeat is defined else '', 'current_position') | int(current_position | default(101) | int) }}"
+                        - choose:
+                            - alias: "Tilt align: leave the fully-open endpoint"
+                              conditions: "{{ align_position | default(101) | int >= 100 }}"
+                              sequence:
+                                - action: cover.close_cover
+                                  target:
+                                    entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                                - delay:
+                                    seconds: 1
+                            - alias: "Tilt align: close slats before moving down"
+                              conditions: "{{ target_position | default(101) | int < align_position | default(101) | int }}"
+                              sequence:
+                                - action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: 0
+                                  target:
+                                    entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                                - delay:
+                                    seconds: !input tilt_delay
+                            - alias: "Tilt align: open slats before moving up"
+                              conditions: "{{ target_position | default(101) | int > align_position | default(101) | int }}"
+                              sequence:
+                                - action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: 100
+                                  target:
+                                    entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                                - delay:
+                                    seconds: !input tilt_delay
+          - *cover_move_action
+          - *tilt_move_action
           - choose:
               - conditions: "{{ drive_action_set | default('') == 'up' }}"
                 sequence:
