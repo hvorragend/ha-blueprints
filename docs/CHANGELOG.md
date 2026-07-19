@@ -2,6 +2,9 @@
 
 # CCA 2026.07.19
 
+- 🔧 **Improvement:** A configuration with **Morning Opening / Evening Closing enabled but no trigger source at all** — ⏲️ Time Control unchecked (or its calendar without an entity) and no Brightness/Sun sensor configured — is now reported instead of failing silently. Such a cover can never move automatically, and after the `2026.07.12` breaking change this is exactly the state that configurations from before ~2026.05 wake up in (user reports: *"evening closing and morning opening no longer work at all"*). The **✔️ Check Configuration** run (manual start) now names the problem in the log, and the [online validator](https://hvorragend.github.io/ha-blueprints/validator/) reports it as an **error** — including the case where a leftover legacy `time_control: time_control_disabled` silently selects no time source even though the checkbox is on
+- 🔧 **Improvement:** The **⏲️ Time Control texts** no longer describe the feature only as a *constraint* on other triggers. For a pure fixed-time schedule ("just close at 22:00", no sensors) the Early/Late time fields **are** the schedule — unchecking ⏲️ Time Control disables opening/closing entirely. The checkbox label, the section help texts, the handbook and the FAQ now say so explicitly, and the FAQ gained a step-by-step checklist for *"I checked Time Control and it still does not open/close"*
+- 🔧 **Improvement:** The validator's messages about **parameters removed in older CCA versions** now say explicitly that the leftover lines are ignored, harmless, and can simply be deleted — they previously read as if the configuration itself were broken
 - 🐛 **Fix:** The handbook link in the description of the **Sun Shading / Sun Protection** section pointed to the contact-sensor page (`handbook/contacts#contact_delay_status`) instead of the shading page. It now links to `handbook/shading`
 
 ---

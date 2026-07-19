@@ -214,6 +214,15 @@ auto_options:
 
 **How the breakage shows up:** With **pure time/calendar control**, the covers simply **stop opening/closing**. With a **hybrid setup (time + Brightness or Sun Elevation)**, the opposite happens: the sensor triggers keep firing but lose their time fence — the covers **open too early in the morning** (e.g. around sunrise, when the sun/brightness threshold is crossed, instead of waiting for the configured earliest time) and can **close too late in the evening**. If your covers suddenly move at unusual times after updating, check the **⏲️ Time Control** checkbox and re-save the automation (see [#595](https://github.com/hvorragend/ha-blueprints/issues/595)).
 
+**"I checked ⏲️ Time Control and it still does not open/close"** — work through this checklist:
+
+1. It must be the **checkbox** in the **👉 What should CCA control?** list — not the **Time Control Type** dropdown. The dropdown only picks the source (time fields vs. calendar) and does nothing while the checkbox is off.
+2. **Time Control Type** must be **"✏️ Use the time input fields"** (`time_control_input`) for fixed times. A leftover legacy value `time_control_disabled` selects *no* time source even with the checkbox on — the [validator](https://hvorragend.github.io/ha-blueprints/validator/) flags this.
+3. **Save the automation in the UI** (or reload automations if you edited the YAML file directly) — trigger switches are only re-evaluated when the automation reloads.
+4. A common trap: the update to a version with the new checkbox does **not** mean you should *uncheck* it because you "don't use sensors". The opposite is true — **for a pure fixed-time schedule the Early/Late time fields are the only trigger**, and they only exist while ⏲️ Time Control is checked. "Just close at 22:00" = ⏲️ Time Control ON + *Drive down early* = 22:00.
+5. Then run the automation **manually once** with **✔️ Check Configuration** enabled — a configuration without any opening/closing trigger source is reported in the log by name.
+6. Deprecated keys that the validator flags in your YAML (from older CCA versions) are **ignored by the automation and do no harm** — they cannot cause this problem; delete them at your leisure.
+
 **Backward compatibility:**
 - The `brightness_sun_operator` parameter (AND/OR link between brightness and sun conditions) has moved to this section as well. Its value is preserved; only the UI location changed.
 
