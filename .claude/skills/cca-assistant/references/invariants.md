@@ -104,7 +104,7 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 **ts.shd (shading timestamp):**
 - `ts.shd` may only be set when `shd` actually changes (guard in `helper_update`: only when `new_shd != current.shd`)
 - In the SHADED path of the `resident_leaving` handler (since the target-chain consolidation: the `leave_target == 'shd'` case): `shd` was already `1` (precondition) → do **not** set `ts.shd` to `now`, preserve the original activation timestamp
-- The midnight reset (BRANCH 11) **does** write `ts.shd: "now"` when it clears `shd` 1→0 — this is fine: the reset fires at **23:55 same day** (`now() >= today_at('23:55:00')`), so the stamp lands on the current day, never the next one. The once-per-day shading guard (full-date compare) therefore still allows shading the following day.
+- The midnight reset (BRANCH 11) does **not** stamp `ts.shd` when it clears `shd` 1→0 (CCA 2026.07.14 V2). The trigger fires at 23:55, but the branch's random 0–60 s delay plus queued runs ahead of it (a drive delay can hold the queue for up to 10 minutes) can push the **write** past midnight — and a next-day stamp makes the once-per-day guard (full-date compare) block the *whole following day's* shading (the #365 failure through the back door). Omitting the stamp is behavior-neutral on the happy path: `ts.shd` keeps the same-day stamp of the last real `shd` transition, so the guard decides identically.
 
 **pnd / ts.due / ts.arm (pending phase + timestamps):**
 - The top-level `pnd` enum encodes which phase is pending: `'non'` (idle), `'beg'` (start armed), `'end'` (end armed). Only one value at a time is representable — Invariant 11 is enforced by the schema.

@@ -201,6 +201,8 @@ That clean-up moves nothing. It exists because an outdated status is not a "miss
 
 You will therefore still see a CCA run (and a trace) shortly after a restart, shortly after you save the automation, and shortly after a device comes back — even with **🚫 Never**. It updates the status helper and stops; it does not drive the cover. The run waits until the cover (and, where configured, the position sensor and a window contact whose window was last known open) is actually usable again — after a restart where the cover takes a few minutes to come back, the clean-up simply follows a minute after the cover does.
 
+The same clean-up also steps in when CCA finds a **sun shading that survived midnight** in its status. The nightly reset would have cleared it, so it can only still be there if every run was blocked for at least a whole day — a global condition of yours that stayed false, for example. Rather than acting on last week's shading state, the next run tidies up first (and, with the catch-up allowed, drives to the correct position). An old but *clean* status does not trigger this — quiet stretches are perfectly normal when your opening and closing times come from the [calendar time control](#time_control) ("Open Cover"/"Close Cover" events), which may legitimately skip whole weekends.
+
 <a id="instance_active"></a>
 
 ## 🎚️ Only run this automation while this switch is on

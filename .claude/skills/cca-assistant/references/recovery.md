@@ -290,7 +290,7 @@ At attach time `now()` is within the 60 s offset → `false` → **armed**. A mi
 
 **Stale day — the midnight reset that never ran.** `stale_day` = the helper was last written on an earlier date. BRANCH 11 clears `shd`/`pnd` every night at 23:55; if the automation was off, it did not. So a shading from three days ago still reads as active and the first trigger would drive the cover into the shading position — at night, even. The recovery therefore emulates that reset: `recovered_shade` drops `shd`, `pending_is_stale` also fires on `stale_day`, and `ts.opn`/`ts.cls` are zeroed (they gate the once-per-day open/close guards and must not suppress today's run).
 
-**But `ts.shd` is deliberately *not* stamped** when `shd` is cleared 1→0 here. BRANCH 11 may stamp it because it runs at 23:55 on the **same** day; this branch runs on the **new** day, and stamping today's date would make the once-per-day guard block today's shading (Bug Pattern V). Same field, opposite rule — the difference is *which day the code runs on*.
+**But `ts.shd` is deliberately *not* stamped** when `shd` is cleared 1→0 here — and since CCA 2026.07.14 V2, BRANCH 11 omits the stamp too: its random delay plus queued runs can push the 23:55 write past midnight, where the stamp lands on the *new* day and the once-per-day guard blocks that whole day (Bug Pattern V, updated there). Both clears now leave `ts.shd` at the last real `shd` transition, which is always a same-day-or-earlier stamp and never suppresses the coming day.
 
 #### Why the recovery is a pre-dispatch gate and not a numbered branch
 
@@ -362,7 +362,7 @@ against *which trigger actually fires it*.
 | `t_resident_update` | no (state) | `res` stale → poisons the fallback on the *next* dropout | `state_resident` falls back to `helper_json.res`; the recovery gate re-reads **and persists `res`** | always |
 | `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — the cover stays under manual control forever | the recovery gate's `override_expired` (re-evaluates the reset rules and clears `man`). This is why the manual gate sits in `recovery_allowed` (blocking only the *drive*) and not in the gate's conditions: a branch skipped on `man == 1` could never lift an expired override | always — clearing an expired override moves nothing, and gating it would strand the cover in manual **forever** |
 | `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` | always |
-| `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) | always — this one *prevents* a wrong drive rather than catching one up |
+| `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) — and since 2026.07.14 V2 the `midnight_reset_missed` **claim** makes sure a recovery actually runs: `stale_day and (shd or pnd)` turns the next trigger of any kind into one, so the repair no longer depends on something else entering the gate | always — this one *prevents* a wrong drive rather than catching one up |
 | *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | the **resume trigger** (`this.last_changed` + 60 s offset) fires it; `automation_resumed` makes the recovery gate claim any trigger as a backstop | always — the resume trigger is the one `t_recovery` trigger without the opt-in gate |
 | *(`instance_active` is off — this instance is not in charge)* | — | **every** trigger of the off period is dropped, so all the latching rows above happen at once, and the helper is arbitrarily old when the instance comes back | `t_instance_activated` (prompt) + the `instance_activated` claim (backstop for a swallowed edge) → the recovery gate re-derives everything | always — an activation is exempt from the opt-in (but **not** from `is_restart_run`) |
 | *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run — and the outage may have eaten a hand-over's `off → on` flank, which HA never keeps | its own ungated `t_recovery` trigger — and, unlike the five other gate sources, the return run is **not** hygiene-only with the catch-up off: the helper froze while the gate blocked, so `instance_activated` reads true on the return and the run takes over (deliberate — a dropout return is indistinguishable from a swallowed hand-over, losing a real one strands the cover, and the false positive drives to the cascade target anyway) | always — **even with the catch-up off** |
@@ -430,6 +430,9 @@ fires* — `this.last_changed` never moved, so `automation_resumed` cannot see i
 trigger re-fires, and the first regular trigger acts on a helper that may be months old. It is
 the "Not repairable, by design" row of the orphan audit, turned into a feature by accident.
 `instance_active` is that gate **made repairable**: CCA owns it, so it can watch it and heal it.
+(Since 2026.07.14 V2 the worst artifact of a foreign gate self-heals too: `midnight_reset_missed` — see
+below — claims the first run after any blockade that let a shading survive midnight. The rest
+of the staleness, `bas`/`man`, is re-derived or latched as documented in the audit rows.)
 
 **Two pieces, mirroring Half 1b exactly** — and for the same reason, so do not collapse them:
 
@@ -573,5 +576,39 @@ cover. Both are inherent to "one helper per instance" and are not worth a cross-
 mechanism.
 
 Tests: `tests/test_instance_active.py`.
+
+---
+
+## The missed-midnight-reset claim: `midnight_reset_missed` (CCA 2026.07.14 V2)
+
+A third self-clearing claim next to `automation_resumed` and `instance_activated`, for the one
+blockade neither of them can see: runs dropped by a **foreign gate** (typically a long-false
+`auto_global_condition`) with no re-attach and no owned entity to watch.
+
+The trick is that CCA already has a daily heartbeat with a *persisted* footprint: the 23:55
+reset clears `shd`/`pnd` every night. So `stale_day and (shd or pnd)` is **proof of a
+blockade** — that state cannot survive a day boundary any other way — and the claim turns the
+next trigger of any kind into a recovery, instead of letting it drive into a days-old shading
+position (or defer an opening into a dead pending flow).
+
+What it is deliberately **not**: a helper-age watchdog. A clean-but-old helper is normal — a
+config whose opening/closing comes from the calendar *time control* (`t_calendar_event_*`,
+not the `instance_active` gating calendar) may legitimately skip whole weekends, and the
+23:55 reset only fires with shading enabled, so there is no daily-write guarantee to lean
+on. Claiming clean-but-old runs would
+swallow a real opening or closing with the catch-up off — the same reasoning that keeps
+`is_restart_run` in front of the `instance_activated` proxy. The claim therefore requires the
+surviving shading state, not the age. Residual, accepted: a blockade that leaves a *clean*
+helper (`bas` drift, a latched override reset) is still only repaired when a recovery runs for
+another reason — `bas` is re-derived by the regular handlers anyway, and `override_expired`
+stays the documented answer for `man`.
+
+Mechanically it is a fourth member of the recovery-gate claim group (manual triggers exempt,
+as always), it satisfies both load gates (Bug Pattern T — the claimed run consumes forecast
+and calendar data under any trigger id), and `recovery_catch_up` treats it like any outage
+(drive in `outage`/`always`, hygiene-only in `never`). The helper write clears `stale_day`,
+which clears the claim.
+
+Tests: `tests/test_midnight_reset_missed.py`.
 
 ---
