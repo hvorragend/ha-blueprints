@@ -44,7 +44,7 @@ The pause is therefore part of **every** drive gate: all five `state_gates`, eve
 
 Semantics: a paused run **records** its state transition (helper write, `bas`/`shd`/`win`/`frc` all updated — that is what makes the pause-resume instant) but does not drive, does not run drive actions, and does not touch `man`. When the pause ends, `t_force_pause_disabled` (or, after an outage of the pause entity, its `t_recovery` trigger) drives the cover to `effective_state` — that handler's own `will_drive` is `not is_paused`, guarding the queued-run race where the pause was re-enabled before the resume run executed.
 
-**Since CCA 2026.07.14 the actuation-point checks are live reads.** The inner conditions of
+**Since CCA 2026.07.19 the actuation-point checks are live reads.** The inner conditions of
 `cover_move_action` / `tilt_move_action` and the opening guard of `drive_with_actions` no
 longer read the `is_paused` variable (frozen when the variables step rendered) but
 `states(force_pause)` directly — and the same condition re-checks the `instance_active`
