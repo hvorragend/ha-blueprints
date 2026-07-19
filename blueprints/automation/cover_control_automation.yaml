@@ -2777,8 +2777,8 @@ variables:
   # ═══════════════════════════════════════════════════════════════════════════
   # Cover Status Helper – JSON parsing with v5 → v6 migration
   # ═══════════════════════════════════════════════════════════════════════════
-  # v6 Compact Schema (stored in input_text, max 208 chars):
-  # {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0}
+  # v6 Compact Schema (stored in input_text, max 218 chars):
+  # {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0,"d":0}
   #
   # Field mapping (compact → internal):
   #   bas → base (opn/cls → open/close)
@@ -2792,6 +2792,8 @@ variables:
   #   ts.due → fire time of armed pending (used together with pnd)
   #   ts.arm → first-arming anchor of current retry sequence
   #   ts.man → ts.manual
+  #   t      → last helper write (every run stamps it)
+  #   d      → last write of a run that drove the cover (drive_plan.run)
   #
   # NOTE: in_shading_position compares against the dynamically computed
   #       shading_tilt_position. When the sun crosses a tilt-stage threshold the
@@ -2839,7 +2841,8 @@ variables:
             'man': helper_raw.manual.t | default(0)
           },
           'v': 6,
-          't': ts_now
+          't': ts_now,
+          'd': 0
         }
       }}
     {% elif is_v6_compact %}
@@ -2862,7 +2865,8 @@ variables:
             'man': raw_ts.man | default(0) | int
           },
           'v': 6,
-          't': helper_raw.t | default(ts_now) | int
+          't': helper_raw.t | default(ts_now) | int,
+          'd': helper_raw.d | default(0) | int
         }
       }}
     {% else %}
@@ -2884,7 +2888,8 @@ variables:
             'man': 0
           },
           'v': 6,
-          't': ts_now
+          't': ts_now,
+          'd': 0
         }
       }}
     {% endif %}
@@ -3035,6 +3040,12 @@ variables:
 
   # WRITE TIMESTAMP - When did the automation last write the helper? (every run does)
   helper_ts_write: "{{ helper_json.t | default(0) | int }}"
+
+  # DRIVE TIMESTAMP - When did a run that drove the cover last write the helper?
+  # Stamped by helper_update only when drive_plan.run was true, so pure state
+  # syncs (window/resident updates, pending arming) do not touch it. The manual
+  # detection settle window keys off this, not off helper_ts_write (#614).
+  helper_ts_drive: "{{ helper_json.d | default(0) | int }}"
 
   # AUTOMATION RESUMED - Did the automation come back after being switched off?
   # Action scope only: here `this` is re-read from the state machine at run time, so
@@ -4371,6 +4382,7 @@ actions:
                   {% set new_frc = updates.frc | default(current.frc | default('non')) %}
                   {% set new_res = updates.res | default(current.res | default(0)) | int %}
                   {% set new_man = updates.man | default(current.man | default(0)) | int %}
+                  {% set run_drove = (drive_plan | default({})).run | default(false) %}
                   {% set current_ts = current.ts | default({}) %}
 
                   {% set merged_ts = namespace(data={}) %}
@@ -4403,7 +4415,8 @@ actions:
                       'man': merged_ts.data.man | default(0) | int
                     },
                     'v': 6,
-                    't': ts_now | int
+                    't': ts_now | int,
+                    'd': (ts_now if run_drove else current.d | default(0)) | int
                   } %}
                   {{ dict_new | to_json }}
           - if: "{{ enable_logbook }}"
@@ -4503,7 +4516,8 @@ actions:
                 'man': 0
               },
               'v': 6,
-              't': ts_now | int
+              't': ts_now | int,
+              'd': 0
             } %}
             {{ dict_new | to_json }}
 
@@ -5465,12 +5479,12 @@ actions:
       - stop: "Missing Cover Status Helper configuration"
 
   - if:
-      - "{{ check_status_helper_length is not none and check_status_helper_length | int < 210 }}"
+      - "{{ check_status_helper_length is not none and check_status_helper_length | int < 225 }}"
     then:
       - action: system_log.write
         data:
           message: >-
-            Cover Control Automation ({{ friendly_name }}): CRITICAL CONFIGURATION ERROR - Cover Status Helper max length is {{ check_status_helper_length }} characters but at least 210 are required (recommended: 254).
+            Cover Control Automation ({{ friendly_name }}): CRITICAL CONFIGURATION ERROR - Cover Status Helper max length is {{ check_status_helper_length }} characters but at least 225 are required (recommended: 254).
             Helper: {{ cover_status_helper }}
             The automation cannot persist state with the current max length. Increase the 'Maximum length' setting of the input_text helper.
           level: error
@@ -5478,7 +5492,7 @@ actions:
         data:
           name: "Cover Control Automation"
           message: >-
-            ❌ {{ friendly_name }}: Cover Status Helper max length too small ({{ check_status_helper_length }}/210). Increase to at least 254.
+            ❌ {{ friendly_name }}: Cover Status Helper max length too small ({{ check_status_helper_length }}/225). Increase to at least 254.
           entity_id: "{{ cover_status_helper }}"
       - stop: "Cover Status Helper max length too small"
 
@@ -7273,8 +7287,7 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
           - "{{ not (trigger.id == 't_manual_position' and in_reset_override_position and helper_state_manual) }}"
-          - "{{ this.attributes.current | int(99) == 0 }}"
-          - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}"
+          - "{{ as_timestamp(now()) > helper_ts_drive + drive_time | default(90) + 60 }}"
           - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
@@ -7547,8 +7560,8 @@ actions:
 
                 # ========== ENTITY ATTRIBUTE & STATE CHECKS ==========
 
-                - condition: "{{ check_status_helper_length is not none and check_status_helper_length | int < 210 }}"
-                  message: "CRITICAL: Cover Status Helper max length is {{ check_status_helper_length }}. Required: at least 210 characters (recommended: 254). Increase the 'Maximum length' of the input_text helper. Current length causes data truncation and the automation cannot persist state"
+                - condition: "{{ check_status_helper_length is not none and check_status_helper_length | int < 225 }}"
+                  message: "CRITICAL: Cover Status Helper max length is {{ check_status_helper_length }}. Required: at least 225 characters (recommended: 254). Increase the 'Maximum length' of the input_text helper. Current length causes data truncation and the automation cannot persist state"
                 - condition: "{{ state_attr(blind, 'current_position') is none }}"
                   message: "Cover entity is missing the required 'current_position' attribute"
                 - condition: "{{ state_attr(default_sun_sensor, 'elevation') is none }}"

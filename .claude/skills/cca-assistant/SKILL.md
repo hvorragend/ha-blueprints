@@ -40,7 +40,7 @@ loading the reference first:
 | Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
-| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AO with cause and fix) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AP with cause and fix) |
 
 The always-binding rules (the 14 invariants as one-liners, code style, quality
 gates, version bumping) are indexed in `.claude/CLAUDE.md`.
@@ -51,7 +51,7 @@ gates, version bumping) are indexed in `.claude/CLAUDE.md`.
 
 ```json
 {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,
- "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0}
+ "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0,"d":0}
 ```
 
 | Field | Values | Meaning |
@@ -68,6 +68,8 @@ gates, version bumping) are indexed in `.claude/CLAUDE.md`.
 | `ts.due` | Unix timestamp | Fire time of armed pending (`0` when `pnd == 'non'`) |
 | `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (`0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
+| `t` | Unix timestamp | Last helper write (every run stamps it) |
+| `d` | Unix timestamp | Last write of a run that drove the cover (`drive_plan.run`) |
 
 ### Pending field semantics (`pnd` enum)
 
@@ -185,6 +187,8 @@ environment_allows_opening / environment_allows_closing
 helper_ts_open / helper_ts_close / helper_ts_shade / helper_ts_man
 helper_ts_pending_due   # helper_json.ts.due (fire time of armed pending)
 helper_ts_pending_arm   # helper_json.ts.arm (retry anchor)
+helper_ts_write         # helper_json.t (last write - automation_resumed etc.)
+helper_ts_drive         # helper_json.d (last driving write - manual-detection settle window)
 ```
 
 ---
@@ -261,7 +265,7 @@ details). `trigger.id` is the source of truth for "which path ran".
 
 ### Regressions
 Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
-(A–AO, each with symptom / cause / fix / derived rule) before writing a fix —
+(A–AP, each with symptom / cause / fix / derived rule) before writing a fix —
 most "new" bugs are a documented pattern reaching a new code path.
 
 ---

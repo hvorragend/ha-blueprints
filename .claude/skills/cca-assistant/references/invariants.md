@@ -121,6 +121,11 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 - **Every execution path must be terminal** (Bug Pattern AK): any path reachable from `t_shading_start_execution` / `t_shading_end_execution` must end in a helper write that either re-arms (`pnd` + new `ts.due`) or clears (`pnd: 'non'`, `ts.due/arm: 0`). The execution templates compare `now() >= ts.due`; once due is in the past they stay true forever and never re-fire — a path that stops without a helper write leaves the pending armed until the midnight reset. Drive chooses inside the execution handlers therefore need a default, and `if:` steps before a `stop:` need an else.
 - **Contact handler branches must NOT reset `pnd`/`ts.due`/`ts.arm`.** Window open/close events are orthogonal to shading pending state. Omit these keys from `update_values` so `helper_update` preserves the existing values (#484).
 
+**t / d (write and drive timestamps, both top-level):**
+- `t` is stamped on **every** helper write. Consumers rely on exactly that semantic: `automation_resumed`, the instance-takeover check, `midnight_reset_missed`. Never make `t` conditional.
+- `d` is stamped **only** when the writing run's `drive_plan.run` was true — derived inside `helper_update` from the same `will_drive` decision that gates the `man: 0` reset (Invariant 7). Pure state syncs (window/resident updates, pending arming, base-only updates) must never stamp it: the manual-detection settle window keys off `d` via `helper_ts_drive`, and a stamp from a non-driving write reopens the #614 blind window (Bug Pattern AP). No branch writes `d` through `update_values` — it is owned entirely by `helper_update`.
+- Known corner, accepted (same family as the pause design decision): `drive_plan.run` true with the movement suppressed at the last moment (live pause check, tolerance no-op) still stamps `d`. That errs in the safe direction — a suppressed manual detection is less harmful than CCA reading its own movement as a manual override.
+
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
 
 `pnd` is a single enum field, so two phases cannot be pending simultaneously by construction. With misconfigured conditions (no hysteresis between start and end thresholds), the only failure mode is ping-pong (start fires → end fires → start fires → …), not double-pending.
