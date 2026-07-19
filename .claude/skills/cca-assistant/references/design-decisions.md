@@ -44,7 +44,19 @@ The pause is therefore part of **every** drive gate: all five `state_gates`, eve
 
 Semantics: a paused run **records** its state transition (helper write, `bas`/`shd`/`win`/`frc` all updated — that is what makes the pause-resume instant) but does not drive, does not run drive actions, and does not touch `man`. When the pause ends, `t_force_pause_disabled` (or, after an outage of the pause entity, its `t_recovery` trigger) drives the cover to `effective_state` — that handler's own `will_drive` is `not is_paused`, guarding the queued-run race where the pause was re-enabled before the resume run executed.
 
-Enforced by `tests/test_apply_transition_architecture.py::TestForcePauseIsPartOfEveryDriveGate` — a new branch whose drive gate ignores the pause fails structurally.
+**Since CCA 2026.07.14 the actuation-point checks are live reads.** The inner conditions of
+`cover_move_action` / `tilt_move_action` and the opening guard of `drive_with_actions` no
+longer read the `is_paused` variable (frozen when the variables step rendered) but
+`states(force_pause)` directly — and the same condition re-checks the `instance_active`
+gate. A pause enabled, or a hand-over performed, while a run sits in its pre-drive delay
+(up to minutes) must still stop the movement: the branch-level `will_drive` was computed
+before the delay and cannot see it. The branch-level gates keep using the `is_paused`
+variable — the decision and the actuation guard are different layers. Known corner,
+accepted: the helper write of such a run was computed with `will_drive` true, so `man: 0`
+can land although the movement was suppressed at the last moment — recomputing the whole
+transition after the delay would break the plan-then-apply architecture for a rare window.
+
+Enforced by `tests/test_apply_transition_architecture.py::TestForcePauseIsPartOfEveryDriveGate` — a new branch whose drive gate ignores the pause fails structurally. The live actuation gates are pinned by `TestActuationPointLiveGates` in the same file.
 
 ### Triggers from/to an invalid sensor state are deliberately ignored
 

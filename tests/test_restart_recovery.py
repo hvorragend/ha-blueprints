@@ -114,10 +114,18 @@ def _env(entity_states: dict | None = None, last_changed: dict | None = None,
     return env
 
 
+# The hand-over switch of the multi-instance setup is unconfigured by default (input default:
+# []), which is the state every test that predates it assumes. Supplying it here keeps those
+# tests strict about every OTHER variable. test_instance_active.py passes them explicitly.
+_HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
+                 "instance_active_value": "",
+                 "instance_active_on_states": ["on", "true"]}
+
+
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
             strict: bool = True, **variables) -> str:
     env = _env(entity_states, last_changed, strict)
-    return env.from_string(template_str).render(**variables).strip()
+    return env.from_string(template_str).render(**{**_HANDOVER_OFF, **variables}).strip()
 
 
 def _render_bool(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
@@ -331,8 +339,10 @@ class TestDisabledEntity:
         """A dead weather sensor must not kill the automation - it can only ever stop a
         shading from starting (Tier 3). It is still reported, because it is a config error."""
         log = next(s for s in self._validation()["then"] if s.get("action") == "system_log.write")
-        assert _render(log["data"]["level"], {}, missing_critical=[]) == "warning"
-        assert _render(log["data"]["level"], {}, missing_critical=["cover.x"]) == "error"
+        assert _render(log["data"]["level"], {}, missing_critical=[],
+                       missing_entities=["sensor.weather"]) == "warning"
+        assert _render(log["data"]["level"], {}, missing_critical=["cover.x"],
+                       missing_entities=["cover.x"]) == "error"
 
     def _message(self, **over) -> str:
         log = next(s for s in self._validation()["then"] if s.get("action") == "system_log.write")
@@ -1407,7 +1417,7 @@ class TestResumedRunClaimsEveryTrigger:
             "the recovery must not also live inside the dispatch choose"
 
     def test_any_trigger_is_claimed_while_resumed(self):
-        gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
+        gate = next(c for c in _branch_gate(RECOVERY) if "automation_resumed" in str(c))
         for tid in ["t_open_1", "t_close_5", "t_contact_opened_changed",
                     "t_shading_start_pending_1", "t_reset_timeout"]:
             assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
@@ -1420,7 +1430,7 @@ class TestResumedRunClaimsEveryTrigger:
         If the recovery claimed the run, man: 1 would never be written, the recovery would
         read the stale man: 0 as "no override" and drive the cover back to the cascade target
         - fighting the move the user just made."""
-        gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
+        gate = next(c for c in _branch_gate(RECOVERY) if "automation_resumed" in str(c))
         assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
                             automation_resumed=True) is False
         # ... but an explicit t_recovery run is still a recovery, whatever else is going on
@@ -1436,7 +1446,7 @@ class TestResumedRunClaimsEveryTrigger:
         assert gate and _render_bool(gate[0], {}, trigger=types.SimpleNamespace(id="t_manual_position"))
 
     def test_normal_runs_are_not_claimed(self):
-        gate = next(c for c in _branch_gate(RECOVERY) if "trigger.id ==" in str(c))
+        gate = next(c for c in _branch_gate(RECOVERY) if "automation_resumed" in str(c))
         for tid in ["t_open_1", "t_close_5", "t_manual_position"]:
             assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id=tid),
                                 automation_resumed=False) is False, tid

@@ -18,6 +18,7 @@ class CCAValidator {
 
             // Core
             'blind', 'cover_type', 'auto_options', 'individual_config', 'enable_recovery',
+            'instance_active', 'instance_active_value',
 
             // Helper
             'cover_status_helper', 'drive_time',

@@ -364,6 +364,8 @@ against *which trigger actually fires it*.
 | `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` | always |
 | `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) | always — this one *prevents* a wrong drive rather than catching one up |
 | *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | the **resume trigger** (`this.last_changed` + 60 s offset) fires it; `automation_resumed` makes the recovery gate claim any trigger as a backstop | always — the resume trigger is the one `t_recovery` trigger without the opt-in gate |
+| *(`instance_active` is off — this instance is not in charge)* | — | **every** trigger of the off period is dropped, so all the latching rows above happen at once, and the helper is arbitrarily old when the instance comes back | `t_instance_activated` (prompt) + the `instance_activated` claim (backstop for a swallowed edge) → the recovery gate re-derives everything | always — an activation is exempt from the opt-in (but **not** from `is_restart_run`) |
+| *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run — and the outage may have eaten a hand-over's `off → on` flank, which HA never keeps | its own ungated `t_recovery` trigger — and, unlike the five other gate sources, the return run is **not** hygiene-only with the catch-up off: the helper froze while the gate blocked, so `instance_activated` reads true on the return and the run takes over (deliberate — a dropout return is indistinguishable from a swallowed hand-over, losing a real one strands the cover, and the false positive drives to the cascade target anyway) | always — **even with the catch-up off** |
 | *(helper is `unknown`)* | — | init/repair step unreachable → automation permanently dead | helper gate blocks on `unavailable` **only** | always |
 
 `override_expired` is a global variable, not a branch-local one, because `recovery_allowed` and the `man` write both need it, and the reset triggers latch (see the table above). It clears `man` without driving, a deliberate Invariant 7 exception (same class as the midnight reset).
@@ -406,5 +408,170 @@ therefore feeds `new_base`; the parity obligation of Invariant 13 is unchanged.)
 The **ventilation / shading additional conditions are deliberately not** part of this: they
 gate handlers the recovery does not replay — it re-arms a shading *pending* and lets the
 existing execution flow (which does evaluate them) do the movement.
+
+---
+
+## Several instances, one cover: `instance_active` (CCA 2026.07.13 V8)
+
+The multi-instance pattern (one CCA automation per season / presence mode / whatever, each
+with its own helper and its own settings, an external automation picking which one is live)
+is **an emergent property of the recovery**, not a new mechanism: a take-over is exactly what
+the recovery gate already does — re-derive `bas` from the schedule, re-read `win`/`res`/`frc`
+live, drop a stale shading, re-evaluate the shading conditions, drive to `recovered_state`.
+`instance_active` only supplies the *gate* and the *entry point*; every line of the take-over
+is the recovery.
+
+**Why a first-class input and not just `automation.turn_off`.** Toggling the automation does
+work — the re-attach stamps `this.last_changed` and the resume trigger fires ~60 s later
+(Half 1b). But the obvious user-side alternative, gating the instance with
+`auto_global_condition`, is **silently broken**, and that is what the input exists to prevent:
+the triggers still fire, the runs are dropped, and when the condition goes true again *nothing
+fires* — `this.last_changed` never moved, so `automation_resumed` cannot see it, no latching
+trigger re-fires, and the first regular trigger acts on a helper that may be months old. It is
+the "Not repairable, by design" row of the orphan audit, turned into a feature by accident.
+`instance_active` is that gate **made repairable**: CCA owns it, so it can watch it and heal it.
+
+**Two pieces, mirroring Half 1b exactly** — and for the same reason, so do not collapse them:
+
+1. **`t_instance_activated`** (`from: [off, false]` → `to: [on, true]`) — the *prompt*. Makes
+   the take-over immediate instead of waiting for the next trigger. Not gated on
+   `is_recovery_enabled`. With `instance_active_value` set (a dropdown option, an inverted
+   boolean), a second trigger shape carries the same id: any valid → valid change of the
+   entity, with arrivals at a foreign value dropped by the gate. `not_from:
+   [unavailable, unknown]` keeps it exactly as restart-proof as the plain flank — the
+   `recovery_catch_up` exemption for this trigger id relies on that, in both shapes.
+2. **`instance_activated`** (`helper.t < switch.last_changed`) — the *claim*. A state trigger
+   has exactly one edge, and the availability gates can swallow it (the cover was still coming
+   back). The claim turns **any** later trigger into the take-over and self-clears on the first
+   helper write. Same shape as `automation_resumed`, and it is what makes the feature robust
+   rather than merely likely to work — `automation_resumed` itself cannot stand in for it,
+   because an activation re-attaches nothing: `this.last_changed` does not move, so that claim
+   cannot see the event at all. Unlike `automation_resumed` it fires on a fresh helper
+   (`t == 0`): a brand-new instance's first activation *is* a take-over.
+
+**The gate has no trigger exemptions**, and that is deliberate — the one place where it differs
+from the contact gate. An inactive instance must not even record a cover movement as manual:
+the *other* instance made it, and a stored `man: 1` comes back to block this instance's own
+take-over (`recovery_allowed`). The contact gate exempts `t_manual_position`/`t_manual_tilt`
+because that handler records something CCA needs; here there is nothing to record, because CCA
+is not in charge.
+
+**The take-over catches up regardless of `enable_recovery`.** The opt-in guards against
+*restarts* moving the cover; an activation is an explicit "you are in charge now", and an
+instance that takes charge and leaves the cover where the previous one parked it has done
+nothing at all.
+
+**But the two activation signals are not equally strong, and `recovery_catch_up` must not treat
+them as one** — doing so was a real bug during development:
+
+- **`t_instance_activated` is unambiguous.** Only a real `off → on` flank fires it; a restart
+  returns the entity as `unavailable → on`, which its `from: [off, false]` does not match. It
+  therefore needs **no** `is_restart_run` guard — and must not have one: that flag stays true
+  for 300 s after a re-attach, and **saving the automation is a re-attach**. Guarded, the
+  sequence "save the automation → flip the switch to try the hand-over" leaves the cover
+  standing — which is the first thing anyone does with this feature.
+- **`instance_activated` is a timestamp proxy** (`helper.t < switch.last_changed`), and on a
+  restart the gating entity is recreated with everything else, so its `last_changed` points at
+  the boot and the proxy reads true. This one **must** stay behind `is_restart_run`, or the
+  exemption would smuggle every restart past the opt-in — exactly what the opt-in promises not
+  to do.
+
+Pinned by `TestCatchUpOnActivation` (both halves, in both directions).
+
+**`override_expired` is voided by an activation**, whatever the reset rules say. This is the
+one bug the feature would otherwise have shipped with: an instance that went inactive with
+`man == 1` comes back with `recovery_allowed` false, never positions the cover, and — with a
+reset rule that cannot fire on its own (`is_reset_disabled`, or reset-in-position while the
+cover is elsewhere) — stays blocked **for good**. The override belongs to the previous shift;
+while the instance was off it could not even see the cover being moved, so there is nothing
+left for it to protect.
+
+**Bug Pattern T, fourth recurrence, caught at design time:** the take-over run consumes
+`shading_start_warranted` (via `recovered_pending`) and the parsed calendar boundaries (via
+`recovered_base`) — and thanks to the claim it can arrive under **any** trigger id. Both load
+gates therefore match `t_instance_activated` **and** `instance_activated`, not just the trigger
+id. Any new consumer of a load-gated value must re-ask *which trigger ids can reach it*.
+
+**Half 0 applies too.** A *gone* (disabled/deleted) gating entity would make the gate block
+every run forever with no log line — so the gate lets `states[x] is none` through
+(`instance_active == [] or states[instance_active] is none or states(...) in ['on', 'true']`)
+and the mandatory entity validation names it and stops the run. `unavailable` (a real dropout)
+**does** block, and the switch carries its own ungated `t_recovery` trigger: it is a sixth gate
+source, so its outage eats the latching triggers exactly like the other five. Unlike the other
+five, though, its return run is **not** hygiene-only with the catch-up off: the helper froze
+while the gate blocked, so `instance_activated` reads true on the return — and a hand-over
+whose `off → on` flank fell into the outage looks exactly the same, because HA only keeps the
+final `on`. The safe read is to take over: losing a real hand-over strands the cover, while the
+false positive drives to the position the cascade wants anyway. (This only matters for
+physically-backed gating entities — `switch`, `binary_sensor` — which can drop out mid-runtime;
+the recommended `input_boolean` only goes `unavailable` around a restart, and there
+`is_restart_run` already holds the proxy back.) Pinned by `TestSwitchDropoutTakesOver`.
+
+**One helper per instance — a shared one is possible and wrong.** CCA cannot enforce it (it
+cannot see its siblings), so this is a documentation-only rule. The reason is what the helper
+holds: **not one fact about the cover that is not re-derived live anyway** (`win`, `res`, `frc`
+are read from the entities on every take-over). Everything it *uniquely* stores is an
+**interpretation under one instance's settings** — `bas` ("*my* schedule says open"), `shd`
+("*my* shading is active" — the sibling may not even have shading enabled), `pnd`/`ts.due`/
+`ts.arm` (armed with *my* waiting times and thresholds), `man` ("someone overrode *me*"),
+`ts.opn`/`ts.cls`/`ts.shd` (the once-per-day guards of *my* settings). Sharing does not share
+state, it mixes readings. Three concrete failures:
+
+- `recovered_shade` only drops `shd` on `stale_day`, so a **same-day** hand-over makes the
+  incoming instance inherit a shading it has no concept of.
+- `recovered_pending` deliberately preserves a non-stale pending, so the incoming instance
+  inherits an armed pending and executes it against *its* conditions.
+- The global conditions are evaluated **once per run**: an outgoing run sitting in a `delay:`
+  finishes and writes the helper *after* the flip. With separate helpers it writes its own and
+  nobody cares; with a shared one it clobbers the take-over — and its fresh `t` can even defeat
+  the `instance_activated` claim (the `t_instance_activated` trigger id in `recovery_catch_up`
+  is what keeps the drive alive there, a second reason that clause is not redundant).
+
+The only thing sharing would buy is cross-instance once-per-day guards. Not worth it; the
+handbook points users at an `input_boolean` in the additional shading condition instead.
+
+**`instance_active` vs. the force pause — opposite mechanisms, and the pause must not be
+abused for this.** The pause suppresses the **drive**; the run still executes and still writes
+the helper (`bas`/`shd`/`win`/`frc` all updated — that is what makes the resume instant), and
+nothing about the pause itself is persisted. `instance_active` suppresses the **run**; the
+helper freezes and goes stale, which is why it needs the full take-over on return and the pause
+needs no recovery at all. Same rule, opposite sides: the pause's `t_recovery` trigger is
+**opt-in gated** (its return leaves nothing stale to correct — the only thing to do would be to
+*drive*, which causes a movement), while `instance_active` is an **ungated gate source** (while
+it is unusable the gate blocks every run, and its return run must be free to take over — see
+above — because the outage may have hidden a hand-over).
+
+Using the pause for mutual exclusion **almost** works and fails on exactly one thing: a paused
+instance still watches, and `t_manual_position` is not gated by the pause (the manual handler
+never drives, so no drive gate touches it). It therefore records the *sibling's* drives as
+`man: 1` and comes back refusing to move. That is the same failure the instance gate's **lack
+of trigger exemptions** is designed to prevent — the two facts are one fact.
+
+**An in-flight run of the outgoing instance cannot move the cover after the flip
+(CCA 2026.07.14).** The instance gate lives in the global conditions, and HA evaluates
+those at *trigger* time — a run that was already queued, or sitting in a pre-drive delay
+(up to minutes), when the hand-over happened would have driven to its stale target long
+after the flip, racing the incoming instance's take-over. The loser of that race is the
+user: the incoming instance reads the late movement as a manual override (it lands outside
+its `helper.t + drive_time + 60` settle window) and then refuses to position the cover —
+the exact failure the "switching automation must not drive" rule warns about, caused by
+CCA itself. The actuation anchors (`cover_move_action`, `tilt_move_action`,
+`drive_with_actions`) therefore re-read the instance gate **and the force pause** live at
+the moment of movement (see the design decision "The force pause is part of every drive
+gate" for the pause half and the accepted `man: 0` corner). The late run's helper write
+still happens and is harmless — it writes this instance's *own* helper, which the next
+activation re-derives anyway. The gone-entity rule of Half 0 is mirrored
+(`states[x] is none` passes), so the mandatory entity validation stays the one place that
+reports a deleted switch. Pinned by
+`tests/test_apply_transition_architecture.py::TestActuationPointLiveGates`.
+
+**Known limitations, accepted, documented in the handbook:** the once-per-day guards
+(`ts.opn`/`ts.cls`/`ts.shd`) are per-helper, so a mid-day hand-over grants one more
+open/close/shade; and the switching automation **must not drive the cover itself** — the
+incoming instance reads that movement as a manual override and then refuses to position the
+cover. Both are inherent to "one helper per instance" and are not worth a cross-instance
+mechanism.
+
+Tests: `tests/test_instance_active.py`.
 
 ---
