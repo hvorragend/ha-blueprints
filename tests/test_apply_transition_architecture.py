@@ -124,9 +124,9 @@ class TestNoBypassOfApplyTransition:
             "leaf branches must drive via *apply_transition, not raw "
             "*drive_with_actions"
         )
-        # *tilt_move_action: 2x inside drive_with_actions (default order and
-        # tilt-before-position order), 1x inside apply_transition (move: tilt).
-        assert text.count("- *tilt_move_action") == 3, (
+        # *tilt_move_action: 1x inside drive_with_actions (after the cover
+        # move), 1x inside apply_transition (move: tilt).
+        assert text.count("- *tilt_move_action") == 2, (
             "leaf branches must tilt via *apply_transition (move: tilt), not "
             "raw *tilt_move_action"
         )

@@ -239,12 +239,19 @@ tilt move → after-action) is selected via the `drive_action_set` variable
 (`up` / `down` / `ventilate` / `shading_start` / `shading_end`). Delays and
 `*helper_update` deliberately stay at the call site so ordering and timing
 remain visible per branch. With the Tilt Wait Mode `tilt_before_position`
-(`is_tilt_before_position_mode`, Issue #355 — motors like the Somfy J4 IO
-that restore the previous slat position after every positioning run), the
-inner order flips to tilt move → `tilt_delay` → cover move, and
-`&tilt_move_action` skips its pre-tilt wait (the cover is still idle): the
-motor's own restore re-applies the target tilt after positioning, so no tilt
-command is sent — or waited for — after the movement.
+(`is_tilt_before_position_mode`, Issues #355/#612 — motors like the Somfy
+J4 IO that reject tilt commands while fully open, force their tilt target
+to 100/0 on `open_cover`/`close_cover`, and restore the last tilt target
+after every positioning run), a preliminary alignment step runs before the
+cover move: a cover at the fully-open endpoint is briefly started downwards
+(so the motor accepts tilt commands again), otherwise the slats are
+pre-tilted to match the travel direction (0 when moving down, 100 when
+moving up). `&cover_move_action` then avoids the `open_cover`/`close_cover`
+shortcuts unless the tilt target matches their implicit tilt, and the final
+tilt target is sent after the movement — `&tilt_move_action` waits for the
+cover to become idle in this mode, exactly like `wait_idle`. The alignment
+step is skipped when the position will not change (same tolerance check as
+`&cover_move_action`), so a tilt-only run tilts directly.
 
 ---
 
