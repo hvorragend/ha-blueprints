@@ -333,7 +333,7 @@ prompt on a reload instead of waiting for the next regular trigger.
 
 **Stale day — the midnight reset that never ran.** `stale_day` = the helper was last written on an earlier date. BRANCH 11 clears `shd`/`pnd` every night at 23:55; if the automation was off, it did not. So a shading from three days ago still reads as active and the first trigger would drive the cover into the shading position — at night, even. The recovery therefore emulates that reset: `recovered_shade` drops `shd`, `pending_is_stale` also fires on `stale_day`, and `ts.opn`/`ts.cls` are zeroed (they gate the once-per-day open/close guards and must not suppress today's run).
 
-**But `ts.shd` is deliberately *not* stamped** when `shd` is cleared 1→0 here — and since CCA 2026.07.19, BRANCH 11 omits the stamp too: its random delay plus queued runs can push the 23:55 write past midnight, where the stamp lands on the *new* day and the once-per-day guard blocks that whole day (Bug Pattern V, updated there). Both clears now leave `ts.shd` at the last real `shd` transition, which is always a same-day-or-earlier stamp and never suppresses the coming day.
+**But `ts.shd` is deliberately *not* stamped** when `shd` is cleared 1→0 here — and since CCA 2026.07.20, BRANCH 11 omits the stamp too: its random delay plus queued runs can push the 23:55 write past midnight, where the stamp lands on the *new* day and the once-per-day guard blocks that whole day (Bug Pattern V, updated there). Both clears now leave `ts.shd` at the last real `shd` transition, which is always a same-day-or-earlier stamp and never suppresses the coming day.
 
 #### Why the recovery is a pre-dispatch gate and not a numbered branch
 
@@ -405,7 +405,7 @@ against *which trigger actually fires it*.
 | `t_resident_update` | no (state) | `res` stale → poisons the fallback on the *next* dropout | `state_resident` falls back to `helper_json.res`; the recovery gate re-reads **and persists `res`** | always |
 | `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — the cover stays under manual control forever | the recovery gate's `override_expired` (re-evaluates the reset rules and clears `man`). This is why the manual gate sits in `recovery_allowed` (blocking only the *drive*) and not in the gate's conditions: a branch skipped on `man == 1` could never lift an expired override | always — clearing an expired override moves nothing, and gating it would strand the cover in manual **forever** |
 | `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` | always |
-| `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) — and since 2026.07.19 the `midnight_reset_missed` **claim** makes sure a recovery actually runs: `stale_day and (shd or pnd)` turns the next trigger of any kind into one, so the repair no longer depends on something else entering the gate | always — this one *prevents* a wrong drive rather than catching one up |
+| `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) — and since 2026.07.20 the `midnight_reset_missed` **claim** makes sure a recovery actually runs: `stale_day and (shd or pnd)` turns the next trigger of any kind into one, so the repair no longer depends on something else entering the gate | always — this one *prevents* a wrong drive rather than catching one up |
 | *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | a toggle: the **resume trigger** (live read of the automation's own `last_changed` + 60 s offset — **not** `this`, whose timestamps are pre-enable; Bug Pattern AM); a reload/save: the **`automation_reloaded` event trigger** (`this` is `None` at a reload attach, so the template path is dark there); `automation_resumed` makes the recovery gate claim any trigger as a backstop for both | always — neither the resume trigger nor the reload event carries the opt-in gate |
 | *(`instance_active` is off — this instance is not in charge)* | — | **every** trigger of the off period is dropped, so all the latching rows above happen at once, and the helper is arbitrarily old when the instance comes back | `t_instance_activated` (prompt) + the `instance_activated` claim (backstop for a swallowed edge) → the recovery gate re-derives everything | always — an activation is exempt from the opt-in (but **not** from `is_restart_run`) |
 | *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run — and the outage may have eaten a hand-over's `off → on` flank, which HA never keeps | its own ungated `t_recovery` trigger — and, unlike the five other gate sources, the return run is **not** hygiene-only with the catch-up off: the helper froze while the gate blocked, so `instance_activated` reads true on the return and the run takes over (deliberate — a dropout return is indistinguishable from a swallowed hand-over, losing a real one strands the cover, and the false positive drives to the cascade target anyway) | always — **even with the catch-up off** |
@@ -454,7 +454,7 @@ existing execution flow (which does evaluate them) do the movement.
 
 ---
 
-## Several instances, one cover: `instance_active` (CCA 2026.07.19)
+## Several instances, one cover: `instance_active` (CCA 2026.07.20)
 
 The multi-instance pattern (one CCA automation per season / presence mode / whatever, each
 with its own helper and its own settings, an external automation picking which one is live)
@@ -473,7 +473,7 @@ fires* — `this.last_changed` never moved, so `automation_resumed` cannot see i
 trigger re-fires, and the first regular trigger acts on a helper that may be months old. It is
 the "Not repairable, by design" row of the orphan audit, turned into a feature by accident.
 `instance_active` is that gate **made repairable**: CCA owns it, so it can watch it and heal it.
-(Since 2026.07.19 the worst artifact of a foreign gate self-heals too: `midnight_reset_missed` — see
+(Since 2026.07.20 the worst artifact of a foreign gate self-heals too: `midnight_reset_missed` — see
 below — claims the first run after any blockade that let a shading survive midnight. The rest
 of the staleness, `bas`/`man`, is re-derived or latched as documented in the audit rows.)
 
@@ -594,7 +594,7 @@ never drives, so no drive gate touches it). It therefore records the *sibling's*
 of trigger exemptions** is designed to prevent — the two facts are one fact.
 
 **An in-flight run of the outgoing instance cannot move the cover after the flip
-(CCA 2026.07.19).** The instance gate lives in the global conditions, and HA evaluates
+(CCA 2026.07.20).** The instance gate lives in the global conditions, and HA evaluates
 those at *trigger* time — a run that was already queued, or sitting in a pre-drive delay
 (up to minutes), when the hand-over happened would have driven to its stale target long
 after the flip, racing the incoming instance's take-over. The loser of that race is the
@@ -622,7 +622,7 @@ Tests: `tests/test_instance_active.py`.
 
 ---
 
-## The missed-midnight-reset claim: `midnight_reset_missed` (CCA 2026.07.19)
+## The missed-midnight-reset claim: `midnight_reset_missed` (CCA 2026.07.20)
 
 A third self-clearing claim next to `automation_resumed` and `instance_activated`, for the one
 blockade neither of them can see: runs dropped by a **foreign gate** (typically a long-false

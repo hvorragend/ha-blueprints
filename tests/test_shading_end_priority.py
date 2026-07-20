@@ -266,7 +266,7 @@ class TestShadingEndBranchSelection:
 
     def test_issue_615_slats_above_ventilate_tilt_still_select_ventilation(self, choose):
         # Same equality setup, but the slats are already MORE open than the
-        # ventilate tilt. Until 2026.07.19 the tilt alternative required
+        # ventilate tilt. Until 2026.07.20 the tilt alternative required
         # current_tilt_position <= ventilate_tilt_position ("do not pull the
         # slats down"), which made the configured ventilate state unreachable:
         # in_ventilate_position checks the tilt angle within tolerance, so a
