@@ -2435,23 +2435,6 @@ trigger_variables:
   # selector value 'time_control_disabled' is no longer evaluated (its stored configs are
   # disabled via the missing checkbox anyway, matching their original intent).
   is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options }}"
-  # A pre-consolidation config (~2026.05) that lost its time control to the #544 breaking
-  # change: it stores neither the checkbox nor the legacy 'time_control_disabled' selector
-  # value, yet still carries time-window settings (customized times, a workday sensor or a
-  # calendar) - none of which do anything while time control is off. A deliberate uncheck on
-  # a clean config (default times, no workday sensor, no calendar) matches no signal, so it
-  # is never flagged. The literal default list is pinned against the input defaults by
-  # tests/test_legacy_time_control_warning.py. Consumed by the pre-dispatch legacy warning.
-  legacy_time_control_lost: >-
-    {{ 'time_control_enabled' not in auto_options and
-       'time_control_disabled' not in time_control and
-       ('auto_up_enabled' in auto_options or 'auto_down_enabled' in auto_options) and
-       (('time_control_calendar' in time_control and calendar_entity != []) or
-        workday_sensor_today != [] or
-        [time_up_early, time_up_early_non_workday, time_up_late, time_up_late_non_workday,
-         time_down_early, time_down_early_non_workday, time_down_late, time_down_late_non_workday]
-        != ['06:00:00', '07:00:00', '08:00:00', '08:00:00',
-            '16:00:00', '16:00:00', '22:00:00', '22:00:00']) }}
   # An open base state ('opn') only reflects a real "open" intent when an opening automation
   # exists that can drive bas to 'opn'. Without one, bas stays at its 'opn' init default forever
   # (it is only ever driven to 'cls' by the close handler), so the VENT floor could never apply.
@@ -5536,65 +5519,6 @@ actions:
           {{ not ns.relevant }}
     then:
       - stop: "Calendar trigger ignored: No configured open/close event starts or ends at this calendar state change"
-
-  # ══════════════════════════════════════════════════════════════════════════
-  # LEGACY CONFIG WARNING (pre-dispatch)
-  #   A pre-consolidation config lost its time control to the #544 breaking
-  #   change (see legacy_time_control_lost). Fires on the first run after a
-  #   restart, a reload or a save - which includes the first run after the
-  #   blueprint update that made the checkbox authoritative. Never stops the
-  #   run and never writes the helper.
-  # ══════════════════════════════════════════════════════════════════════════
-  - alias: "Legacy config warning: time control lost by the options consolidation"
-    if:
-      - "{{ automation_resumed and legacy_time_control_lost }}"
-    then:
-      - alias: "Create the lost-time-control notification"
-        action: persistent_notification.create
-        data:
-          notification_id: "cca_time_control_lost_{{ this.entity_id }}"
-          title: "⚠️ CCA: Time windows are disabled - {{ friendly_name }}"
-          message: >-
-            The **⏲️ Time Control** checkbox is unchecked in the automation
-            **{{ friendly_name }}**, but time-window settings are still configured
-            (custom opening/closing times, a workday sensor, or a calendar) - they
-            have no effect while the checkbox is off.
-
-
-            If this automation was configured before ~2026.05, this is most likely
-            **not** what you chose: a blueprint update (2026.07.12, issue #544) made
-            the checkbox the only switch for the time windows, and configurations
-            from before the checkbox existed lost their time control. The covers
-            then open or close as soon as a sensor threshold is crossed (for example
-            around sunrise), or - with pure time control - stop moving on schedule
-            at all.
-
-
-            ➡️ **To restore the time windows:** open the automation, check
-            **⏲️ Time Control** under **👉 What should CCA control?**, and save.
-
-
-            ➡️ **If you disabled time control on purpose:** dismiss this
-            notification. It only returns after a restart or a save of the
-            automation while unused time-window settings remain configured - reset
-            the time fields to their defaults and remove the workday sensor or
-            calendar to silence it for good.
-
-
-            📖 [FAQ: Breaking change 2026.07.12](https://hvorragend.github.io/ha-blueprints/FAQ)
-      - alias: "Log the lost-time-control warning"
-        action: system_log.write
-        data:
-          message: >-
-            Cover Control Automation ({{ friendly_name }}): the ⏲️ Time Control checkbox is
-            unchecked, but time-window settings are still configured (custom times, workday
-            sensor or calendar). If this configuration predates the options consolidation
-            (~2026.05), the time windows were lost by the 2026.07.12 breaking change (#544) -
-            check ⏲️ Time Control in the automation settings and save to restore them. If the
-            uncheck was deliberate, reset the unused time-window settings to silence this
-            warning.
-          level: warning
-          logger: "blueprints.hvorragend.cca"
 
   # ══════════════════════════════════════════════════════════════════════════
   # RECOVERY GATE (pre-dispatch) - restore the target state after an outage
