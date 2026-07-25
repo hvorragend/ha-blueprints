@@ -697,3 +697,39 @@ The same source was also missing from the "no trigger source at all" configurati
 **Rule:** A suppression that exists to hide CCA's *own movements* must key off the drive decision (`drive_plan.run` / `d`), never off write activity (`t`) or run activity (`this.attributes.current`) — bookkeeping writes and idle-waiting runs cannot have caused a position change, so suppressing detection around them silently discards real manual moves (same asymmetry family as Bug Pattern Y: suppress only when the thing being muted can actually occur).
 
 ---
+
+### Bug Pattern AQ: Vent-branch opened-contact guard stricter than the gate that admits the run (Issue #631)
+
+**Symptom:** A window is tilted, the tilted contact is alive and `on`, but the *opened*
+contact is `unavailable` (a battery handle the hub marked unavailable after hours without
+an event). The evening closing drives the cover **fully closed over the tilted window**
+instead of stopping at the ventilation position; "Ventilation after shading ends" skips the
+ventilation position the same way and falls through to the tilt-only / move-cover branches.
+Before the #622 gate fix these runs were blocked entirely (the cover froze instead — Bug
+Pattern AN); since 2026.07.19/20 they pass the gate and then take the wrong branch.
+
+**Cause:** `window_opened_clear` was deliberately not the negation of `window_opened_now`:
+an unreadable opened contact counted as "possibly open" and skipped the ventilation
+branches. While the stateless-contact gate blocked every such run (pre-#622), that
+strictness was unreachable dead code. #622 taught the **gate** the contradiction rule — an
+invalid read blocks only while it contradicts the last known `win` — precisely so that
+*"the live tilted contact keeps guarding the ventilation position"*. But the **branch
+guard** kept the blanket doubt: the run the gate now admits found `window_opened_clear`
+false, the lockout branch found `window_opened_now` false, and control fell past both into
+the normal close — the least safe of the three possible outcomes (lockout, ventilation,
+full close).
+
+**Fix:** `window_opened_clear` adopts the same contradiction rule as the gate: clear when
+unconfigured, explicitly `off`/`false`, **or** unreadable while `helper_state_window !=
+'opn'` (the invalid "off" reading agrees with the last known truth). An unreadable contact
+last known fully **open** still counts as possibly open — that case never reaches the
+consuming branches anyway, because the gate blocks it (`t_close`/`t_shading_end` triggers
+are not gate-exempt), so the flag stays conservative without being reachable-stricter.
+
+**Rule:** When a gate admits a run under a fallback reading (Bug Pattern AN), every
+downstream branch guard on the same sensor must accept that same fallback reading — a
+guard stricter than its gate does not stop the run, it silently pushes it into a
+lower-priority branch, breaking the cascade exactly like an unconsumed priority branch
+(Invariant 1 family). Gate and guard must encode one shared doubt rule, not two.
+
+---

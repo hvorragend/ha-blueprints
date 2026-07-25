@@ -4637,9 +4637,15 @@ actions:
       window_opened_now: "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
       window_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
       window_any_now: "{{ window_opened_now or window_tilted_now }}"
-      # Explicitly closed/unconfigured - NOT the negation of window_opened_now:
-      # an unavailable sensor is neither "open" nor "explicitly closed".
-      window_opened_clear: "{{ contact_window_opened == [] or states(contact_window_opened) in ['false', 'off'] }}"
+      # The opened contact does not contradict a not-open window: unconfigured,
+      # explicitly closed, or unreadable while the last known window state was
+      # not fully open - the invalid "off" reading then agrees with the last
+      # known truth, the same contradiction rule as the stateless-contact gate
+      # (Bug Patterns AN + AQ). Still NOT the negation of window_opened_now: an
+      # unreadable contact last known fully open counts as possibly open.
+      window_opened_clear: >-
+        {{ contact_window_opened == [] or states(contact_window_opened) in ['false', 'off'] or
+           (states(contact_window_opened) in invalid_states and helper_state_window != 'opn') }}
 
       # Lockout evaluation per context: a fully open window always locks out,
       # a tilted window only when the matching lockout option is enabled.

@@ -1030,7 +1030,8 @@ AG_NORMAL_ALIAS = "Normal opening of the cover"
 
 
 def _eval_ha_condition(env, cond, variables) -> bool:
-    """Evaluate a blueprint condition: template string or {or:[...]}/{and:[...]} dict."""
+    """Evaluate a blueprint condition: template string or {or:[...]}/{and:[...]} dict.
+    A `condition: !input ...` user condition counts as passed."""
     from conftest import eval_condition
 
     if isinstance(cond, str):
@@ -1040,6 +1041,8 @@ def _eval_ha_condition(env, cond, variables) -> bool:
             return any(_eval_ha_condition(env, c, variables) for c in cond["or"])
         if "and" in cond:
             return all(_eval_ha_condition(env, c, variables) for c in cond["and"])
+        if "condition" in cond:
+            return True
     raise AssertionError(f"unsupported condition node: {cond!r}")
 
 
@@ -1254,3 +1257,152 @@ class TestIssue544TimeControlDisable:
             "is_calendar_enabled", ["time_control_enabled"], "time_control_calendar",
             calendar_entity="calendar.covers",
         ) is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern AQ (#631): the vent-branch opened-contact guard must accept an
+# unreadable opened contact whose invalid "off" reading agrees with the last
+# known window state — otherwise the run the stateless-contact gate (Pattern
+# AN) deliberately admits falls past the ventilation branch into a full close
+# over a live-tilted window.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+AQ_INVALID_STATES = ["", "unavailable", "unknown", "none", "None", "null", "query failed", []]
+
+CLOSING_LOCKOUT_ALIAS = "Lockout protection when closing"
+
+
+def _render_window_opened_clear(opened_state, helper_window: str) -> bool:
+    from conftest import eval_condition, make_jinja_env
+
+    template = str(_find_variable_definition(_load_blueprint_yaml(), "window_opened_clear"))
+    entity_states = (
+        {} if opened_state is None else {"binary_sensor.window_opened": opened_state}
+    )
+    env = make_jinja_env(entity_states)
+    return eval_condition(
+        env,
+        template,
+        {
+            "contact_window_opened": [] if opened_state is None
+            else "binary_sensor.window_opened",
+            "invalid_states": AQ_INVALID_STATES,
+            "helper_state_window": helper_window,
+        },
+    )
+
+
+def _closing_choose_branches() -> list[dict]:
+    """Return the choose branches of the 'Check for closing cover' handler, in order."""
+    blueprint = _load_blueprint_yaml()
+    handler = _find_branch_by_alias(blueprint, "Check for closing cover")
+    assert handler is not None
+    return handler["sequence"][0]["choose"]
+
+
+def _select_closing_branch(entity_states: dict, helper_window: str) -> str | None:
+    from conftest import make_jinja_env
+
+    env = make_jinja_env(entity_states)
+    opened = entity_states.get("binary_sensor.window_opened") in ("on", "true")
+    tilted = entity_states.get("binary_sensor.window_tilted") in ("on", "true")
+    v = {
+        "is_ventilation_enabled": True,
+        "resident_flags": {"allow_ventilate": True},
+        "window_opened_now": opened,
+        "window_tilted_now": tilted,
+        "window_opened_clear": _render_window_opened_clear(
+            entity_states.get("binary_sensor.window_opened"), helper_window
+        ),
+        "lockout_tilted_when_closing": False,
+        "lockout_now": {"closing": opened},
+        "effective_state": "vnt",
+        "in_close_position": False,
+        "helper_state_is_shaded": False,
+        "in_shading_position": False,
+        "prevent_flags": {
+            "lowering_when_closing_if_shaded": False,
+            "higher_position_closing": False,
+        },
+        "position_comparisons": {
+            "shading_above_close": True,
+            "current_below_close": False,
+        },
+        "current_position": 50,
+        "close_position": 0,
+    }
+    for branch in _closing_choose_branches():
+        if all(_eval_ha_condition(env, c, v) for c in branch["conditions"]):
+            return branch["alias"]
+    return None
+
+
+class TestPatternAQOpenedContactDoubtRule:
+    """#631: guard and gate must share one doubt rule for the opened contact."""
+
+    def test_explicitly_closed_is_clear(self):
+        assert _render_window_opened_clear("off", "tlt") is True
+
+    def test_unconfigured_is_clear(self):
+        assert _render_window_opened_clear(None, "tlt") is True
+
+    def test_live_open_is_not_clear(self):
+        assert _render_window_opened_clear("on", "tlt") is False
+
+    def test_agreeing_invalid_read_is_clear(self):
+        # Unreadable opened contact, last known window state tilted/closed:
+        # the invalid "off" reading agrees with the last known truth.
+        assert _render_window_opened_clear("unavailable", "tlt") is True
+        assert _render_window_opened_clear("unavailable", "cls") is True
+
+    def test_contradicted_invalid_read_is_not_clear(self):
+        # Last known fully open: the invalid reading may be lying — stay
+        # conservative (this run is blocked by the gate anyway, Pattern AN).
+        assert _render_window_opened_clear("unavailable", "opn") is False
+
+
+class TestPatternAQClosingBranchSelection:
+    """#631: evening closing with a live-tilted window and an unreadable
+    opened contact must select the ventilation branch, not fall through to
+    the normal (full) closing."""
+
+    def test_unreadable_opened_contact_selects_ventilation(self):
+        alias = _select_closing_branch(
+            {
+                "binary_sensor.window_opened": "unavailable",
+                "binary_sensor.window_tilted": "on",
+            },
+            helper_window="tlt",
+        )
+        assert alias == TILTED_CLOSE_ALIAS
+
+    def test_readable_closed_opened_contact_selects_ventilation(self):
+        alias = _select_closing_branch(
+            {
+                "binary_sensor.window_opened": "off",
+                "binary_sensor.window_tilted": "on",
+            },
+            helper_window="tlt",
+        )
+        assert alias == TILTED_CLOSE_ALIAS
+
+    def test_open_window_still_selects_lockout(self):
+        alias = _select_closing_branch(
+            {
+                "binary_sensor.window_opened": "on",
+                "binary_sensor.window_tilted": "on",
+            },
+            helper_window="opn",
+        )
+        assert alias == CLOSING_LOCKOUT_ALIAS
+
+    def test_closed_window_falls_through_to_normal_closing(self):
+        alias = _select_closing_branch(
+            {
+                "binary_sensor.window_opened": "off",
+                "binary_sensor.window_tilted": "off",
+            },
+            helper_window="cls",
+        )
+        assert alias is None

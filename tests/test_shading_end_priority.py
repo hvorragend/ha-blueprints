@@ -139,7 +139,16 @@ def _base_execution_vars(entity_states: dict) -> dict:
         # post-forecast variables block), derived from the mocked states.
         "window_opened_now": entity_states.get("binary_sensor.window_opened") in ("on", "true"),
         "window_tilted_now": entity_states.get("binary_sensor.window_tilted") in ("on", "true"),
-        "window_opened_clear": entity_states.get("binary_sensor.window_opened") in ("off", "false", None),
+        # Mirrors the blueprint definition (Bug Pattern AQ): explicitly
+        # closed/unconfigured, or unreadable while the last known window
+        # state (helper win, default 'tlt' in these scenarios) was not 'opn'.
+        "window_opened_clear": (
+            entity_states.get("binary_sensor.window_opened") in ("off", "false", None)
+            or (
+                entity_states.get("binary_sensor.window_opened") in ("unavailable", "unknown")
+                and entity_states.get("helper_win", "tlt") != "opn"
+            )
+        ),
         "lockout_now": {
             "shading_end": entity_states.get("binary_sensor.window_opened") in ("on", "true"),
         },
@@ -261,6 +270,21 @@ class TestShadingEndBranchSelection:
         variables["ventilate_position"] = 0
         variables["current_tilt_position"] = 0  # slats at shading angle
         variables["ventilate_tilt_position"] = 60
+        alias = _first_matching_alias(_env(entity_states), choose, variables)
+        assert alias == "Ventilation after shading ends"
+
+    def test_issue_631_unreadable_opened_contact_still_selects_ventilation(self, choose):
+        # The opened contact is unavailable (sleeping battery handle) while
+        # the tilted contact is alive and on, last known window state 'tlt'.
+        # The stateless-contact gate admits this run (Pattern AN), so the
+        # ventilation branch must accept the agreeing invalid reading too —
+        # otherwise the run falls through past the ventilation position
+        # (Bug Pattern AQ, Issue #631).
+        entity_states = {
+            "binary_sensor.window_opened": "unavailable",
+            "binary_sensor.window_tilted": "on",
+        }
+        variables = _base_execution_vars(entity_states)
         alias = _first_matching_alias(_env(entity_states), choose, variables)
         assert alias == "Ventilation after shading ends"
 

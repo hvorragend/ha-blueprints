@@ -70,8 +70,11 @@ the anchor definitions and the v5→v6 migration persist.
 **Event normalization** (post-forecast variables block): the live sensor idioms
 are computed once per run and referenced by all branch conditions —
 `window_opened_now`, `window_tilted_now`, `window_any_now`,
-`window_opened_clear` (explicitly closed/unconfigured — NOT the negation of
-`window_opened_now`; an unavailable sensor is neither), `lockout_now.closing/
+`window_opened_clear` (the opened contact does not contradict a not-open
+window: explicitly closed/unconfigured, or unreadable while `win != 'opn'` —
+the stateless-contact gate's contradiction rule, Bug Patterns AN + AQ; still
+NOT the negation of `window_opened_now` — an unreadable contact last known
+fully open counts as possibly open), `lockout_now.closing/
 shading_start/shading_end`, `shading_once_guard_ok`, `drive_delay_standard`.
 The contact handler re-reads the sensors **after its settle delay** into local
 `contact_opened_now` / `contact_tilted_now` / `was_ventilating` — do not replace
