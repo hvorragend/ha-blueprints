@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.13 V7
+    **Version**: 2026.07.25
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -62,6 +62,8 @@ blueprint:
 
             *Not sure? The defaults (Morning Opening, Evening Closing, Time Control) work for most setups.*
 
+            *⚠️ For a fixed-time schedule (open/close at set times, no sensors), **⏲️ Time Control must stay checked** — it is the only trigger for Morning Opening and Evening Closing then. Unchecking it disables both entirely.*
+
 
             📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/features#auto_options).
 
@@ -78,7 +80,7 @@ blueprint:
                   value: "auto_up_enabled"
                 - label: "🔻 Evening Closing — Automatically close the cover each evening"
                   value: "auto_down_enabled"
-                - label: "⏲️ Time Control — Use time windows (Early/Late) to constrain when triggers fire"
+                - label: "⏲️ Time Control — Open/close at the Early/Late times; without Brightness/Sun sensors this is the only opening/closing trigger"
                   value: "time_control_enabled"
                 - label: "🔅 Brightness Control — Trigger opening/closing based on ambient brightness sensor"
                   value: "auto_brightness_enabled"
@@ -96,7 +98,7 @@ blueprint:
         time_control:
           name: "⏲️ Time Control Type"
           description: >-
-            Select how time-based opening and closing is scheduled. *(Only relevant when **⏲️ Time Control** is checked in the **👉 What should CCA control?** list above — uncheck it there to disable the time windows entirely.)*
+            Select how time-based opening and closing is scheduled. *(Only relevant when **⏲️ Time Control** is checked in the **👉 What should CCA control?** list above — uncheck it there to disable the time windows entirely. Careful: without Brightness/Sun sensors the time windows are the only opening/closing trigger, so unchecking stops automatic opening and closing altogether.)*
 
             📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/features#time_control).
 
@@ -216,6 +218,50 @@ blueprint:
               sort: false
               custom_value: false
               mode: list
+
+        instance_active:
+          name: "🎚️ Only run this automation while this switch is on"
+          description: >-
+            While the switch is off, CCA does nothing at all for this cover — and it does not
+            record movements made by others as a manual override either. That makes it safe to
+            run **several CCA automations for the same cover** (say, one for summer and one for
+            winter), each with its own status helper and its own settings, as long as only one
+            is on at a time. Switching one on is a full take-over: it re-reads everything and
+            positions the cover where *its* settings say — **regardless of the setting above**.
+
+            **The switching automation must not move the cover itself** — the incoming automation
+            would read that as a manual override and leave the cover alone.
+
+            Leave this empty (the default) if you only run one CCA automation for this cover.
+
+            📖 Setup recipes (one shared dropdown, a calendar as the switch, a "re-sync now"
+            button) in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/features#instance_active).
+          default: []
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: input_boolean
+                - domain: binary_sensor
+                - domain: switch
+                - domain: schedule
+                - domain: input_select
+                - domain: select
+                - domain: calendar
+
+        instance_active_value:
+          name: "🎚️ ... and it counts as on while it shows this value"
+          description: >-
+            Only used together with the switch above; leave it empty for a normal on/off switch.
+
+            With a value here, the automation is in charge exactly **while the entity above shows
+            this value** (matched exactly — for a dropdown: the option text, case and all). One
+            shared *Dropdown* helper with one option per automation then guarantees that exactly
+            one automation is in charge — no switching automation needed. Recipes in the handbook
+            (link above).
+          default: ""
+          selector:
+            text:
 
     position_section:
       name: "Cover Position Settings"
@@ -397,11 +443,12 @@ blueprint:
             state before sending tilt. Prevents tilt commands from being ignored on
             devices that block tilt during motor movement (e.g., Shelly Qubino Wave Shutter).
 
-            **Tilt First, Then Position (Somfy J4 IO)**: Sends the tilt command before
-            the position command instead of after it. For motors that automatically
-            restore the previous slat position after positioning (e.g., Somfy J4 IO):
-            the motor then restores exactly the target tilt on its own, so no tilt
-            command has to be sent — or waited for — after the movement.
+            **Tilt First, Then Position (Somfy J4 IO)**: For motors that ignore tilt
+            commands while fully open and return to the last tilt target after every
+            positioning run (e.g., Somfy J4 IO). Before the position command the slats
+            are aligned with the travel direction — a cover resting fully open is
+            briefly started downwards first, so that it accepts tilt commands again.
+            After the movement has stopped, the final tilt target is sent.
 
             If your tilt positions are unreliable, try switching to 'Wait Until Idle' mode.
           default: "fixed_delay"
@@ -420,7 +467,7 @@ blueprint:
           name: "🔄 Tilt Wait Timeout"
           description: >-
             Maximum time to wait for cover to become idle before sending tilt command.
-            Only used when 'Wait Until Idle' mode is selected.
+            Used when 'Wait Until Idle' or 'Tilt First, Then Position' mode is selected.
           default: 30
           selector:
             number:
@@ -437,7 +484,7 @@ blueprint:
             Only necessary when using the tilt functions.
             This separates the two commands in terms of time.
             In 'Tilt First, Then Position' mode the delay is applied between the
-            tilt command and the following position command instead.
+            preliminary slat alignment and the following position command instead.
             <br /><br />`Optional`
           default: 0
           selector:
@@ -1102,7 +1149,7 @@ blueprint:
           All these settings are optional / The attributes of default sun sensor (configured above) is used.
         </small></p></center>
 
-        📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/contacts#contact_delay_status).
+        📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/shading).
       icon: mdi:shield-sun-outline
       collapsed: true
       input:
@@ -2249,6 +2296,7 @@ trigger_variables:
   cover_type: !input cover_type
   is_awning: "{{ cover_type == 'awning' }}"
   resident_sensor: !input resident_sensor
+  resident_config: !input resident_config
 
   # Position source configuration
   position_source: !input position_source
@@ -2390,17 +2438,19 @@ trigger_variables:
   # An open base state ('opn') only reflects a real "open" intent when an opening automation
   # exists that can drive bas to 'opn'. Without one, bas stays at its 'opn' init default forever
   # (it is only ever driven to 'cls' by the close handler), so the VENT floor could never apply.
-  # The gate therefore mirrors the enabled: gates of the opening triggers: time fields and
-  # calendar are only two of the four sources - brightness and sun elevation open the cover
-  # without any time control (the opening branch passes them through via is_time_control_disabled)
-  # and their bas='opn' is just as real. Used by effective_state (and its recovery mirror) to let
-  # VENT beat a bas='opn' that no opening automation ever set.
+  # The gate therefore mirrors the enabled: gates of the triggers that write bas='opn': time
+  # fields and calendar are only two of the five sources - brightness and sun elevation open the
+  # cover without any time control (the opening branch passes them through via
+  # is_time_control_disabled), and the resident-leaving handler opens (and writes bas='opn')
+  # when resident opening is configured, all without any other source. Used by effective_state
+  # (and its recovery mirror) to let VENT beat a bas='opn' that no opening automation ever set.
   is_opening_scheduled: >-
     {{ is_up_enabled and (
          is_time_field_enabled or
          is_calendar_enabled or
          (is_brightness_enabled and default_brightness_sensor != []) or
-         (is_sun_elevation_enabled and default_sun_sensor != [])) }}
+         (is_sun_elevation_enabled and default_sun_sensor != []) or
+         ('resident_opening_enabled' in resident_config and resident_sensor != [])) }}
 
   # Ventilation and tilt are only available for blinds, not awnings
   is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
@@ -2442,6 +2492,12 @@ trigger_variables:
   # Cover status helper configuration
   cover_status_helper: !input cover_status_helper
 
+  # Hand-over switch of the multi-instance setup - while it is off this instance does nothing
+  instance_active: !input instance_active
+
+  # Optional state value that counts as "on" for the hand-over entity ('' = plain on/true)
+  instance_active_value: !input instance_active_value
+
   # Invalid states list - Shared constant
   invalid_states:
     - ''                    # Empty string
@@ -2461,13 +2517,21 @@ trigger_variables:
     {{ ([blind] if blind != [] else []) +
        ([custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else []) }}
 
+  # The automation's own entity id, from the `this` snapshot HA passes at trigger attach.
+  # On automation.turn_on that snapshot still holds the PRE-enable state (HA writes the
+  # on-state only after the triggers are attached), so its timestamps are stale - but the
+  # entity id is not, and it is the only field the resume trigger may read from it.
+  # On a reload/save the entity is re-created before its first state write, so there is
+  # no snapshot at all ('' here); the automation_reloaded event trigger owns that path.
+  automation_entity: "{{ this.entity_id | default('') }}"
+
 
 ################################################################################
 # VARIABLES
 ################################################################################
 
 variables:
-  version: "2026.07.13 V7"
+  version: "2026.07.25"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -2713,8 +2777,8 @@ variables:
   # ═══════════════════════════════════════════════════════════════════════════
   # Cover Status Helper – JSON parsing with v5 → v6 migration
   # ═══════════════════════════════════════════════════════════════════════════
-  # v6 Compact Schema (stored in input_text, max 208 chars):
-  # {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0}
+  # v6 Compact Schema (stored in input_text, max 218 chars):
+  # {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,"ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0,"d":0}
   #
   # Field mapping (compact → internal):
   #   bas → base (opn/cls → open/close)
@@ -2728,6 +2792,8 @@ variables:
   #   ts.due → fire time of armed pending (used together with pnd)
   #   ts.arm → first-arming anchor of current retry sequence
   #   ts.man → ts.manual
+  #   t      → last helper write (every run stamps it)
+  #   d      → last write of a run that drove the cover (drive_plan.run)
   #
   # NOTE: in_shading_position compares against the dynamically computed
   #       shading_tilt_position. When the sun crosses a tilt-stage threshold the
@@ -2775,7 +2841,8 @@ variables:
             'man': helper_raw.manual.t | default(0)
           },
           'v': 6,
-          't': ts_now
+          't': ts_now,
+          'd': 0
         }
       }}
     {% elif is_v6_compact %}
@@ -2798,7 +2865,8 @@ variables:
             'man': raw_ts.man | default(0) | int
           },
           'v': 6,
-          't': helper_raw.t | default(ts_now) | int
+          't': helper_raw.t | default(ts_now) | int,
+          'd': helper_raw.d | default(0) | int
         }
       }}
     {% else %}
@@ -2820,13 +2888,11 @@ variables:
             'man': 0
           },
           'v': 6,
-          't': ts_now
+          't': ts_now,
+          'd': 0
         }
       }}
     {% endif %}
-
-  # Resident configuration input - defined here so effective_state can reference it
-  resident_config: !input resident_config
 
   # ═══════════════════════════════════════════════════════════════════════════
   # STATE MANAGER v6 - Centralized State Access with Priority Cascade
@@ -2969,20 +3035,40 @@ variables:
        ([auto_down_force] if auto_down_force != [] else []) +
        ([auto_shading_start_force] if auto_shading_start_force != [] else []) +
        ([auto_ventilate_force] if auto_ventilate_force != [] else []) +
-       ([force_pause] if force_pause != [] else []) }}
+       ([force_pause] if force_pause != [] else []) +
+       ([instance_active] if instance_active != [] else []) }}
 
   # WRITE TIMESTAMP - When did the automation last write the helper? (every run does)
   helper_ts_write: "{{ helper_json.t | default(0) | int }}"
 
+  # DRIVE TIMESTAMP - When did a run that drove the cover last write the helper?
+  # Stamped by helper_update only when drive_plan.run was true, so pure state
+  # syncs (window/resident updates, pending arming) do not touch it. The manual
+  # detection settle window keys off this, not off helper_ts_write (#614).
+  helper_ts_drive: "{{ helper_json.d | default(0) | int }}"
+
   # AUTOMATION RESUMED - Did the automation come back after being switched off?
-  # `this` is a snapshot taken when the triggers were attached, so this.last_changed is
-  # the moment the automation was switched on (or created on restart/reload). A helper
-  # older than that means every event since then is lost and nothing in it can be trusted.
-  # Nothing else reports this: no entity became unavailable, and homeassistant: start
-  # does not fire when an automation is merely turned on again.
+  # Action scope only: here `this` is re-read from the state machine at run time, so
+  # this.last_changed is the moment the automation was switched on (or created on
+  # restart/reload). A helper older than that means every event since then is lost and
+  # nothing in it can be trusted. Do NOT copy this read into a trigger template - there
+  # `this` is a snapshot from BEFORE the re-enable, or none at all (Bug Pattern AM).
   automation_resumed: >-
     {{ helper_ts_write > 0 and
        helper_ts_write < as_timestamp(this.last_changed | default(0), 0) }}
+
+  # The states in which the hand-over entity counts as "on" (a dropdown option, an inverted
+  # boolean, or the plain on/true default)
+  instance_active_on_states: >-
+    {{ ['on', 'true'] if instance_active_value | trim == '' else [instance_active_value | trim] }}
+
+  # INSTANCE ACTIVATED - Was this instance handed the cover and has not run since?
+  # The claim to t_instance_activated's prompt, same shape as automation_resumed: any trigger
+  # reaching a not-yet-reconciled instance becomes the take-over; the helper write clears it.
+  instance_activated: >-
+    {{ instance_active != [] and states[instance_active] is not none and
+       states(instance_active) in instance_active_on_states and
+       helper_ts_write < as_timestamp(states[instance_active].last_changed | default(0), 0) }}
 
   # RESTART RUN - Does this run belong to a restart / reload / save rather than to the dropout
   # of a single source? Three signals, and the order in which HA starts its integrations is
@@ -3010,8 +3096,13 @@ variables:
 
   # CATCH UP - Is this run allowed to replay what was missed (re-derive the base state, arm a
   # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
+  # An activation catches up regardless of the opt-in. The asymmetry is deliberate: the trigger
+  # (a real off -> on flank, impossible on a restart) is exempt from is_restart_run, the
+  # timestamp proxy (which reads true on every restart) is not.
   recovery_catch_up: >-
-    {{ recovery_mode == 'always' or (recovery_mode == 'outage' and not is_restart_run) }}
+    {{ recovery_mode == 'always' or
+       (trigger is defined and trigger.id | default('') == 't_instance_activated') or
+       ((recovery_mode == 'outage' or instance_activated) and not is_restart_run) }}
 
   # STALE DAY - Was the helper last written on an earlier day?
   # The 23:55 midnight reset clears shd/pnd every night. If the automation was off, that
@@ -3023,13 +3114,19 @@ variables:
   # OVERRIDE EXPIRED - Should the manual override already have been reset?
   # The reset triggers latch (template triggers only fire on false->true), so a reset
   # whose moment fell into an outage or a restart never fires again. Re-evaluated here.
+  # An activation voids it outright, whatever the reset rules say - the override belongs to
+  # the previous shift, and a take-over blocked by it could stay blocked for good.
   override_expired: >-
-    {{ helper_state_manual and not is_reset_disabled and (
-         (is_reset_timeout and helper_ts_man > 0 and
-          as_timestamp(now()) >= helper_ts_man + 60 * (reset_override_timeout | int(0))) or
-         (is_reset_fixed_time and now() >= today_at(reset_override_time) and
-          helper_ts_man < as_timestamp(today_at(reset_override_time))) or
-         (is_reset_position and in_reset_override_position)
+    {{ helper_state_manual and (
+         instance_activated or (
+           not is_reset_disabled and (
+             (is_reset_timeout and helper_ts_man > 0 and
+              as_timestamp(now()) >= helper_ts_man + 60 * (reset_override_timeout | int(0))) or
+             (is_reset_fixed_time and now() >= today_at(reset_override_time) and
+              helper_ts_man < as_timestamp(today_at(reset_override_time))) or
+             (is_reset_position and in_reset_override_position)
+           )
+         )
        ) }}
 
   # SHADED STATUS - Is cover currently shaded (not pending)?
@@ -3044,6 +3141,12 @@ variables:
 
   # PENDING END - Is shading end pending?
   helper_state_pending_end: "{{ helper_json.pnd | default('non') == 'end' }}"
+
+  # MIDNIGHT RESET MISSED - shd/pnd survived a day boundary, so every run since then was
+  # dropped (the 23:55 reset clears both). A claim like automation_resumed; deliberately
+  # not a helper-age check, a clean helper may be legitimately old.
+  midnight_reset_missed: >-
+    {{ stale_day and (helper_state_shade or helper_state_pending_start or helper_state_pending_end) }}
 
   # ═══════════════════════════════════════════════════════════════════════════
   # COMPUTED FLAGS - Simplified Movement Permissions
@@ -3838,23 +3941,63 @@ triggers:
     for: *recovery_settle
     enabled: "{{ is_recovery_enabled and force_pause != [] }}"
 
-  # The automation itself was switched on again (or reloaded, or recreated on restart).
-  # No entity changed, so none of the triggers above fire. The 60 s offset is what ARMS this:
-  # a template trigger only fires on false -> true, and without it an already-stale helper
-  # would be true from the start. Not gated on is_recovery_enabled - acting on a days-old
-  # helper is what moves the cover wrongly, and the run it starts only cleans the helper.
-  # The readiness clauses mirror the availability gates (the single edge must not fire
-  # into a blocked run).
+  # This instance was handed the cover. Only the prompt - instance_activated is the claim if
+  # this edge is swallowed. Not gated on is_recovery_enabled: an activation is the take-over
+  # itself, not a catch-up the user opted out of.
+  - trigger: state
+    entity_id: !input instance_active
+    from: ["off", "false"]
+    to: ["on", "true"]
+    id: "t_instance_activated"
+    enabled: "{{ instance_active != [] and instance_active_value | trim == '' }}"
+
+  # The value-matched variant (a dropdown option, an inverted boolean). Fires on every valid
+  # state change of the entity; arrivals at a foreign value are dropped by the gate. not_from
+  # keeps it as restart-proof as the flank above - the catch-up exemption relies on that.
+  - trigger: state
+    entity_id: !input instance_active
+    not_from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_instance_activated"
+    enabled: "{{ instance_active != [] and instance_active_value | trim != '' }}"
+
+  # ...and the gating entity is a sixth gate source: while it has no usable state the gate
+  # blocks every run. Unlike the other five its return run is NOT hygiene-only - a hand-over
+  # whose flank fell into the outage looks identical, so the return takes over.
+  - trigger: state
+    entity_id: !input instance_active
+    from: *invalid_recovery_states
+    not_to: *invalid_recovery_states
+    id: "t_recovery"
+    for: *recovery_settle
+    enabled: "{{ instance_active != [] }}"
+
+  # The automation itself was switched on again (or recreated on restart). No entity
+  # changed, so none of the triggers above fire. The attach moment is read LIVE from the
+  # automation's own state - NOT from the `this` snapshot, whose timestamps are stale on
+  # a re-enable (HA writes the on-state only after attaching the triggers; issue #617).
+  # The off -> on write lands as a tracked state change and re-renders the template, so
+  # it is false while the state still reads 'off' - which is what ARMS it: a template
+  # trigger only fires on false -> true. The 60 s offset then lets any regular trigger
+  # cancel the catch-up by writing the helper first. Not gated on is_recovery_enabled -
+  # acting on a days-old helper is what moves the cover wrongly, and the run it starts
+  # only cleans the helper. The readiness clauses mirror the availability gates (the
+  # edge must not fire into a blocked run). A reload/save re-creates the automation
+  # before its first state write, so automation_entity is '' and this trigger stays
+  # dark for that path - the automation_reloaded event below owns it.
   - trigger: template
     value_template: >-
-      {% set attached = as_timestamp(this.last_changed | default(0), 0) %}
+      {% set automation_state = states[automation_entity] if automation_entity != '' else none %}
+      {% set attached = as_timestamp(automation_state.last_changed, 0)
+           if automation_state is not none and automation_state.state == 'on' else 0 %}
       {% set helper_state = states(cover_status_helper) %}
       {% set helper = helper_state | from_json(default={}) if helper_state not in invalid_states and helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
       {% set critical_ready = states(blind) not in invalid_states and
            (position_source != 'custom_sensor' or custom_position_sensor == [] or
             states(custom_position_sensor) not in invalid_states) %}
       {% set contact_missing = is_ventilation_enabled and (
-           (contact_window_opened != [] and states(contact_window_opened) in invalid_states) or
+           (contact_window_opened != [] and states(contact_window_opened) in invalid_states and
+            helper.win | default('cls') == 'opn') or
            (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
       {% set contact_ready = helper.win | default('cls') == 'cls' or not contact_missing %}
       {{ attached > 0 and
@@ -3864,6 +4007,17 @@ triggers:
          critical_ready and contact_ready }}
     enabled: "{{ cover_status_helper != [] }}"
     id: "t_recovery"
+
+  # A reload re-creates the automation entity BEFORE its first state write: the trigger
+  # above has no entity id to read there and can never fire (and every UI save of the
+  # blueprint inputs is a reload of the edited automation). The reload event fires once
+  # per reload, after the new entities are attached, and reaches EVERY automation - the
+  # recovery gate claims the run only while automation_resumed (or a sibling claim) holds;
+  # an unclaimed run is stopped silently before the dispatch.
+  - trigger: event
+    event_type: automation_reloaded
+    id: "t_automation_reloaded"
+    enabled: "{{ cover_status_helper != [] }}"
 
   # Resets
   - trigger: template
@@ -3907,6 +4061,14 @@ triggers:
 
 conditions:
   - condition: !input auto_global_condition
+  # Multi-instance gate: only in charge while the switch is on. Deliberately no trigger
+  # exemptions (a man: 1 recorded while off would block the take-over); a gone entity is let
+  # through to the mandatory entity validation, which names it and stops the run.
+  - condition: template
+    value_template: >-
+      {{ instance_active == [] or states[instance_active] is none or
+         states(instance_active) in (['on', 'true'] if instance_active_value | trim == ''
+                                     else [instance_active_value | trim]) }}
   - or:
       - "{{ trigger.to_state is not defined }}" # for "trigger: time"-Trigger
       - "{{ trigger.to_state is defined and trigger.to_state.state not in invalid_states }}" # The following values are not valid to trigger
@@ -3928,12 +4090,13 @@ conditions:
   # An unknown/empty/corrupt helper must pass, so the init step can rewrite it.
   - condition: template
     value_template: "{{ cover_status_helper == [] or states(cover_status_helper) != 'unavailable' }}"
-  - condition: template # Stateless window contact: only blocks while the window was last known open/tilted
+  - condition: template # Stateless window contact: only blocks while its invalid read ("off") contradicts the last known window state
     value_template: >-
       {% set helper = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
       {% set last_window_closed = helper in invalid_states or helper | regex_search('"win"\s*:\s*"cls"') %}
+      {% set last_window_open = helper not in invalid_states and helper | regex_search('"win"\s*:\s*"opn"') %}
       {% set contact_missing = is_ventilation_enabled and (
-           (contact_window_opened != [] and states(contact_window_opened) in invalid_states) or
+           (contact_window_opened != [] and states(contact_window_opened) in invalid_states and last_window_open) or
            (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
       {{ last_window_closed or not contact_missing or
          trigger.id | default('') in ['t_contact_opened_changed', 't_contact_tilted_changed',
@@ -3963,30 +4126,47 @@ actions:
         sequence:
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
+          # Pause and hand-over are re-read live at the moment of movement: the plan-time
+          # variables are frozen, and a pre-drive delay may have outlived both
           - condition: template
-            value_template: "{{ not is_paused }}"
+            value_template: >-
+              {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                 (instance_active == [] or states[instance_active] is none or
+                  states(instance_active) in instance_active_on_states) }}
           - condition: template
             value_template: "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
+                # Tilt-restoring motors (tilt-before-position mode): open_cover /
+                # close_cover implicitly overwrite the motor's tilt target with
+                # 100 / 0, so the shortcuts are only allowed when the tilt target
+                # matches - otherwise a plain position command is sent
                 - choose:
                     - alias: "Cover move: full close"
-                      conditions: "{{ target_position | default(101) | int == 0 }}"
+                      conditions: >-
+                        {{ target_position | default(101) | int == 0 and
+                           (not is_tilt_before_position_mode | default(false) or
+                            not is_cover_tilt_enabled_and_possible | default(false) or
+                            target_tilt_position | default(101) | int in [0, 101]) }}
                       sequence:
                         - action: cover.close_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
                     - alias: "Cover move: full open"
-                      conditions: "{{ target_position | default(101) | int == 100 }}"
+                      conditions: >-
+                        {{ target_position | default(101) | int == 100 and
+                           (not is_tilt_before_position_mode | default(false) or
+                            not is_cover_tilt_enabled_and_possible | default(false) or
+                            target_tilt_position | default(101) | int in [100, 101]) }}
                       sequence:
                         - action: cover.open_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
 
-                    - alias: "Cover move: partial position (1-99)"
-                      conditions: "{{ 0 < target_position | default(101) | int < 100 }}"
+                    - alias: "Cover move: position command (0-100)"
+                      conditions: "{{ 0 <= target_position | default(101) | int <= 100 }}"
                       sequence:
                         - action: cover.set_cover_position
                           data:
@@ -4000,7 +4180,11 @@ actions:
       tilt_move_action: &tilt_move_action
         sequence:
           - condition: template
-            value_template: "{{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible and not is_paused }}"
+            value_template: >-
+              {{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible and
+                 not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                 (instance_active == [] or states[instance_active] is none or
+                  states(instance_active) in instance_active_on_states) }}
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
@@ -4017,10 +4201,12 @@ actions:
                         - delay:
                             seconds: !input tilt_delay
 
-                    # Wait Strategy: Ensure cover is idle before tilting
+                    # Wait Strategy: Ensure cover is idle before tilting.
+                    # Tilt-before-position mode sends its final tilt after the
+                    # position command, so it also waits for the cover to stop
                     - choose:
                         - alias: "Tilt wait: until movement stops"
-                          conditions: "{{ is_tilt_wait_idle_mode | default(false) }}"
+                          conditions: "{{ is_tilt_wait_idle_mode | default(false) or is_tilt_before_position_mode | default(false) }}"
                           sequence:
                             - wait_template: "{{ states(repeat.item if repeat is defined else '') in ['open', 'closed'] }}"
                               timeout: "{{ tilt_wait_timeout | int }}"
@@ -4029,11 +4215,6 @@ actions:
                             - if: "{{ wait.completed if wait is defined else '' }}"
                               then:
                                 - delay: 1
-                        # Mode: Tilt before position - no position command has been
-                        # sent yet, the cover is idle, so no wait is needed
-                        - alias: "Tilt wait: skipped (tilt runs before position)"
-                          conditions: "{{ is_tilt_before_position_mode | default(false) }}"
-                          sequence: []
                       # Mode: Standard fixed delay
                       default:
                         - delay:
@@ -4061,9 +4242,13 @@ actions:
       # ═══════════════════════════════════════════════════════════════════════════
       drive_with_actions: &drive_with_actions
         sequence:
-          # No user drive actions while the force pause blocks every movement
+          # No user drive actions while the force pause blocks every movement or the cover
+          # was handed to another instance - read live, same as the move actions
           - condition: template
-            value_template: "{{ not (is_paused | default(false)) }}"
+            value_template: >-
+              {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                 (instance_active == [] or states[instance_active] is none or
+                  states(instance_active) in instance_active_on_states) }}
           - choose:
               - conditions: "{{ drive_action_set | default('') == 'up' }}"
                 sequence:
@@ -4085,23 +4270,62 @@ actions:
                 sequence:
                   - choose: []
                     default: !input auto_shading_end_action_before
-          - choose:
-              # Tilt-restoring motors (e.g. Somfy J4 IO) re-apply the last slat
-              # position after positioning - tilting to the target first makes
-              # the motor restore exactly the target tilt, so no tilt command
-              # is needed after the movement
-              - alias: "Drive order: tilt first, then position"
-                conditions: "{{ is_tilt_before_position_mode | default(false) }}"
-                sequence:
-                  - *tilt_move_action
-                  - if: "{{ is_cover_tilt_enabled_and_possible | default(false) and not is_paused | default(false) }}"
-                    then:
-                      - delay:
-                          seconds: !input tilt_delay
-                  - *cover_move_action
-            default:
-              - *cover_move_action
-              - *tilt_move_action
+          # Tilt-restoring motors (e.g. Somfy J4 IO, #612) reject tilt commands
+          # while fully open and re-apply the last tilt target after every
+          # positioning run. Before the position command the slats are aligned
+          # with the travel direction - a cover resting at the fully-open
+          # endpoint is briefly started downwards so tilt commands are accepted
+          # again - and the final tilt target is sent after the movement
+          - alias: "Preliminary tilt alignment (tilt before position mode)"
+            if:
+              - >-
+                {{ is_tilt_before_position_mode | default(false) and
+                   is_cover_tilt_enabled_and_possible | default(false) and
+                   not prevent_flags.default_cover_actions }}
+              - >-
+                {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
+                   (instance_active == [] or states[instance_active] is none or
+                    states(instance_active) in instance_active_on_states) }}
+              - "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
+            then:
+              - repeat:
+                  for_each: "{{ blind_entities | list }}"
+                  sequence:
+                    - if: "{{ state_attr(repeat.item if repeat is defined else '', 'current_tilt_position') is not none }}"
+                      then:
+                        - variables:
+                            align_position: "{{ state_attr(repeat.item if repeat is defined else '', 'current_position') | int(current_position | default(101) | int) }}"
+                        - choose:
+                            - alias: "Tilt align: leave the fully-open endpoint"
+                              conditions: "{{ align_position | default(101) | int >= 100 }}"
+                              sequence:
+                                - action: cover.close_cover
+                                  target:
+                                    entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                                - delay:
+                                    seconds: 1
+                            - alias: "Tilt align: close slats before moving down"
+                              conditions: "{{ target_position | default(101) | int < align_position | default(101) | int }}"
+                              sequence:
+                                - action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: 0
+                                  target:
+                                    entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                                - delay:
+                                    seconds: !input tilt_delay
+                            - alias: "Tilt align: open slats before moving up"
+                              conditions: "{{ target_position | default(101) | int > align_position | default(101) | int }}"
+                              sequence:
+                                - action: cover.set_cover_tilt_position
+                                  data:
+                                    tilt_position: 100
+                                  target:
+                                    entity_id: "{{ repeat.item if repeat is defined else '' }}"
+                                - delay:
+                                    seconds: !input tilt_delay
+          - *cover_move_action
+          - *tilt_move_action
           - choose:
               - conditions: "{{ drive_action_set | default('') == 'up' }}"
                 sequence:
@@ -4158,6 +4382,7 @@ actions:
                   {% set new_frc = updates.frc | default(current.frc | default('non')) %}
                   {% set new_res = updates.res | default(current.res | default(0)) | int %}
                   {% set new_man = updates.man | default(current.man | default(0)) | int %}
+                  {% set run_drove = (drive_plan | default({})).run | default(false) %}
                   {% set current_ts = current.ts | default({}) %}
 
                   {% set merged_ts = namespace(data={}) %}
@@ -4190,7 +4415,8 @@ actions:
                       'man': merged_ts.data.man | default(0) | int
                     },
                     'v': 6,
-                    't': ts_now | int
+                    't': ts_now | int,
+                    'd': (ts_now if run_drove else current.d | default(0)) | int
                   } %}
                   {{ dict_new | to_json }}
           - if: "{{ enable_logbook }}"
@@ -4290,7 +4516,8 @@ actions:
                 'man': 0
               },
               'v': 6,
-              't': ts_now | int
+              't': ts_now | int,
+              'd': 0
             } %}
             {{ dict_new | to_json }}
 
@@ -4327,8 +4554,10 @@ actions:
       - "{{ trigger.id is defined }}"
       # All shading-start triggers, every opening trigger (so the opening handler can evaluate
       # shading_start_warranted while a pending is armed, #514 follow-up), the recovery - and any
-      # trigger the resumed-run backstop turns into one, because that run evaluates it too
-      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery)') or automation_resumed }}"
+      # trigger the resumed-run or take-over backstop turns into one, because that run evaluates
+      # it too
+      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated)')
+            or automation_resumed or instance_activated or midnight_reset_missed }}"
     then:
       - action: weather.get_forecasts
         target:
@@ -4381,7 +4610,7 @@ actions:
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_shading_end') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id == 't_recovery' or automation_resumed }}"
+          - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or automation_resumed or instance_activated or midnight_reset_missed }}"
     then:
       - action: calendar.get_events
         target:
@@ -5204,6 +5433,11 @@ actions:
             Without {{ missing_critical | join(', ') }} there is no cover position to decide from,
             so every run of this automation stops here until you fix it.
             {%- endif %}
+            {%- if instance_active in missing_entities %}
+            The switch that decides when this automation is in charge is gone, so CCA can no
+            longer tell whether it owns this cover - and a second CCA automation may. It stops
+            here rather than risk two automations driving the same cover against each other.
+            {%- endif %}
             {%- if missing_contacts | count > 0 %}
             Window contact {{ missing_contacts | join(', ') }} is gone, so CCA can no longer see
             whether the window is open. The last known window state is
@@ -5216,11 +5450,11 @@ actions:
             protection for this window is DEAD: a gone contact can never report an opening, so
             the cover will close on the schedule even while the window stands open{% endif %}.
             {%- endif %}
-          level: "{{ 'error' if missing_critical | count > 0 else 'warning' }}"
+          level: "{{ 'error' if missing_critical | count > 0 or instance_active in missing_entities else 'warning' }}"
           logger: "blueprints.hvorragend.cca"
-      - if: "{{ missing_critical | count > 0 or cover_status_helper in missing_entities }}"
+      - if: "{{ missing_critical | count > 0 or cover_status_helper in missing_entities or instance_active in missing_entities }}"
         then:
-          - stop: "Configuration error: state-critical entity disabled or deleted ({{ (missing_critical + [cover_status_helper] if cover_status_helper in missing_entities else missing_critical) | join(', ') }})"
+          - stop: "Configuration error: state-critical entity disabled or deleted ({{ (missing_critical + ([cover_status_helper] if cover_status_helper in missing_entities else []) + ([instance_active] if instance_active in missing_entities else [])) | join(', ') }})"
 
   # MANDATORY HELPER VALIDATION
   # ═══════════════════════════════════════════════════════════════════════════
@@ -5245,12 +5479,12 @@ actions:
       - stop: "Missing Cover Status Helper configuration"
 
   - if:
-      - "{{ check_status_helper_length is not none and check_status_helper_length | int < 210 }}"
+      - "{{ check_status_helper_length is not none and check_status_helper_length | int < 225 }}"
     then:
       - action: system_log.write
         data:
           message: >-
-            Cover Control Automation ({{ friendly_name }}): CRITICAL CONFIGURATION ERROR - Cover Status Helper max length is {{ check_status_helper_length }} characters but at least 210 are required (recommended: 254).
+            Cover Control Automation ({{ friendly_name }}): CRITICAL CONFIGURATION ERROR - Cover Status Helper max length is {{ check_status_helper_length }} characters but at least 225 are required (recommended: 254).
             Helper: {{ cover_status_helper }}
             The automation cannot persist state with the current max length. Increase the 'Maximum length' setting of the input_text helper.
           level: error
@@ -5258,7 +5492,7 @@ actions:
         data:
           name: "Cover Control Automation"
           message: >-
-            ❌ {{ friendly_name }}: Cover Status Helper max length too small ({{ check_status_helper_length }}/210). Increase to at least 254.
+            ❌ {{ friendly_name }}: Cover Status Helper max length too small ({{ check_status_helper_length }}/225). Increase to at least 254.
           entity_id: "{{ cover_status_helper }}"
       - stop: "Cover Status Helper max length too small"
 
@@ -5300,11 +5534,13 @@ actions:
   - alias: "Recovery after restart or outage - restore target state"
     if:
       - "{{ trigger.id is defined }}"
-      # A resumed automation converts ANY trigger into a recovery, so nothing can act on a
+      # A resumed automation - or one that was just handed the cover, or one whose 23:55 reset
+      # was provably blocked - converts ANY trigger into a recovery, so nothing can act on a
       # helper that cannot be trusted. The manual triggers are exempt (as they are from the
       # contact gate): their handler records the intervention instead of driving.
-      - "{{ trigger.id == 't_recovery' or
-            (automation_resumed and trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
+      - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or
+            ((automation_resumed or instance_activated or midnight_reset_missed) and
+             trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
     then:
       - variables:
           # Emulates the 23:55 reset, which did not run while the automation was off
@@ -5447,7 +5683,7 @@ actions:
                         {{ (target_position | int) >= (current_position | int) - (position_tolerance | int(0)) and
                            (target_position | int) <= (current_position | int) + (position_tolerance | int(0)) }}
                       log_extra: >-
-                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}:
+                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
                         base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', additional condition refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
                         frc {{ helper_state_force }}->{{ live_force }},
                         shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
@@ -5476,7 +5712,7 @@ actions:
                         pnd: "{{ new_pending }}"
                         ts:
                           # No ts.shd here even when shd is cleared 1->0: today's stamp would make the
-                          # once-per-day guard block today's shading (unlike the 23:55 reset, which may stamp it)
+                          # once-per-day guard block today's shading (the 23:55 reset omits it too)
                           opn: "{{ 'now' if new_base == 'opn' and helper_state_base != 'opn' else (0 if stale_day else helper_ts_open) }}"
                           cls: "{{ 'now' if new_base == 'cls' and helper_state_base != 'cls' else (0 if stale_day else helper_ts_close) }}"
                           due: "{{ recovered_due | int }}"
@@ -5509,7 +5745,14 @@ actions:
             choose: []
             default: *recovery_apply
 
-
+  # The reload event reaches every automation, not just the one that was saved. A run
+  # the recovery gate did not claim has nothing to catch up - the helper is current -
+  # and none of the dispatch branches know its trigger id, so it ends here.
+  - alias: "Reload event without a resume - nothing to catch up"
+    if:
+      - "{{ trigger.id is defined and trigger.id == 't_automation_reloaded' }}"
+    then:
+      - stop: "Reload event ignored: this automation was not resumed (helper is current)"
 
   - choose:
       ############################################################
@@ -5869,6 +6112,7 @@ actions:
           - or: # Try to avoid starting the shading several times TODO / FIXME?
               - "{{ not is_cover_tilt_enabled_and_possible and not in_shading_position }}"
               - "{{ is_cover_tilt_enabled_and_possible }}"
+              - "{{ trigger.id | regex_match('^(t_shading_start_execution)') }}" # Execution must not be stopped if there is a shading pending in the helper beforehand.
               - "{{ helper_state_pending_end }}" # Allow entry to cancel a stale end-pending
           - or: # Only once a day?
               - "{{ shading_once_guard_ok }}"
@@ -6335,7 +6579,6 @@ actions:
                           - and:
                               - "{{ is_cover_tilt_enabled_and_possible }}"
                               - "{{ position_comparisons.current_below_ventilate or current_position == ventilate_position }}"
-                              - "{{ current_tilt_position <= ventilate_tilt_position }}"
                           - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                     sequence:
                       - variables:
@@ -6627,7 +6870,6 @@ actions:
                       - and:
                           - "{{ is_cover_tilt_enabled_and_possible }}"
                           - "{{ position_comparisons.current_below_ventilate or current_position == ventilate_position }}"
-                          - "{{ current_tilt_position <= ventilate_tilt_position }}"
                       # User option: Allow from higher positions
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
@@ -7046,8 +7288,7 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
           - "{{ not (trigger.id == 't_manual_position' and in_reset_override_position and helper_state_manual) }}"
-          - "{{ this.attributes.current | int(99) == 0 }}"
-          - "{{ as_timestamp(now()) > helper_json.t + drive_time | default(90) + 60 }}"
+          - "{{ as_timestamp(now()) > helper_ts_drive + drive_time | default(90) + 60 }}"
           - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
@@ -7276,12 +7517,13 @@ actions:
               seconds: "{{ (range(0, 60) | random | int) }}"
           - variables:
               update_values:
-                # Midnight reset - clear shading status
+                # Midnight reset - clear shading status. Deliberately no ts.shd stamp:
+                # the random delay plus queued runs can push this write past midnight,
+                # and a next-day stamp makes the once-per-day guard block the whole day
                 shd: 0
                 man: 0
                 pnd: 'non'
                 ts:
-                  shd: "now"
                   due: 0
                   arm: 0
           - *apply_transition
@@ -7302,10 +7544,25 @@ actions:
                 # Only runtime checks remain here. Static configuration checks have been moved
                 # to the online validator: https://hvorragend.github.io/ha-blueprints/validator/
 
+                # ========== SCHEDULING CHECKS ==========
+
+                - condition: >-
+                    {{
+                      (is_up_enabled or is_down_enabled) and
+                      not is_time_field_enabled and
+                      not is_calendar_enabled and
+                      not (is_brightness_enabled and default_brightness_sensor != []) and
+                      not (is_sun_elevation_enabled and default_sun_sensor != []) and
+                      not (resident_sensor != [] and
+                           ('resident_opening_enabled' in resident_config or
+                            'resident_closing_enabled' in resident_config))
+                    }}
+                  message: "Morning Opening / Evening Closing is enabled but has NO trigger source: Time Control is disabled (or the calendar has no entity), no Brightness/Sun sensor is configured and no Resident sensor with resident opening/closing is set up. The cover will never open or close automatically. For fixed-time schedules, enable the '⏲️ Time Control' checkbox in 'What should CCA control?' - the Early/Late time fields are the schedule. Configurations saved before ~2026.05 must re-enable this checkbox once (breaking change 2026.07.12)"
+
                 # ========== ENTITY ATTRIBUTE & STATE CHECKS ==========
 
-                - condition: "{{ check_status_helper_length is not none and check_status_helper_length | int < 210 }}"
-                  message: "CRITICAL: Cover Status Helper max length is {{ check_status_helper_length }}. Required: at least 210 characters (recommended: 254). Increase the 'Maximum length' of the input_text helper. Current length causes data truncation and the automation cannot persist state"
+                - condition: "{{ check_status_helper_length is not none and check_status_helper_length | int < 225 }}"
+                  message: "CRITICAL: Cover Status Helper max length is {{ check_status_helper_length }}. Required: at least 225 characters (recommended: 254). Increase the 'Maximum length' of the input_text helper. Current length causes data truncation and the automation cannot persist state"
                 - condition: "{{ state_attr(blind, 'current_position') is none }}"
                   message: "Cover entity is missing the required 'current_position' attribute"
                 - condition: "{{ state_attr(default_sun_sensor, 'elevation') is none }}"

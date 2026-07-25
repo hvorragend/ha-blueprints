@@ -1372,8 +1372,7 @@ WIN_TILT_DRIVE_BRANCH = {
         # OR-block flattened into one Jinja expression
         "{{ position_comparisons.current_below_ventilate"
         " or (is_cover_tilt_enabled_and_possible"
-        "     and (position_comparisons.current_below_ventilate or current_position == ventilate_position)"
-        "     and current_tilt_position <= ventilate_tilt_position)"
+        "     and (position_comparisons.current_below_ventilate or current_position == ventilate_position))"
         " or (ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position))"
         " or (helper_state_window == 'opn' and position_comparisons.current_above_ventilate)"
         " or (position_comparisons.current_above_ventilate and effective_state == 'cls') }}",
@@ -1557,6 +1556,36 @@ class TestKeepOpenOnFullToTilt:
         )
         branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
         assert branch is None
+
+    def test_issue_615_slats_above_vent_angle_at_vent_position_drives(self):
+        """
+        Issue #615: tilt cover at the ventilate position with slats MORE open
+        than the ventilate angle (e.g. after "Only tilt open after shading
+        ends" opened them to open_tilt_position with the window still closed).
+        Tilting the window afterwards must drive to the ventilate target.
+
+        Before the fix the tilt alternative required
+        current_tilt_position <= ventilate_tilt_position, so NO branch matched
+        at all: no drive, and no win sync either — the later window-close
+        event then failed its was_ventilating gate and the whole ventilation
+        cycle was dead, leaving the slats at the open angle.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="cls",
+            is_cover_tilt_enabled_and_possible=True,
+            current_position=0,
+            ventilate_position=0,
+            current_tilt_position=100,
+            ventilate_tilt_position=60,
+            in_ventilate_position=False,
+            effective_state="vnt",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive", (
+            "A freshly tilted window must drive a tilt cover at the ventilate "
+            "position to the ventilate tilt, even from a more-open slat angle."
+        )
 
 
 class TestContactHandlerEffectiveStateGuard:

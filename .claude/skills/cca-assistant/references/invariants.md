@@ -104,7 +104,7 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 **ts.shd (shading timestamp):**
 - `ts.shd` may only be set when `shd` actually changes (guard in `helper_update`: only when `new_shd != current.shd`)
 - In the SHADED path of the `resident_leaving` handler (since the target-chain consolidation: the `leave_target == 'shd'` case): `shd` was already `1` (precondition) → do **not** set `ts.shd` to `now`, preserve the original activation timestamp
-- The midnight reset (BRANCH 11) **does** write `ts.shd: "now"` when it clears `shd` 1→0 — this is fine: the reset fires at **23:55 same day** (`now() >= today_at('23:55:00')`), so the stamp lands on the current day, never the next one. The once-per-day shading guard (full-date compare) therefore still allows shading the following day.
+- The midnight reset (BRANCH 11) does **not** stamp `ts.shd` when it clears `shd` 1→0 (CCA 2026.07.25). The trigger fires at 23:55, but the branch's random 0–60 s delay plus queued runs ahead of it (a drive delay can hold the queue for up to 10 minutes) can push the **write** past midnight — and a next-day stamp makes the once-per-day guard (full-date compare) block the *whole following day's* shading (the #365 failure through the back door). Omitting the stamp is behavior-neutral on the happy path: `ts.shd` keeps the same-day stamp of the last real `shd` transition, so the guard decides identically.
 
 **pnd / ts.due / ts.arm (pending phase + timestamps):**
 - The top-level `pnd` enum encodes which phase is pending: `'non'` (idle), `'beg'` (start armed), `'end'` (end armed). Only one value at a time is representable — Invariant 11 is enforced by the schema.
@@ -120,6 +120,11 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
   - Incidental clears in non-shading branches (force, manual) — also clear all three for hygiene.
 - **Every execution path must be terminal** (Bug Pattern AK): any path reachable from `t_shading_start_execution` / `t_shading_end_execution` must end in a helper write that either re-arms (`pnd` + new `ts.due`) or clears (`pnd: 'non'`, `ts.due/arm: 0`). The execution templates compare `now() >= ts.due`; once due is in the past they stay true forever and never re-fire — a path that stops without a helper write leaves the pending armed until the midnight reset. Drive chooses inside the execution handlers therefore need a default, and `if:` steps before a `stop:` need an else.
 - **Contact handler branches must NOT reset `pnd`/`ts.due`/`ts.arm`.** Window open/close events are orthogonal to shading pending state. Omit these keys from `update_values` so `helper_update` preserves the existing values (#484).
+
+**t / d (write and drive timestamps, both top-level):**
+- `t` is stamped on **every** helper write. Consumers rely on exactly that semantic: `automation_resumed`, the instance-takeover check, `midnight_reset_missed`. Never make `t` conditional.
+- `d` is stamped **only** when the writing run's `drive_plan.run` was true — derived inside `helper_update` from the same `will_drive` decision that gates the `man: 0` reset (Invariant 7). Pure state syncs (window/resident updates, pending arming, base-only updates) must never stamp it: the manual-detection settle window keys off `d` via `helper_ts_drive`, and a stamp from a non-driving write reopens the #614 blind window (Bug Pattern AP). No branch writes `d` through `update_values` — it is owned entirely by `helper_update`.
+- Known corner, accepted (same family as the pause design decision): `drive_plan.run` true with the movement suppressed at the last moment (live pause check, tolerance no-op) still stamps `d`. That errs in the safe direction — a suppressed manual detection is less harmful than CCA reading its own movement as a manual override.
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
 
@@ -239,12 +244,19 @@ tilt move → after-action) is selected via the `drive_action_set` variable
 (`up` / `down` / `ventilate` / `shading_start` / `shading_end`). Delays and
 `*helper_update` deliberately stay at the call site so ordering and timing
 remain visible per branch. With the Tilt Wait Mode `tilt_before_position`
-(`is_tilt_before_position_mode`, Issue #355 — motors like the Somfy J4 IO
-that restore the previous slat position after every positioning run), the
-inner order flips to tilt move → `tilt_delay` → cover move, and
-`&tilt_move_action` skips its pre-tilt wait (the cover is still idle): the
-motor's own restore re-applies the target tilt after positioning, so no tilt
-command is sent — or waited for — after the movement.
+(`is_tilt_before_position_mode`, Issues #355/#612 — motors like the Somfy
+J4 IO that reject tilt commands while fully open, force their tilt target
+to 100/0 on `open_cover`/`close_cover`, and restore the last tilt target
+after every positioning run), a preliminary alignment step runs before the
+cover move: a cover at the fully-open endpoint is briefly started downwards
+(so the motor accepts tilt commands again), otherwise the slats are
+pre-tilted to match the travel direction (0 when moving down, 100 when
+moving up). `&cover_move_action` then avoids the `open_cover`/`close_cover`
+shortcuts unless the tilt target matches their implicit tilt, and the final
+tilt target is sent after the movement — `&tilt_move_action` waits for the
+cover to become idle in this mode, exactly like `wait_idle`. The alignment
+step is skipped when the position will not change (same tolerance check as
+`&cover_move_action`), so a tilt-only run tilts directly.
 
 ---
 

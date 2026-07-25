@@ -17,7 +17,19 @@
 
 > 🧩 Input: `default_sun_sensor` · Default: `sun.sun`
 
-Which sensors provides attributes with current azimuth and elevation of sun. I strongly suggest to use sun.sun ([Sun integration](https://www.home-assistant.io/integrations/sun/)). Please make sure that the integration is activated and provides the attributes. This sensor is also used for sun protection / sunshade control. <br /><br /> <ins>A few examples of threshold values:</ins> <ul> <li>+18° Astronomical Dusk</li> <li>+12° Nautical Dusk</li> <li>+6° Dusk</li> <li>0° Sunrise/Sunset (Default)</li> <li>-6° Civil Dawn</li> <li>-12° Nautical Dawn</li> <li>-18° Astronomical Dawn/Night</li> </ul> <br />`Optional` / `Shading`
+Which sensors provides attributes with current azimuth and elevation of sun. I strongly suggest to use sun.sun ([Sun integration](https://www.home-assistant.io/integrations/sun/)). Please make sure that the integration is activated and provides the attributes. This sensor is also used for sun protection / sunshade control.
+
+<ins>A few examples of threshold values:</ins>
+
+- +18° Astronomical Dusk
+- +12° Nautical Dusk
+- +6° Dusk
+- 0° Sunrise/Sunset (Default)
+- -6° Civil Dawn
+- -12° Nautical Dawn
+- -18° Astronomical Dawn/Night
+
+`Optional` / `Shading`
 
 ---
 

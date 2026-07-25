@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AL, with cause and fix)
+# CCA Known Bug Patterns (A–AP, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -263,7 +263,7 @@ The `t_shading_start_execution` bypass (third OR-clause) is kept so an already-a
 
 **The date compare in the opening guard was fixed separately.** It used `now().day != helper_ts_open | timestamp_custom('%-d') | int` — a **day-of-month** compare, which collapses across months: a `ts.opn` from exactly one month ago reads as "already opened today" and suppresses the opening. It now compares the full date (`'%Y-%m-%d'`), like the shading guard. This is orthogonal to the manual clause, which stays. The **closing** guard needs no fix — it compares `helper_ts_close < today_at(time_down_early_today)`, which is already date-safe.
 
-**Why the midnight reset (BRANCH 11) needs no special handling:** `t_shading_reset` fires at **23:55 the same day** (`now() >= today_at('23:55:00')`), so even though it clears `shd` 1→0 and writes `ts.shd: "now"`, the stamp lands on the *current* day — never the next one. The full-date guard compares `ts.shd`'s day against today, so the following day is still a different date → shading is allowed. The old CHANGELOG #365 failure (reset stamping the *new* day and blocking it) cannot occur with the 23:55 trigger; no `ts.shd` omission is required.
+**The midnight reset (BRANCH 11) no longer stamps `ts.shd` at all (CCA 2026.07.25).** The original reasoning — "the reset fires at 23:55 the *same* day, so its stamp can never block the next day" — held for the trigger but not for the **write**: the branch sleeps a random 0–60 s, and with `mode: queued` a long run ahead of it (a drive delay can be 10 minutes) delays the write further. A write that slips past midnight stamps the *new* day and the full-date guard then blocks the **whole following day's** shading — the old CHANGELOG #365 failure through the back door. The stamp was never load-bearing: omitting it leaves `ts.shd` at the same-day stamp of the last real `shd` transition, so the guard decides identically on the happy path. Pinned by `tests/test_midnight_reset_missed.py::TestMidnightResetDoesNotStampTsShd`.
 
 ---
 
@@ -380,6 +380,27 @@ Additionally, the "Check for shading start" branch entry OR ("Check the helper s
 **Rule:** A fix in the actions is only real once every gate *upstream* of it (trigger `enabled`, trigger `for`, **global conditions**, branch conditions) provably lets the triggering event through in the exact scenario being fixed. When adding an action branch keyed to a trigger id, always re-check the global trigger gate for that id.
 
 **Deliberate asymmetry (reporter's "FWIW"):** The gate still suppresses `t_shading_end_pending_[1-7]` while shading is inactive (`shd == 0`), even though a shading-**start** pending may be armed. This is intentional: the start side is documented as a *retry loop* ("After the waiting time expires, the automation re-evaluates ALL configured conditions. Only if they are still valid at this point, the cover actually moves") — momentary interruptions during the start wait are tolerated by design, and the execution re-check plus `shading_start_max_duration` budget already handle unmet conditions. Canceling a start-pending on an end trigger would also break the pre-window arming flows (Bug Patterns L/S/R). Do not "harmonize" the end side of the gate.
+
+**Known residual window of that asymmetry (documented 2026.07.25, accepted):** a shading-**end**
+condition whose false→true edge falls into the start-pending window is *consumed*, not deferred.
+Between the arming write (`shd` still `0`) and the execution write (`shd: 1`) — potentially the
+whole waiting time — every `t_shading_end_pending_*` event is dropped by the gate at trigger
+time; once `shd` is `1`, that trigger's template is already true, so it never produces a new
+edge. The exposure is smaller than it looks, which is why this is documented rather than fixed:
+
+- When the crossing sensor also feeds a **start** condition (the usual case — hysteresis pairs),
+  the execution re-check sees the start condition fail and retries/aborts instead of shading.
+- The sun-position end triggers (`t_shading_end_pending_5`/`_7`) are enabled for every setup
+  with a sun sensor and produce a **fresh edge** when the sun leaves the azimuth/elevation
+  range — so an end swallowed this way ends *late* (at sun exit), not never.
+- The 23:55 reset (BRANCH 11) is the backstop for everything else.
+
+The residual loss case is an **end-only** sensor (e.g. forecast temperature configured only as
+an end condition) crossing during the pending window in a setup whose other end triggers never
+re-fire that day. Do **not** close it by letting end triggers through while a start pending is
+armed — that is exactly the "harmonization" the paragraph above forbids (it cancels the retry
+loop and breaks the pre-window arming flows L/S/R). If it ever needs fixing, the shape would be
+an end-condition re-check at the *start execution* (after `shd: 1` is decided), not a gate change.
 
 ---
 
@@ -536,6 +557,8 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 
 **Second recurrence (Issue #608, CCA 2026.07.13 V7) — same swallow, different gate:** after the reorder, the ventilation branch could still be skipped on tilt covers whose shading position **equals** the ventilate position (venetian setups: closed/shading/ventilate all share one cover position, only the slat angle differs — the `tilt_position_tolerance` input documents this setup explicitly). At shading end the cover rests exactly *at* the ventilate position, so `current_below_ventilate` is false and the equality alternative was gated behind `ventilation_flags.if_lower_enabled` — the branch fell through to the tilt-only branch again, which now tilted the slats to `open_tilt_position` (the very value the AJ fix introduced) instead of `ventilate_tilt_position`. The contact handler's tilted branch had a third alternative for exactly this case; the shading-end branch lacked it. Fix: add the same tilt-cover alternative (`is_cover_tilt_enabled_and_possible` AND at/below ventilate position AND `current_tilt_position <= ventilate_tilt_position`) to the shading-end ventilation branch's position OR. **Rule:** when two branches in different handlers implement the same cascade decision (here: "does VENT bind at this position?"), their position ORs must stay alternative-for-alternative identical — a missing alternative in one handler is a dormant swallow bug (same family as the 2026.07.12 V2 bracketing fix between these two branches).
 
+**Third recurrence (Issue #615, CCA 2026.07.25) — the slat-angle guard makes the ventilate state unreachable:** the tilt-cover alternative copied around in the #608 fix carried a guard `current_tilt_position <= ventilate_tilt_position` ("slats not yet beyond the ventilate angle — don't pull them down"). The #615 trace shows the flow that breaks it: shading ends with the window still **closed**, so the tilt-only branch legitimately opens the slats to `open_tilt_position` (100). The user then tilts the window — and the contact handler's tilted branch finds slats *beyond* the ventilate angle, so the drive alternative fails; `in_ventilate_position` also fails (it checks the tilt angle within `tilt_position_tolerance`, #558), so the sync-only branch fails too, and with `effective_state == 'vnt'` **no branch consumes the tilt event at all**: no drive, no `win: 'tlt'` sync. The knock-on is worse than the missing movement — when the window later closes, `was_ventilating` is false (helper `win` still `'cls'`, cover not in ventilate position), so the return branch is skipped as well; the whole ventilation cycle is dead and the slats stay at the open angle. The guard's "already ventilating enough" floor-rationale contradicts the state model: `in_ventilate_position` does *not* accept a more-open slat angle, so the system simultaneously said "not in the ventilate state" and "refuse to drive there". Fix: drop the slat-angle guard from **both** ORs (contact tilted + shading-end ventilation, keeping them alternative-for-alternative identical) — a tilted window on a tilt cover at/below the ventilate position always resolves to the configured ventilate target, from any slat angle. **Rule:** a drive gate must never contradict its own position checker — if `in_X_position` says the cover is not in state X, some branch must be able to drive to X (or deliberately record why not); a gate that blocks the only path to a reachable-by-definition state creates a dead zone where events are swallowed with no helper write.
+
 ---
 
 ### Bug Pattern AK: Pending execution path ends without a helper write → pending stuck until midnight
@@ -574,3 +597,103 @@ The sensor-presence clauses are not cosmetic: `t_open_4` / `t_open_5` carry `ena
 
 ---
 
+### Bug Pattern AM: `this` in a trigger template is a pre-enable snapshot — or does not exist (Issue #617)
+
+**Symptom:** The resume trigger (`t_recovery`, the `this.last_changed` template) **never fires** after `automation.turn_on` (or a UI toggle): no run, no trace, no log line — the catch-up only happens when the next regular trigger is claimed by `automation_resumed`, which after an evening re-enable can be hours later. All other triggers work; verifying every clause of the template against recorded states says it *should* have fired.
+
+**Cause:** The trigger design assumed `this` in a trigger template is a snapshot of the **just-enabled** automation, so `this.last_changed` would be the switch-on moment. On current HA it is not, in either of the two paths the trigger was written for:
+
+- **`automation.turn_on` / UI toggle:** HA enables the automation in `_async_enable()`, which is documented in core as *"not expected to write state to the state machine"* — `async_turn_on` writes the `on`-state only **after** the triggers are attached. The `this` snapshot taken at attach therefore still holds the **pre-enable** state: `this.last_changed` is the moment the automation was switched **off**, hours or days earlier. `now() > attached + 60` and `helper.t < attached` are then already true at the arming render → the template is true from the start → a template trigger (which only fires on false → true, and arms only when the setup render is false) can never fire.
+- **Reload / UI save:** the entity is re-created, and `async_added_to_hass` attaches the triggers **before** the entity platform writes the first state. `hass.states.get(entity_id)` returns nothing, so `this` is `None` — `this.last_changed | default(0)` silently yields `0`, the `attached > 0` clause makes the template **permanently false**, and `default()` swallows the undefined so nothing is ever logged.
+
+Both failure modes are silent and both kill the single false→true edge. Unit tests could not see it: they fed the template a hand-built fresh `this`, i.e. they pinned the *assumption*.
+
+**Fix:** Never read a **timestamp** from `this` in a trigger template. The only field of the snapshot that cannot go stale is `this.entity_id` — capture it in `trigger_variables` (`automation_entity`) and read the attach moment **live** from the automation's own state, gated on the state actually being `'on'`:
+
+```jinja2
+{% set automation_state = states[automation_entity] if automation_entity != '' else none %}
+{% set attached = as_timestamp(automation_state.last_changed, 0)
+     if automation_state is not none and automation_state.state == 'on' else 0 %}
+```
+
+This also repairs the arming by construction: at the attach render the state still reads `'off'` → `attached == 0` → false → armed; the `off → on` write lands as a **tracked state change** (the template reads `states[automation_entity]`) and re-renders the template, which then flips true one minute later. For the reload/save path no template can help (`automation_entity` is `''` — there was no snapshot to take an entity id from), so the `automation_reloaded` **event trigger** covers it: it fires once per reload, *after* the new entities are attached, and the recovery gate claims the run via `automation_resumed`; a run the gate does not claim (someone else's automation was saved) is stopped silently by a pre-dispatch step before the dispatch.
+
+**Rule:** In a **trigger** template context, treat `this` as "entity id only". Its timestamps describe the state *before* the re-attach (or nothing at all) — any `this.<timestamp>` read in a trigger template or in `trigger_variables` reintroduces this bug. Action-scope templates are different: `async_trigger` re-reads `this` from the state machine at run time, so `automation_resumed` / `is_restart_run` may keep using it. `TestResumeTrigger::test_it_does_not_read_the_this_snapshot` and `::test_it_stays_dark_while_the_automation_still_reads_off` pin both halves.
+
+---
+
+### Bug Pattern AN: Stateless-contact gate blocks per "any contact invalid" instead of per contradicted reading (Issue #622)
+
+**Symptom:** A window is tilted for a long ventilation; the cover sits at the ventilation
+position, `win: 'tlt'`, `shd: 1`. The shading-end trigger fires but the run stops in the
+global conditions (`condition/4`, the stateless-contact gate) — shading never ends, the
+evening closing is blocked the same way, and the cover is parked at the ventilation position
+until someone moves the window. The trace shows the gate's `entities` list containing only
+the *opened* contact: it is `unavailable` (a battery handle that hubs mark unavailable after
+hours without an event) while the *tilted* contact is alive and `on`.
+
+**Cause:** The gate (2026.07.13 V6, see recovery.md Tier 2) blocked whenever *any* configured
+contact was invalid and the last known `win` was not `'cls'`. But an invalid contact reads as
+"off" in every handler, and that reading only lies when the contact was last known **on**.
+With `win == 'tlt'` the opened contact was last known *off* — its invalid read agrees with the
+last known truth, exactly like the `win == 'cls'` case the gate already let through. The
+blanket block turned a routinely-silent battery sensor into a dead automation in the most
+common ventilation state.
+
+**Fix:** Block per contact, only when the invalid read contradicts `win`: the opened contact
+blocks only while `win == 'opn'`; the tilted contact blocks while `win != 'cls'` (at
+`win == 'opn'` its real state is masked by the opened contact, so it stays conservative).
+Mirrored verbatim in the resume trigger's `contact_ready` clause (recovery.md).
+
+**Rule:** An availability gate that guards a *fallback reading* must block on the
+contradiction between the fallback value and the last known truth, not on mere sensor
+invalidity — otherwise the gate is stricter than the risk it guards and parks the system in
+states the fallback handles correctly. When judging a contact, derive what its last known
+value *was* from the `win` encoding (`opn` ⇔ opened on; `tlt` ⇔ opened off + tilted on;
+`cls` ⇔ both off) instead of treating `win != 'cls'` as "everything is unknown".
+
+---
+### Bug Pattern AO: The VENT floor gate ignores the resident opening as a `bas='opn'` source (Issue #616)
+
+**Symptom:** In a setup where the **resident sensor does the opening and closing** (`resident_opening_enabled` + `resident_closing_enabled`, `auto_up_enabled`/`auto_down_enabled` checked, no time control, no brightness/sun opening source), the cover **stays at the ventilation position when the resident leaves while a window is tilted** — until the window is closed. Before the VENT-floor rework (≤ 2025.08.20) the identical leave event opened the cover fully. The trace shows the resident-leaving handler taking the "target VENTILATION (window tilted)" leaf because `effective_state == 'vnt'`.
+
+**Cause:** Exactly the Bug Pattern AL rule violated again by the next source: `is_opening_scheduled` mirrored the four *opening-trigger* sources (time fields, calendar, brightness, sun elevation) — but the **resident-leaving handler also writes `bas: 'opn'`** (its `leave_target == 'opn'` case sets `bas='opn'`, `ts.opn`) and opens the cover with no other source configured. In a resident-only setup the flag was therefore `false`, the VENT floor classified the (real) `bas: 'opn'` as the init default, `effective_state` returned `'vnt'` for the tilted window, and the leaving handler's VENT leaf held the ventilation position instead of falling through to the `leave_target` chain that opens.
+
+**Fix:** Add the resident opening as the fifth source of `is_opening_scheduled`, mirroring the gates of the path that writes `bas='opn'` (`t_resident_update` needs a configured sensor; the leave chain requires `resident_flags.opening_trigger`, i.e. `resident_opening_enabled`):
+
+```yaml
+is_opening_scheduled: >-
+  {{ is_up_enabled and (
+       is_time_field_enabled or
+       is_calendar_enabled or
+       (is_brightness_enabled and default_brightness_sensor != []) or
+       (is_sun_elevation_enabled and default_sun_sensor != []) or
+       ('resident_opening_enabled' in resident_config and resident_sensor != [])) }}
+```
+
+(`resident_config` moved from the `variables:` block into `trigger_variables:` for this — both clauses are static `!input` values, so the limited context is fine, Invariant 10.) With the flag true, the leaving handler's VENT leaf is skipped naturally (`effective_state == 'opn'`), the `leave_target` chain opens the cover, and `recovered_state` follows automatically (Invariant 13). While the resident is **present**, nothing changes: privacy-closing (or a denied `allow_open`) makes `base_target != 'opn'`, so the tilted window still yields the VENT floor — the evening-privacy use of the ventilation position (the issue author's main use case) is preserved, as is the arriving handler's VENT-hold leaf. #553 also stays fixed: a resident sensor with only `resident_closing_enabled` (or no sensor at all) opens nothing and must not lift the floor.
+
+The same source was also missing from the "no trigger source at all" configuration error (config check + online validator, added 2026.07.25): a resident-driven setup **has** a trigger source and must not be flagged.
+
+**Rule:** Bug Pattern AL's rule, restated with its first recurrence: `bas` is written by the opening handler **and** the resident-leaving handler — any future source that writes `bas='opn'` must be added to `is_opening_scheduled` (pinned by `tests/test_opening_schedule_gate.py`) *and* to the scheduling config checks.
+
+---
+
+### Bug Pattern AP: Manual moves swallowed by suppression windows keyed on non-driving activity (Issue #614)
+
+**Symptom:** A manual cover move made shortly after *any* helper write — or while any run of the automation is still executing — is never recorded: `man` stays `0`, `ts.man` unchanged, and the next trigger (shading execution, closing, contact event) drives straight over the position the user set by hand. Because `t_manual_position` carries `for: 60s` and the position then stays stable, the trigger never re-fires — the move is lost for good.
+
+**Cause:** The manual-detection branch had two suppressions that both keyed on the wrong signal:
+
+1. The settle window `now > helper_json.t + drive_time + 60` counted from **every** helper write — but `t` is stamped by pure state syncs too (window/resident updates, shading pending arming, base-only updates). Each such write opened a ~150 s blind window although nothing moved, so there was nothing to suppress.
+2. `this.attributes.current == 0` dropped manual events while **any** run was executing. With `mode: queued` and long in-run waits (fixed+random drive delay up to 10 minutes, contact settle delay, midnight-reset sleep) this window was large — and a hygiene-only run does not move the cover either.
+
+**Fix:** Distinguish "last write" from "last drive". New top-level helper field `d`, stamped by `helper_update` only when `(drive_plan | default({})).run | default(false)` is true — the same `will_drive` decision that gates `man: 0` (Invariant 7). The settle window keys off `d` (`helper_ts_drive`); the `current == 0` condition is removed entirely: under `mode: queued` a manual event always executes *after* the concurrent run's helper write, so a run that drove suppresses via the (now drive-scoped) window, and a run that did not drive must not suppress at all. `t` keeps its stamp-on-every-write semantic — `automation_resumed`, the takeover check and `midnight_reset_missed` depend on it.
+
+**Safety direction preserved:** CCA still never fights its own drive — a queued manual event that fired before a drive but executes after it lands inside the fresh `d` window and is suppressed, which is correct: the drive physically overrode that manual position anyway. The accepted corner (run=true but movement suppressed by the live pause check / tolerance no-op still stamps `d`) errs toward a missed detection, never toward a false `man: 1`.
+
+**Consequence for the helper length:** the compact JSON grows to a worst-case 218 chars, so the minimum-length config check was raised 210 → 225 (recommended length stays 254). `tests/test_manual_detection_drive_window.py` pins the worst-case length against the configured minimum.
+
+**Rule:** A suppression that exists to hide CCA's *own movements* must key off the drive decision (`drive_plan.run` / `d`), never off write activity (`t`) or run activity (`this.attributes.current`) — bookkeeping writes and idle-waiting runs cannot have caused a position change, so suppressing detection around them silently discards real manual moves (same asymmetry family as Bug Pattern Y: suppress only when the thing being muted can actually occur).
+
+---

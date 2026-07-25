@@ -234,15 +234,22 @@ Three tiers, and the tier a source belongs to is decided by **what CCA can do wi
 
   **Why a fallback and not a gate:** `t_force_enabled_*` / `t_force_disabled_*` / `t_force_pause_disabled` are `from: "on"` / `from: "off"` state triggers, so `unavailable → on` and `unavailable → off` **do not fire them**. Without the fallback, a recovery run that lands while the switch is still out writes `frc: 'non'`, drives the cover to the scheduled target, and the force is gone **permanently** — no trigger ever re-establishes it. The force entities therefore also carry a `t_recovery` trigger; that is what re-syncs `frc` once the switch is readable again — and it is **not** gated on `is_recovery_enabled` (#603), because without it a force that returned as `off` would stay recorded in the helper forever.
 
-- Window contacts have no equivalent single read (the raw `states(contact_window_*) in ['true','on']` pattern is spread across every handler and reads an invalid contact as "closed"). Rather than sweeping all of them, the gate makes that reading *safe*: a run is blocked **only** while a configured contact is invalid **and** the last known `win` is not `cls`.
+- Window contacts have no equivalent single read (the raw `states(contact_window_*) in ['true','on']` pattern is spread across every handler and reads an invalid contact as "closed"). Rather than sweeping all of them, the gate makes that reading *safe*: a run is blocked **only** while a configured contact is invalid **and** its invalid read ("off") *contradicts* the last known `win` (#622).
 
 ```jinja2
 {% set last_window_closed = helper in invalid_states or helper | regex_search('"win"\s*:\s*"cls"') %}
+{% set last_window_open = helper not in invalid_states and helper | regex_search('"win"\s*:\s*"opn"') %}
+{% set contact_missing = is_ventilation_enabled and (
+     (contact_window_opened != [] and states(contact_window_opened) in invalid_states and last_window_open) or
+     (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
 {{ last_window_closed or not contact_missing }}
 ```
 
-  - Last known **closed** + contact stateless → run. "Reads as closed" agrees with the last known truth, so every raw read in every handler is correct. This is the normal case after a hub restart (windows are usually shut) — CCA keeps working.
-  - Last known **open/tilted** + contact stateless → block. CCA would otherwise treat the window as closed and drop the lockout. Blocking holds the cover in its current lockout/vent position — which is exactly what lockout wants. It self-heals: closing the window makes the contact report, which fires `t_recovery`.
+  The per-contact rule follows from what `win` encodes (`opn` ⇔ opened on; `tlt` ⇔ opened off + tilted on; `cls` ⇔ both off):
+
+  - Last known **closed** + any contact stateless → run. "Reads as closed" agrees with the last known truth, so every raw read in every handler is correct. This is the normal case after a hub restart (windows are usually shut) — CCA keeps working.
+  - **Opened** contact stateless → block only while `win == 'opn'` (its "off" read contradicts the last truth there). At `win == 'tlt'` the opened contact was last known *off*, so the invalid read agrees — the same reasoning that lets `cls` pass — and the live tilted contact keeps the VENT floor up. Before #622 this case blocked *every* run: a battery handle marked unavailable during a long ventilation (hubs drop silent battery devices after hours) parked the cover at the ventilation position for good — shading never ended, closing never ran, only a window event woke CCA up.
+  - **Tilted** contact stateless → block while `win != 'cls'`. Its invalid read contradicts `win == 'tlt'` directly, and at `win == 'opn'` its real state is masked by the opened contact — closing could land on a still-tilted window. Blocking holds the cover in its current lockout/vent position — which is exactly what lockout wants. It self-heals: moving the window makes the contact report, which fires `t_recovery`.
 
 **The contact triggers themselves are exempt from that gate** (`trigger.id in ['t_contact_opened_changed', 't_contact_tilted_changed']`). Without the exemption the gate **deadlocks**: with `win == 'opn'` and one contact stateless, the very event that would write `win: 'cls'` — the other contact reporting the window shut — is the one the gate blocks, so `win` stays `opn` forever. A contact trigger carries a *valid* `to_state` by construction (`not_to` on the trigger plus the `invalid_states` guards in the handler), so letting it through is safe.
 
@@ -264,7 +271,7 @@ Three tiers, and the tier a source belongs to is decided by **what CCA can do wi
 
 This is **not** a restart, and it is the harder case. Nothing reports it: no entity became `unavailable`, no entity came back, and `homeassistant: start` does not fire when an automation is merely toggled. HA just re-attaches the triggers. Meanwhile the automation may have been off for **days**, so the helper is arbitrarily old — and every *latching* trigger from the orphan audit below (`t_shading_*_execution`, `t_reset_timeout`, `t_reset_position`) is **already true at attach time**. A template trigger arms on `false` and fires on the `false → true` edge, so a condition that is true from the start can never fire. The override stays forever, the dead pending stays forever.
 
-**Saving the automation is the same event, and it is by far the most common one.** When a user edits the blueprint inputs in the UI, HA removes the automation entity and adds it back, so `last_changed` is stamped with the save time and every trigger is attached anew — mechanically indistinguishable from a toggle. Verified against a live instance: after a restart every automation shares one `last_changed`, while the four re-saved ones each carry their own save timestamp. HA reloads **only the edited automation** (a save on some other automation does not disturb a CCA instance), but `automation.reload` / *"Reload automations"* / a restart re-attaches **all** of them, so every CCA instance resumes at once — `max: 25` covers that.
+**Saving the automation is the same *event*, and it is by far the most common one.** When a user edits the blueprint inputs in the UI, HA removes the automation entity and adds it back, so `last_changed` is stamped with the save time and every trigger is attached anew. Verified against a live instance: after a restart every automation shares one `last_changed`, while the four re-saved ones each carry their own save timestamp. HA reloads **only the edited automation** (a save on some other automation does not disturb a CCA instance — its own attached triggers merely receive the reload *event*, see piece 1b), but `automation.reload` / *"Reload automations"* / a restart re-attaches **all** of them, so every CCA instance resumes at once — `max: 25` covers that. A save is **not** mechanically identical to a toggle, though, and the prompt differs (Bug Pattern AM): a toggle keeps the entity, so the resume *template* sees it come back; a reload re-creates the entity before its first state write, so only the reload *event* reports it.
 
 Two consequences worth knowing, neither of them a defect: with `enable_recovery` on `always`, every save runs the full catch-up, so *changing a setting can move the cover* (a save is a re-attach, so `is_restart_run` is true — `outage` mode does not catch up on one). And a run that is inside a `delay:` when the save lands is killed with the queue, so its helper write is lost — the resume hygiene re-reads `win`/`frc`/`res` and repairs it, but `bas` is only re-derived when the catch-up is allowed.
 
@@ -272,17 +279,53 @@ Two consequences worth knowing, neither of them a defect: with `enable_recovery`
 
 Three pieces, and the first one is the only non-obvious part.
 
-**1. The resume trigger — how to fire on a condition that is already true.** `this` is a **snapshot** HA takes when it attaches the triggers (`state.as_dict()`), so `this.last_changed` is the moment the automation was switched on. The template therefore starts out *false* and arms itself:
+**1. The resume trigger — how to fire on a condition that is already true.** The attach
+moment is read **live** from the automation's own state, not from `this` (Bug Pattern AM,
+issue #617): HA's `_async_enable` is explicitly *"not expected to write state to the state
+machine"*, so on `automation.turn_on` the `this` snapshot taken at trigger attach still
+holds the **pre-enable** state — `this.last_changed` is the switch-**off** moment, and a
+template trusting it is already true at the arming render and can never fire. The only
+snapshot field that cannot go stale is `this.entity_id`; `trigger_variables` captures it
+as `automation_entity`, and the template reads the switch-on time from the state machine,
+gated on the state actually being `'on'`:
 
 ```jinja2
+{% set automation_state = states[automation_entity] if automation_entity != '' else none %}
+{% set attached = as_timestamp(automation_state.last_changed, 0)
+     if automation_state is not none and automation_state.state == 'on' else 0 %}
 {{ attached > 0 and (helper.t | default(0) | int) > 0 and
    as_timestamp(now()) > attached + 60 and
    (helper.t | default(0) | int) < attached }}
 ```
 
-At attach time `now()` is within the 60 s offset → `false` → **armed**. A minute later it flips → fires `t_recovery`. Once the recovery has written the helper, `t` overtakes the attach time → `false` again → re-armed for next time. **Without the offset this trigger would never fire at all** — the exact trap it exists to escape. It polls nothing: an automation that was never off never fires it (any normal trigger writing the helper within that minute also cancels it). It also covers reload and restart, which is why the "a source that never went `unavailable`" limitation is now largely academic.
+At the attach render the state machine still reads `'off'` → `attached == 0` → `false` →
+**armed** (a template trigger arms only on a false setup render). The `off → on` write that
+follows the attach lands as a tracked state change — the template reads
+`states[automation_entity]` — and re-renders: now within the 60 s offset → still false. A
+minute later it flips → fires `t_recovery`. Once the recovery has written the helper, `t`
+overtakes the attach time → `false` again → re-armed for next time. **Without the offset
+this trigger would fire before a regular trigger of the same minute could cancel it**; and
+without the live read it would never fire at all — the exact trap it exists to escape. It
+polls nothing: an automation that was never off never fires it (its own `last_changed` is
+ancient, and the helper has been written since). It also covers a restart when the
+`homeassistant_started` attach happens within the offset of the entity's first state write.
 
-**The template also mirrors the availability gates** (CCA 2026.07.13 V6): `critical_ready` (cover, plus the custom position sensor when it is the source) and `contact_ready` (the Tier-2 rule verbatim: a stateless contact only blocks while `helper.win != 'cls'`, scoped to `is_ventilation_enabled`). This is not decoration — the trigger has exactly **one** false→true edge, and an edge that fires into a run the gates block is *consumed*: the template stays true, never re-fires, and `automation_resumed` stays armed until the first regular trigger, which the claim then eats. With the opt-in **off** that claimed run is a hygiene-only `stop:` — a restart where the cover takes longer than ~90 s to come back (Zigbee hub after a host reboot) would swallow e.g. the 07:00 opening, and with the opt-in off no gated `t_recovery` source exists to run the hygiene earlier. With the readiness clauses the edge arrives exactly when the run can pass the gates (the `states()` reads register listeners, so the cover's return re-evaluates the template). The user's `auto_global_condition` can still block the run — not mirrorable, pre-existing, documented under "Not repairable, by design". Tests: `TestResumeTrigger::test_it_waits_for_the_cover_to_be_usable` and siblings.
+**1b. The reload event — the path no template can see.** A reload or UI save re-creates the
+automation entity, and `async_added_to_hass` attaches the triggers **before** the entity
+platform writes the first state: `this` is `None`, so there is no entity id to capture and
+`automation_entity` is `''` — the resume template stays dark for this path, permanently
+(its variables are frozen at attach). The `automation_reloaded` **event trigger**
+(`t_automation_reloaded`) covers it: HA fires that event once per reload — and every UI
+save of the blueprint inputs is a reload of the edited automation — *after* the new
+entities are attached, so the freshly resumed instance receives it and the recovery gate
+claims the run via `automation_resumed` (action scope, where `this` is re-read at run
+time and reliable). The event reaches **every** automation, not just the saved one; a run
+the gate does not claim is stopped silently by the *"Reload event without a resume"*
+pre-dispatch step (it has a `PRE_DISPATCH_DEFINITIONS` entry in both trace tools). The
+event also makes the sibling claims (`instance_activated`, `midnight_reset_missed`)
+prompt on a reload instead of waiting for the next regular trigger.
+
+**The template also mirrors the availability gates** (CCA 2026.07.13 V6): `critical_ready` (cover, plus the custom position sensor when it is the source) and `contact_ready` (the Tier-2 rule verbatim, including the #622 per-contact refinement: a stateless *opened* contact only blocks while `helper.win == 'opn'`, a stateless *tilted* contact while `helper.win != 'cls'`, scoped to `is_ventilation_enabled`). This is not decoration — the trigger has exactly **one** false→true edge, and an edge that fires into a run the gates block is *consumed*: the template stays true, never re-fires, and `automation_resumed` stays armed until the first regular trigger, which the claim then eats. With the opt-in **off** that claimed run is a hygiene-only `stop:` — a restart where the cover takes longer than ~90 s to come back (Zigbee hub after a host reboot) would swallow e.g. the 07:00 opening, and with the opt-in off no gated `t_recovery` source exists to run the hygiene earlier. With the readiness clauses the edge arrives exactly when the run can pass the gates (the `states()` reads register listeners, so the cover's return re-evaluates the template). The user's `auto_global_condition` can still block the run — not mirrorable, pre-existing, documented under "Not repairable, by design". Tests: `TestResumeTrigger::test_it_waits_for_the_cover_to_be_usable` and siblings.
 
 **2. Any trigger on a resumed run is claimed by the recovery.** `automation_resumed` (`helper_ts_write < this.last_changed`) is a second entry condition of the recovery gate, and **that is why the recovery gate runs before the dispatch**. The cover only ever moves through a trigger, so making every trigger recalculate first means acting on an untrusted helper is *structurally impossible*, not merely unlikely. It self-clears the moment the recovery writes the helper. This is the safety net under piece 1: even if the resume trigger never fired, nothing can move on stale state.
 
@@ -290,7 +333,7 @@ At attach time `now()` is within the 60 s offset → `false` → **armed**. A mi
 
 **Stale day — the midnight reset that never ran.** `stale_day` = the helper was last written on an earlier date. BRANCH 11 clears `shd`/`pnd` every night at 23:55; if the automation was off, it did not. So a shading from three days ago still reads as active and the first trigger would drive the cover into the shading position — at night, even. The recovery therefore emulates that reset: `recovered_shade` drops `shd`, `pending_is_stale` also fires on `stale_day`, and `ts.opn`/`ts.cls` are zeroed (they gate the once-per-day open/close guards and must not suppress today's run).
 
-**But `ts.shd` is deliberately *not* stamped** when `shd` is cleared 1→0 here. BRANCH 11 may stamp it because it runs at 23:55 on the **same** day; this branch runs on the **new** day, and stamping today's date would make the once-per-day guard block today's shading (Bug Pattern V). Same field, opposite rule — the difference is *which day the code runs on*.
+**But `ts.shd` is deliberately *not* stamped** when `shd` is cleared 1→0 here — and since CCA 2026.07.25, BRANCH 11 omits the stamp too: its random delay plus queued runs can push the 23:55 write past midnight, where the stamp lands on the *new* day and the once-per-day guard blocks that whole day (Bug Pattern V, updated there). Both clears now leave `ts.shd` at the last real `shd` transition, which is always a same-day-or-earlier stamp and never suppresses the coming day.
 
 #### Why the recovery is a pre-dispatch gate and not a numbered branch
 
@@ -362,8 +405,10 @@ against *which trigger actually fires it*.
 | `t_resident_update` | no (state) | `res` stale → poisons the fallback on the *next* dropout | `state_resident` falls back to `helper_json.res`; the recovery gate re-reads **and persists `res`** | always |
 | `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — the cover stays under manual control forever | the recovery gate's `override_expired` (re-evaluates the reset rules and clears `man`). This is why the manual gate sits in `recovery_allowed` (blocking only the *drive*) and not in the gate's conditions: a branch skipped on `man == 1` could never lift an expired override | always — clearing an expired override moves nothing, and gating it would strand the cover in manual **forever** |
 | `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` | always |
-| `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) | always — this one *prevents* a wrong drive rather than catching one up |
-| *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | the **resume trigger** (`this.last_changed` + 60 s offset) fires it; `automation_resumed` makes the recovery gate claim any trigger as a backstop | always — the resume trigger is the one `t_recovery` trigger without the opt-in gate |
+| `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) — and since 2026.07.25 the `midnight_reset_missed` **claim** makes sure a recovery actually runs: `stale_day and (shd or pnd)` turns the next trigger of any kind into one, so the repair no longer depends on something else entering the gate | always — this one *prevents* a wrong drive rather than catching one up |
+| *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | a toggle: the **resume trigger** (live read of the automation's own `last_changed` + 60 s offset — **not** `this`, whose timestamps are pre-enable; Bug Pattern AM); a reload/save: the **`automation_reloaded` event trigger** (`this` is `None` at a reload attach, so the template path is dark there); `automation_resumed` makes the recovery gate claim any trigger as a backstop for both | always — neither the resume trigger nor the reload event carries the opt-in gate |
+| *(`instance_active` is off — this instance is not in charge)* | — | **every** trigger of the off period is dropped, so all the latching rows above happen at once, and the helper is arbitrarily old when the instance comes back | `t_instance_activated` (prompt) + the `instance_activated` claim (backstop for a swallowed edge) → the recovery gate re-derives everything | always — an activation is exempt from the opt-in (but **not** from `is_restart_run`) |
+| *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run — and the outage may have eaten a hand-over's `off → on` flank, which HA never keeps | its own ungated `t_recovery` trigger — and, unlike the five other gate sources, the return run is **not** hygiene-only with the catch-up off: the helper froze while the gate blocked, so `instance_activated` reads true on the return and the run takes over (deliberate — a dropout return is indistinguishable from a swallowed hand-over, losing a real one strands the cover, and the false positive drives to the cascade target anyway) | always — **even with the catch-up off** |
 | *(helper is `unknown`)* | — | init/repair step unreachable → automation permanently dead | helper gate blocks on `unavailable` **only** | always |
 
 `override_expired` is a global variable, not a branch-local one, because `recovery_allowed` and the `man` write both need it, and the reset triggers latch (see the table above). It clears `man` without driving, a deliberate Invariant 7 exception (same class as the midnight reset).
@@ -406,5 +451,207 @@ therefore feeds `new_base`; the parity obligation of Invariant 13 is unchanged.)
 The **ventilation / shading additional conditions are deliberately not** part of this: they
 gate handlers the recovery does not replay — it re-arms a shading *pending* and lets the
 existing execution flow (which does evaluate them) do the movement.
+
+---
+
+## Several instances, one cover: `instance_active` (CCA 2026.07.25)
+
+The multi-instance pattern (one CCA automation per season / presence mode / whatever, each
+with its own helper and its own settings, an external automation picking which one is live)
+is **an emergent property of the recovery**, not a new mechanism: a take-over is exactly what
+the recovery gate already does — re-derive `bas` from the schedule, re-read `win`/`res`/`frc`
+live, drop a stale shading, re-evaluate the shading conditions, drive to `recovered_state`.
+`instance_active` only supplies the *gate* and the *entry point*; every line of the take-over
+is the recovery.
+
+**Why a first-class input and not just `automation.turn_off`.** Toggling the automation does
+work — the re-attach stamps `this.last_changed` and the resume trigger fires ~60 s later
+(Half 1b). But the obvious user-side alternative, gating the instance with
+`auto_global_condition`, is **silently broken**, and that is what the input exists to prevent:
+the triggers still fire, the runs are dropped, and when the condition goes true again *nothing
+fires* — `this.last_changed` never moved, so `automation_resumed` cannot see it, no latching
+trigger re-fires, and the first regular trigger acts on a helper that may be months old. It is
+the "Not repairable, by design" row of the orphan audit, turned into a feature by accident.
+`instance_active` is that gate **made repairable**: CCA owns it, so it can watch it and heal it.
+(Since 2026.07.25 the worst artifact of a foreign gate self-heals too: `midnight_reset_missed` — see
+below — claims the first run after any blockade that let a shading survive midnight. The rest
+of the staleness, `bas`/`man`, is re-derived or latched as documented in the audit rows.)
+
+**Two pieces, mirroring Half 1b exactly** — and for the same reason, so do not collapse them:
+
+1. **`t_instance_activated`** (`from: [off, false]` → `to: [on, true]`) — the *prompt*. Makes
+   the take-over immediate instead of waiting for the next trigger. Not gated on
+   `is_recovery_enabled`. With `instance_active_value` set (a dropdown option, an inverted
+   boolean), a second trigger shape carries the same id: any valid → valid change of the
+   entity, with arrivals at a foreign value dropped by the gate. `not_from:
+   [unavailable, unknown]` keeps it exactly as restart-proof as the plain flank — the
+   `recovery_catch_up` exemption for this trigger id relies on that, in both shapes.
+2. **`instance_activated`** (`helper.t < switch.last_changed`) — the *claim*. A state trigger
+   has exactly one edge, and the availability gates can swallow it (the cover was still coming
+   back). The claim turns **any** later trigger into the take-over and self-clears on the first
+   helper write. Same shape as `automation_resumed`, and it is what makes the feature robust
+   rather than merely likely to work — `automation_resumed` itself cannot stand in for it,
+   because an activation re-attaches nothing: `this.last_changed` does not move, so that claim
+   cannot see the event at all. Unlike `automation_resumed` it fires on a fresh helper
+   (`t == 0`): a brand-new instance's first activation *is* a take-over.
+
+**The gate has no trigger exemptions**, and that is deliberate — the one place where it differs
+from the contact gate. An inactive instance must not even record a cover movement as manual:
+the *other* instance made it, and a stored `man: 1` comes back to block this instance's own
+take-over (`recovery_allowed`). The contact gate exempts `t_manual_position`/`t_manual_tilt`
+because that handler records something CCA needs; here there is nothing to record, because CCA
+is not in charge.
+
+**The take-over catches up regardless of `enable_recovery`.** The opt-in guards against
+*restarts* moving the cover; an activation is an explicit "you are in charge now", and an
+instance that takes charge and leaves the cover where the previous one parked it has done
+nothing at all.
+
+**But the two activation signals are not equally strong, and `recovery_catch_up` must not treat
+them as one** — doing so was a real bug during development:
+
+- **`t_instance_activated` is unambiguous.** Only a real `off → on` flank fires it; a restart
+  returns the entity as `unavailable → on`, which its `from: [off, false]` does not match. It
+  therefore needs **no** `is_restart_run` guard — and must not have one: that flag stays true
+  for 300 s after a re-attach, and **saving the automation is a re-attach**. Guarded, the
+  sequence "save the automation → flip the switch to try the hand-over" leaves the cover
+  standing — which is the first thing anyone does with this feature.
+- **`instance_activated` is a timestamp proxy** (`helper.t < switch.last_changed`), and on a
+  restart the gating entity is recreated with everything else, so its `last_changed` points at
+  the boot and the proxy reads true. This one **must** stay behind `is_restart_run`, or the
+  exemption would smuggle every restart past the opt-in — exactly what the opt-in promises not
+  to do.
+
+Pinned by `TestCatchUpOnActivation` (both halves, in both directions).
+
+**`override_expired` is voided by an activation**, whatever the reset rules say. This is the
+one bug the feature would otherwise have shipped with: an instance that went inactive with
+`man == 1` comes back with `recovery_allowed` false, never positions the cover, and — with a
+reset rule that cannot fire on its own (`is_reset_disabled`, or reset-in-position while the
+cover is elsewhere) — stays blocked **for good**. The override belongs to the previous shift;
+while the instance was off it could not even see the cover being moved, so there is nothing
+left for it to protect.
+
+**Bug Pattern T, fourth recurrence, caught at design time:** the take-over run consumes
+`shading_start_warranted` (via `recovered_pending`) and the parsed calendar boundaries (via
+`recovered_base`) — and thanks to the claim it can arrive under **any** trigger id. Both load
+gates therefore match `t_instance_activated` **and** `instance_activated`, not just the trigger
+id. Any new consumer of a load-gated value must re-ask *which trigger ids can reach it*.
+
+**Half 0 applies too.** A *gone* (disabled/deleted) gating entity would make the gate block
+every run forever with no log line — so the gate lets `states[x] is none` through
+(`instance_active == [] or states[instance_active] is none or states(...) in ['on', 'true']`)
+and the mandatory entity validation names it and stops the run. `unavailable` (a real dropout)
+**does** block, and the switch carries its own ungated `t_recovery` trigger: it is a sixth gate
+source, so its outage eats the latching triggers exactly like the other five. Unlike the other
+five, though, its return run is **not** hygiene-only with the catch-up off: the helper froze
+while the gate blocked, so `instance_activated` reads true on the return — and a hand-over
+whose `off → on` flank fell into the outage looks exactly the same, because HA only keeps the
+final `on`. The safe read is to take over: losing a real hand-over strands the cover, while the
+false positive drives to the position the cascade wants anyway. (This only matters for
+physically-backed gating entities — `switch`, `binary_sensor` — which can drop out mid-runtime;
+the recommended `input_boolean` only goes `unavailable` around a restart, and there
+`is_restart_run` already holds the proxy back.) Pinned by `TestSwitchDropoutTakesOver`.
+
+**One helper per instance — a shared one is possible and wrong.** CCA cannot enforce it (it
+cannot see its siblings), so this is a documentation-only rule. The reason is what the helper
+holds: **not one fact about the cover that is not re-derived live anyway** (`win`, `res`, `frc`
+are read from the entities on every take-over). Everything it *uniquely* stores is an
+**interpretation under one instance's settings** — `bas` ("*my* schedule says open"), `shd`
+("*my* shading is active" — the sibling may not even have shading enabled), `pnd`/`ts.due`/
+`ts.arm` (armed with *my* waiting times and thresholds), `man` ("someone overrode *me*"),
+`ts.opn`/`ts.cls`/`ts.shd` (the once-per-day guards of *my* settings). Sharing does not share
+state, it mixes readings. Three concrete failures:
+
+- `recovered_shade` only drops `shd` on `stale_day`, so a **same-day** hand-over makes the
+  incoming instance inherit a shading it has no concept of.
+- `recovered_pending` deliberately preserves a non-stale pending, so the incoming instance
+  inherits an armed pending and executes it against *its* conditions.
+- The global conditions are evaluated **once per run**: an outgoing run sitting in a `delay:`
+  finishes and writes the helper *after* the flip. With separate helpers it writes its own and
+  nobody cares; with a shared one it clobbers the take-over — and its fresh `t` can even defeat
+  the `instance_activated` claim (the `t_instance_activated` trigger id in `recovery_catch_up`
+  is what keeps the drive alive there, a second reason that clause is not redundant).
+
+The only thing sharing would buy is cross-instance once-per-day guards. Not worth it; the
+handbook points users at an `input_boolean` in the additional shading condition instead.
+
+**`instance_active` vs. the force pause — opposite mechanisms, and the pause must not be
+abused for this.** The pause suppresses the **drive**; the run still executes and still writes
+the helper (`bas`/`shd`/`win`/`frc` all updated — that is what makes the resume instant), and
+nothing about the pause itself is persisted. `instance_active` suppresses the **run**; the
+helper freezes and goes stale, which is why it needs the full take-over on return and the pause
+needs no recovery at all. Same rule, opposite sides: the pause's `t_recovery` trigger is
+**opt-in gated** (its return leaves nothing stale to correct — the only thing to do would be to
+*drive*, which causes a movement), while `instance_active` is an **ungated gate source** (while
+it is unusable the gate blocks every run, and its return run must be free to take over — see
+above — because the outage may have hidden a hand-over).
+
+Using the pause for mutual exclusion **almost** works and fails on exactly one thing: a paused
+instance still watches, and `t_manual_position` is not gated by the pause (the manual handler
+never drives, so no drive gate touches it). It therefore records the *sibling's* drives as
+`man: 1` and comes back refusing to move. That is the same failure the instance gate's **lack
+of trigger exemptions** is designed to prevent — the two facts are one fact.
+
+**An in-flight run of the outgoing instance cannot move the cover after the flip
+(CCA 2026.07.25).** The instance gate lives in the global conditions, and HA evaluates
+those at *trigger* time — a run that was already queued, or sitting in a pre-drive delay
+(up to minutes), when the hand-over happened would have driven to its stale target long
+after the flip, racing the incoming instance's take-over. The loser of that race is the
+user: the incoming instance reads the late movement as a manual override (it lands outside
+its `helper.t + drive_time + 60` settle window) and then refuses to position the cover —
+the exact failure the "switching automation must not drive" rule warns about, caused by
+CCA itself. The actuation anchors (`cover_move_action`, `tilt_move_action`,
+`drive_with_actions`) therefore re-read the instance gate **and the force pause** live at
+the moment of movement (see the design decision "The force pause is part of every drive
+gate" for the pause half and the accepted `man: 0` corner). The late run's helper write
+still happens and is harmless — it writes this instance's *own* helper, which the next
+activation re-derives anyway. The gone-entity rule of Half 0 is mirrored
+(`states[x] is none` passes), so the mandatory entity validation stays the one place that
+reports a deleted switch. Pinned by
+`tests/test_apply_transition_architecture.py::TestActuationPointLiveGates`.
+
+**Known limitations, accepted, documented in the handbook:** the once-per-day guards
+(`ts.opn`/`ts.cls`/`ts.shd`) are per-helper, so a mid-day hand-over grants one more
+open/close/shade; and the switching automation **must not drive the cover itself** — the
+incoming instance reads that movement as a manual override and then refuses to position the
+cover. Both are inherent to "one helper per instance" and are not worth a cross-instance
+mechanism.
+
+Tests: `tests/test_instance_active.py`.
+
+---
+
+## The missed-midnight-reset claim: `midnight_reset_missed` (CCA 2026.07.25)
+
+A third self-clearing claim next to `automation_resumed` and `instance_activated`, for the one
+blockade neither of them can see: runs dropped by a **foreign gate** (typically a long-false
+`auto_global_condition`) with no re-attach and no owned entity to watch.
+
+The trick is that CCA already has a daily heartbeat with a *persisted* footprint: the 23:55
+reset clears `shd`/`pnd` every night. So `stale_day and (shd or pnd)` is **proof of a
+blockade** — that state cannot survive a day boundary any other way — and the claim turns the
+next trigger of any kind into a recovery, instead of letting it drive into a days-old shading
+position (or defer an opening into a dead pending flow).
+
+What it is deliberately **not**: a helper-age watchdog. A clean-but-old helper is normal — a
+config whose opening/closing comes from the calendar *time control* (`t_calendar_event_*`,
+not the `instance_active` gating calendar) may legitimately skip whole weekends, and the
+23:55 reset only fires with shading enabled, so there is no daily-write guarantee to lean
+on. Claiming clean-but-old runs would
+swallow a real opening or closing with the catch-up off — the same reasoning that keeps
+`is_restart_run` in front of the `instance_activated` proxy. The claim therefore requires the
+surviving shading state, not the age. Residual, accepted: a blockade that leaves a *clean*
+helper (`bas` drift, a latched override reset) is still only repaired when a recovery runs for
+another reason — `bas` is re-derived by the regular handlers anyway, and `override_expired`
+stays the documented answer for `man`.
+
+Mechanically it is a fourth member of the recovery-gate claim group (manual triggers exempt,
+as always), it satisfies both load gates (Bug Pattern T — the claimed run consumes forecast
+and calendar data under any trigger id), and `recovery_catch_up` treats it like any outage
+(drive in `outage`/`always`, hygiene-only in `never`). The helper write clears `stale_day`,
+which clears the claim.
+
+Tests: `tests/test_midnight_reset_missed.py`.
 
 ---

@@ -165,11 +165,11 @@ Close Position: 100%     # Fully extended
 **A:** 
 
 **Time Settings:**
-- `time_up_early` must be earlier than `time_up_late`
-- `time_up_early_non_workday` must be earlier than `time_up_late_non_workday`
-- `time_down_early` must be earlier than `time_down_late`
-- `time_down_early_non_workday` must be earlier than `time_down_late_non_workday`
-- ✅ NEW: Times can now be identical for guaranteed execution at exact time
+- `time_up_early` must not be later than `time_up_late`
+- `time_up_early_non_workday` must not be later than `time_up_late_non_workday`
+- `time_down_early` must not be later than `time_down_late`
+- `time_down_early_non_workday` must not be later than `time_down_late_non_workday`
+- ✅ **Identical Early/Late times are valid and fully supported**: the cover then moves exactly once, at that fixed time (the internal Late trigger disables itself to avoid double-firing). This is the recommended setup for pure fixed-time schedules without Brightness/Sun sensors — an Early-to-Late *window* only matters when sensor triggers are supposed to fire inside it
 
 **Position Values (for Blinds):**
 - `open_position` > `shading_position` > `ventilate_position` > `close_position`
@@ -213,6 +213,15 @@ auto_options:
 **⚠️ Breaking change (2026.07.12):** Configurations created **before** the options consolidation (~2026.05) do not contain `time_control_enabled` in `auto_options` — after updating the blueprint, their time control is **disabled** until you open the automation, check **⏲️ Time Control**, and save. Configurations created after ~2026.05 are unaffected (the checkbox is part of the defaults). Old configurations that had chosen `time_control: time_control_disabled` stay disabled, exactly as originally configured.
 
 **How the breakage shows up:** With **pure time/calendar control**, the covers simply **stop opening/closing**. With a **hybrid setup (time + Brightness or Sun Elevation)**, the opposite happens: the sensor triggers keep firing but lose their time fence — the covers **open too early in the morning** (e.g. around sunrise, when the sun/brightness threshold is crossed, instead of waiting for the configured earliest time) and can **close too late in the evening**. If your covers suddenly move at unusual times after updating, check the **⏲️ Time Control** checkbox and re-save the automation (see [#595](https://github.com/hvorragend/ha-blueprints/issues/595)).
+
+**"I checked ⏲️ Time Control and it still does not open/close"** — work through this checklist:
+
+1. It must be the **checkbox** in the **👉 What should CCA control?** list — not the **Time Control Type** dropdown. The dropdown only picks the source (time fields vs. calendar) and does nothing while the checkbox is off.
+2. **Time Control Type** must be **"✏️ Use the time input fields"** (`time_control_input`) for fixed times. A leftover legacy value `time_control_disabled` selects *no* time source even with the checkbox on — the [validator](https://hvorragend.github.io/ha-blueprints/validator/) flags this.
+3. **Save the automation in the UI** (or reload automations if you edited the YAML file directly) — trigger switches are only re-evaluated when the automation reloads.
+4. A common trap: the update to a version with the new checkbox does **not** mean you should *uncheck* it because you "don't use sensors". The opposite is true — **for a pure fixed-time schedule the Early/Late time fields are the only trigger**, and they only exist while ⏲️ Time Control is checked. "Just close at 22:00" = ⏲️ Time Control ON + *Drive down early* = 22:00.
+5. Then run the automation **manually once** with **✔️ Check Configuration** enabled — a configuration without any opening/closing trigger source is reported in the log by name.
+6. Deprecated keys that the validator flags in your YAML (from older CCA versions) are **ignored by the automation and do no harm** — they cannot cause this problem; delete them at your leisure.
 
 **Backward compatibility:**
 - The `brightness_sun_operator` parameter (AND/OR link between brightness and sun conditions) has moved to this section as well. Its value is preserved; only the UI location changed.

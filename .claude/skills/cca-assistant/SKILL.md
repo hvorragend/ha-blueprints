@@ -40,7 +40,7 @@ loading the reference first:
 | Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
-| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AL with cause and fix) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AP with cause and fix) |
 
 The always-binding rules (the 14 invariants as one-liners, code style, quality
 gates, version bumping) are indexed in `.claude/CLAUDE.md`.
@@ -51,7 +51,7 @@ gates, version bumping) are indexed in `.claude/CLAUDE.md`.
 
 ```json
 {"bas":"opn","shd":0,"pnd":"non","win":"cls","frc":"non","res":0,"man":0,
- "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0}
+ "ts":{"opn":0,"cls":0,"shd":0,"due":0,"arm":0,"man":0},"v":6,"t":0,"d":0}
 ```
 
 | Field | Values | Meaning |
@@ -68,6 +68,8 @@ gates, version bumping) are indexed in `.claude/CLAUDE.md`.
 | `ts.due` | Unix timestamp | Fire time of armed pending (`0` when `pnd == 'non'`) |
 | `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (`0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
+| `t` | Unix timestamp | Last helper write (every run stamps it) |
+| `d` | Unix timestamp | Last write of a run that drove the cover (`drive_plan.run`) |
 
 ### Pending field semantics (`pnd` enum)
 
@@ -106,8 +108,9 @@ used by `shading_start_max_duration` and `shading_end_max_duration`.
 
 `effective_state` returns: `lock | opn | vnt | cls | shd`. VENT is a *floor*,
 not a target: BASE=OPN beats it only when an opening automation actually exists
-(`is_opening_scheduled`, derived from the opening triggers' `enabled:` gates —
-Bug Patterns Z + AL). The `base_target` implementation and the full rationale
+(`is_opening_scheduled`, derived from the `enabled:` gates of every `bas='opn'`
+writer incl. the resident opening — Bug Patterns Z + AL + AO). The `base_target`
+implementation and the full rationale
 are in [references/architecture.md](references/architecture.md).
 
 **Critical**: `effective_state == 'opn'` can result from EITHER `base='opn'`
@@ -184,6 +187,8 @@ environment_allows_opening / environment_allows_closing
 helper_ts_open / helper_ts_close / helper_ts_shade / helper_ts_man
 helper_ts_pending_due   # helper_json.ts.due (fire time of armed pending)
 helper_ts_pending_arm   # helper_json.ts.arm (retry anchor)
+helper_ts_write         # helper_json.t (last write - automation_resumed etc.)
+helper_ts_drive         # helper_json.d (last driving write - manual-detection settle window)
 ```
 
 ---
@@ -260,7 +265,7 @@ details). `trigger.id` is the source of truth for "which path ran".
 
 ### Regressions
 Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
-(A–AL, each with symptom / cause / fix / derived rule) before writing a fix —
+(A–AP, each with symptom / cause / fix / derived rule) before writing a fix —
 most "new" bugs are a documented pattern reaching a new code path.
 
 ---
@@ -279,7 +284,7 @@ most "new" bugs are a documented pattern reaching a new code path.
 **Force:** `t_force_enabled_open/close/shading/ventilate`, `t_force_disabled_open/close/shading/ventilate`, `t_force_pause_disabled`
 **Manual:** `t_manual_position` (×3 sources), `t_manual_tilt`
 **Reset:** `t_shading_reset` (23:55), `t_reset_fixedtime`, `t_reset_timeout`, `t_reset_position`
-**Recovery:** `t_recovery` (shared id on ~20 triggers: `homeassistant: start`, the resume trigger, one per recovering source — see [references/recovery.md](references/recovery.md))
+**Recovery:** `t_recovery` (shared id on ~20 triggers: `homeassistant: start`, the resume trigger, one per recovering source), `t_automation_reloaded` (the `automation_reloaded` event — the resume prompt for reload/save, where the resume template is blind; unclaimed runs are stopped pre-dispatch — see [references/recovery.md](references/recovery.md))
 
 ---
 
