@@ -107,6 +107,59 @@ class TestShadingStartExecutionInnerDefault:
         assert "stop" in steps[-1]
 
 
+class TestShadingStartEntryLetsExecutionThrough:
+    """Issue #632: the 'Check for shading start' branch-entry conditions must
+    never reject a t_shading_start_execution run. The execution trigger fires
+    exactly once (template `now() >= ts.due` never produces a new edge); a run
+    rejected at branch entry falls into the dispatch default, which writes no
+    helper — the armed pending freezes until the midnight reset, shd stays 0,
+    and the global gate then suppresses every shading-end trigger for the day
+    (cover parked at the shading position).
+
+    Concretely: a non-tilt cover resting exactly at the shading position at
+    execution time (e.g. reported position jitter around the shading position
+    with position_tolerance 0) failed the positional entry OR. Every entry
+    OR-group that can evaluate false while a start-pending is armed must carry
+    the t_shading_start_execution bypass — as the once-per-day OR always has.
+    (The is_shaded/window OR is safe by construction: helper_state_is_shaded
+    is false whenever pnd == 'beg'.)"""
+
+    @pytest.fixture(scope="class")
+    def entry_or_groups(self):
+        branch = _find_branch_by_alias(_load_blueprint_yaml(), "Check for shading start")
+        assert branch is not None
+        return [
+            c["or"]
+            for c in branch["conditions"]
+            if isinstance(c, dict) and "or" in c
+        ]
+
+    def test_positional_entry_or_has_execution_bypass(self, entry_or_groups):
+        positional = [
+            group
+            for group in entry_or_groups
+            if any("in_shading_position" in str(alt) for alt in group)
+        ]
+        assert positional, "expected the positional entry OR-group"
+        for group in positional:
+            assert any("t_shading_start_execution" in str(alt) for alt in group), (
+                "the positional entry check must not block "
+                "t_shading_start_execution: a rejected execution run ends in "
+                "the dispatch default without a helper write and freezes the "
+                "armed pending for the rest of the day (#632)"
+            )
+
+    def test_once_per_day_entry_or_has_execution_bypass(self, entry_or_groups):
+        once_groups = [
+            group
+            for group in entry_or_groups
+            if any("shading_once_guard_ok" in str(alt) for alt in group)
+        ]
+        assert once_groups, "expected the once-per-day entry OR-group"
+        for group in once_groups:
+            assert any("t_shading_start_execution" in str(alt) for alt in group)
+
+
 class TestShadingEndMoveCoverPreventedPath:
     """With prevent_flags.opening_after_shading_end set and tilt not possible,
     the 'Move cover after shading end' branch used to hit stop without any
