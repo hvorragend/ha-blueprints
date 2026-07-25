@@ -2053,6 +2053,188 @@ class TestForceDisabledRecoveryBranchOrder:
         )
 
 
+class TestForceDisabledRecoveryReevaluatesShadingEnd:
+    """
+    Forum report (away mode): Force Close active while the shading end
+    conditions expire (sun leaves the azimuth/elevation range). The
+    shading-end flow is unreachable during a force (FORCE outranks the whole
+    cascade, and the end branch gates on effective_state != 'cls'), so the
+    helper keeps shd=1. Disabling the force then restored the stale shading
+    position (13%) instead of the open position.
+
+    The force-disable recovery must re-evaluate shading_end_conditions_met at
+    the moment the force is switched off: when the end conditions are met, the
+    stored shading is dropped (the recovery_target chain falls through to
+    opn/cls) and the helper write clears shd. When they are not met — or no
+    end conditions are configured (shading_end_conditions_met renders false
+    on empty AND/OR lists) — the shading is restored exactly as before.
+    """
+
+    def _blueprint(self):
+        return _load_blueprint_yaml(BLUEPRINT_PATH)
+
+    def _render_target(self, *, shade, end_met, base="opn", window_any=False,
+                       window_opened=False, window_tilted=False,
+                       vent_enabled=True, allow_shade=True, allow_open=True,
+                       allow_ventilate=True):
+        import jinja2
+
+        blueprint = self._blueprint()
+        ended = str(_find_variable_definition(blueprint, "shading_ended_during_force"))
+        chain = str(_find_variable_definition(blueprint, "recovery_target"))
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        ctx = dict(
+            helper_state_base=base,
+            helper_state_shade=shade,
+            shading_end_conditions_met=end_met,
+            is_ventilation_enabled=vent_enabled,
+            window_any_now=window_any,
+            window_opened_now=window_opened,
+            window_tilted_now=window_tilted,
+            resident_flags={
+                "allow_shade": allow_shade,
+                "allow_open": allow_open,
+                "allow_ventilate": allow_ventilate,
+            },
+        )
+        ctx["shading_ended_during_force"] = (
+            env.from_string(ended).render(**ctx).strip() == "True"
+        )
+        return env.from_string(chain).render(**ctx).strip()
+
+    def test_ended_shading_falls_through_to_open(self):
+        """The reported case: bas=opn, shd=1, end conditions met -> opn, not shd."""
+        assert self._render_target(shade=True, end_met=True, base="opn") == "opn"
+
+    def test_still_valid_shading_is_restored(self):
+        assert self._render_target(shade=True, end_met=False, base="opn") == "shd"
+
+    def test_no_end_conditions_met_without_shading_unchanged(self):
+        assert self._render_target(shade=False, end_met=False, base="opn") == "opn"
+
+    def test_ended_shading_with_base_closed_targets_close(self):
+        assert self._render_target(shade=True, end_met=True, base="cls") == "cls"
+
+    def test_ended_shading_with_tilted_window_and_base_closed_targets_vent(self):
+        assert self._render_target(shade=True, end_met=True, base="cls",
+                                   window_any=True, window_tilted=True) == "vnt"
+
+    # ── update_values must clear the ended shading (shd 0 + ts.shd stamp) ────
+
+    def _drive_leaf_update_values(self):
+        branch = _find_branch_by_alias(
+            self._blueprint(), "Force disabled recovery: drive to background target"
+        )
+        assert branch is not None
+        return str(branch["sequence"][0]["variables"]["update_values"])
+
+    def _render_update_values(self, template: str, *, target, ended):
+        import ast
+        import jinja2
+
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        rendered = env.from_string(template).render(
+            recovery_target=target, shading_ended_during_force=ended
+        ).strip()
+        return ast.literal_eval(rendered)
+
+    def test_update_values_clears_shd_when_shading_ended(self):
+        values = self._render_update_values(
+            self._drive_leaf_update_values(), target="opn", ended=True
+        )
+        assert values["shd"] == 0
+        assert values["ts"]["shd"] == "now"
+        assert values["ts"]["opn"] == "now"
+        assert values["frc"] == "non"
+
+    def test_update_values_leaves_shd_alone_when_not_ended(self):
+        values = self._render_update_values(
+            self._drive_leaf_update_values(), target="opn", ended=False
+        )
+        assert "shd" not in values
+        assert "shd" not in values["ts"]
+
+    def test_update_values_shd_target_unchanged(self):
+        """When the shading is restored, the write must look exactly as before."""
+        values = self._render_update_values(
+            self._drive_leaf_update_values(), target="shd", ended=False
+        )
+        assert "shd" not in values
+        assert values["ts"] == {"due": 0, "arm": 0, "shd": "now"}
+
+    def test_vent_leaf_clears_ended_shading(self):
+        branch = _find_branch_by_alias(
+            self._blueprint(),
+            "Force disabled recovery: return to VENTILATION (window tilted)",
+        )
+        assert branch is not None
+        template = str(branch["sequence"][0]["variables"]["update_values"])
+        values = self._render_update_values(template, target="vnt", ended=True)
+        assert values["shd"] == 0
+        assert values["ts"]["shd"] == "now"
+        values = self._render_update_values(template, target="vnt", ended=False)
+        assert "shd" not in values
+
+    def test_no_match_default_clears_ended_shading(self):
+        branch = _find_branch_by_alias(
+            self._blueprint(), "Force disabled: recovery enabled — pick target"
+        )
+        assert branch is not None
+        inner_choose = next(
+            step for step in branch["sequence"]
+            if isinstance(step, dict) and "choose" in step
+        )
+        template = str(inner_choose["default"][0]["variables"]["update_values"])
+        values = self._render_update_values(template, target="non", ended=True)
+        assert values == {"frc": "non", "shd": 0, "ts": {"shd": "now"}}
+        values = self._render_update_values(template, target="non", ended=False)
+        assert values == {"frc": "non"}
+
+    # ── Bug Pattern T: the consumer needs the forecast loaded ────────────────
+
+    def test_forecast_gate_matches_force_disabled_triggers(self):
+        """shading_end_conditions_met can contain forecast conditions — the
+        forecast-load gate must let force-disable runs through (Bug Pattern T:
+        a trigger-id allow-list upstream of a value-based consumer breaks
+        silently every time the set of reaching triggers grows)."""
+        import re
+
+        blueprint = self._blueprint()
+
+        def walk(node):
+            if isinstance(node, dict):
+                if "if" in node and "then" in node:
+                    then = node["then"]
+                    if isinstance(then, list):
+                        for step in then:
+                            if isinstance(step, dict) and step.get("action") == "weather.get_forecasts":
+                                return node
+                for v in node.values():
+                    result = walk(v)
+                    if result is not None:
+                        return result
+            elif isinstance(node, list):
+                for item in node:
+                    result = walk(item)
+                    if result is not None:
+                        return result
+            return None
+
+        block = walk(blueprint)
+        assert block is not None
+        flat = yaml.safe_dump(block["if"])
+        m = re.search(r"regex_match\(''?(\^\([^)]+\))''?\)", flat)
+        assert m is not None
+        compiled = re.compile(m.group(1))
+        for trigger_id in ["t_force_disabled_close", "t_force_disabled_shading",
+                           "t_force_disabled_open", "t_force_disabled_ventilate"]:
+            assert compiled.match(trigger_id), (
+                f"Forecast-load regex must match {trigger_id!r} so the "
+                f"force-disable recovery can evaluate shading_end_conditions_met "
+                f"against fresh forecast data."
+            )
+
+
 class TestForcePauseDisabledHasBackgroundOpen:
     """
     The Force-Pause-Disabled handler must serve `effective_state == 'opn'`
