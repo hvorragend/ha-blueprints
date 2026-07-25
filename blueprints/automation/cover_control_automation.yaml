@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.25
+    **Version**: 2026.07.25 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -2531,7 +2531,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.25"
+  version: "2026.07.25 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4555,8 +4555,9 @@ actions:
       # All shading-start triggers, every opening trigger (so the opening handler can evaluate
       # shading_start_warranted while a pending is armed, #514 follow-up), the recovery - and any
       # trigger the resumed-run or take-over backstop turns into one, because that run evaluates
-      # it too
-      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated)')
+      # it too. The force-disable recovery evaluates shading_end_conditions_met before restoring
+      # a stored shading, so it needs the forecast as well (Bug Pattern T)
+      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated|t_force_disabled)')
             or automation_resumed or instance_activated or midnight_reset_missed }}"
     then:
       - action: weather.get_forecasts
@@ -7214,12 +7215,18 @@ actions:
                       # Window contacts only count while the ventilation automation
                       # is enabled - a (possibly stuck) contact must neither block
                       # the cls/shd/opn targets nor produce a vnt/lock target (#566)
+                      # A stored shading whose end conditions are met by now ended
+                      # during the force period (the end flow is unreachable while
+                      # a force holds the cascade) - re-evaluate instead of
+                      # restoring the stale shading position
                       - variables:
+                          shading_ended_during_force: "{{ helper_state_shade and shading_end_conditions_met }}"
                           recovery_target: >-
+                            {% set shade_active = helper_state_shade and not shading_ended_during_force %}
                             {% if helper_state_base == 'cls' and not (is_ventilation_enabled and window_any_now) %}cls
-                            {% elif helper_state_shade and not (is_ventilation_enabled and window_any_now) and resident_flags.allow_shade %}shd
+                            {% elif shade_active and not (is_ventilation_enabled and window_any_now) and resident_flags.allow_shade %}shd
                             {% elif window_opened_now and resident_flags.allow_ventilate and is_ventilation_enabled %}lock
-                            {% elif helper_state_base == 'opn' and not (is_ventilation_enabled and window_opened_now) and not helper_state_shade and resident_flags.allow_open %}opn
+                            {% elif helper_state_base == 'opn' and not (is_ventilation_enabled and window_opened_now) and not shade_active and resident_flags.allow_open %}opn
                             {% elif window_tilted_now and not window_opened_now and resident_flags.allow_ventilate and is_ventilation_enabled %}vnt
                             {% else %}non{% endif %}
                       - choose:
@@ -7235,12 +7242,13 @@ actions:
                                         'lock': force_allows_ventilate,
                                         'opn': force_allows_open}[recovery_target] }}
                                   drive_plan: "{{ dict(state_targets[recovery_target], run=will_drive) }}"
-                                  log_extra: "force disabled; recovery_target={{ recovery_target }}"
+                                  log_extra: "force disabled; recovery_target={{ recovery_target }}{{ '; shading end conditions met, shd cleared' if shading_ended_during_force else '' }}"
                                   update_values: >-
                                     {% set base = {'frc': 'non', 'man': 0, 'pnd': 'non', 'ts': {'due': 0, 'arm': 0}} %}
-                                    {% if recovery_target == 'shd' %}{{ dict(base, ts={'shd': 'now', 'due': 0, 'arm': 0}) }}
+                                    {% if shading_ended_during_force %}{% set base = dict(base, shd=0, ts=dict(base.ts, shd='now')) %}{% endif %}
+                                    {% if recovery_target == 'shd' %}{{ dict(base, ts=dict(base.ts, shd='now', due=0, arm=0)) }}
                                     {% elif recovery_target == 'lock' %}{{ dict(base, win='opn') }}
-                                    {% elif recovery_target == 'opn' %}{{ dict(base, ts={'opn': 'now', 'due': 0, 'arm': 0}) }}
+                                    {% elif recovery_target == 'opn' %}{{ dict(base, ts=dict(base.ts, opn='now')) }}
                                     {% else %}{{ base }}{% endif %}
                               - *apply_transition
                               - stop: "Force recovery: return to background target executed"
@@ -7253,22 +7261,19 @@ actions:
                               - variables:
                                   will_drive: "{{ not is_paused and force_allows_ventilate }}"
                                   drive_plan: "{{ dict(state_targets.vnt, run=will_drive) }}"
-                                  update_values:
-                                    # Force ended, return to ventilation (tilted)
-                                    frc: "non"
-                                    man: 0
-                                    pnd: 'non'
-                                    ts:
-                                      due: 0
-                                      arm: 0
+                                  update_values: >-
+                                    {% set base = {'frc': 'non', 'man': 0, 'pnd': 'non', 'ts': {'due': 0, 'arm': 0}} %}
+                                    {% if shading_ended_during_force %}{{ dict(base, shd=0, ts=dict(base.ts, shd='now')) }}
+                                    {% else %}{{ base }}{% endif %}
                               - *apply_transition
                               - stop: "Return to Ventilation executed"
                         default:
                           # No matching recovery condition (e.g., resident restrictions)
                           # Still clear the force flag to avoid it getting stuck
                           - variables:
-                              update_values:
-                                frc: "non"
+                              update_values: >-
+                                {% if shading_ended_during_force %}{{ {'frc': 'non', 'shd': 0, 'ts': {'shd': 'now'}} }}
+                                {% else %}{{ {'frc': 'non'} }}{% endif %}
                           - *apply_transition
                           - stop: "Force cleared, no recovery position matched"
                 default:
