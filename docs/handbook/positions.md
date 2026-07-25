@@ -19,6 +19,7 @@
 - [🔼 Open Position](#open_position)
 - [🔻 Close Position](#close_position)
 - [💨 Ventilate Position](#ventilate_position)
+- [💨 Full Ventilation Position](#lockout_position)
 - [🥵 Sun Shading Position](#shading_position)
 - [🥵 Alternate Sun Shading Position](#shading_position_alt)
 - [🥵 Alternate Sun Shading Position Trigger](#shading_position_alt_entity)
@@ -94,6 +95,24 @@ What position should the cover be moved into when closing?
 > 🧩 Input: `ventilate_position` · Default: `30`
 
 What position should the cover move to when the window is tilted? If closing is triggered and the contact sensor is 'on', the cover will move to this position instead of closing completely. <br /><br />Should not be 100. In this case please use 99. And please also note the information in the position tolerance.
+
+---
+
+<a id="lockout_position"></a>
+
+## 💨 Full Ventilation Position
+
+> 🧩 Input: `lockout_position` · Optional
+
+Optional position for the fully opened window. When the window opens completely, the cover moves to this position (lockout protection) instead of the Open Position. <br /><br />Leave empty to use the Open Position.
+
+### When do you need this?
+
+Normally the lockout protection simply drives the cover to the Open Position — for most setups that is exactly right, and this input can stay empty.
+
+It becomes useful when your **Open Position is not "cover fully up"**. Typical example: venetian-style blinds on a terrace door where "open" means *blind down, slats open* (Open Position `0` with an open tilt). Walking through the door then requires the blind to actually drive up. Configure the door's handle sensor as the 🚪 *Contact Sensor For Open Window* and set the Full Ventilation Position to `100`: opening the door drives the blind fully up (with lockout protection — no closing or shading while the door is open), and closing the door returns it to your normal Open/Close/Shading state.
+
+On tilt covers the slats move to the 🔼 *Open Tilt Position* together with this position.
 
 ---
 

@@ -360,6 +360,22 @@ blueprint:
               max: 100.0
               unit_of_measurement: "%"
 
+        lockout_position:
+          name: "💨 Full Ventilation Position"
+          description: >-
+            Optional position for the fully opened window. When the window opens completely,
+            the cover moves to this position (lockout protection) instead of the Open Position.
+            Useful when the Open Position keeps the cover lowered — for example a blind that
+            normally stays down with open slats — but a fully opened terrace door should still
+            drive the cover all the way up.
+            <br /><br />Leave empty to use the Open Position.
+          default: []
+          selector:
+            number:
+              min: 0.0
+              max: 100.0
+              unit_of_measurement: "%"
+
         shading_position:
           name: "🥵 Sun Shading Position"
           description: "To which position should the cover be moved for shading?"
@@ -1024,7 +1040,8 @@ blueprint:
           name: "🚪 Contact Sensor For Open Window (Full Ventilation)"
           description: >-
             Contact sensor of a door or window handle for detecting <ins>total opening</ins>.
-            If this sensor switches to on/true, the cover is <ins>fully opened</ins>.
+            If this sensor switches to on/true, the cover is <ins>fully opened</ins>
+            (to the Open Position, or to the '💨 Full Ventilation Position' if configured).
             At the same time, a lockout protection is <ins>always</ins> activated.
             The cover is not closed and the sun shading is not activated when the contact is open.
 
@@ -2306,6 +2323,7 @@ trigger_variables:
   open_position: !input open_position
   close_position: !input close_position
   ventilate_position: !input ventilate_position
+  lockout_position: !input lockout_position
   shading_position: !input shading_position
   shading_position_alt: !input shading_position_alt
   shading_position_alt_entity: !input shading_position_alt_entity
@@ -2563,6 +2581,10 @@ variables:
            and states(shading_position_alt_entity) == 'on')
        else shading_position }}
 
+  # LOCKOUT / FULL VENTILATION POSITION - optional dedicated position for the
+  # fully opened window; falls back to the open position when unset
+  effective_lockout_position: "{{ lockout_position if lockout_position != [] else open_position }}"
+
   # COVER TYPE & POSITION COMPARISON LOGIC
   # Position comparison results
   # Handles both blind (0%=closed) and awning (0%=retracted) logic automatically
@@ -2679,6 +2701,17 @@ variables:
   in_open_position: >-
     {% set min = open_position - position_tolerance %}
     {% set max = open_position + position_tolerance %}
+    {{
+      (current_position >= min and current_position <= max)
+      and (
+        (not is_cover_tilt_enabled_and_possible) or
+        ((current_tilt_position - (open_tilt_position | int)) | abs <= tilt_position_tolerance)
+      )
+    }}
+
+  in_lockout_position: >-
+    {% set min = effective_lockout_position - position_tolerance %}
+    {% set max = effective_lockout_position + position_tolerance %}
     {{
       (current_position >= min and current_position <= max)
       and (
@@ -2900,7 +2933,7 @@ variables:
   #
   # Priority Order (highest first):
   # 1. FORCE    → force != "none" → Force-Position
-  # 2. LOCKOUT  → window == "open" → Open-Position (prevent lockout)
+  # 2. LOCKOUT  → window == "open" → Lockout-Position (prevent lockout; defaults to Open-Position)
   # 3. BASE=OPN → base == "open" (scheduled) AND no shading/privacy/close-restriction → Open-Position
   # 4. VENT     → window == "tilted" AND allow_ventilate AND base would close/shade → Ventilate-Position
   # 5. PRIVACY  → resident == 1 AND closing_trigger → Close-Position
@@ -4666,7 +4699,7 @@ actions:
       # of repeating position/tilt/action-set triples.
       state_targets:
         lock:
-          target: "{{ open_position | int }}"
+          target: "{{ effective_lockout_position | int }}"
           target_tilt: "{{ open_tilt_position | int }}"
           action_set: "ventilate"
         opn:
@@ -4692,7 +4725,7 @@ actions:
       # Branches with a different gate (e.g. no position check in the force
       # recovery, or extra trigger conditions) keep their own expression.
       state_gates:
-        lock: "{{ not is_paused and force_allows_ventilate and (effective_state != 'lock' or not in_open_position) }}"
+        lock: "{{ not is_paused and force_allows_ventilate and (effective_state != 'lock' or not in_lockout_position) }}"
         opn: "{{ not is_paused and force_allows_open and (effective_state != 'opn' or not in_open_position) }}"
         vnt: "{{ not is_paused and force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) }}"
         shd: "{{ not is_paused and force_allows_shade and (effective_state != 'shd' or not in_shading_position) }}"
@@ -5906,7 +5939,7 @@ actions:
                       drive_plan:
                         run: "{{ will_drive }}"
                         action_set: "up"
-                        target: "{{ open_position | int }}"
+                        target: "{{ effective_lockout_position | int if effective_state == 'lock' else open_position | int }}"
                         target_tilt: "{{ open_tilt_position | int }}"
                         delay_s: "{{ drive_delay_standard }}"
                       update_values:
@@ -6649,7 +6682,7 @@ actions:
                                   drive_plan:
                                     run: true
                                     action_set: "shading_end"
-                                    target: "{{ open_position | int }}"
+                                    target: "{{ effective_lockout_position | int if effective_state == 'lock' else open_position | int }}"
                                     target_tilt: "{{ open_tilt_position | int }}"
                                     delay_s: "{{ range(0, 2) | random if (is_shading_end_immediate_by_sun_position | default(false)) | bool else drive_delay_standard }}"
                                   update_values:
@@ -6814,7 +6847,7 @@ actions:
               - alias: "Window opened - Full ventilation (lockout)"
                 conditions:
                   - "{{ contact_opened_now }}"
-                  - "{{ not in_open_position }}"
+                  - "{{ not in_lockout_position }}"
                   - "{{ force_allows_ventilate }}" # TODO
                   - condition: !input auto_ventilate_condition
                 sequence:
@@ -6823,7 +6856,7 @@ actions:
                       drive_plan:
                         run: "{{ will_drive }}"
                         action_set: "up"
-                        target: "{{ open_position | int }}"
+                        target: "{{ effective_lockout_position | int }}"
                         target_tilt: "{{ open_tilt_position | int }}"
                         delay_s: "{{ 0 if ventilation_flags.start_no_delay else drive_delay_standard }}"
                       update_values:
@@ -6840,7 +6873,7 @@ actions:
               - alias: "Window opened - Cover already at open position, update win"
                 conditions:
                   - "{{ contact_opened_now }}"
-                  - "{{ in_open_position }}"
+                  - "{{ in_lockout_position }}"
                   - "{{ helper_state_window != 'opn' }}"
                 sequence:
                   - variables:

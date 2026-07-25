@@ -1129,9 +1129,10 @@ class TestRecoveryDrive:
                      open_tilt_position=100, close_tilt_position=0,
                      ventilate_tilt_position=60, shading_tilt_position=40)
 
-    def _targets(self, state, effective_shading_position=30):
+    def _targets(self, state, effective_shading_position=30, effective_lockout_position=100):
         """Drive parameters via the real state_targets projection from the blueprint."""
         targets = _state_targets(effective_shading_position=effective_shading_position,
+                                 effective_lockout_position=effective_lockout_position,
                                  **self.POSITIONS)
         return (int(_render(self.TARGET(), {}, recovered_state=state, state_targets=targets)),
                 int(_render(self.TILT(), {}, recovered_state=state, state_targets=targets)))
@@ -1150,6 +1151,13 @@ class TestRecoveryDrive:
         compares against the recovery's own target) would not even notice."""
         assert self._targets("shd", effective_shading_position=70) == (70, 40)
 
+    def test_the_lock_target_honours_the_full_ventilation_position(self):
+        """The lockout target is the optional Full Ventilation Position (fallback: open).
+        A restart while the window is fully open must catch up to THAT position - with
+        the plain open_position a split config (open 0 %, lockout 100 %) would pull the
+        cover down onto the open window."""
+        assert self._targets("lock", effective_lockout_position=60) == (60, 100)
+
     def test_the_recovery_drives_through_the_shared_projection(self):
         """Guard against re-hardcoding the position chain: the target must come from
         state_targets, not from a local if/else over the position inputs."""
@@ -1159,7 +1167,8 @@ class TestRecoveryDrive:
     # --- the user's drive actions on a caught-up movement ---
     def _action_set(self, state, in_position, will_drive=True):
         plan = _branch_var(RECOVERY, "drive_plan")
-        targets = _state_targets(effective_shading_position=30, **self.POSITIONS)
+        targets = _state_targets(effective_shading_position=30,
+                                 effective_lockout_position=100, **self.POSITIONS)
         return _render(plan["action_set"], {}, recovered_state=state,
                        state_targets=targets, recovery_in_position=in_position,
                        will_drive=will_drive)

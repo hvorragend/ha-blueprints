@@ -10,7 +10,7 @@ or anything that touches `trigger_variables:`.
 
 ```
 1. FORCE    → frc != "non"                                       → Force position
-2. LOCKOUT  → win == "opn"                                       → Open position
+2. LOCKOUT  → win == "opn"                                       → Lockout position (defaults to open)
 3. BASE=OPN → bas == "opn" AND is_opening_scheduled AND no privacy/shading/restriction → Open position
 4. VENT     → win == "tlt" AND base would close/shade/privacy    → Ventilation position
 5. PRIVACY  → resident && closing                                → Close position
@@ -27,6 +27,20 @@ The variable `effective_state` returns the currently active state from this casc
 The flag mirrors the `enabled:` gates of the **triggers that write `bas='opn'`**, not the time control switch: the opening handler is reached by four sources — time fields (`t_open_1/2`), calendar (`t_calendar_event_start`), brightness (`t_open_4`) and sun elevation (`t_open_5`) — and the **resident-leaving handler** (`t_resident_update` with `resident_opening_enabled`) is the fifth source: its `leave_target == 'opn'` case writes `bas: 'opn'` too. Brightness and sun open the cover with time control switched **off** (the opening branch passes them through via `is_time_control_disabled`), and a resident opening needs no other source at all — so their `bas: 'opn'` is a real intent too. Gating on `not is_time_control_disabled` misread it as the init default and let VENT drag an open cover down to the ventilation position (Bug Pattern AL); missing the resident source held a tilted window at the ventilation position when the resident left (Bug Pattern AO, Issue #616).
 
 Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT when `win == 'tlt'` and `allow_vent` (the resident ventilation gate) and `not (base_target == 'opn' and is_opening_scheduled)`.
+
+**LOCKOUT target (`effective_lockout_position`):** LOCKOUT drives to the optional
+`lockout_position` input ("Full Ventilation Position"), which falls back to
+`open_position` when unset — for setups where "open" is not "cover fully up" (e.g.
+a terrace-door blind whose open position is 0 % with open slats). Every lock
+consumer must read `effective_lockout_position` / `in_lockout_position`, never the
+raw open position: `state_targets.lock`, `state_gates.lock`, the contact-opened
+branches, and — critically — the two flows that deliberately drive to the open
+target while the lockout window may be open: "Normal opening of the cover" (the
+Bug Pattern AG fall-through) and the shading-end "Move cover after shading end"
+(reachable at the lockout position because the shading-end lockout branch gates on
+`current_below_ventilate`). Both swap their target to `effective_lockout_position`
+when `effective_state == 'lock'`; with the input unset that is byte-for-byte the
+old behavior. The lock tilt target stays `open_tilt_position`.
 
 ---
 

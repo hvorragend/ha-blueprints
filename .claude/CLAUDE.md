@@ -59,7 +59,7 @@ State is persisted as a JSON string in an `input_text` helper:
 
 ```
 1. FORCE    → frc != "non"                                       → Force position
-2. LOCKOUT  → win == "opn"                                       → Open position
+2. LOCKOUT  → win == "opn"                                       → Lockout position (defaults to open)
 3. BASE=OPN → bas == "opn" AND is_opening_scheduled AND no privacy/shading/restriction → Open position
 4. VENT     → win == "tlt" AND base would close/shade/privacy    → Ventilation position
 5. PRIVACY  → resident && closing                                → Close position

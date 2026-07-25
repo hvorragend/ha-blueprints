@@ -98,7 +98,7 @@ used by `shading_start_max_duration` and `shading_end_max_duration`.
 
 ```
 1. FORCE    → frc != "non"                                       → Force position
-2. LOCKOUT  → win == "opn"                                       → Open position ('lock')
+2. LOCKOUT  → win == "opn"                                       → Lockout position ('lock', defaults to open)
 3. BASE=OPN → bas == "opn" AND is_opening_scheduled AND no privacy/shading/restriction → Open ('opn')
 4. VENT     → win == "tlt" AND base would close/shade/privacy    → Ventilation position ('vnt')
 5. PRIVACY  → resident && closing_enabled                        → Close position ('cls')
@@ -127,8 +127,12 @@ in_open_position      # Current position within tolerance of open_position
 in_close_position     # Current position within tolerance of close_position
 in_shading_position   # Current position within tolerance of effective_shading_position
 in_ventilate_position # Current position within tolerance of ventilate_position
+in_lockout_position   # Current position within tolerance of effective_lockout_position
 effective_shading_position  # shading_position or shading_position_alt (#580) —
                             # every shading consumer must read this, never the raw input
+effective_lockout_position  # lockout_position ("Full Ventilation Position") or
+                            # open_position fallback — every LOCKOUT consumer must
+                            # read this, never the raw open position
 ```
 
 ### State variables
