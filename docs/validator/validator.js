@@ -25,7 +25,8 @@ class CCAValidator {
 
             // Positions
             'position_source', 'custom_position_sensor',
-            'open_position', 'close_position', 'ventilate_position', 'shading_position',
+            'open_position', 'close_position', 'ventilate_position', 'lockout_position', 'shading_position',
+            'shading_position_alt', 'shading_position_alt_entity',
             'position_tolerance',
 
             // Tilt
@@ -471,7 +472,9 @@ class CCAValidator {
         this.checkRange('open_position', 0, 100);
         this.checkRange('close_position', 0, 100);
         this.checkRange('shading_position', 0, 100);
+        this.checkRange('shading_position_alt', 0, 100);
         this.checkRange('ventilate_position', 0, 100);
+        this.checkRange('lockout_position', 0, 100);
 
         if (isAwning) {
             this.addInfo('☂️ Awning mode detected (0%=retracted, 100%=extended)');
