@@ -516,6 +516,15 @@ This activates an extended comparison for the independent shading path. The shad
   This mechanism improves the responsiveness and reliability of the shading system by using real-time sensor input as an optional condition, especially when forecast data is uncertain.
   Note: This function has nothing to do with normal temperature comparison, but is used exclusively in the context of the forecast function.
 
+### Independent Shading: Keep shading active while the temperature threshold is exceeded
+
+On hot days an active sun shading does not end during the day — e.g. when the sun leaves the configured azimuth range — as long as the forecasted temperature or (if enabled) <em>"Temperature Sensor 2"</em> stays above the <em>"Independent Temperature Threshold"</em>. The cover then stays shaded until the normal closing time or the nightly reset at 23:55.
+
+  - Requires <em>"Independent Shading via Temperature Comparison"</em> — without it, this option has no effect.
+  - A small hysteresis (the <em>"Forecast Temperature Hysteresis"</em>) is applied below the threshold, so the hold does not flap when the temperature hovers around the threshold value.
+  - The hold is evaluated <ins>live</ins>: it also applies to a shading that was originally started by the normal AND/OR conditions, as long as the day is hot enough.
+  - If the temperature drops below the threshold later in the day, the shading usually still lasts until the closing time: the end conditions are only re-evaluated when one of their triggers fires again (e.g. a fresh brightness drop). On genuinely hot days this is exactly the intended "shade the whole day" behavior.
+
 ---
 
 <a id="shading_independent_temp"></a>
