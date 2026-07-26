@@ -571,6 +571,13 @@ class CCAValidator {
             }
         }
 
+        // Independent shading hold requires the independent temperature mode (#605)
+        const shadingConfig = c.shading_config || [];
+        if (shadingConfig.includes('shading_independent_holds_end') &&
+            !shadingConfig.includes('shading_temp_comparison_independent')) {
+            this.addWarning('⚠️ "Keep shading active while the temperature threshold is exceeded" is selected without "Independent Shading via Temperature Comparison" — the hold can never apply. Enable the independent mode or deselect the hold option.');
+        }
+
         // cond_custom in an OR list is a deliberate choice — without the sensor the clause can never trigger
         if (!c.shading_custom_sensor) {
             if (startOr.includes('cond_custom')) {

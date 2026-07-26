@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.13 V4
+    **Version**: 2026.07.26
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#-key-features)
@@ -1527,6 +1527,12 @@ blueprint:
           name: "🥵 Sun Shading - Configuration"
           description: >-
             These options allow you to fine-tune how the system handles temperature-based shading.
+            <br /><br />
+            <em>"Keep shading active while the temperature threshold is exceeded"</em>: On hot days an active sun shading
+            does not end during the day (e.g. when the sun leaves the azimuth range) as long as the forecasted temperature
+            or (if enabled) <em>"Temperature Sensor 2"</em> stays above the <em>"Independent Temperature Threshold"</em>.
+            The cover then stays shaded until the normal closing time or the nightly reset.
+            Requires <em>"Independent Shading via Temperature Comparison"</em>.
             <p><em>Click on the titles to get further help.</em></p>
             📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/shading#shading_config).
             <br />
@@ -1539,6 +1545,8 @@ blueprint:
                   value: "shading_temp_comparison_independent"
                 - label: "Also trigger if 'Temperature Sensor 2' exceeds 'Forecast Temperature Value'"
                   value: "shading_compare_forecast_with_sensor2"
+                - label: "Independent Shading: Keep shading active while the temperature threshold is exceeded"
+                  value: "shading_independent_holds_end"
               multiple: true
               sort: false
               custom_value: false
@@ -2433,7 +2441,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.13 V4"
+  version: "2026.07.26"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4211,7 +4219,7 @@ actions:
       - "{{ forecast_source.use_weather and not forecast_source.prevent_service }}"
       - "{{ states(shading_forecast_sensor) not in invalid_states }}"
       - "{{ trigger.id is defined }}"
-      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery)') }}" # All shading-start triggers, every opening trigger (so the opening handler can evaluate shading_start_warranted while a pending is armed, #514 follow-up) and the recovery
+      - "{{ trigger.id | regex_match('^(t_shading_start|t_shading_end|t_open|t_calendar_event_start|t_recovery)') }}" # All shading-start triggers, all shading-end triggers (the independent shading hold needs fresh forecast data, #605), every opening trigger (so the opening handler can evaluate shading_start_warranted while a pending is armed, #514 follow-up) and the recovery
     then:
       - action: weather.get_forecasts
         target:
@@ -4756,10 +4764,34 @@ actions:
           )
         }}
 
+      # Independent shading hold: while the independent temperature threshold is
+      # (still) exceeded, an active shading must not end during the day (#605).
+      # Mirrors independent_temp_valid, but with the hysteresis on the LOW side
+      # (threshold - hysteresis) so the hold does not flap around the threshold.
+      independent_shading_holds: >-
+        {{
+          'shading_independent_holds_end' in shading_config and
+          'shading_temp_comparison_independent' in shading_config and
+          shading_independent_temp != [] and
+          (
+            (
+              forecast_temp_raw is not none and
+              forecast_temp_raw > (shading_independent_temp - shading_forecast_temp_hysteresis)
+            ) or
+            (
+              'shading_compare_forecast_with_sensor2' in shading_config and
+              shading_temperatur_sensor2 != [] and
+              states(shading_temperatur_sensor2) not in invalid_states and
+              (states(shading_temperatur_sensor2) | float(default=0) > (shading_independent_temp - shading_forecast_temp_hysteresis))
+            )
+          )
+        }}
+
       # Final END condition: AND result OR OR result
       shading_end_conditions_met: >-
         {{
           is_shading_enabled and
+          not independent_shading_holds and
           (
             shading_end_and_result or
             shading_end_or_result

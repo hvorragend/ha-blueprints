@@ -507,6 +507,37 @@ helper field stores the active depth (same rationale as #558 — the helper
 holds logical state; the brief `in_shading_position` volatility after a switch
 is accepted and healed by the re-drive trigger).
 
+### Independent shading hold gates `shading_end_conditions_met` live (#605)
+
+The option `shading_independent_holds_end` (in `shading_config`) keeps an active
+shading from ending while the independent temperature threshold is still
+exceeded. The single source of truth is `independent_shading_holds`, and it is
+consumed at exactly **one** choke point: `and not independent_shading_holds`
+inside `shading_end_conditions_met`. That covers every end path consistently —
+the end-pending arming, the execution re-check and retry/abort, the #554
+start-side cancel branch (`not shading_end_conditions_met` → an armed
+end-pending is canceled while the hold is active), and the recovery's
+`recovered_pending` end-arm. Do not gate individual end branches instead.
+
+Deliberate semantics:
+
+- **Live-evaluated, not "how was the shading started".** The helper does not
+  record the start path (same rationale as #558 — logical state only). A
+  shading started via the normal AND/OR conditions also holds on a hot day.
+- **Hysteresis on the LOW side** (`shading_independent_temp -
+  shading_forecast_temp_hysteresis`), opposite to `independent_temp_valid`'s
+  start check (`+ hysteresis`), so the hold does not flap at the threshold.
+- **Latching end triggers are accepted:** an end trigger suppressed by the hold
+  never re-fires when the temperature later drops (no new FALSE→TRUE edge).
+  The shading then ends via the scheduled close (which writes `shd: 0`), the
+  23:55 reset, or any later end trigger that fires on a fresh edge. This is
+  the requested "shade the whole day" behavior — do not add a re-fire trigger
+  without revisiting the orphan audit.
+- **The forecast-load gate includes `t_shading_end`** (Bug Pattern T family):
+  without it, `forecast_temp_raw` is `None` on end triggers and the hold's
+  forecast branch could never apply. This also fixed forecast-based *end*
+  conditions, which previously evaluated without data on end triggers.
+
 ### Restart / outage handling: block on state-critical entities, recover via `t_recovery`
 
 Two halves of one mechanism. Neither works without the other.
