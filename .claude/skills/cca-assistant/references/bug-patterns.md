@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AP, with cause and fix)
+# CCA Known Bug Patterns (A–AQ, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -695,5 +695,22 @@ The same source was also missing from the "no trigger source at all" configurati
 **Consequence for the helper length:** the compact JSON grows to a worst-case 218 chars, so the minimum-length config check was raised 210 → 225 (recommended length stays 254). `tests/test_manual_detection_drive_window.py` pins the worst-case length against the configured minimum.
 
 **Rule:** A suppression that exists to hide CCA's *own movements* must key off the drive decision (`drive_plan.run` / `d`), never off write activity (`t`) or run activity (`this.attributes.current`) — bookkeeping writes and idle-waiting runs cannot have caused a position change, so suppressing detection around them silently discards real manual moves (same asymmetry family as Bug Pattern Y: suppress only when the thing being muted can actually occur).
+
+---
+
+### Bug Pattern AQ: A queued run's stale helper snapshot resurrects cleared state — endless shading-end loop (Issue #641)
+
+**Symptom:** After a shading end the automation re-triggers every one to two minutes forever, each cycle moving the cover by ~2 % (the position delta between the open tilt and the shading tilt on that cover). Traces show pairs: a `t_shading_end_execution` run that drives to open and writes a clean helper, and a `t_shading_tilt_*` run that fires on the *same* helper edge, tilts into the shading angle ~70 s later, and then writes `shd: 1, pnd: 'end'` with a `ts.due`/`ts.arm` from long ago back into the helper. That write is a fresh `shd` 0→1 edge with an expired due — both triggers fire again, and the loop sustains itself.
+
+**Cause:** Automation-level `variables:` — including `helper_json` and everything derived from it — are rendered at **trigger** time, but under `mode: queued` a run may only *execute* minutes later (queued behind a driving run; then waiting out its own `tilt_delay`/drive delay). `helper_update` merged `update_values` into that trigger-time snapshot, so every field the branch did not explicitly set was written back from a stale world. Any branch with a small `update_values` could resurrect cleared state this way — the #641 genesis was a **manual-detection** run (writes only `man`/`ts.man`) queued behind the shading-end execution: its write resurrected the just-cleared `pnd: 'end'`, and from then on each cycle's tilt run (triggered by the resurrection's `shd` 0→1 edge, `update_values` only `{man: 0}`) kept the loop alive. The execution templates compare `now() >= ts.due`, so a resurrected past due fires immediately (Bug Pattern AK's trigger mechanics, weaponized).
+
+**Fix (two layers):**
+
+1. **`helper_update` re-reads the helper live at write time.** `current` is the parsed live `states(cover_status_helper)` when it is valid v6 JSON, and only falls back to the `helper_json` snapshot when the live value is invalid or pre-migration. "Omitted keys are preserved" now means preserved from the *live* truth, not from the run's trigger-time view — a delayed run can no longer undo intervening writes. Same design family as the 2026.07.25 "actuation-point checks are live reads" decision (pause/hand-over): the persistence point gets the live re-read the actuation points already had. Explicit keys in `update_values` still win unconditionally, and the `ts.shd` guard now compares against the live `shd`, which is strictly more correct (a redundant `shd` write no longer stamps).
+2. **The shading-tilt and alternate-shading-position drive gates check the live `shd` flag** (`states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]')`, Pattern-K-guarded, AF-guarded on `cover_status_helper != []`). A queued tilt run that executes after the shading ended consumes its trigger as a no-op instead of tilting into the shading angle. Branch *conditions* keep using the frozen variables (dispatch layer); the live read sits in `will_drive` (decision layer) because the staleness already exists when `will_drive` renders — unlike the pause case, where the flip happens later, during the in-run delay.
+
+**Known residual (accepted):** the Invariant-7 idiom `man: "{{ 0 if will_drive else helper_json.man ... }}"` writes the snapshot's `man` **explicitly**, so the live merge cannot preserve a newer `man` there. The exposure requires a manual run and a non-driving run to be queued in that order behind a long wait — bounded, and no worse than before this fix.
+
+**Rule:** A run may act on its trigger-time view, but it must never *persist* that view — every field a branch does not explicitly set has to come from the helper as it is at write time. And any branch whose drive is only meaningful while a helper flag holds (`shd` for the shading-tilt/depth adjustments) must re-check that flag live in `will_drive`: under `mode: queued`, "the trigger fired" only proves the flag held *then*. Tests: `tests/test_helper_update_live_reread.py`.
 
 ---

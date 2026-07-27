@@ -143,8 +143,10 @@ class TestPatternKShdRegex:
     def test_blueprint_uses_guarded_regex_everywhere(self):
         text = _blueprint_text()
         # Every shd-active check must carry the [,}] guard.
+        # 6 trigger/gate checks + 2 live drive gates (shading tilt and
+        # alternate shading position, Bug Pattern AQ).
         guarded = len(re.findall(re.escape(r'"shd"\s*:\s*1\s*[,}]'), text))
-        assert guarded == 6, f"expected 6 guarded shd regexes, found {guarded}"
+        assert guarded == 8, f"expected 8 guarded shd regexes, found {guarded}"
         # No bare `"shd"\s*:\s*1` without the trailing `\s*[,}]` guard.
         bare = re.findall(r'"shd"\\s\*:\\s\*1(?!\\s\*\[,\}\])', text)
         assert bare == [], f"unguarded shd regex(es) found: {bare}"

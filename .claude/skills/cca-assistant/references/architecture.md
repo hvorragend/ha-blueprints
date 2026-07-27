@@ -77,7 +77,12 @@ sequence:
 → optional drive (`*drive_with_actions`, or `*tilt_move_action` for `move: tilt`)
 → **unconditional** `*helper_update`. Because the helper write is structural,
 every path through a leaf branch is terminal (Invariant 2 / Bug Pattern AK by
-construction). `tests/test_apply_transition_architecture.py` enforces this:
+construction). `*helper_update` merges `update_values` into the helper
+**re-read live at write time**, not into the trigger-time `helper_json`
+snapshot — under `mode: queued` that snapshot can be minutes stale and merging
+into it resurrects state that intervening runs already cleared (Bug Pattern
+AQ / #641); the snapshot is only the fallback for an invalid or pre-v6 live
+value. `tests/test_apply_transition_architecture.py` enforces this:
 no raw `*helper_update` / `*drive_with_actions` / `*tilt_move_action` outside
 the anchor definitions and the v5→v6 migration persist.
 
