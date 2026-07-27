@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.25 V2
+    **Version**: 2026.07.27
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2549,7 +2549,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.25 V2"
+  version: "2026.07.27"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -4392,10 +4392,15 @@ actions:
       # Timestamps: ts.opn, ts.cls, ts.shd, ts.due, ts.arm, ts.man
       #
       # Template logic:
-      #   1. Apply field updates (compact names directly)
-      #   2. Build timestamp object (preserve existing, merge updates, 'now' → ts_now)
-      #   3. Guard: ts.shd only updates when shd actually changes
-      #   4. Build final v6 compact JSON structure
+      #   1. Re-read the helper live at write time (a queued run may execute
+      #      minutes after its trigger; the helper_json snapshot is then stale
+      #      and merging into it resurrects state that intervening runs
+      #      already cleared — Bug Pattern AQ / Issue #641). Falls back to the
+      #      helper_json snapshot when the live value is invalid or pre-v6.
+      #   2. Apply field updates (compact names directly)
+      #   3. Build timestamp object (preserve existing, merge updates, 'now' → ts_now)
+      #   4. Guard: ts.shd only updates when shd actually changes
+      #   5. Build final v6 compact JSON structure
       # ═══════════════════════════════════════════════════════════════════════════
       helper_update: &helper_update
         choose: []
@@ -4404,7 +4409,9 @@ actions:
             data:
               entity_id: !input cover_status_helper
               value: |-
-                  {% set current = helper_json %}
+                  {% set live_helper_state = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
+                  {% set live_helper_raw = live_helper_state | from_json(default={}) if live_helper_state not in invalid_states and live_helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+                  {% set current = live_helper_raw if live_helper_raw.bas is defined and live_helper_raw.v is defined and live_helper_raw.v == 6 else helper_json %}
                   {% set updates = update_values | default({}) %}
                   {% set ts_now = as_timestamp(now()) | round(0) %}
 
@@ -6468,7 +6475,10 @@ actions:
           - "{{ not override_blocks.shading }}"
         sequence:
           - variables:
-              will_drive: "{{ not is_paused and force_allows_shade }}"
+              will_drive: >-
+                {{ not is_paused and force_allows_shade and
+                   cover_status_helper != [] and
+                   states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
               drive_plan:
                 run: "{{ will_drive }}"
                 move: "tilt"
@@ -6504,7 +6514,10 @@ actions:
           - "{{ not override_blocks.shading }}"
         sequence:
           - variables:
-              will_drive: "{{ not is_paused and force_allows_shade and not in_shading_position }}"
+              will_drive: >-
+                {{ not is_paused and force_allows_shade and not in_shading_position and
+                   cover_status_helper != [] and
+                   states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
               drive_plan:
                 run: "{{ will_drive }}"
                 target: "{{ effective_shading_position | int }}"

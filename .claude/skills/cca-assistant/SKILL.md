@@ -40,7 +40,7 @@ loading the reference first:
 | Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
-| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AP with cause and fix) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AQ with cause and fix) |
 
 The always-binding rules (the 14 invariants as one-liners, code style, quality
 gates, version bumping) are indexed in `.claude/CLAUDE.md`.
@@ -218,10 +218,15 @@ all 14 invariants is in `.claude/CLAUDE.md`. The ones that bite most often:
 
 ### `update_values` / `helper_update` merge semantics
 
-The `helper_update` anchor merges `update_values` into the current helper JSON:
-timestamps accept `'now'` (replaced with `as_timestamp(now())`) or explicit
-values; omitted fields are preserved. Guards: `ts.shd` only updates when `shd`
-actually changes; `pnd`/`ts.due`/`ts.arm` are not reset in win-only updates.
+The `helper_update` anchor merges `update_values` into the helper JSON
+**re-read live at write time** (falling back to the `helper_json` snapshot when
+the live value is invalid or pre-v6) — under `mode: queued` the trigger-time
+snapshot can be minutes stale, and merging into it resurrects state that
+intervening runs already cleared (Bug Pattern AQ / #641). Timestamps accept
+`'now'` (replaced with `as_timestamp(now())`) or explicit values; omitted
+fields are preserved from the live state. Guards: `ts.shd` only updates when
+`shd` actually changes; `pnd`/`ts.due`/`ts.arm` are not reset in win-only
+updates.
 The canonical leaf-branch skeleton is in
 [references/architecture.md](references/architecture.md).
 
@@ -269,7 +274,7 @@ details). `trigger.id` is the source of truth for "which path ran".
 
 ### Regressions
 Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
-(A–AP, each with symptom / cause / fix / derived rule) before writing a fix —
+(A–AQ, each with symptom / cause / fix / derived rule) before writing a fix —
 most "new" bugs are a documented pattern reaching a new code path.
 
 ---

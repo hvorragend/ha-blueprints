@@ -135,11 +135,18 @@ CURRENT_HELPER = {
 }
 
 
-def _render_helper_update(drive_plan=None, update_values=None, current=None) -> dict:
-    env = _make_env()
+def _render_helper_update(drive_plan=None, update_values=None, current=None, live=None) -> dict:
+    """live: raw helper JSON string served by states() at write time (Bug
+    Pattern AQ live re-read). Defaults to the serialized `current` snapshot so
+    the snapshot and the live state agree, as they do outside queued races."""
+    snapshot = current if current is not None else dict(CURRENT_HELPER)
+    entity = "input_text.cca_status"
+    env = _make_env({entity: live if live is not None else json.dumps(snapshot)})
     variables = {
-        "helper_json": current if current is not None else dict(CURRENT_HELPER),
+        "helper_json": snapshot,
         "update_values": update_values if update_values is not None else {},
+        "cover_status_helper": entity,
+        "invalid_states": INVALID_STATES,
     }
     if drive_plan is not None:
         variables["drive_plan"] = drive_plan
