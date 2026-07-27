@@ -117,10 +117,13 @@ def _env(entity_states: dict | None = None, last_changed: dict | None = None,
 # The hand-over switch of the multi-instance setup is unconfigured by default (input default:
 # []), which is the state every test that predates it assumes. Supplying it here keeps those
 # tests strict about every OTHER variable. test_instance_active.py passes them explicitly.
+# is_manual_run defaults to False the same way: every test that predates the manual-run
+# reconciliation (#639) models a triggered run. test_manual_run_reconciliation.py overrides it.
 _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "instance_active_value": "",
                  "instance_active_on_states": ["on", "true"],
-                 "midnight_reset_missed": False}
+                 "midnight_reset_missed": False,
+                 "is_manual_run": False}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,

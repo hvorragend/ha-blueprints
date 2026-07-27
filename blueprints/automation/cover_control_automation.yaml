@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.27
+    **Version**: 2026.07.27 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2549,7 +2549,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.27"
+  version: "2026.07.27 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3103,6 +3103,34 @@ variables:
        states(instance_active) in instance_active_on_states and
        helper_ts_write < as_timestamp(states[instance_active].last_changed | default(0), 0) }}
 
+  # MANUAL RUN - This run was started by hand (automation.trigger / the UI "Run" action),
+  # so it carries no trigger id and no dispatch branch can ever match it. Treated as an
+  # explicit reconciliation request: the recovery gate claims the run, re-derives the
+  # cascade from live state and drives to the state it demands (#639).
+  is_manual_run: "{{ trigger is not defined or trigger.id is not defined }}"
+
+  # A manual run bypasses the global conditions when fired with skip_condition: true (the
+  # UI "Run" action always does), so the claim must re-check the availability gates itself:
+  # a helper write while the helper is merely unavailable would destroy its stored value, a
+  # drive without a usable cover acts on the 101 position sentinel, and an inactive
+  # instance must not take the cover over. Mirrors the global conditions, same shape as the
+  # resume trigger template (which mirrors them for its own reason).
+  manual_run_ready: >-
+    {% set ns = namespace(ready=true) %}
+    {% for entity in critical_entities if states[entity] is not none %}
+      {% if states(entity) in invalid_states %}{% set ns.ready = false %}{% endif %}
+    {% endfor %}
+    {% set helper_ok = cover_status_helper == [] or states(cover_status_helper) != 'unavailable' %}
+    {% set instance_ok = instance_active == [] or states[instance_active] is none or
+         states(instance_active) in instance_active_on_states %}
+    {% set helper = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
+    {% set last_window_closed = helper in invalid_states or helper | regex_search('"win"\s*:\s*"cls"') %}
+    {% set last_window_open = helper not in invalid_states and helper | regex_search('"win"\s*:\s*"opn"') %}
+    {% set contact_missing = is_ventilation_enabled and (
+         (contact_window_opened != [] and states(contact_window_opened) in invalid_states and last_window_open) or
+         (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
+    {{ ns.ready and helper_ok and instance_ok and (last_window_closed or not contact_missing) }}
+
   # RESTART RUN - Does this run belong to a restart / reload / save rather than to the dropout
   # of a single source? Three signals, and the order in which HA starts its integrations is
   # deliberately not one of them - it must not matter:
@@ -3131,9 +3159,12 @@ variables:
   # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
   # An activation catches up regardless of the opt-in. The asymmetry is deliberate: the trigger
   # (a real off -> on flank, impossible on a restart) is exempt from is_restart_run, the
-  # timestamp proxy (which reads true on every restart) is not.
+  # timestamp proxy (which reads true on every restart) is not. A manual run is exempt like
+  # the activation flank: it is an explicit request, and the opt-in only guards against
+  # restarts moving the cover unasked.
   recovery_catch_up: >-
     {{ recovery_mode == 'always' or
+       is_manual_run or
        (trigger is defined and trigger.id | default('') == 't_instance_activated') or
        ((recovery_mode == 'outage' or instance_activated) and not is_restart_run) }}
 
@@ -4530,6 +4561,10 @@ actions:
   # ════════════════════════════════════════════════════════════════════════════
   - if:
       - "{{ cover_status_helper != [] }}"
+      # An unavailable helper still holds its stored value - it is just not loaded yet.
+      # Only the global conditions guarantee that for triggered runs; a manual run with
+      # skip_condition: true bypasses them and must not rewrite defaults over good state.
+      - "{{ states(cover_status_helper) != 'unavailable' }}"
       - or:
           - "{{ states(cover_status_helper) in invalid_states }}"
           - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
@@ -4571,6 +4606,8 @@ actions:
   # We check the raw helper state, not helper_json (which always has v:6 after migration).
   - if:
       - "{{ cover_status_helper != [] }}"
+      # Same protection as the init step above: never persist over a merely-unloaded helper
+      - "{{ states(cover_status_helper) != 'unavailable' }}"
       - condition: template
         value_template: >-
           {% set helper_state = states(cover_status_helper) %}
@@ -4591,14 +4628,15 @@ actions:
       - "{{ is_shading_enabled }}"
       - "{{ forecast_source.use_weather and not forecast_source.prevent_service }}"
       - "{{ states(shading_forecast_sensor) not in invalid_states }}"
-      - "{{ trigger.id is defined }}"
+      - "{{ trigger.id is defined or is_manual_run }}"
       # All shading-start triggers, every opening trigger (so the opening handler can evaluate
       # shading_start_warranted while a pending is armed, #514 follow-up), the recovery - and any
       # trigger the resumed-run or take-over backstop turns into one, because that run evaluates
       # it too. The force-disable recovery evaluates shading_end_conditions_met before restoring
-      # a stored shading, so it needs the forecast as well (Bug Pattern T)
-      - "{{ trigger.id | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated|t_force_disabled)')
-            or automation_resumed or instance_activated or midnight_reset_missed }}"
+      # a stored shading, so it needs the forecast as well (Bug Pattern T). A manual run is
+      # claimed by the recovery gate and evaluates it there too (#639)
+      - "{{ trigger.id | default('') | regex_match('^(t_shading_start|t_open|t_calendar_event_start|t_recovery|t_instance_activated|t_force_disabled)')
+            or automation_resumed or instance_activated or midnight_reset_missed or is_manual_run }}"
     then:
       - action: weather.get_forecasts
         target:
@@ -4643,15 +4681,16 @@ actions:
       - "{{ is_calendar_enabled }}"
       - "{{ calendar_entity != [] }}"
       - "{{ states(calendar_entity) not in invalid_states }}"
-      - "{{ trigger.id is defined }}"
-      # Performance: Only load on relevant triggers (the recovery is one of them)
+      - "{{ trigger.id is defined or is_manual_run }}"
+      # Performance: Only load on relevant triggers (the recovery is one of them, and a
+      # manual run is claimed by the recovery gate - Bug Pattern T)
       - or:
-          - "{{ trigger.id | regex_match('^t_open') }}"
-          - "{{ trigger.id | regex_match('^t_close') }}"
-          - "{{ trigger.id | regex_match('^t_shading_start') }}"
-          - "{{ trigger.id | regex_match('^t_shading_end') }}"
-          - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or automation_resumed or instance_activated or midnight_reset_missed }}"
+          - "{{ trigger.id | default('') | regex_match('^t_open') }}"
+          - "{{ trigger.id | default('') | regex_match('^t_close') }}"
+          - "{{ trigger.id | default('') | regex_match('^t_shading_start') }}"
+          - "{{ trigger.id | default('') | regex_match('^t_shading_end') }}"
+          - "{{ trigger.id | default('') | regex_match('^t_calendar_event') }}"
+          - "{{ trigger.id | default('') in ['t_recovery', 't_instance_activated'] or automation_resumed or instance_activated or midnight_reset_missed or is_manual_run }}"
     then:
       - action: calendar.get_events
         target:
@@ -5574,14 +5613,18 @@ actions:
   # ══════════════════════════════════════════════════════════════════════════
   - alias: "Recovery after restart or outage - restore target state"
     if:
-      - "{{ trigger.id is defined }}"
       # A resumed automation - or one that was just handed the cover, or one whose 23:55 reset
       # was provably blocked - converts ANY trigger into a recovery, so nothing can act on a
       # helper that cannot be trusted. The manual triggers are exempt (as they are from the
-      # contact gate): their handler records the intervention instead of driving.
-      - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or
+      # contact gate): their handler records the intervention instead of driving. A run with
+      # no trigger id at all (automation.trigger / the UI "Run" action) can never match a
+      # dispatch branch - it is an explicit reconciliation request and is claimed here too,
+      # re-checking the availability gates itself because skip_condition: true bypasses the
+      # global conditions (#639).
+      - "{{ (is_manual_run and manual_run_ready) or
+            trigger.id | default('') in ['t_recovery', 't_instance_activated'] or
             ((automation_resumed or instance_activated or midnight_reset_missed) and
-             trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
+             trigger.id | default('') not in ['t_manual_position', 't_manual_tilt']) }}"
     then:
       - variables:
           # Emulates the 23:55 reset, which did not run while the automation was off
@@ -5724,7 +5767,7 @@ actions:
                         {{ (target_position | int) >= (current_position | int) - (position_tolerance | int(0)) and
                            (target_position | int) <= (current_position | int) + (position_tolerance | int(0)) }}
                       log_extra: >-
-                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
+                        Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (manual run)' if is_manual_run else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
                         base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', additional condition refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
                         frc {{ helper_state_force }}->{{ live_force }},
                         shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},

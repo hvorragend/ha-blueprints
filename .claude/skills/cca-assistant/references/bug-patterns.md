@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AQ, with cause and fix)
+# CCA Known Bug Patterns (A–AR, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -712,5 +712,17 @@ The same source was also missing from the "no trigger source at all" configurati
 **Known residual (accepted):** the Invariant-7 idiom `man: "{{ 0 if will_drive else helper_json.man ... }}"` writes the snapshot's `man` **explicitly**, so the live merge cannot preserve a newer `man` there. The exposure requires a manual run and a non-driving run to be queued in that order behind a long wait — bounded, and no worse than before this fix.
 
 **Rule:** A run may act on its trigger-time view, but it must never *persist* that view — every field a branch does not explicitly set has to come from the helper as it is at write time. And any branch whose drive is only meaningful while a helper flag holds (`shd` for the shading-tilt/depth adjustments) must re-check that flag live in `will_drive`: under `mode: queued`, "the trigger fired" only proves the flag held *then*. Tests: `tests/test_helper_update_live_reread.py`.
+
+---
+
+### Bug Pattern AR: Manual run matches no dispatch branch — silent no-op (Issue #639)
+
+**Symptom:** The automation is started by hand (`automation.trigger`, the UI *"Run"* action) while the cover is visibly in the wrong state — the reported case: all shading-start conditions confirmed met (`shading_start_warranted: true`), helper `bas == 'opn'`, cover stuck open after the helper had been rewritten externally. The run ends with `"No operational branch matched"`; nothing moves, nothing is written, and no error is raised.
+
+**Cause:** The whole dispatch is edge-triggered and keyed on `trigger.id` — every branch (and the load gates, and the old recovery-gate entry) requires a specific trigger id. A manual run carries no id (`automation.trigger` passes `trigger: {'platform': None}`), so it structurally cannot match anything: it fell through the helper init, both load gates (`trigger.id is defined`), the recovery gate (`trigger.id is defined`) and all 14 dispatch branches into the default stop. The externally-mutated state made it worse: the shading-start triggers had already consumed their `false → true` edge, so no natural trigger would re-fire that day either.
+
+**Fix:** A run without a trigger id is an explicit reconciliation request, and the reconciler already exists — the recovery gate. `is_manual_run` (`trigger is not defined or trigger.id is not defined`; sound because every configured trigger carries an id, pinned by test) joins the recovery-gate claim group, `recovery_catch_up` (exempt from the opt-in *and* from `is_restart_run`, like the activation flank — a manual start is an explicit request, and "save, then hit Run" must work), the forecast/calendar load gates (Bug Pattern T, sixth recurrence prevented) and the recovery `log_extra`. Because `skip_condition: true` (the UI default) bypasses the global conditions, the claim re-checks the availability gates itself via `manual_run_ready` (mirror of critical entities, the Tier-1b helper rule, the multi-instance gate and the per-contact rule) — and the two pre-dispatch helper writes (init/repair, v5→v6 migration persist) got their own `!= 'unavailable'` guard so a manual run cannot clobber a merely-unloaded helper. An unready manual run still falls through to the no-op stop, write-free and repeatable. Details: `references/recovery.md`, "A manual run is a reconciliation request".
+
+**Rule:** Every run entry that can bypass the global conditions must re-establish their guarantees itself before it may write or drive. And the dispatch's trigger-id keying is a closed-world assumption — a run that cannot carry an id needs an explicit pre-dispatch owner, not a fallback branch that guesses.
 
 ---

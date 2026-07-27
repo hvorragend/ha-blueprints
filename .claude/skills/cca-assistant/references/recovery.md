@@ -655,3 +655,75 @@ which clears the claim.
 Tests: `tests/test_midnight_reset_missed.py`.
 
 ---
+## A manual run is a reconciliation request: `is_manual_run` (#639, CCA 2026.07.27 V2)
+
+A run started by hand (`automation.trigger` / the UI *"Run"* action) carries **no trigger
+id** — HA passes `trigger: {'platform': None}` — and the whole dispatch is keyed on
+`trigger.id`, so such a run structurally cannot match anything. It used to fall through
+every gate and branch into the silent `"No operational branch matched"` stop, even while
+the cascade plainly demanded a movement (Bug Pattern AR, issue #639: helper rewritten
+externally, shading warranted, cover stuck open — and the shading triggers' edges already
+consumed, so no natural trigger would re-fire that day).
+
+The user's intent behind a manual start is "evaluate now and apply the correct state" —
+which is *exactly* the recovery: re-derive `bas` from the schedule, re-read
+`win`/`res`/`frc` live, drop stale shading state, re-evaluate the shading conditions,
+drive to `recovered_state`. So the manual run becomes a fourth-and-a-half member of the
+claim group rather than a new mechanism:
+
+- **`is_manual_run`** (`trigger is not defined or trigger.id is not defined`) — sound
+  only because **every** configured trigger carries an `id:`;
+  `test_every_configured_trigger_carries_an_id_so_no_real_run_reads_as_manual` pins that
+  closed-world assumption. The manual-trigger exemption of the other claims is untouched:
+  `t_manual_position`/`t_manual_tilt` carry ids and are not manual runs.
+- **The claim** is `is_manual_run and manual_run_ready` in the recovery-gate entry. It is
+  not latching (nothing is armed and nothing consumed) — a refused manual run ends in the
+  no-branch stop, write-free, and can simply be repeated.
+- **`recovery_catch_up` treats it like the activation flank**: exempt from the opt-in
+  *and* from `is_restart_run`. The opt-in guards against restarts moving the cover
+  *unasked*; a manual start is the opposite of unasked — and `is_restart_run` stays true
+  for 300 s after a re-attach, so guarding it would break "save the automation, hit Run
+  to test", the first thing anyone does. All drive-side gates still apply unchanged:
+  `recovery_allowed` (manual override unless expired, lockout overrule, force gates),
+  `is_paused`, `defer_to_shading`, and `recovered_pending` arms a pending (honouring the
+  once-per-day guard and the waiting time) instead of shading instantly.
+- **Both load gates match it** (Bug Pattern T, sixth recurrence prevented at design
+  time): the claimed run evaluates `shading_start_warranted` and the parsed calendar
+  boundaries like any other recovery.
+
+**`manual_run_ready` — why the claim re-checks the availability gates.** The UI *"Run"*
+action calls `automation.trigger` with `skip_condition: true`, so the **global conditions
+never ran**: no Tier-1 critical check, no Tier-1b helper rule, no per-contact rule, no
+multi-instance gate. Driving or writing in that state would bypass every protection of
+Half 1 — an `unavailable` cover reads as the 101 sentinel, an `unavailable` helper would
+be clobbered with defaults, an inactive instance would fight its sibling.
+`manual_run_ready` mirrors the gates in action scope (same pattern as the resume trigger
+template, which mirrors them for its own reason): `critical_entities` (skipping gone
+entities — Half 0 applies, the mandatory entity validation runs *before* the recovery
+gate and is the place that names a disabled/deleted entity and stops the run), helper
+`!= 'unavailable'` (unknown passes — the init step upstream repairs it first, Tier-1b),
+the instance gate, and the #622 per-contact rule verbatim. The user's
+`auto_global_condition` is not mirrorable (pre-existing, same as the resume template) —
+`skip_condition: true` deliberately skips it, which is arguably what a forced manual run
+asks for anyway.
+
+**The pre-dispatch writes carry their own Tier-1b guard now.** The init/repair step and
+the v5→v6 migration persist sit *upstream* of the recovery gate and used to rely entirely
+on the global conditions to never see an `unavailable` helper — a manual
+`skip_condition: true` run reached them and would have **rewritten defaults over intact
+stored state**. Both steps now check `states(cover_status_helper) != 'unavailable'`
+themselves; `unknown`/corrupt still passes into the repair (the gate must not orphan it).
+This closes a pre-existing hazard that existed for every manual run, claimed or not.
+
+**Deliberately not a dispatch fallback branch.** The issue suggested "force the
+transition when warranted but no branch matches". A level-triggered fallback inside the
+dispatch would have to re-implement every gate the flows encode (pending handoffs,
+once-per-day, override, deferrals) and would run on *every* unmatched trigger — the
+recovery gate already is that reconciler, with all of its gates, and claiming the run
+pre-dispatch keeps the branch indices and the trace tools untouched (the gate's
+`PRE_DISPATCH_DEFINITIONS` entry resolves the run; the logbook's `trigger.id |
+default('manual')` and the recovery `log_extra`'s `(manual run)` marker name it).
+
+Tests: `tests/test_manual_run_reconciliation.py`.
+
+---

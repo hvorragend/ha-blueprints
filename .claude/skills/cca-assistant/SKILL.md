@@ -40,7 +40,7 @@ loading the reference first:
 | Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
-| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AQ with cause and fix) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AR with cause and fix) |
 
 The always-binding rules (the 14 invariants as one-liners, code style, quality
 gates, version bumping) are indexed in `.claude/CLAUDE.md`.
@@ -274,7 +274,7 @@ details). `trigger.id` is the source of truth for "which path ran".
 
 ### Regressions
 Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
-(A–AQ, each with symptom / cause / fix / derived rule) before writing a fix —
+(A–AR, each with symptom / cause / fix / derived rule) before writing a fix —
 most "new" bugs are a documented pattern reaching a new code path.
 
 ---
@@ -294,6 +294,7 @@ most "new" bugs are a documented pattern reaching a new code path.
 **Manual:** `t_manual_position` (×3 sources), `t_manual_tilt`
 **Reset:** `t_shading_reset` (23:55), `t_reset_fixedtime`, `t_reset_timeout`, `t_reset_position`
 **Recovery:** `t_recovery` (shared id on ~20 triggers: `homeassistant: start`, the resume trigger, one per recovering source), `t_automation_reloaded` (the `automation_reloaded` event — the resume prompt for reload/save, where the resume template is blind; unclaimed runs are stopped pre-dispatch — see [references/recovery.md](references/recovery.md))
+**Manual run:** no trigger id at all (`automation.trigger` / the UI "Run" action) — claimed by the recovery gate as an explicit reconciliation request (`is_manual_run` + `manual_run_ready`, #639); no dispatch branch can consume it
 
 ---
 
