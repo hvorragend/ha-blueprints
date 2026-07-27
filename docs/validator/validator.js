@@ -33,6 +33,7 @@ class CCAValidator {
             'cover_tilt_wait_mode', 'cover_tilt_wait_timeout', 'tilt_delay',
             'cover_tilt_config', 'cover_tilt_reposition_config',
             'open_tilt_position', 'close_tilt_position', 'ventilate_tilt_position',
+            'tilt_position_tolerance',
             'shading_tilt_position_0', 'shading_tilt_position_1', 'shading_tilt_position_2', 'shading_tilt_position_3',
             'shading_tilt_elevation_1', 'shading_tilt_elevation_2', 'shading_tilt_elevation_3',
 
@@ -115,8 +116,8 @@ class CCAValidator {
             'auto_shading_end_action', 'auto_shading_end_action_before',
             'auto_manual_action', 'auto_override_reset_action',
 
-            // Config Check
-            'check_config', 'check_config_debuglevel'
+            // Config Check / Debug
+            'check_config', 'check_config_debuglevel', 'trace_count'
         ]);
 
         // Parameters that should be ignored completely (no warnings)
@@ -664,6 +665,10 @@ class CCAValidator {
         if (c.tilt_delay && c.tilt_delay > 60) {
             this.addWarning(`Tilt delay (${c.tilt_delay}s) is very long. Recommended: ≤10s`);
         }
+        this.checkRange('tilt_position_tolerance', 0, 20);
+        if (c.tilt_position_tolerance !== undefined && c.cover_tilt_config !== 'cover_tilt_enabled') {
+            this.addInfo('ℹ️ tilt_position_tolerance is configured but tilt control is disabled (cover_tilt_config) - the tolerance has no effect');
+        }
     }
 
     validateTimingValues() {
@@ -680,6 +685,7 @@ class CCAValidator {
         if (totalDelay > 600) {
             this.addWarning(`⏱️ Combined delay (${totalDelay}s) is very high`);
         }
+        this.checkRange('trace_count', 1, 100);
     }
 
     validateForceEntities() {
@@ -697,6 +703,43 @@ class CCAValidator {
     isShadingEnabled() {
         const autoOptions = this.config.auto_options || [];
         return autoOptions.includes('auto_shading_enabled');
+    }
+
+    isTiltEnabled() {
+        return this.config.cover_tilt_config === 'cover_tilt_enabled' && this.config.cover_type !== 'awning';
+    }
+
+    // All tilt positions a state can drive to, falling back to the blueprint defaults.
+    // Shading returns the whole elevation ladder (positions 0-3) because any of them
+    // can be the active shading tilt target.
+    stateTiltPositions(state) {
+        const c = this.config;
+        const val = (v, fallback) => (v === undefined || v === null) ? fallback : v;
+        switch (state) {
+            case 'open': return [val(c.open_tilt_position, 50)];
+            case 'close': return [val(c.close_tilt_position, 50)];
+            case 'ventilate': return [val(c.ventilate_tilt_position, 50)];
+            case 'shading': return [
+                val(c.shading_tilt_position_0, 0),
+                val(c.shading_tilt_position_1, 20),
+                val(c.shading_tilt_position_2, 30),
+                val(c.shading_tilt_position_3, 48)
+            ];
+            default: return [];
+        }
+    }
+
+    // The blueprint's in_*_position checkers compare the tilt position with
+    // tilt_position_tolerance, so two states sharing the same cover position are
+    // still told apart when every pair of their possible tilt targets differs by
+    // more than twice that tolerance.
+    tiltDistinguishable(state1, state2) {
+        if (!this.isTiltEnabled()) return false;
+        const tol = this.config.tilt_position_tolerance || 0;
+        const tilts1 = this.stateTiltPositions(state1);
+        const tilts2 = this.stateTiltPositions(state2);
+        if (tilts1.length === 0 || tilts2.length === 0) return false;
+        return tilts1.every(t1 => tilts2.every(t2 => Math.abs(t1 - t2) > tol * 2));
     }
 
     checkTimeOrder(time1Key, time2Key, message) {
@@ -726,6 +769,12 @@ class CCAValidator {
         const val1 = this.config[key1];
         const val2 = this.config[key2];
         if (val1 === undefined || val2 === undefined) return;
+        // Identical positions are valid when the two states are told apart by
+        // their tilt positions (e.g. closed/shading both at 0% with different tilts).
+        if (val1 === val2 && this.tiltDistinguishable(key1.replace('_position', ''), key2.replace('_position', ''))) {
+            this.addInfo(`ℹ️ ${key1} and ${key2} are identical (${val1}%) - valid: the states are distinguished by their tilt positions`);
+            return;
+        }
         const valid = operator === '>' ? val1 > val2 : val1 < val2;
         if (!valid) {
             this.addError(`${message} (${key1}=${val1}, ${key2}=${val2})`);
@@ -748,7 +797,11 @@ class CCAValidator {
                 const [name1, val1] = posArray[i];
                 const [name2, val2] = posArray[j];
                 if (Math.abs(val1 - val2) <= tolerance * 2) {
-                    this.addWarning(`${name1}_position (${val1}%) and ${name2}_position (${val2}%) overlap with tolerance ${tolerance}%`);
+                    if (this.tiltDistinguishable(name1, name2)) {
+                        this.addInfo(`ℹ️ ${name1}_position (${val1}%) and ${name2}_position (${val2}%) overlap with tolerance ${tolerance}%, but the states are distinguished by their tilt positions (tilt_position_tolerance)`);
+                    } else {
+                        this.addWarning(`${name1}_position (${val1}%) and ${name2}_position (${val2}%) overlap with tolerance ${tolerance}%`);
+                    }
                 }
             }
         }
