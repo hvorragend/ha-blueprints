@@ -260,10 +260,27 @@ can `stop:` a run needs a `PRE_DISPATCH_DEFINITIONS` entry in the trace tools.
 ## Debugging
 
 ### Logbook (`enable_logbook`)
-When enabled, `*helper_update` writes a logbook entry with `trigger.id`,
-`effective_state`, position, sensor states, and raw `update_values` JSON.
-Optional `log_extra` string for branches with additional context (pending/retry
-details). `trigger.id` is the source of truth for "which path ran".
+When enabled, `*helper_update` writes a logbook entry **on the automation**
+with `trigger.id`, `effective_state`, position, sensor states, and raw
+`update_values` JSON. Optional `log_extra` string for branches with additional
+context (pending/retry details). `trigger.id` is the source of truth for
+"which path ran".
+
+### Cover logbook (`enable_logbook_cover`)
+When enabled, `*apply_transition` writes one short plain-word line **on each
+cover** (`blind_entities`) — but only when the branch drove or set `log_user`.
+Shape: `moved to 40% / tilt 50% · <log_user>` / `no movement[ suppressor] ·
+<log_user>`. `log_user` is a per-branch free-form string in **end-user voice**
+(same mechanic as `log_extra`, never a central reason table); dynamic targets
+render through the `state_labels` map. Pure state syncs and pending/retry
+cycles leave it unset.
+
+Outside `apply_transition` the same toggle covers the status-integrity events
+(`helper_repair`: migrated / initialised / rebuilt / cleaned); the three hard
+config-error stops write to every cover **ungated**. `logbook.log` takes one
+`entity_id`, so every call repeats over `blind_entities`.
+
+Full rules: Invariant 12 in [references/invariants.md](references/invariants.md).
 
 ### Trace analysis
 - Use the CCA Trace Analyzer for uploaded JSON traces
@@ -318,7 +335,7 @@ most "new" bugs are a documented pattern reaching a new code path.
 | force_section | Force recovery, force pause, per-action force entities |
 | actions_section | Before/after actions for each drive type, manual action |
 | configcheck_section | Config validation toggle, debug level |
-| logging_section | Logbook enable toggle |
+| logging_section | Logbook toggles (automation dump, cover decision line), trace count |
 
 ---
 

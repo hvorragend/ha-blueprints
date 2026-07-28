@@ -91,7 +91,7 @@ One line each; full rationale, examples and edge cases in
 9. **`ts_now` at point of use** — never a global variable (delays make it stale).
 10. **`trigger_variables:` is a limited template context** — no `states()` / `is_state()` / `state_attr()`; move state reads into action-scope `variables:`.
 11. **`pnd` is a single enum** — start and end pending are mutually exclusive by schema; both arming branches gate on the opposite pending to prevent ping-pong.
-12. **Logbook = `trigger.id` + `update_values` dump** — no reason-inference table; add `log_extra` only where genuinely needed.
+12. **Logbook = `trigger.id` + `update_values` dump** — no reason-inference table; add `log_extra` only where genuinely needed. The second, user-facing line on the cover (`enable_logbook_cover`) is driven by a per-branch `log_user` string — never by a central inference table.
 13. **`recovered_state` must mirror `effective_state`** — every cascade change lands in both, same commit; extend `TestCascadeParity`, never weaken it.
 14. **Anchor bodies are pre-rendered on every run** — every runtime-context reference inside an anchor body needs a template guard (`repeat is defined`, `| default(...)`); those guards are load-bearing.
 
