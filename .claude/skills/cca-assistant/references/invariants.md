@@ -200,6 +200,101 @@ bare `trigger.id + update_values` is genuinely insufficient for debugging.
 to `update_values` requires no logbook changes — they are dumped automatically
 via `to_json`.
 
+**The second, user-facing entry (`enable_logbook_cover` / `log_user`):**
+`apply_transition` writes a short line to the logbook of the **cover** (one
+per entity in `blind_entities`), gated by `enable_logbook_cover`. It fires
+only when the branch drove (`drive_plan.run`) or explicitly opted in by
+setting `log_user`. Shape: `moved to 40% / tilt 50% · <reason>` or
+`no movement[ suppressor] · <reason>`.
+
+This is **not** a violation of the rule above, and the distinction matters:
+
+- `log_user` is a **free-form string set by the branch itself**, exactly like
+  `log_extra` — not a central table that maps state combinations back to a
+  reason. The text lives in the branch that produced the decision, so a
+  refactoring that moves or deletes the branch moves or deletes the text with
+  it. That was the failure mode of the old reason table.
+- The anchor derives only two things centrally, both from data it already
+  has: the movement prefix (from `drive_plan`) and, when nothing drove, a
+  suppressor hint from three **global** flags (`is_paused`,
+  `helper_state_manual`, `helper_state_force`). No branch-specific inference.
+- The audience differs. `trigger.id` + `update_values` is the debugging
+  artifact and stays untouched; `t_shading_start_pending_2` is not an answer
+  for an end user asking why the cover did not move.
+
+`log_user` is optional per branch and deliberately not universal: pure state
+syncs (a contact reporting what CCA already assumed, a base-state refresh on a
+cover already in position, a `res` update with no consequence) leave it unset
+so the cover's history stays readable. Repeated pending/retry cycles leave it
+unset too — only the terminal outcome (executed / given up) is logged.
+
+**A cover entry means a movement — one that happened, or one that was wanted
+and suppressed.** `drive_plan.run` is only the *decision*: `cover_move_action`
+sends nothing when the target is already held within `position_tolerance`
+(and `tilt_position_tolerance` on tilt covers), and HA's own logbook records
+nothing either — an entry there would describe a movement that never happened.
+The step's `if` therefore also computes `nothing_would_move` and suppresses the
+entry, symmetrically for `run: true` and for a suppressed drive whose target
+was already reached. A plan with no real target (`101` sentinel on both axes) —
+deferrals, pending arms, manual detection — is exempt: there a movement *was*
+expected and did not happen, which is exactly what the user wants to read. So
+do not give `log_user` to a branch that reports "nothing to do here"; that is
+what the sentinel exemption would otherwise let through (the shading-start
+"already in the right position" leaf lost its `log_user` for this reason). When a
+branch resolves a target dynamically, render the word through `state_labels`
+instead of spelling out `opn`/`cls`/`shd` again.
+
+**Voice.** These strings are read by end users in their cover's history, not by
+developers in a trace. Use the vocabulary of the blueprint's own input names
+("sun shading", "ventilation position", "force function", "manual override",
+"lockout protection", "resident") and everyday words for everything else.
+State the *situation*, not the outcome: the anchor already prefixes
+`no movement`, and the suppressor bracket already names the pause/override, so
+a `log_user` that repeats either reads as a stutter. `tests/test_cover_logbook.py`
+pins length, single-line shape and the absence of schema field names, but not
+the wording.
+
+Do not over-claim what a sensor means. The resident sensor is scoped to **one
+room** ("You can use this to define a resident for the room") and is typically
+a bed or room-presence sensor — "nobody is home any more" is wrong on both
+counts, since the person may well be at home, just not in this room, and for a
+bed sensor `on` means *in bed*, so the polarity reads backwards too. Say "the
+resident is (no longer) present". The same caution applies to any input whose
+physical meaning the user chooses.
+
+**Integrity events outside `apply_transition`.** Two kinds of event report
+without a transition, because there is none.
+
+*Status repair* — the migration/repair persist, classified by `helper_repair`
+into `migrated` / `initialised` / `rebuilt` / `cleaned`. It is reported three
+times over, because three different questions lead there and each is asked
+somewhere else:
+
+| Audience | Target | Gate | Answers |
+|---|---|---|---|
+| everyday user | every cover | `enable_logbook_cover` | why did my cover forget its state? |
+| helper debugging | `cover_status_helper` | none | what happened to this value? |
+| diagnosis | the automation | `enable_logbook` | via `log_extra` on the existing dump |
+
+The `log_extra` label **must be reset to `""` right after** the `*helper_update`
+call: script variables are run-wide, so without the reset every later branch
+that sets no `log_extra` of its own inherits the repair label in its diagnostic
+entry. The anchor guard is `log_extra is defined and log_extra`, so the empty
+string renders nothing.
+
+*Hard config-error stops* (no helper, helper too short, state-critical entity
+gone) write to every cover and are **not** gated — a cover that silently stops
+being controlled must be visible whatever the logging settings.
+
+`logbook.log` takes a single `entity_id` (`multiple: false`), so anything
+targeting the covers repeats over `blind_entities`. Do not route a *cover*
+message through `cover_status_helper`: a helper has no device page, so its
+logbook is only reachable by deliberately opening that entity — the same buried
+path that makes the automation's own logbook useless in daily life. (It is a
+fine target for a message *about the helper*. Many users additionally exclude
+helpers from the recorder, which makes such entries invisible for them — that
+is a per-installation choice, not the HA default.)
+
 ### ⚠️ Invariant 13: `recovered_state` must mirror `effective_state`
 
 The recovery gate duplicates the priority cascade in `recovered_state` —

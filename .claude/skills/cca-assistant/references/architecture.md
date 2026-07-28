@@ -73,9 +73,16 @@ sequence:
   - stop: "..."
 ```
 
+A branch may additionally set `log_user: "<short English phrase>"` — the reason
+line for the cover logbook (`enable_logbook_cover`, Invariant 12). Leave it
+unset in pure state syncs and in pending/retry cycles.
+
 `&apply_transition` performs, in fixed order: optional delay (only when driving)
 → optional drive (`*drive_with_actions`, or `*tilt_move_action` for `move: tilt`)
-→ **unconditional** `*helper_update`. Because the helper write is structural,
+→ optional cover-logbook line (only with `enable_logbook_cover`, and only when
+the branch drove or set `log_user`) → **unconditional** `*helper_update`.
+The logbook step sits *before* the persist so the anchor still ends in the
+helper write (pinned by `TestApplyTransitionAnchorShape`). Because the helper write is structural,
 every path through a leaf branch is terminal (Invariant 2 / Bug Pattern AK by
 construction). `*helper_update` merges `update_values` into the helper
 **re-read live at write time**, not into the trigger-time `helper_json`
