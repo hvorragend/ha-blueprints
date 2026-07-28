@@ -70,8 +70,11 @@ State is persisted as a JSON string in an `input_text` helper:
 `effective_state` returns `lock | opn | vnt | cls | shd`. VENT is a *floor*, not a
 target: BASE=OPN beats it only when an opening automation actually exists
 (`is_opening_scheduled`, derived from the `enabled:` gates of every `bas='opn'`
-writer incl. the resident opening — Bug Patterns Z + AL + AO). Full rationale and
-the `base_target` implementation: `references/architecture.md`.
+writer incl. the resident opening — Bug Patterns Z + AL + AO). The optional
+`shading_over_ventilation` (an `auto_ventilate_options` value, off by default)
+inverts VENT vs. SHADING — that pair only. Full rationale, the `base_target`
+implementation and the list of sites that follow the flag:
+`references/architecture.md`.
 
 ---
 

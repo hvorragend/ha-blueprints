@@ -425,15 +425,16 @@ class TestReDriveBranch:
         assert "not override_blocks.shading" in conds
 
     def test_lockout_window_checks_present(self, branch):
-        # The branch gates on the normalized window_any_now flag, whose
-        # definition covers both contact sensors.
+        # Both contact sensors gate the branch: an open window always blocks it,
+        # a tilted one only while the ventilation floor outranks the shading.
         conds = str(branch["conditions"])
-        assert "not window_any_now" in conds
+        assert (
+            "not window_opened_now and (not window_tilted_now or shading_over_ventilation)"
+            in conds
+        )
         blueprint = _load_blueprint_yaml()
-        definition = str(_find_variable_definition(blueprint, "window_any_now"))
         opened = str(_find_variable_definition(blueprint, "window_opened_now"))
         tilted = str(_find_variable_definition(blueprint, "window_tilted_now"))
-        assert "window_opened_now" in definition and "window_tilted_now" in definition
         assert "contact_window_opened" in opened and "contact_window_tilted" in tilted
 
     def test_drives_position_via_effective(self, branch):

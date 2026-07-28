@@ -685,8 +685,12 @@ class TestCascadeParity:
         ("opn", 0, "non", "on", "on", "off", [], True, False),
     ]
 
+    # Every case is run with the shading-over-ventilation option off and on: the
+    # option changes the outcome, but never the agreement between the two cascades.
+    @pytest.mark.parametrize("sov", [False, True], ids=["vent-floor", "shading-first"])
     @pytest.mark.parametrize("bas,shd,frc,opened,tilted,resident,cfg,sched,vent", CASES)
-    def test_both_cascades_agree(self, bas, shd, frc, opened, tilted, resident, cfg, sched, vent):
+    def test_both_cascades_agree(self, bas, shd, frc, opened, tilted, resident, cfg, sched,
+                                 vent, sov):
         entities = {
             "binary_sensor.opened": opened,
             "binary_sensor.tilted": tilted,
@@ -700,6 +704,7 @@ class TestCascadeParity:
             state_resident=present,
             is_opening_scheduled=sched,
             is_ventilation_enabled=vent,
+            shading_over_ventilation=sov,
         )
 
         effective = _render(

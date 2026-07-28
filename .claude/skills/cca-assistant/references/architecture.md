@@ -26,7 +26,26 @@ The variable `effective_state` returns the currently active state from this casc
 
 The flag mirrors the `enabled:` gates of the **triggers that write `bas='opn'`**, not the time control switch: the opening handler is reached by four sources — time fields (`t_open_1/2`), calendar (`t_calendar_event_start`), brightness (`t_open_4`) and sun elevation (`t_open_5`) — and the **resident-leaving handler** (`t_resident_update` with `resident_opening_enabled`) is the fifth source: its `leave_target == 'opn'` case writes `bas: 'opn'` too. Brightness and sun open the cover with time control switched **off** (the opening branch passes them through via `is_time_control_disabled`), and a resident opening needs no other source at all — so their `bas: 'opn'` is a real intent too. Gating on `not is_time_control_disabled` misread it as the init default and let VENT drag an open cover down to the ventilation position (Bug Pattern AL); missing the resident source held a tilted window at the ventilation position when the resident left (Bug Pattern AO, Issue #616).
 
-Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT when `win == 'tlt'` and `allow_vent` (the resident ventilation gate) and `not (base_target == 'opn' and is_opening_scheduled)`.
+Implementation: `effective_state` first computes `base_target` (the cover state without VENT consideration: `cls`, `shd`, or `opn`), then applies VENT when `win == 'tlt'` and `allow_vent` (the resident ventilation gate) and `not (base_target == 'opn' and is_opening_scheduled)` and `not (base_target == 'shd' and shading_over_ventilation)`.
+
+**The `shading_over_ventilation` option inverts VENT vs. SHADING — that pair only.** The
+harm of the VENT floor scales with `ventilate_position − shading_position`: with the stock
+positions (30/25) it is cosmetic, with a terrace-door setup (95/35) a permanently tilted
+window disables shading for the whole warm season while the helper still reads `shd: 1`.
+The option is a checkbox in `auto_ventilate_options`, resolved in `trigger_variables:`
+(pure list membership — the cascade needs it, so it must not live in the later
+`variables:` block). The gate is bound to `base_target == 'shd'`, so LOCKOUT, PRIVACY-close
+and BASE=CLS keep the floor. A user-supplied `!input` condition (e.g.
+`auto_ventilate_condition`) can **not** carry this decision: `effective_state` is a Jinja
+variable and cannot evaluate one, so a branch honouring it would diverge from the cascade
+that `state_gates`, `recovered_state`, the resident VENT leaves and the contact handler all
+read. Sites that follow the flag besides the two cascades: the shading-start vent-floor
+branch (stands down), the contact handler ("Window tilted - Sun shading takes precedence",
+placed above the partial-ventilation leaf so first-match wins), the `not window_any_now`
+gates of branches 3 / 3b (tilt stage and alternate depth must keep tracking while tilted)
+and the `shd` arm of the force-disable `recovery_target` chain (`vent_blocks_shading`).
+The closing handler's tilted leaf is deliberately unchanged — it clears `shd` anyway, so
+the transition ends in a legitimate `vnt`.
 
 **LOCKOUT target (`effective_lockout_position`):** LOCKOUT drives to the optional
 `lockout_position` input ("Full Ventilation Position"), which falls back to

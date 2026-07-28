@@ -2076,7 +2076,7 @@ class TestForceDisabledRecoveryReevaluatesShadingEnd:
     def _render_target(self, *, shade, end_met, base="opn", window_any=False,
                        window_opened=False, window_tilted=False,
                        vent_enabled=True, allow_shade=True, allow_open=True,
-                       allow_ventilate=True):
+                       allow_ventilate=True, shading_over_ventilation=False):
         import jinja2
 
         blueprint = self._blueprint()
@@ -2091,6 +2091,7 @@ class TestForceDisabledRecoveryReevaluatesShadingEnd:
             window_any_now=window_any,
             window_opened_now=window_opened,
             window_tilted_now=window_tilted,
+            shading_over_ventilation=shading_over_ventilation,
             resident_flags={
                 "allow_shade": allow_shade,
                 "allow_open": allow_open,
@@ -2118,6 +2119,23 @@ class TestForceDisabledRecoveryReevaluatesShadingEnd:
     def test_ended_shading_with_tilted_window_and_base_closed_targets_vent(self):
         assert self._render_target(shade=True, end_met=True, base="cls",
                                    window_any=True, window_tilted=True) == "vnt"
+
+    def test_still_valid_shading_with_tilted_window_targets_vent(self):
+        assert self._render_target(shade=True, end_met=False, base="opn",
+                                   window_any=True, window_tilted=True) == "vnt"
+
+    def test_still_valid_shading_with_tilted_window_targets_shading_with_the_option(self):
+        """shading_over_ventilation: a tilted window no longer overrides the
+        restored shading when the force is switched off."""
+        assert self._render_target(shade=True, end_met=False, base="opn",
+                                   window_any=True, window_tilted=True,
+                                   shading_over_ventilation=True) == "shd"
+
+    def test_open_window_still_targets_lockout_with_the_option(self):
+        """The option only inverts VENT vs. SHADING - lockout stays untouched."""
+        assert self._render_target(shade=True, end_met=False, base="opn",
+                                   window_any=True, window_opened=True,
+                                   shading_over_ventilation=True) == "lock"
 
     # ── update_values must clear the ended shading (shd 0 + ts.shd stamp) ────
 
