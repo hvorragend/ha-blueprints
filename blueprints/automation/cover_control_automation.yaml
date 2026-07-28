@@ -4543,7 +4543,17 @@ actions:
                 default:
                   - *drive_with_actions
           - alias: "Cover logbook: one plain-word line about this decision"
-            if: "{{ enable_logbook_cover and (log_user is defined or (drive_plan | default({})).run | default(false)) }}"
+            if: >-
+              {%- set plan = drive_plan | default({}) -%}
+              {%- set target = plan.target | default(101) | int -%}
+              {%- set target_tilt = plan.target_tilt | default(101) | int -%}
+              {%- set tilt_relevant = is_cover_tilt_enabled_and_possible and target_tilt != 101 -%}
+              {%- set at_position = target == 101 or (target - current_position) | abs <= position_tolerance | int -%}
+              {%- set at_tilt = (not tilt_relevant) or (current_tilt_position - target_tilt) | abs <= tilt_position_tolerance | int -%}
+              {%- set nothing_would_move = (target != 101 or tilt_relevant) and at_position and at_tilt -%}
+              {{ enable_logbook_cover
+                 and (log_user is defined or plan.run | default(false))
+                 and not nothing_would_move }}
             then:
               - repeat:
                   for_each: "{{ blind_entities | list }}"
@@ -4565,11 +4575,14 @@ actions:
                                             else ' [manual override]' if helper_state_manual
                                             else ' [force: ' ~ force_word ~ ']' if helper_state_force != 'non'
                                             else '' -%}
+                          {%- set target = plan.target | default(101) | int -%}
+                          {%- set target_tilt = plan.target_tilt | default(101) | int -%}
+                          {%- set tilt_shown = is_cover_tilt_enabled_and_possible and target_tilt != 101 -%}
                           {%- if moved and plan.move | default('full') == 'tilt' -%}
-                            tilt to {{ plan.target_tilt | default(101) | int }}%
+                            tilt to {{ target_tilt }}%
                           {%- elif moved -%}
-                            moved to {{ plan.target | default(101) | int }}%
-                            {{- ' / tilt ' ~ (plan.target_tilt | default(101) | int) ~ '%' if is_cover_tilt_enabled else '' -}}
+                            moved to {{ target }}%
+                            {{- ' / tilt ' ~ target_tilt ~ '%' if tilt_shown else '' -}}
                           {%- else -%}
                             no movement{{ blocked }}
                           {%- endif %} · {{ why }}
@@ -6518,7 +6531,6 @@ actions:
                             ######################################################
                             default:
                               - variables:
-                                  log_user: "sun shading started, the cover is already in the right position"
                                   log_extra: "no drive warranted (position outside drive criteria); shading state recorded"
                                   update_values:
                                     shd: 1

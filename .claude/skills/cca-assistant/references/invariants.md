@@ -226,7 +226,21 @@ This is **not** a violation of the rule above, and the distinction matters:
 syncs (a contact reporting what CCA already assumed, a base-state refresh on a
 cover already in position, a `res` update with no consequence) leave it unset
 so the cover's history stays readable. Repeated pending/retry cycles leave it
-unset too — only the terminal outcome (executed / given up) is logged. When a
+unset too — only the terminal outcome (executed / given up) is logged.
+
+**A cover entry means a movement — one that happened, or one that was wanted
+and suppressed.** `drive_plan.run` is only the *decision*: `cover_move_action`
+sends nothing when the target is already held within `position_tolerance`
+(and `tilt_position_tolerance` on tilt covers), and HA's own logbook records
+nothing either — an entry there would describe a movement that never happened.
+The step's `if` therefore also computes `nothing_would_move` and suppresses the
+entry, symmetrically for `run: true` and for a suppressed drive whose target
+was already reached. A plan with no real target (`101` sentinel on both axes) —
+deferrals, pending arms, manual detection — is exempt: there a movement *was*
+expected and did not happen, which is exactly what the user wants to read. So
+do not give `log_user` to a branch that reports "nothing to do here"; that is
+what the sentinel exemption would otherwise let through (the shading-start
+"already in the right position" leaf lost its `log_user` for this reason). When a
 branch resolves a target dynamically, render the word through `state_labels`
 instead of spelling out `opn`/`cls`/`shd` again.
 

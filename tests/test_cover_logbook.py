@@ -204,8 +204,13 @@ class TestMessageRendering:
             is_paused=False,
             helper_state_manual=False,
             helper_state_force="non",
-            is_cover_tilt_enabled=False,
+            is_cover_tilt_enabled_and_possible=False,
             drive_action_set="",
+            # Blueprint-level variables - always defined, even at pre-render time.
+            current_position=100,
+            current_tilt_position=101,
+            position_tolerance=0,
+            tilt_position_tolerance=0,
             state_labels={"lock": "fully open (window open)", "opn": "open",
                           "vnt": "ventilation position", "shd": "sun shading position",
                           "cls": "closed", "non": "no change"},
@@ -220,7 +225,8 @@ class TestMessageRendering:
 
     def test_a_tilt_cover_gets_its_slat_angle(self):
         out = self._render(drive_plan={"run": True, "target": 40, "target_tilt": 50},
-                           is_cover_tilt_enabled=True, log_user="shading started")
+                           is_cover_tilt_enabled_and_possible=True,
+                           log_user="shading started")
         assert out == "moved to 40% / tilt 50% · shading started"
 
     def test_a_tilt_only_move_does_not_claim_a_position(self):
@@ -228,9 +234,10 @@ class TestMessageRendering:
                            log_user="shading tilt adjusted")
         assert out == "tilt to 80% · shading tilt adjusted"
 
+
     def test_a_drive_without_log_user_falls_back_to_the_action_set(self):
         out = self._render(drive_plan={"run": True, "target": 100},
-                           drive_action_set="up")
+                           current_position=0, drive_action_set="up")
         assert out == "moved to 100% · opening as scheduled"
 
     def test_a_suppressed_run_names_the_suppressor(self):
@@ -255,13 +262,100 @@ class TestMessageRendering:
     def test_it_survives_a_missing_drive_plan_and_missing_labels(self):
         # Invariant 14: the anchor body is pre-rendered before the action-scope
         # variables exist - with a force active, an unguarded state_labels
-        # lookup would raise here.
+        # lookup would raise here. Only blueprint-level variables (which are
+        # rendered before the action tree) may be relied on.
+        # trigger_variables and the automation-level variables are both
+        # rendered before the action tree, so the anchor may use them unguarded.
+        blueprint = _load_blueprint_yaml()
+        pre_action = set(blueprint["variables"]) | set(blueprint["trigger_variables"])
         env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        for name in ("current_position", "current_tilt_position",
+                     "position_tolerance", "tilt_position_tolerance",
+                     "is_cover_tilt_enabled_and_possible", "is_paused",
+                     "helper_state_manual", "helper_state_force"):
+            assert name in pre_action, (
+                f"{name} is set inside the action tree - the anchor is "
+                f"pre-rendered before that and may not use it unguarded"
+            )
         out = env.from_string(_message_template()).render(
             is_paused=False, helper_state_manual=False, helper_state_force="cls",
-            is_cover_tilt_enabled=False,
+            is_cover_tilt_enabled_and_possible=False, current_position=50,
+            current_tilt_position=101, position_tolerance=0,
+            tilt_position_tolerance=0,
         ).strip()
         assert out == "no movement [force: cls] · status update"
+
+
+class TestNothingWouldHaveMoved:
+    """The cover's history is for movements: one that happened, or one that was
+    wanted and then suppressed. A drive decided onto a position the cover
+    already holds is neither - cover_move_action sends nothing, Home Assistant
+    logs nothing, so CCA must stay quiet too. Same for a suppressed drive whose
+    target was already reached."""
+
+    def _fires(self, **context) -> bool:
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        base = dict(
+            enable_logbook_cover=True,
+            is_cover_tilt_enabled_and_possible=False,
+            current_position=100,
+            current_tilt_position=101,
+            position_tolerance=0,
+            tilt_position_tolerance=0,
+        )
+        base.update(context)
+        rendered = env.from_string(str(_logbook_step()["if"])).render(**base).strip()
+        assert rendered in ("True", "False"), rendered
+        return rendered == "True"
+
+    def test_a_real_movement_is_logged(self):
+        assert self._fires(drive_plan={"run": True, "target": 40})
+
+    def test_a_drive_onto_the_held_position_is_not_logged(self):
+        assert not self._fires(drive_plan={"run": True, "target": 100})
+
+    def test_the_position_tolerance_counts_as_held(self):
+        assert not self._fires(drive_plan={"run": True, "target": 98},
+                               position_tolerance=3)
+        assert self._fires(drive_plan={"run": True, "target": 98},
+                           position_tolerance=1)
+
+    def test_a_suppressed_drive_onto_the_held_position_is_not_logged(self):
+        """state_gates already yield run=false when the cover sits at the
+        target - that is not a suppressed movement, it is a non-event."""
+        assert not self._fires(drive_plan={"run": False, "target": 100},
+                               log_user="the resident is no longer present")
+
+    def test_a_suppressed_drive_that_would_have_moved_is_logged(self):
+        assert self._fires(drive_plan={"run": False, "target": 0},
+                           log_user="closing time reached")
+
+    def test_matching_position_but_wrong_slats_still_counts_as_movement(self):
+        assert self._fires(drive_plan={"run": True, "target": 100, "target_tilt": 50},
+                           is_cover_tilt_enabled_and_possible=True,
+                           current_tilt_position=10)
+
+    def test_a_tilt_only_plan_compares_only_the_slats(self):
+        assert not self._fires(
+            drive_plan={"run": True, "move": "tilt", "target_tilt": 80},
+            is_cover_tilt_enabled_and_possible=True, current_tilt_position=80)
+        assert self._fires(
+            drive_plan={"run": True, "move": "tilt", "target_tilt": 80},
+            is_cover_tilt_enabled_and_possible=True, current_tilt_position=10)
+
+    def test_a_branch_without_any_target_still_reports_its_reason(self):
+        """Deferrals and pending arms carry no plan - a movement was expected
+        and did not happen, which is exactly what the user wants to read."""
+        assert self._fires(drive_plan={},
+                           log_user="waiting to see whether sun shading starts")
+        assert self._fires(log_user="the cover was moved by hand")
+
+    def test_the_tilt_sentinel_is_never_compared(self):
+        """target_tilt 101 means 'no tilt change' - comparing it to a real slat
+        angle would keep every entry alive for no reason."""
+        assert not self._fires(drive_plan={"run": True, "target": 100},
+                               is_cover_tilt_enabled_and_possible=True,
+                               current_tilt_position=30)
 
 
 class TestIntegrityEvents:

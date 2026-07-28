@@ -40,7 +40,11 @@ Cover Control  tilt to 100% · sun shading is over, opening the slats only
 
 A bracket after `no movement` names what suppressed the drive when CCA can tell: `[force pause]`, `[manual override]` or `[force: sun shading position]`.
 
-Runs that only synchronise status fields — a window contact reporting the state CCA already assumed, a presence update with no consequence, a base-state refresh on a cover that is already where it belongs — write nothing, so the cover's history does not fill up with noise. Repeated waiting cycles of a pending sun shading are silent too; only the final outcome is logged.
+An entry is written when the cover **moved**, or when a movement was wanted and then **suppressed**. Everything else stays silent, so the cover's history does not fill up with non-events:
+
+- Runs that only synchronise status fields — a window contact reporting the state CCA already assumed, a presence update with no consequence, a base-state refresh on a cover that is already where it belongs.
+- Decisions that would not have moved anything: if the cover already holds the target position (within your 〰️ Position Tolerance, and with the slats already at the target angle on tilt covers), nothing is logged — neither when CCA decides to drive there nor when that drive is suppressed. Home Assistant's own logbook stays silent in that case too, so an entry would look like a movement that never happened.
+- Repeated waiting cycles of a pending sun shading; only the final outcome is logged.
 
 **Why this is not just a copy of what Home Assistant already logs:** the built-in logbook only records *state* changes, and a cover's state is `open` / `closed` / `opening` / `closing` — `closed` only at 0 %. The position is an attribute, and attribute changes produce no logbook entry at all. A move from 100 % to 84 % therefore reads as "is closing" followed by "is open", with no number and no reason; a move from 100 % to 95 % may produce nothing whatsoever. Which position CCA aimed for, and why, is information that exists nowhere else once the traces are gone.
 
