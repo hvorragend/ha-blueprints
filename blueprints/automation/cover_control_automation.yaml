@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.28
+    **Version**: 2026.07.30
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2563,7 +2563,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.28"
+  version: "2026.07.30"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5740,18 +5740,22 @@ actions:
             {% set s_tlt = is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
             {{ 'opn' if s_opn else 'tlt' if s_tlt else helper_state_window if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' }}
 
-      # The additional opening/closing condition decides whether a caught-up base flip may
-      # happen - it gates every scheduled movement in the normal flow, so a movement it
-      # suppressed was not "missed" and must not be replayed. !input conditions only evaluate
+      # The additional opening/closing condition and the environment conditions decide
+      # whether a caught-up base flip may happen - both gate every scheduled movement in
+      # the normal flow, so a movement they suppressed was not "missed" and must not be
+      # replayed; outside the ultimate late windows the environment gate mirrors the
+      # open/close branch conditions, and a refused flip costs nothing because the still-
+      # armed environment triggers fire on the real crossing. !input conditions only evaluate
       # at fixed YAML positions and variables do not escape a branch, so the flip direction has
       # to be a choose and the rest of the gate a shared body. Falling through to the default
-      # (no flip, or the condition says no) keeps the helper's base state - exactly what the
+      # (no flip, or a condition says no) keeps the helper's base state - exactly what the
       # normal flow would have left behind.
       - alias: "Recovery: apply the additional condition to a caught-up base flip"
         choose:
           - alias: "Recovery: catching up an opening"
             conditions:
               - "{{ recovery_catch_up and recovered_base == 'opn' and helper_state_base != 'opn' }}"
+              - "{{ is_time_up_late or environment_allows_opening }}"
               - condition: !input auto_up_condition
             sequence:
               - variables:
@@ -5866,7 +5870,7 @@ actions:
                       log_user: "{{ 'this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage' }}, target: {{ state_labels[recovered_state] }}"
                       log_extra: >-
                         Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
-                        base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', additional condition refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
+                        base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', additional condition or environment refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
                         frc {{ helper_state_force }}->{{ live_force }},
                         shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                         pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
@@ -5910,6 +5914,7 @@ actions:
           - alias: "Recovery: catching up a closing"
             conditions:
               - "{{ recovery_catch_up and recovered_base == 'cls' and helper_state_base != 'cls' }}"
+              - "{{ not is_evening_phase or is_time_down_late or environment_allows_closing }}"
               - condition: !input auto_down_condition
             sequence:
               - variables:
