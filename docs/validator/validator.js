@@ -93,6 +93,7 @@ class CCAValidator {
             // Manual Override
             'ignore_after_manual_config', 'reset_override_config',
             'reset_override_time', 'reset_override_timeout',
+            'reset_override_position', 'reset_override_position_dwell',
 
             // Delays
             'drive_delay_fix', 'drive_delay_random',
@@ -117,7 +118,10 @@ class CCAValidator {
             'auto_manual_action', 'auto_override_reset_action',
 
             // Config Check / Debug
-            'check_config', 'check_config_debuglevel', 'trace_count'
+            'check_config', 'check_config_debuglevel',
+
+            // Logging
+            'enable_logbook', 'enable_logbook_cover', 'trace_count'
         ]);
 
         // Parameters that should be ignored completely (no warnings)
