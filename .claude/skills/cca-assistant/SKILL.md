@@ -109,9 +109,10 @@ used by `shading_start_max_duration` and `shading_end_max_duration`.
 `effective_state` returns: `lock | opn | vnt | cls | shd`. VENT is a *floor*,
 not a target: BASE=OPN beats it only when an opening automation actually exists
 (`is_opening_scheduled`, derived from the `enabled:` gates of every `bas='opn'`
-writer incl. the resident opening — Bug Patterns Z + AL + AO). The `base_target`
-implementation and the full rationale
-are in [references/architecture.md](references/architecture.md).
+writer incl. the resident opening — Bug Patterns Z + AL + AO). The optional
+`shading_over_ventilation` (`auto_ventilate_options`, off by default) inverts
+VENT vs. SHADING — that pair only. The `base_target` implementation and the full
+rationale are in [references/architecture.md](references/architecture.md).
 
 **Critical**: `effective_state == 'opn'` can result from EITHER `base='opn'`
 OR `force='opn'`. Never assume `base` is `'opn'` just because `effective_state`

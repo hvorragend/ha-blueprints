@@ -1110,6 +1110,8 @@ blueprint:
                   value: "ventilation_after_shading_end"
                 - label: "💨 Keep cover at open position when window goes from fully opened to tilted"
                   value: "ventilation_keep_open_on_full_to_tilt"
+                - label: "🥵 Sun shading is more important than ventilation: shade even while the window is tilted"
+                  value: "shading_over_ventilation"
               multiple: true
               sort: false
               custom_value: false
@@ -2410,6 +2412,7 @@ trigger_variables:
   contact_window_opened: !input contact_window_opened
   contact_window_tilted: !input contact_window_tilted
   lockout_tilted_options: !input lockout_tilted_options
+  auto_ventilate_options: !input auto_ventilate_options
 
   # Shading configuration
   shading_azimuth_start: !input shading_azimuth_start
@@ -2450,6 +2453,9 @@ trigger_variables:
   lockout_tilted_when_closing: "{{ 'lockout_tilted_closing' in lockout_tilted_options }}"
   lockout_tilted_when_shading_starts: "{{ 'lockout_tilted_shading_start' in lockout_tilted_options }}"
   lockout_tilted_when_shading_ends: "{{ 'lockout_tilted_shading_end' in lockout_tilted_options }}"
+
+  # Priority of shading over the ventilation floor while the window is tilted
+  shading_over_ventilation: "{{ 'shading_over_ventilation' in auto_ventilate_options }}"
 
   # Feature enable flag computation
   is_shading_enabled: "{{ 'auto_shading_enabled' in auto_options }}"
@@ -2960,6 +2966,8 @@ variables:
   # privacy-close, base=opn but allow_open=false). BASE=OPN beats VENT only when an
   # opening schedule actually exists (is_opening_scheduled): without one, bas stays
   # at its 'opn' init default permanently, so VENT must still apply (Issue #553).
+  # The 'shading_over_ventilation' option inverts VENT vs. SHADING - only that pair;
+  # lockout, privacy-close and base-close keep the ventilation floor.
   #
   # ═══════════════════════════════════════════════════════════════════════════
 
@@ -3021,7 +3029,8 @@ variables:
         {% set base_target = h.bas %}
       {% endif %}
       {% set base_open_scheduled = base_target == 'opn' and is_opening_scheduled %}
-      {% if w == 'tlt' and allow_vent and not base_open_scheduled %}
+      {% set shading_wins = base_target == 'shd' and shading_over_ventilation %}
+      {% if w == 'tlt' and allow_vent and not base_open_scheduled and not shading_wins %}
         vnt
       {% else %}
         {{ base_target }}
@@ -3286,7 +3295,6 @@ variables:
     shading: "{{ helper_state_manual and override_flags.shading }}"
 
   # Ventilation configuration
-  auto_ventilate_options: !input auto_ventilate_options
   contact_delay_trigger: !input contact_delay_trigger
   contact_delay_status: !input contact_delay_status
   ventilation_flags:
@@ -5781,7 +5789,7 @@ actions:
                           {% else %}
                             {% set base_target = new_base %}
                           {% endif %}
-                          {% if recovered_window == 'tlt' and resident_flags.allow_ventilate and not (base_target == 'opn' and is_opening_scheduled) %}
+                          {% if recovered_window == 'tlt' and resident_flags.allow_ventilate and not (base_target == 'opn' and is_opening_scheduled) and not (base_target == 'shd' and shading_over_ventilation) %}
                             vnt
                           {% else %}
                             {{ base_target }}
@@ -6437,6 +6445,7 @@ actions:
                               - alias: "Shading start - hold ventilation floor (window tilted)"
                                 conditions:
                                   - "{{ is_ventilation_enabled }}"
+                                  - "{{ not shading_over_ventilation }}"
                                   - "{{ window_tilted_now }}"
                                   - "{{ not window_opened_now }}"
                                   - "{{ force_allows_ventilate }}"
@@ -6631,7 +6640,7 @@ actions:
           - condition: !input auto_shading_tilt_condition
           - "{{ force_allows_shade }}"
           - "{{ resident_flags.allow_shade }}" # Do not tilt into shading while a resident is present and shading is not allowed
-          - "{{ not window_any_now }}"
+          - "{{ not window_opened_now and (not window_tilted_now or shading_over_ventilation) }}"
           - "{{ not override_blocks.shading }}"
         sequence:
           - variables:
@@ -6671,7 +6680,7 @@ actions:
               - "{{ not helper_state_pending_start }}"
           - "{{ force_allows_shade }}"
           - "{{ resident_flags.allow_shade }}" # Do not move into shading while a resident is present and shading is not allowed
-          - "{{ not window_any_now }}"
+          - "{{ not window_opened_now and (not window_tilted_now or shading_over_ventilation) }}"
           - "{{ not override_blocks.shading }}"
         sequence:
           - variables:
@@ -7066,6 +7075,31 @@ actions:
                   - stop: "Ventilation (full): cover already at open position, win updated"
 
               ###################################
+              # VENTILATION START: Window tilted while shading takes precedence
+              # Keeps (or restores) the shading position instead of raising the
+              # cover to the ventilation floor. Mirrors effective_state == 'shd'.
+              ###################################
+              - alias: "Window tilted - Sun shading takes precedence"
+                conditions:
+                  - "{{ shading_over_ventilation }}"
+                  - "{{ contact_tilted_now }}"
+                  - "{{ not contact_opened_now }}"
+                  - "{{ effective_state == 'shd' }}"
+                sequence:
+                  - variables:
+                      will_drive: "{{ state_gates.shd }}"
+                      log_user: "the window was tilted, but sun shading takes precedence"
+                      drive_plan: >-
+                        {{ dict(state_targets.shd, run=will_drive,
+                                delay_s=0 if ventilation_flags.start_no_delay else drive_delay_standard) }}
+                      update_values:
+                        # Window is tilted, but the cover stays in the shading position
+                        win: "tlt"
+                        man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
+                  - *apply_transition
+                  - stop: "Ventilation skipped: sun shading takes precedence"
+
+              ###################################
               # VENTILATION START: Window tilted
               # Moves cover to ventilation position
               ###################################
@@ -7448,8 +7482,9 @@ actions:
                           shading_ended_during_force: "{{ helper_state_shade and shading_end_conditions_met }}"
                           recovery_target: >-
                             {% set shade_active = helper_state_shade and not shading_ended_during_force %}
+                            {% set vent_blocks_shading = is_ventilation_enabled and (window_opened_now or (window_tilted_now and not shading_over_ventilation)) %}
                             {% if helper_state_base == 'cls' and not (is_ventilation_enabled and window_any_now) %}cls
-                            {% elif shade_active and not (is_ventilation_enabled and window_any_now) and resident_flags.allow_shade %}shd
+                            {% elif shade_active and not vent_blocks_shading and resident_flags.allow_shade %}shd
                             {% elif window_opened_now and resident_flags.allow_ventilate and is_ventilation_enabled %}lock
                             {% elif helper_state_base == 'opn' and not (is_ventilation_enabled and window_opened_now) and not shade_active and resident_flags.allow_open %}opn
                             {% elif window_tilted_now and not window_opened_now and resident_flags.allow_ventilate and is_ventilation_enabled %}vnt

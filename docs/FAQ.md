@@ -867,6 +867,8 @@ Lockout Protection Options:
 | Resident leaves (`t_resident_update`) | → `open_position` | → `ventilate_position` | → `open_position` |
 | Resident arrives (`t_resident_update`) | Helper updated only (no movement) | → `ventilate_position` (if `resident_allow_ventilation`) | Helper updated only (no movement) |
 
+> **Note on the tilted column:** the rows above assume the default priority, where a tilted window outranks the sun shading. With **"🥵 Sun shading is more important than ventilation"** enabled (see [Ventilation Configuration](handbook/contacts#auto_ventilate_options)), an active sun shading keeps the cover at the shading position instead — in the contact handler, at shading start and in the force recovery. The `opened` column is unaffected: the lockout protection always wins.
+
 **Implementation details:**
 
 CCA enforces this priority in two ways:

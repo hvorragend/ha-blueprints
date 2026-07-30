@@ -930,17 +930,30 @@ class TestPatternACForceRecoveryVentilationGate:
             f"recovery_target {target!r} arm must gate on is_ventilation_enabled (#566)"
         )
 
-    @pytest.mark.parametrize("target", ["cls", "shd", "opn"])
+    @pytest.mark.parametrize("target", ["cls", "opn"])
     def test_window_exclusions_scoped_to_ventilation_enabled(self, blueprint, target):
         # A stuck open/tilted contact must not block these targets when the
         # ventilation automation is disabled — every negative window-contact
         # check must be scoped to is_ventilation_enabled.
         arm = self._chain_arm(blueprint, target)
-        window_flag = "window_any_now" if target in ("cls", "shd") else "window_opened_now"
+        window_flag = "window_any_now" if target == "cls" else "window_opened_now"
         assert f"not (is_ventilation_enabled and {window_flag})" in arm, (
             f"recovery_target {target!r} arm must scope its window exclusion to "
             f"is_ventilation_enabled (#566)"
         )
+
+    def test_shading_window_exclusion_scoped_to_ventilation_enabled(self, blueprint):
+        # Same #566 obligation for the shd arm, which routes its window check
+        # through vent_blocks_shading (a tilted window only blocks the shading
+        # target while the ventilation floor outranks it).
+        chain = str(_find_variable_definition(blueprint, "recovery_target"))
+        assert "not vent_blocks_shading" in self._chain_arm(blueprint, "shd"), (
+            "recovery_target 'shd' arm must exclude an open window via vent_blocks_shading"
+        )
+        assert (
+            "vent_blocks_shading = is_ventilation_enabled and (window_opened_now or "
+            "(window_tilted_now and not shading_over_ventilation))"
+        ) in chain, "vent_blocks_shading must scope its window checks to is_ventilation_enabled (#566)"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

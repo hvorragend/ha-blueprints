@@ -104,6 +104,20 @@ Various different ventilation options.
   be lowered to the partial ventilation position. Enable this option to keep the cover at the open position in that case.
   <br />
   Useful e.g. for a terrace door: after coming back inside and tilting the door, the cover stays up instead of moving down.
+  <br /><br />
+- <ins>Sun shading is more important than ventilation: shade even while the window is tilted:</ins>
+  <br />
+  Normally a tilted window outranks the sun shading: the cover stops at the ventilation position instead of moving down to the shading position, so the tilted window keeps its air gap.
+  With the standard positions (ventilation just above shading) the difference is a few percent and hardly noticeable.
+  <br />
+  It becomes a problem when your ventilation position sits <ins>far</ins> above the shading position — the classic case is a terrace door, where "ventilate" means driving the cover up so the door stays usable. On a window like that, a door left tilted through a summer day switches the sun shading off entirely, even though the automation still considers the shading active.
+  <br />
+  Enable this option to reverse that one decision: while sun shading is active, the cover moves to (and stays at) the shading position even when the window is tilted. Everything else keeps the ventilation position — a <ins>fully opened</ins> window still triggers the lockout protection, and closing time, presence-based closing and the end of the shading are unaffected.
+  <br />
+  <br />
+  <ins>Why the default is the other way round:</ins> on a genuinely hot day the right move is to keep the windows <ins>shut</ins> — closed window plus shading beats anything else, and that is also why a cover parked at the ventilation position rarely bothered anyone. The case this option is for is the one where the tilted window is no longer a decision you can revise: you left the house with the window on tilt and the day turns out warmer than announced. Then keeping the sun out is what is left, and it still helps a lot — even with the window open, a shaded room heats up far more slowly than one the sun shines into.
+  <br />
+  A roller shutter in the shading position does not seal a tilted window; it only reduces the airflow. Whether that trade is right depends on the room: for a south-facing living room in summer it usually is, for a bathroom it usually is not.
 
 ---
 
