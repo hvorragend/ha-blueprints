@@ -1175,6 +1175,69 @@ class TestPatternAGOpeningLockoutNotDeferredToShading:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Bug Pattern AR / Issue #651: the "Already in open position" shortcut must not
+# swallow the #555 shading re-arm. A cover manually opened before the opening
+# time rests at the open position with bas='opn' and a cleared pending (the
+# manual-open detection clears pnd by design); if the shortcut runs first, the
+# opening run ends in a base-only update and a warranted independent-temperature
+# shading is never re-armed — permanently for that morning, because
+# t_shading_start_pending_7 only fires once a day.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestIssue651AlreadyOpenMustNotSwallowShadingArm:
+    """Warranted shading must arm even when the cover already sits open."""
+
+    def test_already_open_with_warranted_shading_arms_pending(self):
+        states = {"binary_sensor.window_opened": "off", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(
+            states, _ag_variables(effective_state="opn", in_open_position=True)
+        )
+        assert chosen == AG_ARM_ALIAS
+
+    def test_already_open_without_warranted_shading_updates_base_only(self):
+        # #495 behavior must be preserved: no shading in sight → base-only update
+        states = {"binary_sensor.window_opened": "off", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(
+            states,
+            _ag_variables(
+                effective_state="opn",
+                in_open_position=True,
+                shading_start_warranted=False,
+            ),
+        )
+        assert chosen == P_BRANCH_ALIAS
+
+    def test_already_open_outside_shading_window_updates_base_only(self):
+        states = {"binary_sensor.window_opened": "off", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(
+            states,
+            _ag_variables(
+                effective_state="opn",
+                in_open_position=True,
+                is_shading_allowed_window=False,
+            ),
+        )
+        assert chosen == P_BRANCH_ALIAS
+
+    def test_already_open_with_lockout_window_falls_through_to_normal_opening(self):
+        # Pattern AG stays intact in front of the shortcut: with the lockout
+        # window open the arm branch must not fire; effective_state is 'lock',
+        # so the shortcut misses too and normal opening consumes the run.
+        states = {"binary_sensor.window_opened": "on", "binary_sensor.window_tilted": "off"}
+        chosen = _select_opening_branch(
+            states, _ag_variables(in_open_position=True, effective_state="lock")
+        )
+        assert chosen == AG_NORMAL_ALIAS
+
+    def test_arm_branch_precedes_already_open_shortcut(self):
+        aliases = [b["alias"] for b in _opening_choose_branches()]
+        assert aliases.index(AG_ARM_ALIAS) < aliases.index(P_BRANCH_ALIAS), (
+            "the #555 arm branch must run before the already-open shortcut (#651)"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Issue #544: Time Control disable must be reachable via the UI —
 # the time_control_enabled checkbox in auto_options is the single
 # authoritative switch; the legacy selector value is no longer evaluated.
