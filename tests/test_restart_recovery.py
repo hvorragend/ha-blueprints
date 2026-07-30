@@ -651,6 +651,84 @@ class TestRecoveredBase:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Recovery gate: the environment conditions gate a caught-up base flip (#649)
+# ════════════════════════════════════════════════════════════════════════════
+class TestEnvironmentGatesTheCaughtUpBaseFlip:
+    """A scheduled movement the environment conditions have not yet allowed was never
+    swallowed - its environment trigger is still armed and fires on the real crossing,
+    and the ultimate late trigger is the backstop. The recovery used to flip the base
+    state from the schedule alone, so with the catch-up enabled a save/reload between
+    time_down_early and the sun actually reaching sun_elevation_down closed the cover
+    hours early (#649). Outside the ultimate windows the flip needs the same environment
+    approval the normal opening/closing branches require; the night clause stays
+    unconditional - the normal flow has no environment gate at night either."""
+
+    def _gate(self) -> dict:
+        return next(s for s in _branch_body(RECOVERY)
+                    if "additional condition" in str(s.get("alias", "")))
+
+    def _env_condition(self, alias_part: str) -> str:
+        branch = next(b for b in self._gate()["choose"] if alias_part in b["alias"])
+        return next(c for c in branch["conditions"]
+                    if isinstance(c, str) and "environment_allows" in c)
+
+    def test_both_flip_branches_carry_an_environment_gate(self):
+        assert "environment_allows_opening" in self._env_condition("opening")
+        assert "environment_allows_closing" in self._env_condition("closing")
+
+    # --- closing flip ---
+    def _closing(self, **over):
+        base = dict(is_evening_phase=True, is_time_down_late=False,
+                    environment_allows_closing=False)
+        base.update(over)
+        return _render_bool(self._env_condition("closing"), {}, **base)
+
+    def test_early_evening_without_the_environment_refuses_the_flip(self):
+        """The #649 report: elevation 8 deg at 20:00 with sun_elevation_down -1.4, a UI
+        save with the catch-up on always - the cover must stay open."""
+        assert self._closing() is False
+
+    def test_the_environment_allows_the_caught_up_closing(self):
+        assert self._closing(environment_allows_closing=True) is True
+
+    def test_the_ultimate_closing_time_needs_no_environment(self):
+        """After time_down_late the normal flow closes unconditionally - and the late
+        trigger cannot re-fire (its template is already true at attach), so the flip
+        is the only repair for a swallowed ultimate closing."""
+        assert self._closing(is_time_down_late=True) is True
+
+    def test_the_night_clause_stays_unconditional(self):
+        """Between midnight and the opening time recovered_base is 'cls' via the night
+        clause (is_evening_phase false); refusing that flip would strand a swallowed
+        closing until morning."""
+        assert self._closing(is_evening_phase=False) is True
+
+    # --- opening flip ---
+    def _opening(self, **over):
+        base = dict(is_time_up_late=False, environment_allows_opening=False)
+        base.update(over)
+        return _render_bool(self._env_condition("opening"), {}, **base)
+
+    def test_early_morning_without_the_environment_refuses_the_flip(self):
+        assert self._opening() is False
+
+    def test_the_environment_allows_the_caught_up_opening(self):
+        assert self._opening(environment_allows_opening=True) is True
+
+    def test_the_ultimate_opening_time_needs_no_environment(self):
+        assert self._opening(is_time_up_late=True) is True
+
+    def test_the_flip_condition_itself_is_untouched(self):
+        """The environment gate is a separate condition string; the FIRST string
+        condition still carries the opt-in and the flip direction, which the
+        direction-gate tests read via next()."""
+        for branch in self._gate()["choose"]:
+            first = next(c for c in branch["conditions"] if isinstance(c, str))
+            assert "recovery_catch_up" in first
+            assert "environment_allows" not in first
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Recovery gate: recovered_state must stay in sync with effective_state
 # ════════════════════════════════════════════════════════════════════════════
 class TestCascadeParity:

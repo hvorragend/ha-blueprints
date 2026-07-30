@@ -391,7 +391,7 @@ against *which trigger actually fires it*.
 
 | Trigger | Latches? | Cost of a dropped run | Repaired by | Opt-in? |
 |---|---|---|---|---|
-| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — **but only when the direction's `auto_up_condition`/`auto_down_condition` still allows it** (V6): a movement the user's condition suppressed was not missed | **opt-in** |
+| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — **but only when the direction's `auto_up_condition`/`auto_down_condition` still allows it** (V6), **and, outside the ultimate late windows, only when the environment conditions allow it** (2026.07.30, #649): a movement the user's condition or the brightness/sun conditions suppressed was not missed | **opt-in** |
 | *(a gate source drops out mid-runtime and returns — no restart, no re-attach)* | — | the gate blocks every run of the outage, so **all the latching rows below happen at once**, and the `frc`/`win`/`res` the blocked runs would have written stay stale (a stale `frc` moves the cover wrongly on every later trigger, forever) | the **ungated `t_recovery` triggers of the five gate sources** (cover, helper, position sensor, both contacts) | always — nothing else fires; the run they start is hygiene-only with the catch-up off |
 | `t_shading_*_pending_*` (numeric/template) | **yes** (condition stays true) | shading never starts/ends that day | the recovery gate's `recovered_pending` (re-evaluates and re-arms) | **opt-in** |
 | `t_shading_*_execution` | **yes** (`now >= ts.due` stays true) | pending armed forever, opening handler defers into a dead flow | the recovery gate's `pending_is_stale` (clears it) | always |
@@ -434,10 +434,37 @@ off a shared body:
 ```text
 choose:
   - "catching up an opening"  → recovery_catch_up and recovered_base == 'opn' and helper base != 'opn'
+                                + is_time_up_late or environment_allows_opening
                                 + condition: !input auto_up_condition   → new_base: 'opn'  → *recovery_apply
-  - "catching up a closing"   → … !input auto_down_condition            → new_base: 'cls'  → *recovery_apply
-default:                        no flip, or the condition said no       → new_base: helper → *recovery_apply
+  - "catching up a closing"   → … + not is_evening_phase or is_time_down_late or environment_allows_closing
+                                + !input auto_down_condition            → new_base: 'cls'  → *recovery_apply
+default:                        no flip, or a condition said no         → new_base: helper → *recovery_apply
 ```
+
+**The environment conditions gate the flip the same way (CCA 2026.07.30, #649).** Same
+class of bug, second instance: the normal open/close branches require
+`environment_allows_opening`/`environment_allows_closing` for every movement between the
+early and late times (only the ultimate `is_time_up_late`/`is_time_down_late` closes/opens
+unconditionally) — but `recovered_base` reads `is_evening_phase`, which starts at
+`time_down_early`. Real report (#649): closing by sun elevation −1.4°, `time_down_early`
+16:00, `enable_recovery: always` — a UI save at 20:00 with the sun still at 8° flipped
+`bas` to `'cls'` and drove the cover closed, two hours before the normal flow would have.
+The flip branches therefore mirror the normal branches' environment gate:
+
+- opening flip: `is_time_up_late or environment_allows_opening` (a `recovered_base` of
+  `'opn'` only ever comes from `is_daytime_phase`, so no phase clause is needed);
+- closing flip: `not is_evening_phase or is_time_down_late or environment_allows_closing` —
+  the `not is_evening_phase` clause keeps the **night clause unconditional** (between
+  midnight and the opening time there is no environment gate in the normal flow either,
+  and refusing that flip would strand a swallowed closing until morning).
+
+Refusing the flip costs nothing: the environment triggers (`t_open_4/5`, `t_close_4/5`)
+render false at attach time in exactly this scenario, so they are armed and fire on the
+real crossing, and the ultimate time triggers remain the backstop. The one accepted corner:
+an environment condition that crossed *and un-crossed* during the outage (a transient
+brightness dip) is not replayed — same reasoning as the additional conditions ("if the
+conditions do not warrant it *now*, do not replay it"), and the ultimate closing still
+catches it by `time_down_late`. Pinned by `TestEnvironmentGatesTheCaughtUpBaseFlip`.
 
 `&recovery_apply` is a **list anchor behind `choose: [] / default:`** (the grouping idiom
 already used by `helper_update`) and is defined *inside* the action tree, so Invariant 14
