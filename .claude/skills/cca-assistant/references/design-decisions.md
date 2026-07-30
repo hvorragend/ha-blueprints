@@ -30,6 +30,8 @@ When the closing trigger fires while a shading-start pending is active, the clos
 
 This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it. Do not remove the `shading_start_warranted` gate from the opening "skip" branch — that reintroduces #514.
 
+**Branch order (#651):** The re-arm branch "Opening: Shading warranted, arm pending" (#555) sits **before** the "Already in open position" shortcut. A cover manually opened before the opening time rests at the open position with `bas: 'opn'` and a cleared pending (the manual-open detection clears `pnd` by design); with the shortcut first, the opening run ended in a base-only update and the warranted shading was never re-armed (Bug Pattern AR). Do not move the shortcut back in front of the arm branch.
+
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving
 
 The "Reset shading status that is no longer required" branch writes `man: 0` even though it does not drive the cover. This is an intentional exception to Invariant 7.

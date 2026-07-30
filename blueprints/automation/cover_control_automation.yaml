@@ -5970,6 +5970,41 @@ actions:
                   - "{{ environment_allows_opening }}"
         sequence:
           - choose:
+            ###################################
+            # Shading warranted at opening time but no pending is active - arm pending and defer
+            # (e.g. pending was cleared by a manual open+close before opening time, Issue #555,
+            # or by a manual open while the cover then stays in the open position, Issue #651)
+            ###################################
+              - alias: "Opening: Shading warranted, arm pending"
+                conditions:
+                  - "{{ is_shading_enabled }}"
+                  - "{{ shading_start_warranted }}"
+                  - "{{ is_shading_allowed_window }}"
+                  # Lockout window: the shading execution only stores the intent and stops without
+                  # any movement, so arming would leave the cover unopened - fall through to normal
+                  # opening instead (window open -> open position)
+                  - "{{ not (is_ventilation_enabled and lockout_now.shading_start) }}"
+                  - "{{ not helper_state_is_shaded }}"
+                  - "{{ not helper_state_shade }}"
+                  - "{{ not helper_state_pending_start }}"
+                  - "{{ not helper_state_pending_end }}"
+                  - "{{ shading_once_guard_ok }}"
+                sequence:
+                  - variables:
+                      shading_start_due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
+                      log_user: "sun shading is about to start, holding the opening back"
+                      log_extra: "opening: shading warranted, arming pending; wait={{ shading_waitingtime_start | int }}s; max_duration={{ shading_start_max_duration | int }}s"
+                      update_values:
+                        bas: "opn"
+                        shd: 0
+                        pnd: 'beg'
+                        ts:
+                          opn: "now"
+                          due: "{{ shading_start_due | int }}"
+                          arm: "now"
+                  - *apply_transition
+                  - stop: "Opening: Shading pending armed"
+
               ###################################
               # Already in open position - only update base
               ###################################
@@ -6048,40 +6083,6 @@ actions:
                           opn: "now"
                   - *apply_transition
                   - stop: "Opening skipped: Shading start pending"
-
-            ###################################
-            # Shading warranted at opening time but no pending is active - arm pending and defer
-            # (e.g. pending was cleared by a manual open+close before opening time, Issue #555)
-            ###################################
-              - alias: "Opening: Shading warranted, arm pending"
-                conditions:
-                  - "{{ is_shading_enabled }}"
-                  - "{{ shading_start_warranted }}"
-                  - "{{ is_shading_allowed_window }}"
-                  # Lockout window: the shading execution only stores the intent and stops without
-                  # any movement, so arming would leave the cover unopened - fall through to normal
-                  # opening instead (window open -> open position)
-                  - "{{ not (is_ventilation_enabled and lockout_now.shading_start) }}"
-                  - "{{ not helper_state_is_shaded }}"
-                  - "{{ not helper_state_shade }}"
-                  - "{{ not helper_state_pending_start }}"
-                  - "{{ not helper_state_pending_end }}"
-                  - "{{ shading_once_guard_ok }}"
-                sequence:
-                  - variables:
-                      shading_start_due: "{{ (as_timestamp(now()) + shading_waitingtime_start | int) | int }}"
-                      log_user: "sun shading is about to start, holding the opening back"
-                      log_extra: "opening: shading warranted, arming pending; wait={{ shading_waitingtime_start | int }}s; max_duration={{ shading_start_max_duration | int }}s"
-                      update_values:
-                        bas: "opn"
-                        shd: 0
-                        pnd: 'beg'
-                        ts:
-                          opn: "now"
-                          due: "{{ shading_start_due | int }}"
-                          arm: "now"
-                  - *apply_transition
-                  - stop: "Opening: Shading pending armed"
 
             ###################################
             # Normal opening of the cover
