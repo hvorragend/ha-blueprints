@@ -179,7 +179,7 @@ prevent_flags:
 
 ### Normalized event flags (computed once per run — use these, not raw sensor idioms)
 ```yaml
-window_opened_now / window_tilted_now / window_any_now / window_opened_clear
+window_opened_now / window_tilted_now / window_any_now
 lockout_now.closing / .shading_start / .shading_end
 shading_once_guard_ok
 drive_delay_standard

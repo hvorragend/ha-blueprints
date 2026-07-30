@@ -1256,3 +1256,104 @@ class TestIssue544TimeControlDisable:
             "is_calendar_enabled", ["time_control_enabled"], "time_control_calendar",
             calendar_entity="calendar.covers",
         ) is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pattern AR (#650): the vent-hold branches must read an invalid opened contact
+# as "not open" (not window_opened_now), never demand an explicit 'off'
+# (window_opened_clear) — the fall-through drives past the tilted window.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+SHADING_END_VENT_ALIAS = "Ventilation after shading ends"
+
+
+class TestPatternARVentHoldSurvivesInvalidOpenedContact:
+    """#650: ventilation canceled by the closing trigger while the opened
+    contact reads unavailable/unknown (battery handle asleep, AN premise)."""
+
+    @pytest.fixture(scope="class")
+    def blueprint(self):
+        return _load_blueprint_yaml()
+
+    def _eval_cond(self, env, cond, variables):
+        if isinstance(cond, str):
+            return env.from_string(cond).render(**variables).strip() == "True"
+        if isinstance(cond, dict):
+            if "and" in cond:
+                return all(self._eval_cond(env, c, variables) for c in cond["and"])
+            if "or" in cond:
+                return any(self._eval_cond(env, c, variables) for c in cond["or"])
+            return True  # condition: !input ... user condition counts as passed
+        return True
+
+    def _flags(self, blueprint, opened_state: str, tilted_state: str) -> dict:
+        """Render the blueprint's own normalized flags against mocked states."""
+        entity_states = {
+            "binary_sensor.opened": opened_state,
+            "binary_sensor.tilted": tilted_state,
+        }
+        env = jinja2.Environment(undefined=jinja2.Undefined)
+        env.globals["states"] = lambda e: entity_states.get(e, "unknown")
+        base = {
+            "contact_window_opened": "binary_sensor.opened",
+            "contact_window_tilted": "binary_sensor.tilted",
+        }
+        flags = dict(base)
+        for name in ("window_opened_now", "window_tilted_now"):
+            definition = _find_variable_definition(blueprint, name)
+            assert definition is not None, f"{name} definition not found"
+            flags[name] = (
+                env.from_string(str(definition)).render(**base).strip() == "True"
+            )
+        return flags
+
+    def _closing_branch_matches(self, blueprint, opened_state, tilted_state) -> bool:
+        branch = _find_branch_by_alias(blueprint, TILTED_CLOSE_ALIAS)
+        assert branch is not None
+        variables = self._flags(blueprint, opened_state, tilted_state)
+        variables.update(
+            is_ventilation_enabled=True,
+            resident_flags={"allow_ventilate": True},
+            lockout_tilted_when_closing=False,
+        )
+        env = jinja2.Environment(undefined=jinja2.Undefined)
+        return all(
+            self._eval_cond(env, cond, variables)
+            for cond in branch["conditions"]
+        )
+
+    def test_unavailable_opened_contact_keeps_ventilation(self, blueprint):
+        # The reported scenario: window tilted (contact alive), opened contact
+        # unavailable at the latest-closing-time trigger. The vent-hold branch
+        # must match so the run does not fall through to "Normal closing".
+        assert self._closing_branch_matches(blueprint, "unavailable", "on")
+        assert self._closing_branch_matches(blueprint, "unknown", "on")
+
+    def test_explicitly_closed_opened_contact_keeps_ventilation(self, blueprint):
+        assert self._closing_branch_matches(blueprint, "off", "on")
+
+    def test_open_window_still_excluded(self, blueprint):
+        # Invariant 5: an actively 'on' opened contact must keep the tilted
+        # branch out (lockout handles it).
+        assert not self._closing_branch_matches(blueprint, "on", "on")
+
+    def test_no_tilt_no_match(self, blueprint):
+        assert not self._closing_branch_matches(blueprint, "off", "off")
+
+    def test_window_opened_clear_removed(self, blueprint):
+        # The stricter idiom must not come back: no branch may demand an
+        # explicit 'off' reading before holding the ventilation floor.
+        assert "window_opened_clear" not in _blueprint_text(), (
+            "window_opened_clear reintroduced — vent-hold branches must gate "
+            "on 'not window_opened_now' (Pattern AR, #650)"
+        )
+
+    def test_vent_hold_branches_gate_on_not_window_opened_now(self, blueprint):
+        for alias in (TILTED_CLOSE_ALIAS, SHADING_END_VENT_ALIAS):
+            branch = _find_branch_by_alias(blueprint, alias)
+            assert branch is not None, f"branch not found: {alias!r}"
+            flat = " ".join(str(c) for c in branch["conditions"])
+            assert "not window_opened_now" in flat, (
+                f"{alias!r} must gate on 'not window_opened_now' (Pattern AR)"
+            )

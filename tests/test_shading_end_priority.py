@@ -139,7 +139,6 @@ def _base_execution_vars(entity_states: dict) -> dict:
         # post-forecast variables block), derived from the mocked states.
         "window_opened_now": entity_states.get("binary_sensor.window_opened") in ("on", "true"),
         "window_tilted_now": entity_states.get("binary_sensor.window_tilted") in ("on", "true"),
-        "window_opened_clear": entity_states.get("binary_sensor.window_opened") in ("off", "false", None),
         "lockout_now": {
             "shading_end": entity_states.get("binary_sensor.window_opened") in ("on", "true"),
         },
@@ -200,6 +199,20 @@ class TestShadingEndBranchSelection:
         # of keeping the shading position with slats at the open tilt.
         entity_states = {
             "binary_sensor.window_opened": "off",
+            "binary_sensor.window_tilted": "on",
+        }
+        variables = _base_execution_vars(entity_states)
+        alias = _first_matching_alias(_env(entity_states), choose, variables)
+        assert alias == "Ventilation after shading ends"
+
+    def test_issue_650_unavailable_opened_contact_still_selects_ventilation(self, choose):
+        # Pattern AR (#650): a battery opened-contact that reads 'unavailable'
+        # must count as "not open" (AN premise: an invalid contact reads as
+        # 'off' in every handler). The vent branch used to demand an explicit
+        # 'off' via window_opened_clear and fell through to a branch that
+        # drives past the tilted window.
+        entity_states = {
+            "binary_sensor.window_opened": "unavailable",
             "binary_sensor.window_tilted": "on",
         }
         variables = _base_execution_vars(entity_states)

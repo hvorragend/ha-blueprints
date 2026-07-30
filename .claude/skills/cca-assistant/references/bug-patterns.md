@@ -714,3 +714,40 @@ The same source was also missing from the "no trigger source at all" configurati
 **Rule:** A run may act on its trigger-time view, but it must never *persist* that view — every field a branch does not explicitly set has to come from the helper as it is at write time. And any branch whose drive is only meaningful while a helper flag holds (`shd` for the shading-tilt/depth adjustments) must re-check that flag live in `will_drive`: under `mode: queued`, "the trigger fired" only proves the flag held *then*. Tests: `tests/test_helper_update_live_reread.py`.
 
 ---
+
+### Bug Pattern AR: A vent-hold branch demands an *explicit* "opened reads closed" while the rest of the system reads invalid as "off" (Issue #650)
+
+**Symptom:** The window is tilted, the cover rests at the ventilation position. The
+"ultimate" evening closing trigger (latest closing time) fires and the cover **closes
+completely** — the ventilation is canceled although the tilted contact is alive and `on`.
+The trace shows the closing handler falling through to the "Normal closing" default; the
+*opened* contact reads `unavailable`/`unknown` at that moment (battery handles/contacts
+that hubs mark unavailable after hours without an event — the same device class as
+Bug Pattern AN / #622). The identical hole existed in "Ventilation after shading ends".
+
+**Cause:** The AN fix (#622) deliberately lets these runs pass the stateless-contact gate
+on the premise that *"an invalid contact reads as 'off' in every handler"* — with
+`win == 'tlt'` the invalid opened read agrees with the last known truth. But two branches
+still contradicted that premise: the closing handler's "Window tilted. No lockout. Move to
+ventilation position instead of closing" and the shading-end "Ventilation after shading
+ends" gated on `window_opened_clear` (opened must read an **explicit** `off`/`false`), not
+on `not window_opened_now`. With the opened contact invalid the vent-hold branch was
+skipped and execution fell through to a branch that drives **past** the tilted window —
+strictly worse than the reading the guard distrusted: the cascade (`effective_state`,
+`recovered_state`, contact handler, resident handlers, force recovery — all
+`not window_opened_now`) says `vnt` in exactly this situation.
+
+**Fix:** Both branches gate on `not window_opened_now` (2026.07.30), the now-unused
+`window_opened_clear` variable was removed. Invariant 5's canonical form ("opened contact
+not *active*") was already the relaxed check.
+
+**Rule:** A guard on a branch must be judged against its **fall-through**, not in
+isolation: being extra-conservative about a sensor reading is wrong when the conditions
+below the branch drive to a *more* dangerous target on the same reading. And AN's premise
+is binding — any handler that interprets a window contact must read an invalid contact as
+"off" (`not window_opened_now` / `not window_tilted_now`), so all consumers stay
+consistent with the gate that decided to let the run through. Tests:
+`TestPatternARVentHoldSurvivesInvalidOpenedContact` in
+`tests/test_documented_bug_patterns.py`.
+
+---
