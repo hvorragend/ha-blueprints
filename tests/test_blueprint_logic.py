@@ -768,17 +768,13 @@ class TestLockoutClosingBaseStateUpdate:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tests: Manual unknown position clears stale shading state (#447)
+# Tests: Manual unknown position preserves the autonomous state machine (#655)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestManualUnknownClearsShadingState:
+class TestManualUnknownPreservesDesiredState:
     """
-    Regression for #447: When the user manually moves the cover to a position
-    that does not match any defined position (open/close/shading/ventilate),
-    the helper must clear `shd`, the pending phase (`pnd`), the pending fire
-    time (`ts.due`) and the retry anchor (`ts.arm`). Otherwise a stale `shd=1`
-    (e.g. set by a prior lockout-blocked shading-start) lets shading-end later
-    override the manual move before reset_override_timeout elapses.
+    A manual movement records the actuator override only. Background state and
+    pending timers remain meaningful so release can reconcile immediately.
     """
 
     def _load_blueprint(self) -> dict:
@@ -805,41 +801,23 @@ class TestManualUnknownClearsShadingState:
         )
         return variables_step["variables"].get("update_values", {})
 
-    def test_clears_shd(self):
+    def test_preserves_shading_and_pending_state(self):
         update_values = self._get_update_values()
-        assert update_values.get("shd") == 0, (
-            f"Expected update_values.shd == 0 but got {update_values.get('shd')!r}. "
-            "Stale shd=1 lets shading-end later override the manual move."
-        )
+        assert all(field not in update_values for field in ("bas", "shd", "pnd", "win"))
 
     def test_sets_man(self):
         update_values = self._get_update_values()
         assert update_values.get("man") == 1
 
-    def test_clears_pending_and_retry_anchor(self):
+    def test_preserves_pending_timestamps(self):
         update_values = self._get_update_values()
-        assert update_values.get("pnd") == "non", (
-            f"Expected pnd == 'non' but got {update_values.get('pnd')!r}. "
-            "Pending phase must be cleared by manual move."
-        )
         ts = update_values.get("ts", {})
-        assert ts.get("due") == 0, (
-            f"Expected ts.due == 0 but got {ts.get('due')!r}. "
-            "Pending fire time must be cleared by manual move."
-        )
-        assert ts.get("arm") == 0, (
-            f"Expected ts.arm == 0 but got {ts.get('arm')!r}. "
-            "Retry anchor must be reset when manual move cancels the sequence."
-        )
+        assert "due" not in ts and "arm" not in ts
 
-    def test_sets_ts_man_and_shd(self):
+    def test_only_stamps_the_manual_timestamp(self):
         update_values = self._get_update_values()
         ts = update_values.get("ts", {})
-        assert ts.get("man") == "now"
-        assert ts.get("shd") == "now", (
-            "ts.shd must be touched so the helper_update guard can refresh it "
-            "when shd transitions from 1 to 0."
-        )
+        assert ts == {"man": "now"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2173,12 +2151,12 @@ class TestForceDisabledRecoveryReevaluatesShadingEnd:
         assert "shd" not in values["ts"]
 
     def test_update_values_shd_target_unchanged(self):
-        """When the shading is restored, the write must look exactly as before."""
+        """Returning from force preserves the background shading/pending state."""
         values = self._render_update_values(
             self._drive_leaf_update_values(), target="shd", ended=False
         )
         assert "shd" not in values
-        assert values["ts"] == {"due": 0, "arm": 0, "shd": "now"}
+        assert "pnd" not in values and "ts" not in values
 
     def test_vent_leaf_clears_ended_shading(self):
         branch = _find_branch_by_alias(
@@ -2298,9 +2276,7 @@ class TestForcePauseDisabledHasBackgroundOpen:
         # Unpausing drives unless a queued run executes after the pause was already
         # re-enabled - then the run only records (systemic force-pause rule).
         assert plan.get("run") == "{{ will_drive }}", "unpausing must drive via will_drive"
-        assert variables.get("will_drive") == "{{ not is_paused }}", (
-            "the only thing that may stop the resume drive is a re-enabled pause"
-        )
+        assert variables.get("will_drive") == "{{ not is_paused and manual_allows_state[resume_state] }}"
         assert "state_targets[resume_state]" in str(plan), (
             "drive parameters must come from the state_targets projection"
         )

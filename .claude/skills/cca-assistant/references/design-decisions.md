@@ -10,13 +10,14 @@ and invalid-sensor-state handling. Restart/outage handling has its own file:
 
 ## Design Decisions (intentional deviations from the general patterns)
 
-### Resident handler bypasses `helper_state_manual` / `override_flags.*`
+### Resident transitions update state while manual may suppress their movement
 
-The resident sensor handler (`resident_leaving` / `resident_arriving`) does **not** check `not (helper_state_manual and override_flags.X)` in any of its branches. All other handlers (Open, Close, Shading-Start, Shading-End, Contact, Manual) do.
-
-**Rationale:** Presence transitions are treated as a hard reset of any earlier manual intent — when the resident leaves or arrives, the cover should follow the new presence-derived target regardless of an active manual override. The `ignore_*_after_manual` configuration only governs scheduled / environment-driven triggers, not presence transitions.
-
-This is intentional. Do not "harmonize" by adding the override gate to the resident handler.
+The resident sensor handler always persists `res`. Its target movement uses the
+same `state_gates` projection as other reconcilers, so an applicable manual
+override can suppress the drive without suppressing the resident transition.
+When the override ends, the current resident-derived `effective_state` is
+reconciled. This is the Invariant-15 state/effect split, not a special reset of
+manual intent.
 
 ### Opening handler preserves shading-start pending **only while still warranted**; closing handler discards it
 
@@ -30,7 +31,7 @@ When the closing trigger fires while a shading-start pending is active, the clos
 
 This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it. Do not remove the `shading_start_warranted` gate from the opening "skip" branch — that reintroduces #514.
 
-**Branch order (#651):** The re-arm branch "Opening: Shading warranted, arm pending" (#555) sits **before** the "Already in open position" shortcut. A cover manually opened before the opening time rests at the open position with `bas: 'opn'` and a cleared pending (the manual-open detection clears `pnd` by design); with the shortcut first, the opening run ended in a base-only update and the warranted shading was never re-armed (Bug Pattern AR). Do not move the shortcut back in front of the arm branch.
+**Branch order (#651):** The re-arm branch "Opening: Shading warranted, arm pending" (#555) sits **before** the "Already in open position" shortcut. Invariant 15 now preserves pending through manual detection, but other legitimate no-pending states still need this handoff; with the shortcut first, an already-open cover can consume the run before warranted shading is armed (Bug Pattern AR). Do not move the shortcut back in front of the arm branch.
 
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving
 
@@ -149,4 +150,3 @@ keys stay untouched, so `prevent_shading_multiple_times` is unaffected. No
 helper field stores the active depth (same rationale as #558 — the helper
 holds logical state; the brief `in_shading_position` volatility after a switch
 is accepted and healed by the re-drive trigger).
-

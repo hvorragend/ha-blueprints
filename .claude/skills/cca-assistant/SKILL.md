@@ -37,13 +37,13 @@ loading the reference first:
 | Task touches… | Read |
 |---|---|
 | Priority cascade (`effective_state`/`recovered_state`), transition anchors, `state_targets`/`state_gates`, limited template contexts | [references/architecture.md](references/architecture.md) |
-| Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
+| Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 15 invariants) |
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
 | Live opening/closing branch entry conditions, `base_gates`, `closing_position_hold`, the caught-up base flip — or adding any new gate to the live open/close branch | [references/recovery-parity.md](references/recovery-parity.md) (semantic contract, decision matrix, shared projections) |
-| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AQ with cause and fix) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AS with cause and fix) |
 
-The always-binding rules (the 14 invariants as one-liners, code style, quality
+The always-binding rules (the 15 invariants as one-liners, code style, quality
 gates, version bumping) are indexed in `.claude/CLAUDE.md`.
 
 ---
@@ -203,7 +203,7 @@ helper_ts_drive         # helper_json.d (last driving write - manual-detection s
 
 Full rationale in [references/invariants.md](references/invariants.md) and
 [references/architecture.md](references/architecture.md); the one-line index of
-all 14 invariants is in `.claude/CLAUDE.md`. The ones that bite most often:
+all 15 invariants is in `.claude/CLAUDE.md`. The ones that bite most often:
 
 - Every leaf branch computes `will_drive` + `drive_plan` + `update_values`, then
   calls `*apply_transition` — never `*helper_update` / `*drive_with_actions` /
@@ -217,6 +217,9 @@ all 14 invariants is in `.claude/CLAUDE.md`. The ones that bite most often:
   is deliberately defined at first use instead.
 - Every cascade change lands in `effective_state` AND `recovered_state`, same
   commit (`TestCascadeParity`).
+- Manual override, force targets and force pause gate only actuation. The
+  background state machine keeps updating, and blocker release reconciles the
+  current `effective_state` (Invariant 15).
 
 ### `update_values` / `helper_update` merge semantics
 
@@ -293,7 +296,7 @@ Full rules: Invariant 12 in [references/invariants.md](references/invariants.md)
 
 ### Regressions
 Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
-(A–AQ, each with symptom / cause / fix / derived rule) before writing a fix —
+(A–AS, each with symptom / cause / fix / derived rule) before writing a fix —
 most "new" bugs are a documented pattern reaching a new code path.
 
 ---

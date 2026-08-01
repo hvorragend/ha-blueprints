@@ -353,5 +353,28 @@ cover to become idle in this mode, exactly like `wait_idle`. The alignment
 step is skipped when the position will not change (same tolerance check as
 `&cover_move_action`), so a tilt-only run tilts directly.
 
----
+### ⚠️ Invariant 15: Blockers suppress effects, never state-machine progress
 
+Manual override, an active force target and force pause belong to the effect
+layer. They may suppress `drive_plan.run` or temporarily replace the projected
+target, but they must not stop the reducer that maintains `bas`, `shd`, `pnd`,
+`win`, `res` and their timestamps.
+
+- Manual detection writes only `man: 1` and `ts.man`; it never derives the
+  autonomous state from the physical position and never clears pending timers.
+- A pending shading execution that matures while movement is blocked commits
+  `shd: 1` (or clears it on a matured end) and suppresses only the drive.
+- Scheduled base transitions and live contact/resident updates persist normally
+  while manual or force prevents their movement.
+- Force targets override `effective_state`, while the background fields continue
+  to evolve. Force pause changes no target at all; it only makes every drive gate
+  false.
+- When manual, force or pause ends, the release path reconciles the current
+  `effective_state`; it does not replay old triggers or restart their delays.
+
+Lockout remains the safety exception that may drive over manual intent. Explicit
+force targets remain target overrides rather than inhibitors. Tests:
+`TestPatternASBlockedEffectsKeepStateCurrent`, `TestManualOverrideParity` and
+`TestForceAndPauseParity`.
+
+---

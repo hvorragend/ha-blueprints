@@ -139,7 +139,8 @@ shading active/pending, prevent options, force, pause, resident privacy.
 | Situation | Live | Recovery | Status |
 |---|---|---|---|
 | entry gates | `base_gates.opening.*` + anchored condition | same + compositions | shared |
-| manual override, no ignore option | O-E drives and clears `man` | flip passes `override_ok`; `manual_holds_reposition` exempts caught-up transitions → drives, clears `man` | shared |
+| manual override, ignore option active | base transition persists, drive is suppressed and `man` remains | flip persists the same transition; drive gate consumes `override_ok` | shared |
+| manual override, no ignore option | O-E drives and clears `man` | caught-up transition drives and clears `man` | shared |
 | shading warranted (O-A) / pending (O-D) | arm/defer | `recovered_pending` re-evaluates; `defer_to_shading` | re-evaluation semantic (R5) |
 | shading active (O-C) | drive to shading position, `shd` kept, **no `ts.opn` stamp** | opening flip keeps `recovered_shade` → `shd` target; `ts.opn` stamp suppressed when `recovered_state == 'shd'` | shared (the stamp omission was found by the paired suite) |
 | normal opening (O-E) | `allow_open` + force gate; lockout target on `lock`, opening action set | cascade + `force_allows_open`; lock keeps O-E's `up` action set | shared |
@@ -148,7 +149,8 @@ shading active/pending, prevent options, force, pause, resident privacy.
 ### Recovery-only hygiene (deliberately no live counterpart, never moves the cover)
 
 `stale_day` cleanup, `pending_is_stale` cleanup, `override_expired` repair
-(`man: 0` + the user's reset action — live's own reset does exactly this much),
+(`man: 0` + the user's reset action; the live reset reconciles the already-current
+background `effective_state`, #655),
 `win`/`res`/`frc` re-read and persistence.
 
 ---
@@ -157,7 +159,7 @@ shading active/pending, prevent options, force, pause, resident privacy.
 
 | # | Deviation | Why it stays, and what the live reference says | Test |
 |---|---|---|---|
-| R1 | `… or override_expired` lets a caught-up flip proceed after the override's reset moment fell into the outage | Whether the swallowed movement fell before or after the expiry is unknowable. Live's fixed-time/timeout reset (BRANCH 10 default) writes **only** `man: 0` — it never drives and never syncs `bas` — so the event-before-expiry live timeline leaves the movement missed *only because nothing re-triggers*: a trigger-mechanics gap, not a decision. The recovery repairs first, then reconciles. | `TestManualOverrideParity::test_an_expired_override_is_the_post_repair_reconciliation` |
+| R1 | `… or override_expired` lets the recovery drive after the override's reset moment fell into the outage | Whether the swallowed movement fell before or after the expiry is unknowable. Live continuously persists background transitions and its reset reconciles the current `effective_state`; recovery repairs the expired override and performs the equivalent reconciliation after deriving any transition whose event the outage swallowed. | `TestManualOverrideParity::test_an_expired_override_is_the_post_repair_reconciliation` |
 | R2 | `manual_holds_reposition`: a recovery run **without** a base transition does not drive over `man == 1` | There is no live event to compare — nothing happened; a pure re-position is recovery-only motion, and driving over a recorded intervention without a caught-up event would *fight* the user. A caught-up transition is exempt only after its live subbranch has authorized that target; `caught_up_opening_hold` and `caught_up_closing_hold` reject unrelated cascade targets. | `TestRecoveryDrive::test_a_manual_override_holds_a_pure_reposition` / `TestManualOverrideParity` / `TestForceAndPauseParity` |
 | R3 | With the condition allowed, a caught-up closing with the window fully open and the cover **away** from the lockout position drives to the lockout position (live C-A drives nothing) | The live *system* put the cover there via the contact-opened handler before the closing ran; a cover elsewhere means that contact event was swallowed too, and the recovery catches both up — to the same target the live handler owns. When the user's condition refuses that contact drive, recovery holds too. | `TestWindowParity::test_open_window_away_from_lockout_position_is_reconciled` / `…does_not_recover_to_lockout` |
 | R4 | `win` is persisted as the live sensor reading; C-A's `'opn'` stamp for a tilted window with the lockout option is not replicated | The helper's `win` is the Tier-2 fallback truth for the next outage; the contact handler — the normal owner of persisted window state — writes sensor truth, and the next contact event re-syncs live to it anyway. The no-movement outcome is identical (the hold). Narrow scope: tilted + option + caught-up closing only. | `TestWindowParity::test_tilted_lockout_option_holds_both_paths` (outcome parity; `win` declared hygiene) |

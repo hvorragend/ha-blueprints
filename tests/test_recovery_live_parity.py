@@ -236,6 +236,9 @@ def _context(s: dict, trigger_id: str) -> tuple[dict, dict]:
         drive_delay_standard=0,
         state_labels=_action_var("state_labels"),
     )
+    ctx["manual_allows_state"] = Runner(ctx, entities, {}).render(
+        _top_var("manual_allows_state")
+    )
     for name in ("window_opened_now", "window_tilted_now", "window_any_now",
                  "window_opened_clear"):
         ctx[name] = Runner(ctx, entities, {}).render(_action_var(name))
@@ -403,13 +406,15 @@ class TestEnvironmentParity:
 # Manual override: direction-specific parity for caught-up transitions
 # ════════════════════════════════════════════════════════════════════════════
 class TestManualOverrideParity:
-    def test_override_with_the_closing_ignore_option_blocks_both(self):
+    def test_override_with_the_closing_ignore_option_advances_state_but_blocks_drive(self):
         s = scenario(brightness="40", helper={"man": 1},
                      override_flags={"opening": False, "closing": True,
                                      "ventilation": False, "shading": False})
         live, recovery = assert_paired(s)
-        assert live["entered"] is False
-        assert recovery["final"]["bas"] == "opn" and recovery["moves"] is False
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["final"]["man"] == recovery["final"]["man"] == 1
+        assert live["moves"] is recovery["moves"] is False
 
     def test_override_without_ignore_options_drives_both_and_clears_man(self):
         """Live closes right over an unprotected manual position and clears man -
@@ -427,7 +432,9 @@ class TestManualOverrideParity:
                            override_flags={"opening": True, "closing": False,
                                            "ventilation": False, "shading": False})
         live, recovery = assert_paired(blocked, "opening")
-        assert live["entered"] is False and recovery["final"]["bas"] == "cls"
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "opn"
+        assert live["moves"] is recovery["moves"] is False
         allowed = scenario(**morning)
         live, recovery = assert_paired(allowed, "opening")
         assert live["moves"] and recovery["final"]["man"] == 0
@@ -728,7 +735,6 @@ class TestClosedEntryStructure:
         assert "trigger.id | regex_match" in conds[2]
         assert conds[3] == {"condition": input_name}
         assert conds[4:] == [
-            "{{ base_gates.%s.override_ok }}" % direction,
             "{{ base_gates.%s.once_ok }}" % direction,
             "{{ base_gates.%s.schedule_ok }}" % direction,
         ]
@@ -738,7 +744,6 @@ class TestClosedEntryStructure:
         assert conds == [
             "{{ recovery_catch_up and recovered_base == 'opn' and helper_state_base != 'opn' }}",
             "{{ base_gates.opening.schedule_ok }}",
-            "{{ base_gates.opening.override_ok or override_expired }}",
             "{{ base_gates.opening.once_ok }}",
             {"condition": "auto_up_condition"},
         ]
@@ -748,7 +753,6 @@ class TestClosedEntryStructure:
         assert conds == [
             "{{ recovery_catch_up and recovered_base == 'cls' and helper_state_base != 'cls' }}",
             "{{ not is_evening_phase or base_gates.closing.schedule_ok }}",
-            "{{ base_gates.closing.override_ok or override_expired }}",
             "{{ base_gates.closing.once_ok }}",
             {"condition": "auto_down_condition"},
         ]

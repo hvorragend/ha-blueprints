@@ -750,12 +750,8 @@ class TestEnvironmentGatesTheCaughtUpBaseFlip:
 # ════════════════════════════════════════════════════════════════════════════
 class TestLiveGatesTheCaughtUpBaseFlip:
     """The #649 class, continued (#656 audit): the live opening/closing branches also
-    gate on the manual override (override_blocks.*) and the once-a-day guard
-    (prevent_*_multiple_times). A movement those gates suppressed was never missed,
-    so the caught-up flip consumes the SAME base_gates projections the live branch
-    entries consume. override_expired is the deliberate recovery-only composition:
-    post-repair reconciliation - the expired override is lifted first, then the flip
-    is judged against the repaired state (references/recovery-parity.md)."""
+    consume the once-a-day guard. Manual override is deliberately a drive-only gate:
+    the base transition is persisted while movement is suppressed."""
 
     def _gate(self) -> dict:
         return next(s for s in _walk_steps(_branch_body(RECOVERY))
@@ -764,32 +760,16 @@ class TestLiveGatesTheCaughtUpBaseFlip:
     def _branch(self, alias_part: str) -> dict:
         return next(b for b in self._gate()["choose"] if alias_part in b["alias"])
 
-    def _override_condition(self, alias_part: str) -> str:
-        return next(c for c in self._branch(alias_part)["conditions"]
-                    if isinstance(c, str) and "override_ok" in c)
-
     # --- the manual override gate ---
-    def test_both_flip_branches_consume_the_shared_override_gate(self):
-        assert "base_gates.opening.override_ok" in self._override_condition("opening")
-        assert "base_gates.closing.override_ok" in self._override_condition("closing")
-        assert "override_expired" in self._override_condition("opening")
-        assert "override_expired" in self._override_condition("closing")
+    def test_override_never_refuses_the_state_flip(self):
+        for direction in ("opening", "closing"):
+            assert "override_ok" not in str(self._branch(direction)["conditions"])
 
-    def _override(self, direction: str, blocked: bool, expired: bool) -> bool:
-        ok = _render_bool(_action_var("base_gates")[direction]["override_ok"], {},
-                          override_blocks={direction: blocked})
-        return _render_bool(self._override_condition(direction), {},
-                            base_gates={direction: {"override_ok": ok}},
-                            override_expired=expired)
-
-    @pytest.mark.parametrize("direction", ["opening", "closing"])
-    def test_an_active_override_refuses_the_flip(self, direction):
-        assert self._override(direction, blocked=True, expired=False) is False
-        assert self._override(direction, blocked=False, expired=False) is True
-
-    @pytest.mark.parametrize("direction", ["opening", "closing"])
-    def test_an_expired_override_does_not_refuse_the_flip(self, direction):
-        assert self._override(direction, blocked=True, expired=True) is True
+    def test_override_is_consumed_by_the_drive_gate(self):
+        will_drive = _branch_var(RECOVERY, "will_drive")
+        assert "base_gates.opening.override_ok" in will_drive
+        assert "base_gates.closing.override_ok" in will_drive
+        assert "override_expired" in will_drive
 
     # --- the once-a-day guard (the shared projection, rendered directly) ---
     def _once(self, direction: str, **variables) -> bool:
@@ -991,11 +971,19 @@ class TestCaughtUpClosingHold:
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=True,
                             caught_up_opening_hold=False,
-                            recovery_vent_condition_hold=False) is False
+                            recovery_vent_condition_hold=False,
+                            caught_up_opening=False, caught_up_closing=True,
+                            base_gates={"opening": {"override_ok": True},
+                                        "closing": {"override_ok": True}},
+                            override_expired=False) is False
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=False,
                             caught_up_opening_hold=False,
-                            recovery_vent_condition_hold=False) is True
+                            recovery_vent_condition_hold=False,
+                            caught_up_opening=False, caught_up_closing=True,
+                            base_gates={"opening": {"override_ok": True},
+                                        "closing": {"override_ok": True}},
+                            override_expired=False) is True
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2180,7 +2168,7 @@ class TestRecoveryTriggers:
         window-start deferral (Bug Pattern L) the same way."""
         assert self._calendar_gate_passes("t_recovery", resumed=False) is True
 
-    @pytest.mark.parametrize("tid", ["t_resident_update", "t_reset_timeout", "t_contact_tilted_changed"])
+    @pytest.mark.parametrize("tid", ["t_resident_update", "t_contact_tilted_changed"])
     def test_calendar_events_are_loaded_on_a_resumed_run_claimed_by_any_trigger(self, tid):
         assert self._calendar_gate_passes(tid, resumed=False) is False, "premise: not a calendar-gate id"
         assert self._calendar_gate_passes(tid, resumed=True) is True

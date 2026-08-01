@@ -113,12 +113,23 @@ def _find_branch_by_alias(node, alias: str):
 
 
 def _branch_drive_plan(branch: dict) -> dict:
-    for step in branch.get("sequence", []):
-        if isinstance(step, dict) and "variables" in step:
-            plan = step["variables"].get("drive_plan")
+    def walk(node):
+        if isinstance(node, dict):
+            plan = node.get("variables", {}).get("drive_plan")
             if plan is not None:
                 return plan
-    return {}
+            for value in node.values():
+                found = walk(value)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(branch.get("sequence", [])) or {}
 
 
 # ════════════════════════════════════════════════════════════════════════════

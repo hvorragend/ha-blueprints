@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AQ, with cause and fix)
+# CCA Known Bug Patterns (A–AS, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -324,7 +324,7 @@ suppressed **every** manual position trigger fired while the cover is within tol
 ```
 
 - `man == 1` + move to reset position → still suppressed. This is the *"reopen to the reset position to resume automatic control"* gesture (the feature's intent, #506): detection stays quiet and `t_reset_position` clears the override after the dwell time. **Unchanged.**
-- `man == 0` + move to reset position → now detected as a normal manual change. The base state is synced (directly via the "Manual: opened/closed" sub-branch, or — when the open position is not recognized because the relevant `auto_*` is disabled — via the reset handler's "restore OPEN/CLOSE base state" after the dwell). Subsequent events then follow the correct `effective_state`.
+- `man == 0` + move to reset position → now detected as a normal manual change and recorded as `man: 1`. Per Invariant 15 the autonomous base/shading/window state is not derived from the physical position; configured override flags suppress movements while that state continues to advance.
 
 **Rule:** A manual-detection suppression that exists only to mute a *reset gesture* must carry the same precondition as the reset it is muting. Suppressing detection when there is nothing to reset silently discards a real manual change.
 
@@ -723,4 +723,36 @@ The same source was also missing from the "no trigger source at all" configurati
 
 **Fix:** Move "Opening: Shading warranted, arm pending" **above** "Already in open position" in the opening handler's `choose:`. The arm branch's own conditions (`shading_start_warranted`, window/lockout/once guards, no active shading or pending) already scope it precisely; it is mutually exclusive with the shading-detected and pending-defer branches (`not helper_state_shade` / `not helper_state_pending_start`), so only the already-open overlap changes. When shading is not warranted, the already-open shortcut behaves exactly as before (#495 ts.opn preservation untouched).
 
+**Current prevention:** Invariant 15 now preserves the pending across manual detection, so the exact manual-open chain above no longer destroys it. The branch order remains required for other legitimate no-pending states and as a regression guard for the original handoff.
+
 **Rule:** The Invariant-1 spirit applies to branch *ordering* too: a position-based shortcut ("already there, nothing to do") must never sit in front of a position-independent priority decision (shading handoff). When adding an early-exit sub-branch, check every later sub-branch for a scenario in which the shortcut's position check is true but the later branch still has work to do. Test: `TestIssue651AlreadyOpenMustNotSwallowShadingArm` in `tests/test_documented_bug_patterns.py`.
+
+---
+
+### Bug Pattern AS: Override reset clears the only shading execution edge (Issue #655)
+
+**Symptom:** Sun shading was active, the cover was moved by hand, and the manual override
+was later cleared by moving the cover to its configured reset position. The reset is visible
+in the logbook, but the cover stays at the reset position instead of returning to shading.
+The same gap applies to fixed-time and timeout resets.
+
+**Cause:** Manual detection coupled the physical intervention to the autonomous reducer: it
+cleared `shd`, `pnd`, `ts.due` and `ts.arm`, while opening/closing/shading entry gates could
+also reject the entire state transition when manual blocked its movement. Force conditions
+had similar early gates. The helper therefore described where the user had moved the cover,
+not where CCA would currently want it. When the blocker ended, there was no current intent to
+apply and no new environmental false → true edge to rebuild it.
+
+**Fix:** Manual detection now writes only `man`/`ts.man`. All scheduled, shading, window and
+resident transitions continue updating the helper while manual, a force target or force
+pause suppresses the corresponding drive. A matured shading start commits `shd: 1` without
+moving; a matured end clears it the same way. Releasing manual reconciles the current
+`effective_state` immediately through `state_targets`; force-disable and force-pause resume
+follow the same background-state model. The ventilation condition remains a real effect gate,
+and full-window lockout remains the safety exception that may overrule manual intent.
+
+**Rule:** Blockers belong to the effect layer. Never use them to reject or erase a reducer
+transition; persist the desired state, suppress only `drive_plan.run`, then reconcile the
+current state when the blocker is released (Invariant 15). Tests:
+`TestPatternASBlockedEffectsKeepStateCurrent` in
+`tests/test_documented_bug_patterns.py` and the paired manual/force parity scenarios.

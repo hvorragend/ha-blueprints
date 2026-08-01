@@ -247,6 +247,7 @@ class TestForcePauseIsPartOfEveryDriveGate:
             force_allows_ventilate=True, force_allows_open=True,
             force_allows_shade=True, force_allows_close=True,
             effective_state="none_of_them",
+            manual_allows_state={"opn": True, "vnt": True, "shd": True, "cls": True},
             in_open_position=False, in_ventilate_position=False,
             in_shading_position=False, in_close_position=False,
         )
