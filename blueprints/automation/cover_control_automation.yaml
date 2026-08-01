@@ -5791,9 +5791,6 @@ actions:
             {% set s_tlt = is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
             {{ 'opn' if s_opn else 'tlt' if s_tlt else helper_state_window if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' }}
 
-      # The flip gates and the vnt decision consume the same projections and
-      # !input condition nodes as the live branches - one source of truth
-      # (rationale, matrix, recovery-only composition: references/recovery-parity.md).
       - alias: "Recovery: the user's ventilation condition decides the ventilation floor"
         choose:
           - alias: "Recovery: ventilation floor allowed"
@@ -5821,10 +5818,11 @@ actions:
                         choose: []
                         default: &recovery_apply
                           - variables:
-                              # A refused ventilation condition removes the vnt floor, exactly
-                              # like the live branches falling through their vent leaves
+                              caught_up_closing: "{{ new_base == 'cls' and helper_state_base != 'cls' }}"
+                              caught_up_opening: "{{ new_base == 'opn' and helper_state_base != 'opn' }}"
+                          - variables:
                               recovered_cascade_window: >-
-                                {{ 'cls' if recovered_window == 'tlt' and not recovered_vent_ok else recovered_window }}
+                                {{ 'cls' if caught_up_closing and recovered_window == 'tlt' and not recovered_vent_ok else recovered_window }}
                               # Priority cascade - mirrors effective_state, but on the recovered base
                               # state (after the additional condition) and live_force
                               recovered_state: >-
@@ -5852,10 +5850,6 @@ actions:
                               pending_is_stale: >-
                                 {{ helper_state_pending != 'non' and
                                    (stale_day or helper_ts_pending_due <= as_timestamp(now()) | round(0)) }}
-                              # The live closing writes shd/pnd in every sub-branch, so the
-                              # caught-up closing does too (recovery-parity.md)
-                              caught_up_closing: "{{ new_base == 'cls' and helper_state_base != 'cls' }}"
-                              caught_up_opening: "{{ new_base == 'opn' and helper_state_base != 'opn' }}"
                           - variables:
                               # Shading re-evaluated from the current conditions. Arming is a catch-up (it
                               # drives later); clearing a stale pending is hygiene and happens either way
@@ -5921,13 +5915,17 @@ actions:
                               target_position: "{{ state_targets[recovered_state].target | int }}"
                               target_tilt_position: "{{ state_targets[recovered_state].target_tilt | int }}"
                           - variables:
-                              # Recovery-only conservative manual policy for pure re-positioning:
-                              # a caught-up transition already passed base_gates.*.override_ok,
-                              # so it drives (and clears man) like its live handler would
                               manual_holds_reposition: >-
                                 {{ helper_state_manual and not override_expired and
                                    not (caught_up_closing or caught_up_opening) and
                                    recovered_state != 'lock' }}
+                              caught_up_opening_hold: >-
+                                {{ caught_up_opening and not (
+                                     (recovered_state in ['opn', 'lock'] and resident_flags.allow_open) or
+                                     (recovered_state == 'shd' and recovered_shade)) }}
+                              recovery_vent_condition_hold: >-
+                                {{ recovered_state == 'lock' and not recovered_vent_ok and
+                                   not caught_up_opening }}
                               recovery_allowed: >-
                                 {{ not defer_to_shading and
                                    not manual_holds_reposition and
@@ -5935,10 +5933,9 @@ actions:
                                     else force_allows_open if recovered_state == 'opn'
                                     else force_allows_shade if recovered_state == 'shd'
                                     else force_allows_close) }}
-                              # The live closing's no-movement outcomes, replayed with it
-                              # (recovery-parity.md; the tilted clause mirrors lockout_now.closing)
                               caught_up_closing_hold: >-
                                 {{ caught_up_closing and (
+                                     recovered_state not in ['cls', 'vnt', 'lock'] or
                                      (recovered_state == 'cls' and closing_position_hold) or
                                      (is_ventilation_enabled and lockout_tilted_when_closing and recovered_window == 'tlt')) }}
                               recovery_in_position: >-
@@ -5951,11 +5948,14 @@ actions:
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (opening outcome)' if caught_up_opening_hold else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one
-                              will_drive: "{{ recovery_catch_up and not is_paused and recovery_allowed and not caught_up_closing_hold }}"
+                              will_drive: >-
+                                {{ recovery_catch_up and not is_paused and recovery_allowed and
+                                   not caught_up_closing_hold and not caught_up_opening_hold and
+                                   not recovery_vent_condition_hold }}
                           - variables:
                               drive_plan:
                                 run: "{{ will_drive }}"
@@ -5963,7 +5963,10 @@ actions:
                                 target_tilt: "{{ target_tilt_position | int }}"
                                 # A caught-up movement is a real one, so it runs the user's drive actions - but only
                                 # when the cover actually changes position (recovery_allowed carries no position check)
-                                action_set: "{{ state_targets[recovered_state].action_set if will_drive and not recovery_in_position else '' }}"
+                                action_set: >-
+                                  {{ ('up' if caught_up_opening and recovered_state == 'lock'
+                                      else state_targets[recovered_state].action_set)
+                                     if will_drive and not recovery_in_position else '' }}
                               update_values:
                                 # Re-apply the cascade after the outage
                                 bas: "{{ new_base }}"

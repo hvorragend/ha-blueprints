@@ -21,7 +21,7 @@ historical replay of the outage.**
 Perfect historical replay is impossible and is **not** claimed: transient sensor
 states that crossed and un-crossed during the outage, `for:` durations and the
 ordering of events inside the outage are unknowable. Where that matters, the
-recovery evaluates the *present*; the short list of remaining deviations (R1–R4
+recovery evaluates the *present*; the short list of remaining deviations (R1–R5
 below) is exactly that class, each with the reason and the test that asserts it
 **as** a deviation.
 
@@ -52,10 +52,10 @@ by every live consumer. Never copy either kind inline.
 | `base_gates.{opening,closing}.{override_ok,once_ok,schedule_ok}` | "Check for opening"/"Check for closing" entries | the flip conditions (compositions below) |
 | `closing_position_hold` | "Only status change if cover is shaded…" | `caught_up_closing_hold` |
 | `&auto_up_condition_check` / `&auto_down_condition_check` | branch entries (alias) | flip conditions (anchor) |
-| `&auto_ventilate_condition_check` | all 7 live ventilation leaves (closing C-B, shading-end vent, contact tilt ×2, resident ×2, force-disable vent) | the "ventilation floor" choose → `recovered_vent_ok` |
+| `&auto_ventilate_condition_check` | all 7 live ventilation leaves (closing C-B, shading-end vent, contact tilt ×2, resident ×2, force-disable vent) | captures `recovered_vent_ok` for the caught-up closing fallback and the lockout drive hold |
 | `environment_allows_opening/closing` | inside `schedule_ok` | same instance |
 | `state_targets` / `state_labels` | every drive branch | recovery drive |
-| `effective_state` ↔ `recovered_state` | the cascade | the same cascade on `new_base` / `live_force` / `recovered_cascade_window` (Invariant 13) |
+| `effective_state` ↔ `recovered_state` | the cascade | the same cascade on `new_base` / `live_force`; only a caught-up closing may project a refused tilted VENT leaf to `cls` (Invariant 13 + branch composition) |
 | `lockout_now.closing` shape (opened, or tilted+option) | closing C-A | the tilted clause of `caught_up_closing_hold` |
 
 **Recovery-only composition on top of the shared elements** (each deliberate,
@@ -74,11 +74,19 @@ the projection reduces to the direction's late-or-environment gate.
 recovery evaluates the anchored node **once, before the flip** (a `choose:`
 whose two branches share the flip step as the `&recovery_flip` anchor — HA
 variables do not escape branches, so the remainder must live inside both).
-`recovered_vent_ok` then folds into `recovered_cascade_window`: a tilted window
-whose ventilation condition is refused reads as `'cls'` **for the cascade
-only** — the same fall-through the live branches take past their vent leaves.
-`recovered_window` (the sensor truth) still feeds the lockout logic, the holds
-and the persisted `win`.
+The verdict is branch-specific, not a cascade property:
+
+- only a **caught-up closing** may map a tilted `recovered_window` to `'cls'`
+  for target selection, matching C-B falling through to C-E;
+- outside a caught-up opening, a refused condition holds a recovery LOCKOUT
+  drive, matching the live contact-opened leaf that owns that movement; O-E
+  does not consume this condition and therefore keeps its lockout target;
+- every other cascade calculation keeps the real window state. In particular,
+  the shading-start ventilation floor has no such live condition and must not
+  be removed by recovery.
+
+`recovered_window` itself always remains sensor truth for lockout logic, holds
+and persisted `win`.
 
 **Drift protection is closed, not token-based:**
 `TestClosedEntryStructure` asserts the live entries and the flip conditions are
@@ -116,7 +124,8 @@ shading active/pending, prevent options, force, pause, resident privacy.
 | `is_down_enabled` | entry condition | inside `recovered_base` | equivalent by construction |
 | `auto_down_condition` | alias | anchor | same node |
 | override / once / schedule | `base_gates.closing.*` | same (+`override_expired`, night clause) | shared |
-| window fully open | C-A: status only; cover already at the lockout position via the contact handler | `lock` → same target; no movement at the target | shared **system** outcome (see R3 for the away-from-target case) |
+| window fully open, condition allowed | C-A: status only; cover normally reached lockout through the contact handler | `lock` → same target; no movement at the target | shared **system** outcome (see R3 for the away-from-target case) |
+| window fully open, condition refused | C-A: status only; the live contact-opened leaf also refuses its drive | `lock`, but `recovery_vent_condition_hold` suppresses the drive | shared drive decision |
 | window tilted + lockout option | C-A (via `lockout_now.closing`): status only, regardless of the vent condition | `caught_up_closing_hold` tilted clause: status only | shared outcome (R4 for the `win` stamp) |
 | window tilted, condition allowed | C-B: drive to ventilate | `vnt` → same `state_targets.vnt` | shared |
 | window tilted, condition refused | C-B skipped → C-E closes fully | masked cascade → `cls` → same close | **shared** (was the worst deviation; fixed) |
@@ -133,7 +142,8 @@ shading active/pending, prevent options, force, pause, resident privacy.
 | manual override, no ignore option | O-E drives and clears `man` | flip passes `override_ok`; `manual_holds_reposition` exempts caught-up transitions → drives, clears `man` | shared |
 | shading warranted (O-A) / pending (O-D) | arm/defer | `recovered_pending` re-evaluates; `defer_to_shading` | re-evaluation semantic (R5) |
 | shading active (O-C) | drive to shading position, `shd` kept, **no `ts.opn` stamp** | opening flip keeps `recovered_shade` → `shd` target; `ts.opn` stamp suppressed when `recovered_state == 'shd'` | shared (the stamp omission was found by the paired suite) |
-| normal opening (O-E) | `allow_open` + force gate; lockout target on `lock` | cascade + `force_allows_open`; same `state_targets` | shared |
+| normal opening (O-E) | `allow_open` + force gate; lockout target on `lock`, opening action set | cascade + `force_allows_open`; lock keeps O-E's `up` action set | shared |
+| cascade produces a non-opening target (`cls`/`vnt`, or force-only `shd`) | O-C/O-E does not authorize that drive | `caught_up_opening_hold` suppresses it | shared drive decision |
 
 ### Recovery-only hygiene (deliberately no live counterpart, never moves the cover)
 
@@ -148,14 +158,14 @@ shading active/pending, prevent options, force, pause, resident privacy.
 | # | Deviation | Why it stays, and what the live reference says | Test |
 |---|---|---|---|
 | R1 | `… or override_expired` lets a caught-up flip proceed after the override's reset moment fell into the outage | Whether the swallowed movement fell before or after the expiry is unknowable. Live's fixed-time/timeout reset (BRANCH 10 default) writes **only** `man: 0` — it never drives and never syncs `bas` — so the event-before-expiry live timeline leaves the movement missed *only because nothing re-triggers*: a trigger-mechanics gap, not a decision. The recovery repairs first, then reconciles. | `TestManualOverrideParity::test_an_expired_override_is_the_post_repair_reconciliation` |
-| R2 | `manual_holds_reposition`: a recovery run **without** a base transition does not drive over `man == 1` | There is no live event to compare — nothing happened; a pure re-position is recovery-only motion, and driving over a recorded intervention without a caught-up event would *fight* the user. Caught-up transitions are exempt and follow the live direction-specific `override_ok` exactly. | `TestRecoveryDrive::test_a_manual_override_holds_a_pure_reposition` / `…follows_the_live_override_gate` |
-| R3 | A caught-up closing with the window fully open and the cover **away** from the lockout position drives to the lockout position (live C-A drives nothing) | The live *system* put the cover there via the contact-opened handler before the closing ran; a cover elsewhere means that contact event was swallowed too, and the recovery catches both up — to the same target the live handler owns. Movement is upward and lockout-safe. | `TestWindowParity::test_open_window_away_from_lockout_position_is_reconciled` |
+| R2 | `manual_holds_reposition`: a recovery run **without** a base transition does not drive over `man == 1` | There is no live event to compare — nothing happened; a pure re-position is recovery-only motion, and driving over a recorded intervention without a caught-up event would *fight* the user. A caught-up transition is exempt only after its live subbranch has authorized that target; `caught_up_opening_hold` and `caught_up_closing_hold` reject unrelated cascade targets. | `TestRecoveryDrive::test_a_manual_override_holds_a_pure_reposition` / `TestManualOverrideParity` / `TestForceAndPauseParity` |
+| R3 | With the condition allowed, a caught-up closing with the window fully open and the cover **away** from the lockout position drives to the lockout position (live C-A drives nothing) | The live *system* put the cover there via the contact-opened handler before the closing ran; a cover elsewhere means that contact event was swallowed too, and the recovery catches both up — to the same target the live handler owns. When the user's condition refuses that contact drive, recovery holds too. | `TestWindowParity::test_open_window_away_from_lockout_position_is_reconciled` / `…does_not_recover_to_lockout` |
 | R4 | `win` is persisted as the live sensor reading; C-A's `'opn'` stamp for a tilted window with the lockout option is not replicated | The helper's `win` is the Tier-2 fallback truth for the next outage; the contact handler — the normal owner of persisted window state — writes sensor truth, and the next contact event re-syncs live to it anyway. The no-movement outcome is identical (the hold). Narrow scope: tilted + option + caught-up closing only. | `TestWindowParity::test_tilted_lockout_option_holds_both_paths` (outcome parity; `win` declared hygiene) |
 | R5 | Shading and transient environment crossings are **re-evaluated, not replayed**; `is_time_control_disabled` has no base flip | `recovered_pending` arms from current conditions and the execution flow (whose entry gates evaluate the shading conditions/overrides) moves; a crossing that un-crossed is not warranted *now*; a pure-environment schedule has no time axis to re-derive and the current reading sits inside the hysteresis band. | `TestRecoveredPending`, `TestEnvironmentGatesTheCaughtUpBaseFlip`, `TestRecoveredBase` |
 
-Former deviations now **eliminated**: the `auto_ventilate_condition` bypass
-(evaluated via the anchored node + cascade mask), the any-`man` drive block for
-caught-up transitions (now direction-specific via the flip's `override_ok`),
+Former deviations now **eliminated**: the caught-up closing's
+`auto_ventilate_condition` bypass (evaluated via the anchored node + scoped
+fallback), the any-`man` drive block for live-authorized caught-up targets,
 the missing tilted-lockout hold, and the `ts.opn` stamp on an opening that
 lands in shading.
 

@@ -986,10 +986,16 @@ class TestCaughtUpClosingHold:
     def test_the_drive_gate_consumes_it(self):
         will_drive = _branch_var(RECOVERY, "will_drive")
         assert "caught_up_closing_hold" in will_drive
+        assert "caught_up_opening_hold" in will_drive
+        assert "recovery_vent_condition_hold" in will_drive
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
-                            recovery_allowed=True, caught_up_closing_hold=True) is False
+                            recovery_allowed=True, caught_up_closing_hold=True,
+                            caught_up_opening_hold=False,
+                            recovery_vent_condition_hold=False) is False
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
-                            recovery_allowed=True, caught_up_closing_hold=False) is True
+                            recovery_allowed=True, caught_up_closing_hold=False,
+                            caught_up_opening_hold=False,
+                            recovery_vent_condition_hold=False) is True
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1522,13 +1528,15 @@ class TestRecoveryDrive:
         assert "state_targets" in self.TILT()
 
     # --- the user's drive actions on a caught-up movement ---
-    def _action_set(self, state, in_position, will_drive=True):
+    def _action_set(self, state, in_position, will_drive=True,
+                    caught_up_opening=False):
         plan = _branch_var(RECOVERY, "drive_plan")
         targets = _state_targets(effective_shading_position=30,
                                  effective_lockout_position=100, **self.POSITIONS)
         return _render(plan["action_set"], {}, recovered_state=state,
                        state_targets=targets, recovery_in_position=in_position,
-                       will_drive=will_drive)
+                       will_drive=will_drive,
+                       caught_up_opening=caught_up_opening)
 
     @pytest.mark.parametrize("state,action_set", [
         ("opn", "up"), ("cls", "down"), ("vnt", "ventilate"),
@@ -1554,6 +1562,10 @@ class TestRecoveryDrive:
         """Without the opt-in the gate cleans the helper and stops. It never drives, so
         the user's before/after actions must not fire either."""
         assert self._action_set(state, in_position=False, will_drive=False) == ""
+
+    def test_a_caught_up_opening_uses_the_opening_actions_at_lockout(self):
+        assert self._action_set("lock", in_position=False,
+                                caught_up_opening=True) == "up"
 
     # --- recovery_allowed ---
     def _allowed(self, state, **over):

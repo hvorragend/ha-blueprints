@@ -534,11 +534,33 @@ class TestWindowParity:
             for b in step["choose"] if "Full ventilation (lockout)" in str(b.get("alias", "")))
         assert lockout_leaf is not None   # the live handler that owns this movement
 
+    def test_refused_ventilation_condition_does_not_recover_to_lockout(self):
+        """The live contact-opened leaf is gated by the user's ventilation
+        condition. Recovery must not perform the movement that leaf refused."""
+        verdicts = dict(DEFAULT_VERDICTS, auto_ventilate_condition=False)
+        s = scenario(brightness="40", window="opn", current_position=40)
+        live, recovery = assert_paired(s, verdicts=verdicts)
+        assert live["entered"] and live["moves"] is False
+        assert recovery["state"] == "lock"
+        assert recovery["moves"] is False
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Shading interplay
 # ════════════════════════════════════════════════════════════════════════════
 class TestShadingParity:
+    def test_refused_ventilation_condition_does_not_remove_the_shading_floor(self):
+        """The live shading-start floor has no auto_ventilate_condition gate.
+        A global recovery mask must therefore not turn its VENT target into SHD."""
+        verdicts = dict(DEFAULT_VERDICTS, auto_ventilate_condition=False)
+        s = scenario(brightness="40", window="tlt",
+                     helper={"bas": "cls", "shd": 1},
+                     current_position=50)
+        recovery = run_recovery(s, verdicts)
+        assert recovery["new_base"] == "cls"
+        assert recovery["state"] == "vnt"
+        assert recovery["moves"] is False
+
     def test_a_caught_up_closing_ends_the_shading_in_both_paths(self):
         s = scenario(brightness="40", helper={"shd": 1},
                      current_position=20)
@@ -611,6 +633,26 @@ class TestOpeningParity:
         assert recovery["state"] == "shd" and recovery["target"] == 20
         assert live["final"]["shd"] == recovery["final"]["shd"] == 1
 
+    def test_a_resident_blocked_opening_does_not_become_a_closing_drive(self):
+        """Passing the opening entry gate authorizes the live opening outcome,
+        not an arbitrary closing target selected by the recovery cascade."""
+        s = self._morning(brightness="5000", state_resident=True,
+                          resident_config=[], current_position=100)
+        live, recovery = assert_paired(s, "opening")
+        assert live["entered"] and live["moves"] is False
+        assert recovery["state"] == "cls"
+        assert recovery["moves"] is False
+
+    def test_an_open_window_still_uses_the_opening_lockout_target(self):
+        """The live opening O-E does not consume auto_ventilate_condition. Its
+        LOCK target must therefore stay authorized when that condition is false."""
+        verdicts = dict(DEFAULT_VERDICTS, auto_ventilate_condition=False)
+        s = self._morning(brightness="5000", window="opn", current_position=40)
+        live, recovery = assert_paired(s, "opening", verdicts)
+        assert live["moves"] and live["target"] == 100
+        assert recovery["state"] == "lock"
+        assert recovery["moves"] and recovery["target"] == 100
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # Force and pause
@@ -633,6 +675,16 @@ class TestForceAndPauseParity:
                      helper={"frc": "cls", "bas": "cls"})
         recovery = run_recovery(s)
         assert recovery["state"] == "cls"
+
+    def test_a_caught_up_closing_does_not_execute_a_conflicting_force_target(self):
+        """Passing the closing entry gate authorizes CLS/VNT/LOCK outcomes, not
+        an OPEN drive selected by the recovery cascade's current force state."""
+        s = scenario(brightness="40", current_position=40, live_force="opn",
+                     helper={"frc": "opn"}, force_allows_close=False)
+        live, recovery = assert_paired(s, hygiene=("win", "man"))
+        assert live["entered"] and live["moves"] is False
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] is False
 
 
 # ════════════════════════════════════════════════════════════════════════════
