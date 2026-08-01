@@ -359,14 +359,14 @@ A blocked automation **silently loses** every event of the outage: time/calendar
 - `recovered_window` — live contact sensors (lockout / vent floor).
 - `live_force` — the force state re-derived from the **live** force entities ("last activated wins"), falling back to `helper_state_force` while the recorded force's own entity is unreadable (Tier 2 above). A force switched on or off during the outage left `frc` stale in the helper; `live_force` is the single source of truth and is also what the force-disable handler (BRANCH 8) uses.
 - `res` — re-read from `state_resident` and **persisted**. The resident handler's trigger was swallowed by the outage, so nothing else corrects `res` — and `res` is exactly the value `state_resident` falls back to on the *next* dropout. Leaving it stale poisons that fallback.
-- `recovered_state` — **mirrors `effective_state`, but on `recovered_base` and `live_force`.** The duplication is deliberate: `effective_state` reads `helper_json.bas`/`.frc`, which are exactly the stale values the recovery must correct, and HA templates cannot be parameterized. **Keep both in sync — every change to the `effective_state` cascade must be applied to `recovered_state` (Invariant 13).** `TestCascadeParity` renders both side by side; `TestRecoveredStateUsesRecoveredInputs` additionally feeds them *diverging* base/force, which parity by construction cannot see.
+- `recovered_state` — **mirrors `effective_state`, but on `new_base`, `live_force` and `recovered_cascade_window`** (the vent-condition mask, see the diagram above). The duplication is deliberate: `effective_state` reads `helper_json.bas`/`.frc`, which are exactly the stale values the recovery must correct, and HA templates cannot be parameterized. **Keep both in sync — every change to the `effective_state` cascade must be applied to `recovered_state` (Invariant 13).** `TestCascadeParity` renders both side by side; `TestRecoveredStateUsesRecoveredInputs` additionally feeds them *diverging* base/force, which parity by construction cannot see.
 - `recovered_pending` — shading is **re-evaluated**, not replayed: with `shd == 0` and `shading_start_warranted` (fresh forecast — the forecast-load gate matches `t_recovery` **and `automation_resumed`**, because the resumed-run backstop reaches this code through trigger ids the gate does not list; Bug Pattern T, #603) a start pending is armed; with `shd == 1` and `shading_end_conditions_met` an end pending is armed. Due/arm mirror the arming branches, including the pre-window deferral (Bug Patterns L/S). The existing execution triggers then take over — the recovery deliberately does **not** duplicate the shading execution.
 - A **stale pending** (`ts.due` already past) is cleared first: its execution trigger fired during the outage and was blocked, so there is no further `false → true` transition and it can never run. Leaving it armed would make the opening handler defer into a dead flow (Bug Pattern R/AG family).
 - `defer_to_shading` — when a start pending is armed and the target would be `opn`, the drive is skipped and the shading execution does the movement (mirrors the #555 opening handler), **unless** the lockout window is open (Bug Pattern AG: the shading execution only stores the intent there and would never open the cover).
 - The **user's drive actions** (`auto_up_action`, `auto_down_action`, …) run on a caught-up movement — a closing the outage swallowed *is* a closing. `action_set` therefore comes from `state_targets[recovered_state]`, but **only when `not recovery_in_position`**. This gate is load-bearing: unlike `state_gates`, `recovery_allowed` carries **no** position check (it must stay true so a tilt-only correction still runs), so `drive_plan.run` is true on virtually every recovery run and only `cover_move_action`'s internal tolerance guard suppresses the movement. The before/after actions in `drive_with_actions` sit **outside** that guard — without the gate, each of the ~19 recovery sources would re-fire the user's notifications and scenes after a restart although nothing moved. `not recovery_in_position` is the same "we actually drove" predicate that already gates the `man` reset here, and a tilt-only drive setting no `action_set` matches the "Check for shading tilt" branch (`move: 'tilt'`).
 - The **drive target comes from `state_targets[recovered_state]`**, not from a local position chain. `state_targets.shd.target` is `effective_shading_position`, so the recovery honours the alternate shading position (#580) like every other drive. A hand-rolled chain over `shading_position` silently drags the cover back to the *normal* shading position on every restart while the alternate one is active — and `recovery_in_position` compares against the recovery's *own* target, so it cannot notice. `state_gates` is deliberately **not** used: those gate on `effective_state`, and the recovery must gate on `recovered_state` (main's own comment sanctions branches keeping their own gate expression). `TestRecoveryDrive` renders the real projection out of the blueprint and asserts the target still flows through it.
 - `recovered_shade` / `stale_day` — a shading (and a pending) from an earlier day is dropped, because the 23:55 reset never ran. See Half 1b; note the `ts.shd` rule there, it is the opposite of BRANCH 11's.
-- **Manual override survives** the outage — the gate sits in `recovery_allowed` (`not helper_state_manual or override_expired or recovered_state == 'lock'`), **not** in the branch conditions, so it blocks the *drive* while the helper hygiene still runs. Only lockout overrules it, per Invariant 6. When `override_expired` clears `man`, the branch also runs the user's `auto_override_reset_action`, exactly as BRANCH 10 does — a reset caught up by the recovery must not silently skip the notification/scene the user wired to it.
+- **Manual override: direction-specific for caught-up transitions, conservative for pure re-positioning** (CCA 2026.08.01, #656 audit). A caught-up flip already passed `base_gates.*.override_ok`, so its drive proceeds — and clears `man` — exactly like the live handler (which drives right over an unprotected manual position when no `ignore_*_after_manual` option is configured). A recovery run *without* a base transition has no live event to replay, so `manual_holds_reposition` blocks that drive on any `man == 1` — a named recovery-only policy, not part of the parity model (recovery-parity.md R2). Both live in the drive path, **not** in the branch conditions, so the helper hygiene always runs; only lockout overrules, per Invariant 6. When `override_expired` clears `man`, the branch also runs the user's `auto_override_reset_action`, exactly as BRANCH 10 does — a reset caught up by the recovery must not silently skip the notification/scene the user wired to it.
 
 **Known limitation 1:** a source that never went `unavailable` (many helpers restore straight to their value) produces no recovery trigger — the `homeassistant: start` trigger covers that case.
 
@@ -432,7 +432,12 @@ applies — has to be a `choose:`, and everything downstream of the base state h
 off a shared body:
 
 ```text
-choose:
+choose: "ventilation floor allowed?"           (&auto_ventilate_condition_check —
+  - condition ok  → recovered_vent_ok: true      the SAME node all 7 live vent leaves alias)
+                    → &recovery_flip
+  default         → recovered_vent_ok: false   → *recovery_flip
+
+&recovery_flip = choose:
   - "catching up an opening"  → recovery_catch_up and recovered_base == 'opn' and helper base != 'opn'
                                 + base_gates.opening.schedule_ok
                                 + base_gates.opening.override_ok or override_expired
@@ -445,6 +450,11 @@ choose:
                                 + &auto_down_condition_check            → new_base: 'cls'
                                                                           + recovered_shade: false  → *recovery_apply
 default:                        no flip, or a gate said no              → new_base: helper → *recovery_apply
+
+recovery_apply: recovered_cascade_window ('cls'-masks a tilted window whose vent
+condition was refused - the cascade falls through exactly like the live branches
+fall through their vent leaves; lockout, the holds and the persisted win keep
+reading the real recovered_window)
 ```
 
 **The environment conditions gate the flip the same way (CCA 2026.07.30, #649).** Same
@@ -509,15 +519,19 @@ shading for the future — the documented "re-evaluated, not replayed" semantics
 **The live closing's no-movement outcomes hold for the caught-up drive (same
 commit).** `closing_position_hold` (shared with the live "Only status change if
 cover is shaded and lowering blocked" branch) and the tilted-window lockout
-option (`lockout_tilted_when_closing`, live: via `lockout_now.closing`) compose
-into `caught_up_closing_hold`, which `will_drive` consumes: the movement is
-withheld, the helper write still runs. Scoped to `caught_up_closing` — a recovery
-that re-positions to an unchanged `bas == 'cls'` mirrors the return/leave chains
-(`state_gates.cls`), which never carried these rules; do not widen the scope.
+option (mirroring `lockout_now.closing`'s tilted clause — tested on the
+**window and the option**, not on the cascade outcome, because the refused
+ventilation condition may have masked the cascade to `'cls'` and C-A holds
+regardless of that condition) compose into `caught_up_closing_hold`, which
+`will_drive` consumes: the movement is withheld, the helper write still runs.
+Scoped to `caught_up_closing` — a recovery that re-positions to an unchanged
+`bas == 'cls'` mirrors the return/leave chains (`state_gates.cls`), which never
+carried these rules; do not widen the scope.
 
 Pinned by `TestLiveGatesTheCaughtUpBaseFlip`, `TestCaughtUpClosingClearsTheShading`,
-`TestCaughtUpClosingHold` and the paired scenario suite in
-`tests/test_recovery_live_parity.py`.
+`TestCaughtUpClosingHold` and the YAML-executing paired suite in
+`tests/test_recovery_live_parity.py` (contract, matrix and the remaining R1–R5
+deviations: recovery-parity.md).
 
 `&recovery_apply` is a **list anchor behind `choose: [] / default:`** (the grouping idiom
 already used by `helper_update`) and is defined *inside* the action tree, so Invariant 14

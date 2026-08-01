@@ -570,12 +570,15 @@ class TestOverrideExpired:
         ) is True
 
     def test_the_manual_gate_blocks_the_drive_not_the_helper_hygiene(self):
-        """The gate lives in recovery_allowed, NOT in the branch conditions. If it gated the
-        branch, a manual override would also block the stale-day cleanup - so a shading from
-        three days ago would survive the recovery whenever man == 1."""
+        """The gate lives in the drive path (manual_holds_reposition -> recovery_allowed),
+        NOT in the branch conditions. If it gated the branch, a manual override would also
+        block the stale-day cleanup - so a shading from three days ago would survive the
+        recovery whenever man == 1."""
         assert not any("helper_state_manual" in str(c) for c in _branch_gate(RECOVERY))
         allowed = _branch_var(RECOVERY, "recovery_allowed")
-        assert "helper_state_manual" in allowed and "override_expired" in allowed
+        assert "manual_holds_reposition" in allowed
+        hold = _branch_var(RECOVERY, "manual_holds_reposition")
+        assert "helper_state_manual" in hold and "override_expired" in hold
 
     def test_recovery_clears_man_when_expired(self):
         for step in _walk_steps(_branch_body(RECOVERY)):
@@ -665,7 +668,7 @@ class TestEnvironmentGatesTheCaughtUpBaseFlip:
     unconditional - the normal flow has no environment gate at night either."""
 
     def _gate(self) -> dict:
-        return next(s for s in _branch_body(RECOVERY)
+        return next(s for s in _walk_steps(_branch_body(RECOVERY))
                     if "additional condition" in str(s.get("alias", "")))
 
     def _schedule_condition(self, alias_part: str) -> str:
@@ -755,7 +758,7 @@ class TestLiveGatesTheCaughtUpBaseFlip:
     is judged against the repaired state (references/recovery-parity.md)."""
 
     def _gate(self) -> dict:
-        return next(s for s in _branch_body(RECOVERY)
+        return next(s for s in _walk_steps(_branch_body(RECOVERY))
                     if "additional condition" in str(s.get("alias", "")))
 
     def _branch(self, alias_part: str) -> dict:
@@ -846,7 +849,7 @@ class TestCaughtUpClosingClearsTheShading:
     the shading position for the night instead of the closing it was catching up."""
 
     def _gate(self) -> dict:
-        return next(s for s in _branch_body(RECOVERY)
+        return next(s for s in _walk_steps(_branch_body(RECOVERY))
                     if "additional condition" in str(s.get("alias", "")))
 
     def _flip_vars(self, alias_part: str) -> dict:
@@ -910,6 +913,7 @@ class TestCaughtUpClosingHold:
     def _hold(self, position_hold=False, **over):
         base = dict(caught_up_closing=True, recovered_state="cls",
                     closing_position_hold=position_hold,
+                    is_ventilation_enabled=True, recovered_window="cls",
                     lockout_tilted_when_closing=False)
         base.update(over)
         return _render_bool(self.HOLD(), {}, **base)
@@ -959,19 +963,24 @@ class TestCaughtUpClosingHold:
         assert self._hold(position_hold=False) is False
 
     def test_the_tilted_lockout_option_withholds_the_caught_up_drive(self):
-        """lockout_now.closing covers the tilted window when the option is set, and
-        the live branch then ends without a movement - the catch-up must not pull
-        the cover to the ventilation position instead."""
-        assert self._hold(recovered_state="vnt",
+        """The live C-A branch (via lockout_now.closing) holds a tilted window with the
+        option set REGARDLESS of the ventilation condition, so the clause tests the
+        window and the option - not the cascade outcome (which the refused ventilation
+        condition may have masked to 'cls')."""
+        assert self._hold(recovered_window="tlt",
                           lockout_tilted_when_closing=True) is True
-        assert self._hold(recovered_state="vnt",
+        assert self._hold(recovered_window="tlt", recovered_state="vnt",
+                          lockout_tilted_when_closing=True) is True
+        assert self._hold(recovered_window="tlt", recovered_state="vnt",
                           lockout_tilted_when_closing=False) is False
+        assert self._hold(recovered_window="tlt", lockout_tilted_when_closing=True,
+                          is_ventilation_enabled=False) is False
 
     def test_only_a_caught_up_closing_is_gated(self):
         """A plain re-position to an unchanged bas == 'cls' mirrors the return/leave
         chains (state_gates.cls carries no prevent options either)."""
         assert self._hold(caught_up_closing=False, position_hold=True) is False
-        assert self._hold(caught_up_closing=False, recovered_state="vnt",
+        assert self._hold(caught_up_closing=False, recovered_window="tlt",
                           lockout_tilted_when_closing=True) is False
 
     def test_the_drive_gate_consumes_it(self):
@@ -1050,8 +1059,10 @@ class TestCascadeParity:
             # new_base is recovered_base after the additional opening/closing condition has
             # had its say; with no flip to catch up the two are the same value.
             new_base=bas,
-            recovered_window=_render(_branch_var(RECOVERY, "recovered_window"), entities,
-                                     helper_state_window=helper["win"], **shared),
+            # the cascade consumes the masked window; with the ventilation condition
+            # allowed (the parity default) the mask is the identity
+            recovered_cascade_window=_render(_branch_var(RECOVERY, "recovered_window"), entities,
+                                             helper_state_window=helper["win"], **shared),
             recovered_shade=(shd == 1),
             resident_flags={
                 "closing_trigger": "resident_closing_enabled" in cfg,
@@ -1089,7 +1100,7 @@ class TestRecoveredStateUsesRecoveredInputs:
             # opening/closing condition allowed the flip) - never the helper's stale one.
             new_base=recovered_base,
             live_force=live_force,
-            recovered_window=window,
+            recovered_cascade_window=window,
             helper_state_base=helper_bas,      # the stale values - must NOT be used
             helper_state_force=helper_frc,
             recovered_shade=shade,
@@ -1548,7 +1559,7 @@ class TestRecoveryDrive:
     def _allowed(self, state, **over):
         base = dict(force_allows_open=True, force_allows_close=True,
                     force_allows_shade=True, force_allows_ventilate=True,
-                    defer_to_shading=False, helper_state_manual=False, override_expired=False)
+                    defer_to_shading=False, manual_holds_reposition=False)
         base.update(over)
         return _render_bool(self.ALLOWED(), {}, recovered_state=state, **base)
 
@@ -1564,16 +1575,38 @@ class TestRecoveryDrive:
     def test_deferring_to_shading_means_no_drive_here(self):
         assert self._allowed("opn", defer_to_shading=True) is False
 
-    # --- the manual override gate (moved here from the branch conditions) ---
-    def test_a_manual_override_blocks_the_drive(self):
-        assert self._allowed("cls", helper_state_manual=True) is False
+    # --- the manual policy: conservative for re-positioning, live parity for transitions ---
+    MANUAL = staticmethod(lambda: _branch_var(RECOVERY, "manual_holds_reposition"))
 
-    def test_an_expired_manual_override_does_not_block(self):
-        assert self._allowed("cls", helper_state_manual=True, override_expired=True) is True
+    def _manual_hold(self, **over):
+        base = dict(helper_state_manual=True, override_expired=False,
+                    caught_up_closing=False, caught_up_opening=False,
+                    recovered_state="cls")
+        base.update(over)
+        return _render_bool(self.MANUAL(), {}, **base)
+
+    def test_a_manual_override_holds_a_pure_reposition(self):
+        """A recovery run with no base transition has no live event to replay - the
+        recorded intervention wins (named recovery-only policy, recovery-parity.md)."""
+        assert self._manual_hold() is True
+        assert self._allowed("cls", manual_holds_reposition=True) is False
+
+    def test_a_caught_up_transition_follows_the_live_override_gate(self):
+        """The flip already passed base_gates.*.override_ok, so the drive proceeds
+        exactly like the live handler (which drives - and clears man - when no
+        ignore_*_after_manual option is configured)."""
+        assert self._manual_hold(caught_up_closing=True) is False
+        assert self._manual_hold(caught_up_opening=True) is False
+
+    def test_an_expired_manual_override_does_not_hold(self):
+        assert self._manual_hold(override_expired=True) is False
 
     def test_lockout_overrules_a_manual_override(self):
         """Invariant 6: lockout is a safety feature and beats manual intent."""
-        assert self._allowed("lock", helper_state_manual=True) is True
+        assert self._manual_hold(recovered_state="lock") is False
+
+    def test_no_manual_override_nothing_holds(self):
+        assert self._manual_hold(helper_state_manual=False) is False
 
     # --- recovery_in_position ---
     @pytest.mark.parametrize("current,expected", [(100, True), (96, True), (94, False), (0, False)])
@@ -1615,8 +1648,17 @@ class TestRecoveryPersists:
         ts = _recovery_update_values()["ts"]
         assert _render(ts["cls"], {}, new_base="cls", helper_state_base="opn", **args) == "now"
         assert _render(ts["cls"], {}, new_base="cls", helper_state_base="cls", **args) == "222"
-        assert _render(ts["opn"], {}, new_base="opn", helper_state_base="cls", **args) == "now"
-        assert _render(ts["opn"], {}, new_base="opn", helper_state_base="opn", **args) == "111"
+        assert _render(ts["opn"], {}, caught_up_opening=True, recovered_state="opn", **args) == "now"
+        assert _render(ts["opn"], {}, caught_up_opening=False, recovered_state="opn", **args) == "111"
+
+    def test_ts_opn_is_not_stamped_when_the_opening_lands_in_shading(self):
+        """Live parity: the opening branch's 'Shading detected' leaf (O-C) records
+        bas: 'opn' WITHOUT stamping ts.opn - the shading, not the opening, happened.
+        The caught-up opening mirrors that omission (test_recovery_live_parity.py
+        pins the paired outcome)."""
+        ts = _recovery_update_values()["ts"]
+        assert _render(ts["opn"], {}, caught_up_opening=True, recovered_state="shd",
+                       helper_ts_open=111, stale_day=False) == "111"
 
     def _man(self, **over):
         base = dict(override_expired=False, will_drive=True, recovery_in_position=False,
@@ -1975,6 +2017,7 @@ class TestStaleDay:
         must not be able to suppress today's opening or closing."""
         ts = _recovery_update_values()["ts"][field]
         args = {"new_base": field, "helper_state_base": field,
+                "caught_up_opening": False, "recovered_state": field,
                 "helper_ts_open": 111, "helper_ts_close": 222}
         assert _render(ts, {}, stale_day=True, **args) == "0"
         assert _render(ts, {}, stale_day=False, **args) == ("111" if field == "opn" else "222")
@@ -2228,7 +2271,7 @@ class TestRecoveryTriggers:
             assert "will_drive" not in str(uv[key]), key
 
     def _direction_gate(self) -> dict:
-        return next(s for s in _branch_body(RECOVERY)
+        return next(s for s in _walk_steps(_branch_body(RECOVERY))
                     if "additional condition" in str(s.get("alias", "")))
 
     def test_catching_up_the_base_state_needs_the_opt_in(self):

@@ -176,7 +176,7 @@ class TestRecoveryMirror:
             template, {},
             live_force="non",
             new_base=base,
-            recovered_window="tlt",
+            recovered_cascade_window="tlt",
             recovered_shade=shade,
             state_resident=False,
             is_opening_scheduled=True,
