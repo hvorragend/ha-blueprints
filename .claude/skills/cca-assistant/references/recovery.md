@@ -391,7 +391,7 @@ against *which trigger actually fires it*.
 
 | Trigger | Latches? | Cost of a dropped run | Repaired by | Opt-in? |
 |---|---|---|---|---|
-| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — **but only when the direction's `auto_up_condition`/`auto_down_condition` still allows it** (V6), **and, outside the ultimate late windows, only when the environment conditions allow it** (2026.07.30, #649): a movement the user's condition or the brightness/sun conditions suppressed was not missed | **opt-in** |
+| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — **but only when the direction's `auto_up_condition`/`auto_down_condition` still allows it** (V6), **and, outside the ultimate late windows, only when the environment conditions allow it** (2026.07.30, #649), **and only past the manual-override (`override_blocks.*`) and once-a-day (`prevent_*_multiple_times`) gates** (2026.08.01, #656): a movement any live gate suppressed was not missed. A caught-up closing also clears `shd`/`pnd` and honors the closing prevent options, like every live closing sub-branch | **opt-in** |
 | *(a gate source drops out mid-runtime and returns — no restart, no re-attach)* | — | the gate blocks every run of the outage, so **all the latching rows below happen at once**, and the `frc`/`win`/`res` the blocked runs would have written stay stale (a stale `frc` moves the cover wrongly on every later trigger, forever) | the **ungated `t_recovery` triggers of the five gate sources** (cover, helper, position sensor, both contacts) | always — nothing else fires; the run they start is hygiene-only with the catch-up off |
 | `t_shading_*_pending_*` (numeric/template) | **yes** (condition stays true) | shading never starts/ends that day | the recovery gate's `recovered_pending` (re-evaluates and re-arms) | **opt-in** |
 | `t_shading_*_execution` | **yes** (`now >= ts.due` stays true) | pending armed forever, opening handler defers into a dead flow | the recovery gate's `pending_is_stale` (clears it) | always |
@@ -434,11 +434,17 @@ off a shared body:
 ```text
 choose:
   - "catching up an opening"  → recovery_catch_up and recovered_base == 'opn' and helper base != 'opn'
-                                + is_time_up_late or environment_allows_opening
-                                + condition: !input auto_up_condition   → new_base: 'opn'  → *recovery_apply
-  - "catching up a closing"   → … + not is_evening_phase or is_time_down_late or environment_allows_closing
-                                + !input auto_down_condition            → new_base: 'cls'  → *recovery_apply
-default:                        no flip, or a condition said no         → new_base: helper → *recovery_apply
+                                + base_gates.opening.schedule_ok
+                                + base_gates.opening.override_ok or override_expired
+                                + base_gates.opening.once_ok
+                                + &auto_up_condition_check (anchored, aliased by the live branch)
+                                                                        → new_base: 'opn'  → *recovery_apply
+  - "catching up a closing"   → … + not is_evening_phase or base_gates.closing.schedule_ok
+                                + base_gates.closing.override_ok or override_expired
+                                + base_gates.closing.once_ok
+                                + &auto_down_condition_check            → new_base: 'cls'
+                                                                          + recovered_shade: false  → *recovery_apply
+default:                        no flip, or a gate said no              → new_base: helper → *recovery_apply
 ```
 
 **The environment conditions gate the flip the same way (CCA 2026.07.30, #649).** Same
@@ -449,14 +455,16 @@ unconditionally) — but `recovered_base` reads `is_evening_phase`, which starts
 `time_down_early`. Real report (#649): closing by sun elevation −1.4°, `time_down_early`
 16:00, `enable_recovery: always` — a UI save at 20:00 with the sun still at 8° flipped
 `bas` to `'cls'` and drove the cover closed, two hours before the normal flow would have.
-The flip branches therefore mirror the normal branches' environment gate:
-
-- opening flip: `is_time_up_late or environment_allows_opening` (a `recovered_base` of
-  `'opn'` only ever comes from `is_daytime_phase`, so no phase clause is needed);
-- closing flip: `not is_evening_phase or is_time_down_late or environment_allows_closing` —
-  the `not is_evening_phase` clause keeps the **night clause unconditional** (between
-  midnight and the opening time there is no environment gate in the normal flow either,
-  and refusing that flip would strand a swallowed closing until morning).
+The flip branches therefore apply the normal branches' environment gate — since
+CCA 2026.08.01 by consuming the **same** `base_gates.*.schedule_ok` projection the
+live entries consume (the flip context neutralizes the extra clauses: a
+`recovered_base` of `'opn'` only ever comes from `is_daytime_phase`, and a flip
+never happens with time control disabled — the reduction is pinned by
+`TestEnvironmentGatesTheCaughtUpBaseFlip`). The closing flip composes
+`not is_evening_phase or …` on top, which keeps the **night clause
+unconditional** (between midnight and the opening time there is no environment
+gate in the normal flow either, and refusing that flip would strand a swallowed
+closing until morning).
 
 Refusing the flip costs nothing: the environment triggers (`t_open_4/5`, `t_close_4/5`)
 render false at attach time in exactly this scenario, so they are armed and fire on the
@@ -465,6 +473,51 @@ an environment condition that crossed *and un-crossed* during the outage (a tran
 brightness dip) is not replayed — same reasoning as the additional conditions ("if the
 conditions do not warrant it *now*, do not replay it"), and the ultimate closing still
 catches it by `time_down_late`. Pinned by `TestEnvironmentGatesTheCaughtUpBaseFlip`.
+
+**Since CCA 2026.08.01 (#656 audit) the flip gates are SHARED projections, not
+mirrors.** The audit found the same bug class two more times (the manual-override
+gate and the once-a-day guards were missing from the flip), and the fix is
+structural: the live branch entries and the flip both consume the action-level
+`base_gates.{opening,closing}.{override_ok,once_ok,schedule_ok}` projections —
+one source of truth, so the two paths cannot drift apart again. The semantic
+contract (reconciliation from current state, not historical replay), the full
+live/recovery decision matrix, the intentional recovery-only semantics (the
+`or override_expired` composition, the night clause, the any-`man` drive gate,
+the `vnt`/`auto_ventilate_condition` and lockout-target decisions) and the
+checklist for adding a new live gate live in
+[references/recovery-parity.md](recovery-parity.md) — read it before touching
+either side. The `auto_up_condition`/`auto_down_condition` `!input` nodes are
+anchored at the flip and aliased by the live branches (object identity, pinned
+by `TestSharedProjectionStructure`).
+
+**A caught-up closing emulates the whole closing write, not just `bas` (same
+commit).** Every sub-branch of the live closing writes `shd: 0` and `pnd: 'non'` —
+but the flip used to leave `recovered_shade` untouched, so with an active shading
+the cascade put SHADING above BASE=CLS and the recovery drove the cover to the
+*shading position for the night* instead of the closing it was catching up. The
+closing-flip branch therefore shadows `recovered_shade: false` (branch-scoped,
+same idiom as `new_base`), and `caught_up_closing` (`new_base == 'cls' and
+helper_state_base != 'cls'`, derived inside `recovery_apply`) clears a preserved
+pending with its `ts.due`/`ts.arm`. The opening flip deliberately does **not**
+clear `shd`: an opening with an active shading is the live "Shading detected —
+move to shading position" sub-branch, where the shading survives. A `shd: 1` next
+to `bas: 'cls'` on a *non*-flip run is the stored-future shading and is preserved
+as before. Shading *re-evaluation* still applies after the clear:
+`recovered_pending` may arm a fresh start pending whose execution then stores the
+shading for the future — the documented "re-evaluated, not replayed" semantics.
+
+**The live closing's no-movement outcomes hold for the caught-up drive (same
+commit).** `closing_position_hold` (shared with the live "Only status change if
+cover is shaded and lowering blocked" branch) and the tilted-window lockout
+option (`lockout_tilted_when_closing`, live: via `lockout_now.closing`) compose
+into `caught_up_closing_hold`, which `will_drive` consumes: the movement is
+withheld, the helper write still runs. Scoped to `caught_up_closing` — a recovery
+that re-positions to an unchanged `bas == 'cls'` mirrors the return/leave chains
+(`state_gates.cls`), which never carried these rules; do not widen the scope.
+
+Pinned by `TestLiveGatesTheCaughtUpBaseFlip`, `TestCaughtUpClosingClearsTheShading`,
+`TestCaughtUpClosingHold` and the paired scenario suite in
+`tests/test_recovery_live_parity.py`.
 
 `&recovery_apply` is a **list anchor behind `choose: [] / default:`** (the grouping idiom
 already used by `helper_update`) and is defined *inside* the action tree, so Invariant 14

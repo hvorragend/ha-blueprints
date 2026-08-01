@@ -40,6 +40,7 @@ loading the reference first:
 | Branch conditions, drive gates, `update_values`, timestamps (`ts.*`), pending logic | [references/invariants.md](references/invariants.md) (full rationale for all 14 invariants) |
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
+| Live opening/closing branch entry conditions, `base_gates`, `closing_position_hold`, the caught-up base flip — or adding any new gate to the live open/close branch | [references/recovery-parity.md](references/recovery-parity.md) (semantic contract, decision matrix, shared projections) |
 | Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AQ with cause and fix) |
 
 The always-binding rules (the 14 invariants as one-liners, code style, quality

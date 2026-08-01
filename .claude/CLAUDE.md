@@ -18,6 +18,7 @@ changing the area it covers (see the map below). After any change, run
 | Any branch condition, drive gate, `update_values`, timestamps, pending logic | `.claude/skills/cca-assistant/references/invariants.md` |
 | Anything that looks asymmetric/inconsistent and tempts you to "harmonize" it | `.claude/skills/cca-assistant/references/design-decisions.md` |
 | Availability gates, `t_recovery`, `automation_resumed`, recovery gate — or **adding any new gate/condition that can stop a run** | `.claude/skills/cca-assistant/references/recovery.md` |
+| Live opening/closing entry conditions, `base_gates`, `closing_position_hold`, the caught-up base flip — or **adding any new gate to the open/close branch** | `.claude/skills/cca-assistant/references/recovery-parity.md` |
 | Branch conditions, global conditions, trigger `enabled:`, helper-JSON regexes, deferrals/handoffs between flows | `.claude/skills/cca-assistant/references/bug-patterns.md` |
 
 If a change touches one of these areas and you have not read the file, assume the

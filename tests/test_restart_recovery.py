@@ -108,6 +108,7 @@ def _env(entity_states: dict | None = None, last_changed: dict | None = None,
         value.timestamp() if isinstance(value, datetime.datetime) else float(value)
     )
     env.filters["timestamp_custom"] = timestamp_custom
+    env.filters["as_timestamp"] = env.globals["as_timestamp"]
     env.filters["regex_match"] = lambda v, p, ignorecase=False: re.match(p, str(v)) is not None
     env.filters["regex_search"] = lambda v, p, ignorecase=False: re.search(p, str(v)) is not None
     env.tests["match"] = lambda v, p, ignorecase=False: re.match(p, str(v)) is not None
@@ -667,21 +668,28 @@ class TestEnvironmentGatesTheCaughtUpBaseFlip:
         return next(s for s in _branch_body(RECOVERY)
                     if "additional condition" in str(s.get("alias", "")))
 
-    def _env_condition(self, alias_part: str) -> str:
+    def _schedule_condition(self, alias_part: str) -> str:
         branch = next(b for b in self._gate()["choose"] if alias_part in b["alias"])
         return next(c for c in branch["conditions"]
-                    if isinstance(c, str) and "environment_allows" in c)
+                    if isinstance(c, str) and "schedule_ok" in c)
 
-    def test_both_flip_branches_carry_an_environment_gate(self):
-        assert "environment_allows_opening" in self._env_condition("opening")
-        assert "environment_allows_closing" in self._env_condition("closing")
+    def test_both_flip_branches_consume_the_shared_schedule_gate(self):
+        """The flip does not carry its own environment formula - it references the
+        SAME base_gates projection the live branch entry consumes."""
+        assert "base_gates.opening.schedule_ok" in self._schedule_condition("opening")
+        assert "base_gates.closing.schedule_ok" in self._schedule_condition("closing")
 
-    # --- closing flip ---
+    # --- closing flip: render the REAL projection under the flip context
+    # (recovered_base == 'cls' via the evening branch implies is_evening_phase) ---
     def _closing(self, **over):
-        base = dict(is_evening_phase=True, is_time_down_late=False,
+        base = dict(is_time_control_disabled=False, is_time_down_late=False,
+                    is_closing_phase=True, is_evening_phase=True,
                     environment_allows_closing=False)
         base.update(over)
-        return _render_bool(self._env_condition("closing"), {}, **base)
+        sched = _render_bool(_action_var("base_gates")["closing"]["schedule_ok"], {}, **base)
+        return _render_bool(self._schedule_condition("closing"), {},
+                            is_evening_phase=base["is_evening_phase"],
+                            base_gates={"closing": {"schedule_ok": sched}})
 
     def test_early_evening_without_the_environment_refuses_the_flip(self):
         """The #649 report: elevation 8 deg at 20:00 with sun_elevation_down -1.4, a UI
@@ -700,14 +708,20 @@ class TestEnvironmentGatesTheCaughtUpBaseFlip:
     def test_the_night_clause_stays_unconditional(self):
         """Between midnight and the opening time recovered_base is 'cls' via the night
         clause (is_evening_phase false); refusing that flip would strand a swallowed
-        closing until morning."""
-        assert self._closing(is_evening_phase=False) is True
+        closing until morning. The night disjunct is recovery-only composition ON TOP
+        of the shared projection - the normal flow has no environment gate at night
+        either (yesterday's ultimate closing carried past midnight)."""
+        assert self._closing(is_evening_phase=False, is_closing_phase=False) is True
 
-    # --- opening flip ---
+    # --- opening flip: recovered_base == 'opn' implies daytime and not evening ---
     def _opening(self, **over):
-        base = dict(is_time_up_late=False, environment_allows_opening=False)
+        base = dict(is_time_control_disabled=False, is_time_up_late=False,
+                    is_opening_phase=False, is_daytime_phase=True,
+                    is_evening_phase=False, environment_allows_opening=False)
         base.update(over)
-        return _render_bool(self._env_condition("opening"), {}, **base)
+        sched = _render_bool(_action_var("base_gates")["opening"]["schedule_ok"], {}, **base)
+        return _render_bool(self._schedule_condition("opening"), {},
+                            base_gates={"opening": {"schedule_ok": sched}})
 
     def test_early_morning_without_the_environment_refuses_the_flip(self):
         assert self._opening() is False
@@ -719,13 +733,254 @@ class TestEnvironmentGatesTheCaughtUpBaseFlip:
         assert self._opening(is_time_up_late=True) is True
 
     def test_the_flip_condition_itself_is_untouched(self):
-        """The environment gate is a separate condition string; the FIRST string
-        condition still carries the opt-in and the flip direction, which the
-        direction-gate tests read via next()."""
+        """The gates are separate condition strings; the FIRST string condition still
+        carries the opt-in and the flip direction, which the direction-gate tests
+        read via next()."""
         for branch in self._gate()["choose"]:
             first = next(c for c in branch["conditions"] if isinstance(c, str))
             assert "recovery_catch_up" in first
-            assert "environment_allows" not in first
+            assert "base_gates" not in first
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Recovery gate: the flip also passes the override and once-a-day gates (#656)
+# ════════════════════════════════════════════════════════════════════════════
+class TestLiveGatesTheCaughtUpBaseFlip:
+    """The #649 class, continued (#656 audit): the live opening/closing branches also
+    gate on the manual override (override_blocks.*) and the once-a-day guard
+    (prevent_*_multiple_times). A movement those gates suppressed was never missed,
+    so the caught-up flip consumes the SAME base_gates projections the live branch
+    entries consume. override_expired is the deliberate recovery-only composition:
+    post-repair reconciliation - the expired override is lifted first, then the flip
+    is judged against the repaired state (references/recovery-parity.md)."""
+
+    def _gate(self) -> dict:
+        return next(s for s in _branch_body(RECOVERY)
+                    if "additional condition" in str(s.get("alias", "")))
+
+    def _branch(self, alias_part: str) -> dict:
+        return next(b for b in self._gate()["choose"] if alias_part in b["alias"])
+
+    def _override_condition(self, alias_part: str) -> str:
+        return next(c for c in self._branch(alias_part)["conditions"]
+                    if isinstance(c, str) and "override_ok" in c)
+
+    # --- the manual override gate ---
+    def test_both_flip_branches_consume_the_shared_override_gate(self):
+        assert "base_gates.opening.override_ok" in self._override_condition("opening")
+        assert "base_gates.closing.override_ok" in self._override_condition("closing")
+        assert "override_expired" in self._override_condition("opening")
+        assert "override_expired" in self._override_condition("closing")
+
+    def _override(self, direction: str, blocked: bool, expired: bool) -> bool:
+        ok = _render_bool(_action_var("base_gates")[direction]["override_ok"], {},
+                          override_blocks={direction: blocked})
+        return _render_bool(self._override_condition(direction), {},
+                            base_gates={direction: {"override_ok": ok}},
+                            override_expired=expired)
+
+    @pytest.mark.parametrize("direction", ["opening", "closing"])
+    def test_an_active_override_refuses_the_flip(self, direction):
+        assert self._override(direction, blocked=True, expired=False) is False
+        assert self._override(direction, blocked=False, expired=False) is True
+
+    @pytest.mark.parametrize("direction", ["opening", "closing"])
+    def test_an_expired_override_does_not_refuse_the_flip(self, direction):
+        assert self._override(direction, blocked=True, expired=True) is True
+
+    # --- the once-a-day guard (the shared projection, rendered directly) ---
+    def _once(self, direction: str, **variables) -> bool:
+        once_condition = next(c for c in self._branch(direction)["conditions"]
+                              if isinstance(c, str) and "once_ok" in c)
+        assert f"base_gates.{direction}.once_ok" in once_condition
+        return _render_bool(_action_var("base_gates")[direction]["once_ok"], {},
+                            **variables)
+
+    def test_without_the_prevent_option_the_guard_passes(self):
+        assert self._once("opening",
+                          prevent_flags={"opening_multiple_times": False}) is True
+        assert self._once("closing",
+                          prevent_flags={"closing_multiple_times": False}) is True
+
+    def test_a_second_opening_on_the_same_day_is_refused(self):
+        """ts.opn is from today and a manual event came after it - the live opening
+        branch refuses a re-open, so the flip must not replay one either."""
+        assert self._once("opening",
+                          prevent_flags={"opening_multiple_times": True},
+                          helper_ts_open=NOW_TS - 3600,
+                          helper_ts_man=NOW_TS - 600) is False
+
+    def test_the_first_opening_of_the_day_is_allowed(self):
+        yesterday = (NOW - datetime.timedelta(days=1)).timestamp()
+        assert self._once("opening",
+                          prevent_flags={"opening_multiple_times": True},
+                          helper_ts_open=yesterday,
+                          helper_ts_man=yesterday) is True
+
+    def test_a_second_closing_on_the_same_day_is_refused(self):
+        """ts.cls is from within today's closing window and a manual event came after
+        it - mirrors the live closing branch's guard."""
+        closed_at = NOW.replace(hour=18, minute=0).timestamp()
+        assert self._once("closing",
+                          prevent_flags={"closing_multiple_times": True},
+                          time_down_early_today="17:00:00",
+                          helper_ts_close=closed_at,
+                          helper_ts_man=closed_at + 600) is False
+
+    def test_the_first_closing_of_the_day_is_allowed(self):
+        yesterday = (NOW - datetime.timedelta(days=1)).timestamp()
+        assert self._once("closing",
+                          prevent_flags={"closing_multiple_times": True},
+                          time_down_early_today="17:00:00",
+                          helper_ts_close=yesterday,
+                          helper_ts_man=yesterday) is True
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Recovery gate: a caught-up closing clears the shading like the live branch
+# ════════════════════════════════════════════════════════════════════════════
+class TestCaughtUpClosingClearsTheShading:
+    """Every sub-branch of the live closing writes shd: 0 and pnd: 'non'. Without the
+    mirror, a caught-up closing with an active shading left recovered_state at 'shd'
+    (the cascade puts shading above base-close) and the recovery drove the cover to
+    the shading position for the night instead of the closing it was catching up."""
+
+    def _gate(self) -> dict:
+        return next(s for s in _branch_body(RECOVERY)
+                    if "additional condition" in str(s.get("alias", "")))
+
+    def _flip_vars(self, alias_part: str) -> dict:
+        branch = next(b for b in self._gate()["choose"] if alias_part in b["alias"])
+        return branch["sequence"][0]["variables"]
+
+    def test_the_closing_flip_clears_the_shading(self):
+        assert self._flip_vars("closing")["recovered_shade"] is False
+
+    def test_the_opening_flip_keeps_the_shading(self):
+        """An opening with an active shading is the live 'Shading detected - move to
+        shading position' sub-branch: shd survives the opening, so it survives here."""
+        assert "recovered_shade" not in self._flip_vars("opening")
+
+    def test_caught_up_closing_is_derived_from_the_flip(self):
+        tpl = _branch_var(RECOVERY, "caught_up_closing")
+        assert _render_bool(tpl, {}, new_base="cls", helper_state_base="opn") is True
+        assert _render_bool(tpl, {}, new_base="cls", helper_state_base="cls") is False
+        assert _render_bool(tpl, {}, new_base="opn", helper_state_base="cls") is False
+
+    def test_a_caught_up_closing_drops_a_preserved_pending(self):
+        """The live closing writes pnd: 'non' unconditionally; a still-armed pending
+        must not survive the caught-up closing and store a shading later."""
+        tpl = _branch_var(RECOVERY, "new_pending")
+        assert _render(tpl, {}, recovered_pending="non", pending_is_stale=False,
+                       caught_up_closing=True, helper_state_pending="beg") == "non"
+        assert _render(tpl, {}, recovered_pending="non", pending_is_stale=False,
+                       caught_up_closing=False, helper_state_pending="beg") == "beg"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Recovery gate: the live closing's no-movement outcomes hold for the catch-up
+# ════════════════════════════════════════════════════════════════════════════
+class TestCaughtUpClosingHold:
+    """The live closing ends without a movement in three cases: the shared
+    closing_position_hold rules ('prevent lowering when shaded' / 'prevent higher
+    position closing') and the tilted-window lockout option
+    (lockout_tilted_when_closing, via lockout_now.closing). A caught-up closing is
+    that branch replayed, so the same outcomes hold - the drive is withheld, the
+    helper hygiene still runs. Scoped to caught_up_closing: a recovery that merely
+    re-positions to an unchanged base state mirrors the return/leave chains, which
+    drive without these rules."""
+
+    HOLD = staticmethod(lambda: _branch_var(RECOVERY, "caught_up_closing_hold"))
+    POSITION_HOLD = staticmethod(lambda: _action_var("closing_position_hold"))
+
+    def _position_hold(self, **over):
+        base = dict(
+            prevent_flags={"lowering_when_closing_if_shaded": False,
+                           "higher_position_closing": False},
+            helper_state_is_shaded=False,
+            in_shading_position=False,
+            position_comparisons={"shading_above_close": True,
+                                  "current_below_close": False},
+            current_position=100,
+            close_position=0,
+        )
+        base.update(over)
+        return _render_bool(self.POSITION_HOLD(), {}, **base)
+
+    def _hold(self, position_hold=False, **over):
+        base = dict(caught_up_closing=True, recovered_state="cls",
+                    closing_position_hold=position_hold,
+                    lockout_tilted_when_closing=False)
+        base.update(over)
+        return _render_bool(self.HOLD(), {}, **base)
+
+    # --- the shared position rules (one source of truth with the live branch) ---
+    def test_without_the_options_nothing_holds(self):
+        assert self._position_hold() is False
+
+    def test_lowering_when_shaded_holds(self):
+        assert self._position_hold(
+            prevent_flags={"lowering_when_closing_if_shaded": True,
+                           "higher_position_closing": False},
+            helper_state_is_shaded=True,
+            position_comparisons={"shading_above_close": False,
+                                  "current_below_close": False}) is True
+
+    def test_a_shading_position_above_close_still_closes(self):
+        """Closing from a HIGHER shading position is a real lowering and stays allowed."""
+        assert self._position_hold(
+            prevent_flags={"lowering_when_closing_if_shaded": True,
+                           "higher_position_closing": False},
+            helper_state_is_shaded=True,
+            position_comparisons={"shading_above_close": True,
+                                  "current_below_close": False}) is False
+
+    def test_higher_position_closing_holds_the_raise(self):
+        assert self._position_hold(
+            prevent_flags={"lowering_when_closing_if_shaded": False,
+                           "higher_position_closing": True},
+            current_position=10, close_position=20,
+            position_comparisons={"shading_above_close": True,
+                                  "current_below_close": True}) is True
+
+    def test_the_live_branch_consumes_the_same_projection(self):
+        """The 'Only status change if cover is shaded and lowering blocked' branch
+        must reference closing_position_hold, not restate the rules."""
+        closing = _branch("Check for closing")
+        nested = next(s["choose"] for s in closing["sequence"]
+                      if isinstance(s, dict) and "choose" in s)
+        branch = next(b for b in nested
+                      if "Only status change" in str(b.get("alias", "")))
+        assert branch["conditions"] == ["{{ closing_position_hold }}"]
+
+    # --- the recovery-side composition ---
+    def test_the_position_hold_withholds_the_caught_up_drive(self):
+        assert self._hold(position_hold=True) is True
+        assert self._hold(position_hold=False) is False
+
+    def test_the_tilted_lockout_option_withholds_the_caught_up_drive(self):
+        """lockout_now.closing covers the tilted window when the option is set, and
+        the live branch then ends without a movement - the catch-up must not pull
+        the cover to the ventilation position instead."""
+        assert self._hold(recovered_state="vnt",
+                          lockout_tilted_when_closing=True) is True
+        assert self._hold(recovered_state="vnt",
+                          lockout_tilted_when_closing=False) is False
+
+    def test_only_a_caught_up_closing_is_gated(self):
+        """A plain re-position to an unchanged bas == 'cls' mirrors the return/leave
+        chains (state_gates.cls carries no prevent options either)."""
+        assert self._hold(caught_up_closing=False, position_hold=True) is False
+        assert self._hold(caught_up_closing=False, recovered_state="vnt",
+                          lockout_tilted_when_closing=True) is False
+
+    def test_the_drive_gate_consumes_it(self):
+        will_drive = _branch_var(RECOVERY, "will_drive")
+        assert "caught_up_closing_hold" in will_drive
+        assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
+                            recovery_allowed=True, caught_up_closing_hold=True) is False
+        assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
+                            recovery_allowed=True, caught_up_closing_hold=False) is True
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1024,9 +1279,10 @@ class TestRecoveredPending:
             prevent_flags=base["prevent_flags"], helper_ts_shade=base["helper_ts_shade"])
         return _render(self.TPL(), {}, **base)
 
-    def _new(self, recovered, stale, current):
+    def _new(self, recovered, stale, current, caught_up_closing=False):
         return _render(self.NEW(), {}, recovered_pending=recovered,
-                       pending_is_stale=stale, helper_state_pending=current)
+                       pending_is_stale=stale, helper_state_pending=current,
+                       caught_up_closing=caught_up_closing)
 
     # --- pending_is_stale ---
     def test_a_due_time_in_the_past_is_stale(self):
@@ -1118,6 +1374,7 @@ class TestRecoveredDueAndArm:
             shading_waitingtime_end=600,
             helper_ts_pending_due=1234,
             helper_ts_pending_arm=1000,
+            caught_up_closing=False,
         )
         base.update(over)
         return int(_render(tpl, {}, **base))
@@ -1156,6 +1413,12 @@ class TestRecoveredDueAndArm:
         """Invariant 8: ts.arm is the retry anchor and must survive untouched."""
         assert self._run(self.DUE(), recovered_pending="non") == 1234
         assert self._run(self.ARM(), recovered_pending="non") == 1000
+
+    def test_a_caught_up_closing_clears_due_and_arm(self):
+        """The live closing branch zeroes ts.due/ts.arm with pnd - a pending the
+        caught-up closing dropped must not leave its timestamps behind (Invariant 8)."""
+        assert self._run(self.DUE(), recovered_pending="non", caught_up_closing=True) == 0
+        assert self._run(self.ARM(), recovered_pending="non", caught_up_closing=True) == 0
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1722,10 +1985,7 @@ class TestOpeningGuardIsDateSafe:
     one month ago read as 'already opened today' and suppressed the opening."""
 
     def _guard(self) -> str:
-        text = BLUEPRINT_PATH.read_text(encoding="utf-8")
-        line = [ln for ln in text.splitlines() if "prevent_flags.opening_multiple_times and" in ln]
-        assert line, "opening guard not found"
-        return line[0].split("- ", 1)[1].strip().strip('"')
+        return _action_var("base_gates")["opening"]["once_ok"]
 
     def _run(self, ts_open):
         # ts_man above ts_open, so the manual clause (Issue #311) cannot mask the date check
@@ -1992,7 +2252,8 @@ class TestRecoveryTriggers:
         variables do not escape a branch, the rest of the gate hangs off a shared anchor."""
         branches = self._direction_gate()["choose"]
         by_input = {
-            next(c["condition"] for c in b["conditions"] if isinstance(c, dict)):
+            next(c["condition"] for c in b["conditions"]
+                 if isinstance(c, dict) and "condition" in c):
             next(c for c in b["conditions"] if isinstance(c, str))
             for b in branches
         }

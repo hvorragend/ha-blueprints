@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.07.30
+    **Version**: 2026.08.01
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2569,7 +2569,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.07.30"
+  version: "2026.08.01"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5556,6 +5556,49 @@ actions:
           )
         }}
 
+      # ========== SHARED BASE-TRANSITION GATES ==========
+      # Single source of truth for "may the base state transition right now".
+      # Consumed by the live opening/closing branch entries AND the recovery's
+      # caught-up base flip - never copy these predicates inline
+      # (references/recovery-parity.md).
+      base_gates:
+        opening:
+          override_ok: "{{ not override_blocks.opening }}"
+          once_ok: >-
+            {{ not prevent_flags.opening_multiple_times or
+               (now().strftime('%Y-%m-%d') != helper_ts_open | timestamp_custom('%Y-%m-%d')) or
+               helper_ts_man <= helper_ts_open }}
+          schedule_ok: >-
+            {{ is_time_control_disabled or
+               is_time_up_late or
+               (
+                 (is_opening_phase or is_daytime_phase) and
+                 not is_evening_phase and
+                 environment_allows_opening
+               ) }}
+        closing:
+          override_ok: "{{ not override_blocks.closing }}"
+          once_ok: >-
+            {{ not prevent_flags.closing_multiple_times or
+               (helper_ts_close < today_at(time_down_early_today) | as_timestamp) or
+               helper_ts_man <= helper_ts_close }}
+          schedule_ok: >-
+            {{ is_time_control_disabled or
+               is_time_down_late or
+               (
+                 (is_closing_phase or is_evening_phase) and
+                 environment_allows_closing
+               ) }}
+
+      # The live closing's "no movement, status only" position rules, shared with
+      # the recovery's caught-up closing (they suppress the drive, never the write)
+      closing_position_hold: >-
+        {{ (prevent_flags.lowering_when_closing_if_shaded and
+            (helper_state_is_shaded or in_shading_position) and
+            not position_comparisons.shading_above_close) or
+           (prevent_flags.higher_position_closing and
+            (position_comparisons.current_below_close or current_position == close_position)) }}
+
   # ═══════════════════════════════════════════════════════════════════════════
   # MANDATORY ENTITY VALIDATION
   # ═══════════════════════════════════════════════════════════════════════════
@@ -5748,23 +5791,27 @@ actions:
             {% set s_tlt = is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
             {{ 'opn' if s_opn else 'tlt' if s_tlt else helper_state_window if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' }}
 
-      # The additional opening/closing condition and the environment conditions decide
-      # whether a caught-up base flip may happen - both gate every scheduled movement in
-      # the normal flow, so a movement they suppressed was not "missed" and must not be
-      # replayed; outside the ultimate late windows the environment gate mirrors the
-      # open/close branch conditions, and a refused flip costs nothing because the still-
-      # armed environment triggers fire on the real crossing. !input conditions only evaluate
-      # at fixed YAML positions and variables do not escape a branch, so the flip direction has
-      # to be a choose and the rest of the gate a shared body. Falling through to the default
-      # (no flip, or a condition says no) keeps the helper's base state - exactly what the
-      # normal flow would have left behind.
+      # A caught-up base flip passes the SAME base_gates projections the live
+      # opening/closing branch entries consume (references/recovery-parity.md) -
+      # a movement the live flow would have suppressed is not replayed (#649, #656).
+      # Recovery-only composition, both deliberate: `or override_expired` (post-repair
+      # reconciliation - the expired override is lifted first) and the closing night
+      # clause (`not is_evening_phase` - the previous evening's ultimate closing).
+      # !input conditions only evaluate at fixed YAML positions and variables do not
+      # escape a branch, so the flip direction has to be a choose and the rest of the
+      # gate a shared body; the condition nodes are anchored and re-used by the live
+      # branches. Falling through to the default (no flip, or a gate says no) keeps
+      # the helper's base state - exactly what the normal flow would have left.
       - alias: "Recovery: apply the additional condition to a caught-up base flip"
         choose:
           - alias: "Recovery: catching up an opening"
             conditions:
               - "{{ recovery_catch_up and recovered_base == 'opn' and helper_state_base != 'opn' }}"
-              - "{{ is_time_up_late or environment_allows_opening }}"
-              - condition: !input auto_up_condition
+              - "{{ base_gates.opening.schedule_ok }}"
+              - "{{ base_gates.opening.override_ok or override_expired }}"
+              - "{{ base_gates.opening.once_ok }}"
+              - &auto_up_condition_check
+                condition: !input auto_up_condition
             sequence:
               - variables:
                   new_base: "opn"
@@ -5799,6 +5846,10 @@ actions:
                       pending_is_stale: >-
                         {{ helper_state_pending != 'non' and
                            (stale_day or helper_ts_pending_due <= as_timestamp(now()) | round(0)) }}
+                      # The live closing branch clears shd and pnd unconditionally, so a
+                      # caught-up closing must do the same (shd via the branch-scoped
+                      # recovered_shade, pnd/due/arm via this flag)
+                      caught_up_closing: "{{ new_base == 'cls' and helper_state_base != 'cls' }}"
                   - variables:
                       # Shading re-evaluated from the current conditions. Arming is a catch-up (it
                       # drives later); clearing a stale pending is hygiene and happens either way
@@ -5828,7 +5879,7 @@ actions:
                           {% endif %}
                         {% elif recovered_pending == 'end' %}
                           {{ (as_timestamp(now()) + shading_waitingtime_end | int) | int }}
-                        {% elif pending_is_stale %}
+                        {% elif pending_is_stale or caught_up_closing %}
                           0
                         {% else %}
                           {{ helper_ts_pending_due }}
@@ -5847,7 +5898,7 @@ actions:
                           {% endif %}
                         {% elif recovered_pending == 'end' %}
                           {{ as_timestamp(now()) | int }}
-                        {% elif pending_is_stale %}
+                        {% elif pending_is_stale or caught_up_closing %}
                           0
                         {% else %}
                           {{ helper_ts_pending_arm }}
@@ -5857,7 +5908,7 @@ actions:
                            (recovered_window == 'opn' or
                             (lockout_tilted_when_shading_starts and recovered_window == 'tlt')) }}
                   - variables:
-                      new_pending: "{{ recovered_pending if recovered_pending != 'non' else ('non' if pending_is_stale else helper_state_pending) }}"
+                      new_pending: "{{ recovered_pending if recovered_pending != 'non' else ('non' if pending_is_stale or caught_up_closing else helper_state_pending) }}"
                       # Let the shading execution do the movement instead of opening first
                       defer_to_shading: "{{ recovered_pending == 'beg' and recovered_state == 'opn' and not lockout_blocks_shading }}"
                       # From the shared reconciler projection, so the shading target honours the alternate depth
@@ -5872,21 +5923,30 @@ actions:
                             else force_allows_open if recovered_state == 'opn'
                             else force_allows_shade if recovered_state == 'shd'
                             else force_allows_close) }}
+                      # A caught-up closing is the closing branch replayed, so its
+                      # no-movement outcomes hold here too: the shared position rules
+                      # and the tilted-window lockout option. Recoveries to an
+                      # unchanged base mirror the return/leave chains, which drive
+                      # without these rules - hence the caught_up_closing scope
+                      caught_up_closing_hold: >-
+                        {{ caught_up_closing and (
+                             (recovered_state == 'cls' and closing_position_hold) or
+                             (recovered_state == 'vnt' and lockout_tilted_when_closing)) }}
                       recovery_in_position: >-
                         {{ (target_position | int) >= (current_position | int) - (position_tolerance | int(0)) and
                            (target_position | int) <= (current_position | int) + (position_tolerance | int(0)) }}
                       log_user: "{{ 'this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage' }}, target: {{ state_labels[recovered_state] }}"
                       log_extra: >-
                         Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
-                        base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', additional condition or environment refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
+                        base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', a live opening/closing gate refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
                         frc {{ helper_state_force }}->{{ live_force }},
                         shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                         pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                        state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}
+                        state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}
                   - variables:
                       # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                       # movement); driving the cover is the only part that causes one
-                      will_drive: "{{ recovery_catch_up and not is_paused and recovery_allowed }}"
+                      will_drive: "{{ recovery_catch_up and not is_paused and recovery_allowed and not caught_up_closing_hold }}"
                   - variables:
                       drive_plan:
                         run: "{{ will_drive }}"
@@ -5922,11 +5982,15 @@ actions:
           - alias: "Recovery: catching up a closing"
             conditions:
               - "{{ recovery_catch_up and recovered_base == 'cls' and helper_state_base != 'cls' }}"
-              - "{{ not is_evening_phase or is_time_down_late or environment_allows_closing }}"
-              - condition: !input auto_down_condition
+              - "{{ not is_evening_phase or base_gates.closing.schedule_ok }}"
+              - "{{ base_gates.closing.override_ok or override_expired }}"
+              - "{{ base_gates.closing.once_ok }}"
+              - &auto_down_condition_check
+                condition: !input auto_down_condition
             sequence:
               - variables:
                   new_base: "cls"
+                  recovered_shade: false
               - alias: "Recovery: reconcile the cascade and drive"
                 choose: []
                 default: *recovery_apply
@@ -5963,19 +6027,10 @@ actions:
           - "{{ is_up_enabled }}"
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_open|t_calendar_event)') }}"
-          - condition: !input auto_up_condition
-          - "{{ not override_blocks.opening }}"
-          - or: # Only once a day?
-              - "{{ not prevent_flags.opening_multiple_times }}"
-              - "{{ prevent_flags.opening_multiple_times and ((now().strftime('%Y-%m-%d') != helper_ts_open | timestamp_custom('%Y-%m-%d')) or helper_ts_man <= helper_ts_open) }}"
-          - or: # Opening scenarios - works for BOTH time and calendar mode
-              - "{{ is_time_control_disabled }}"
-              - and: # Ultimate opening ONLY for specific time triggers (no environment checks)
-                  - "{{ is_time_up_late }}"
-              - and: # All other triggers: WITH environment checks
-                  - "{{ is_opening_phase or is_daytime_phase }}"
-                  - "{{ not is_evening_phase }}"
-                  - "{{ environment_allows_opening }}"
+          - *auto_up_condition_check
+          - "{{ base_gates.opening.override_ok }}"
+          - "{{ base_gates.opening.once_ok }}"
+          - "{{ base_gates.opening.schedule_ok }}"
         sequence:
           - choose:
             ###################################
@@ -6146,18 +6201,10 @@ actions:
           - "{{ is_down_enabled }}"
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_close|t_calendar_event)') }}"
-          - condition: !input auto_down_condition
-          - "{{ not override_blocks.closing }}"
-          - or: # Only once a day?
-              - "{{ not prevent_flags.closing_multiple_times }}"
-              - "{{ prevent_flags.closing_multiple_times and ((helper_ts_close < today_at(time_down_early_today) | as_timestamp) or helper_ts_man <= helper_ts_close) }}"
-          - or: # Closing scenarios - works for BOTH time and calendar mode
-              - "{{ is_time_control_disabled }}"
-              - and: # Ultimate closing ONLY for specific time triggers (no environment checks)
-                  - "{{ is_time_down_late }}"
-              - and: # All other triggers: WITH environment checks
-                  - "{{ is_closing_phase or is_evening_phase }}"
-                  - "{{ environment_allows_closing }}"
+          - *auto_down_condition_check
+          - "{{ base_gates.closing.override_ok }}"
+          - "{{ base_gates.closing.once_ok }}"
+          - "{{ base_gates.closing.schedule_ok }}"
         sequence:
           - choose:
               #################################
@@ -6243,18 +6290,7 @@ actions:
               ###################################
               - alias: "Only status change if cover is shaded and lowering blocked"
                 conditions:
-                  - or:
-                      - and: # Stop if cover is shaded and close position is lower than shading position
-                          - "{{ prevent_flags.lowering_when_closing_if_shaded }}"
-                          - "{{ helper_state_is_shaded }}"
-                          - "{{ not position_comparisons.shading_above_close }}"
-                      - and: # Stop if cover is shaded and close position is lower than shading position
-                          - "{{ prevent_flags.lowering_when_closing_if_shaded }}"
-                          - "{{ in_shading_position }}" # Always, no further checks for 'is_status_helper_enabled'
-                          - "{{ not position_comparisons.shading_above_close }}"
-                      - and:  # Stop if close-position is higher than the current position
-                          - "{{ prevent_flags.higher_position_closing }}"
-                          - "{{ position_comparisons.current_below_close or current_position == close_position }}"
+                  - "{{ closing_position_hold }}"
                 sequence:
                   - variables:
                       log_user: "closing time reached, but the cover stays at the sun shading position"
