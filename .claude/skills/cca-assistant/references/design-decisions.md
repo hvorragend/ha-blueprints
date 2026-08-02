@@ -13,7 +13,7 @@ and invalid-sensor-state handling. Restart/outage handling has its own file:
 ### Resident transitions replace earlier manual intent
 
 The resident sensor handler always persists `res` and deliberately does **not**
-consume `manual_allows_state` / `override_flags.*` for its target movement.
+consume `manual_allows_event` / `override_flags.*` for its target movement.
 Presence transitions are configured ownership-changing events: when the
 resident leaves or arrives, the cover follows the newly applicable
 resident-derived target even while `man == 1`.
@@ -22,6 +22,10 @@ This does not weaken the state/effect split. Pause, Force and additional
 conditions can still suppress the drive while `res` advances. An already
 reached target is a no-op. Only an actual dispatched resident movement clears
 `man`; a state-only resident update preserves it.
+
+`manual_allows_event` is deliberately named for the **event policy**, not the
+destination state. A shading event can move to the ventilation floor and still
+uses `.shd`; a contact event can restore shading and still uses `.vnt`.
 
 The `ignore_*_after_manual` options govern their owning scheduled,
 environmental and contact-ventilation event classes, not resident transitions.
@@ -111,7 +115,7 @@ The fix is applied **at the trigger**, not in a global condition: each of the th
   ...
 ```
 
-**Why the trigger, not a global condition:** A global `condition` still lets the automation *start* — HA records a (stopped) trace for every triggered run. Filtering at the trigger means the automation never runs at all → no trace, no queue entry, no logbook noise. `not_to`/`not_from` require HA ≥ 2023.4; the blueprint's `min_version` (2024.10.0) covers this.
+**Why the trigger, not a global condition:** A global `condition` still lets the automation *start* — HA records a (stopped) trace for every triggered run. Filtering at the trigger means the automation never runs at all → no trace, no queue entry, no logbook noise. `not_to`/`not_from` require HA ≥ 2023.4; the blueprint's `min_version` (2025.4.0, required by the transition architecture's outer-scope variable updates) covers this.
 
 **Rationale:** A user binding a "noisy" entity to one of these inputs — classically a HA **Threshold helper** built on `sun.elevation`, whose `sensor_value` attribute updates on every elevation step — would otherwise re-fire the whole automation every few minutes although the entity's real state changes only twice a day. There was never any functional harm (`mode: queued`, every branch idempotent), only trace/logbook noise.
 

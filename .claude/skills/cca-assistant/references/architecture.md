@@ -70,7 +70,9 @@ limits of HA YAML (user-supplied `!input` conditions can only be evaluated in
 `conditions:`/`if:` — so branch *dispatch* stays a `choose:` skeleton, while
 state computation and actuation are centralized). Variables assigned inside
 `if`/`choose` normally update the enclosing script scope; `repeat` is the
-important local-scope exception.
+important local-scope exception. This outer-scope behavior requires Home
+Assistant 2025.4, which is why the blueprint declares `min_version: "2025.4.0"`;
+lowering it silently breaks the transition anchors and recovery decisions.
 
 **Every leaf branch computes exactly two things, then calls one shared anchor:**
 

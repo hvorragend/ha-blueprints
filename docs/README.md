@@ -31,7 +31,7 @@
 
 ## Essential Prerequisites
 
-- Home Assistant **2024.10.0** or higher
+- Home Assistant **2025.4.0** or higher
 - Text Helper with **minimum 254 characters**
 - Cover entity with `current_position` attribute (or alternative position source)
 - `sun.sun` entity enabled for sun-based features

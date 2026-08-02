@@ -90,7 +90,7 @@ My clear recommendation is to create **one automation for each cover**.
 
 **A:** 
 - **Cover/shutter** must have a `current_position` attribute (or alternative position source)
-- **Home Assistant** version **2024.10.0** or newer
+- **Home Assistant** version **2025.4.0** or newer
 - **Sun integration** (`sun.sun`) enabled and working correctly (for sun-based features)
 - **Accurate location** - Correct latitude/longitude in Home Assistant configuration
 
@@ -2243,7 +2243,7 @@ Before posting for support, verify these essential points:
 - [ ] Resident sensor (if used) is binary (on/off or true/false only)
 - [ ] No multiple force functions active simultaneously
 - [ ] Calendar events (if used) have correct titles
-- [ ] Blueprint is version 2024.10.0 or higher
+- [ ] Home Assistant is version 2025.4.0 or higher
 - [ ] Checked the [online validator](https://hvorragend.github.io/ha-blueprints/validator/) for configuration errors
 - [ ] No typos in entity IDs or sensor names
 
