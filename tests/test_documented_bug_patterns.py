@@ -554,13 +554,12 @@ class TestPatternWTiltedClosingIdempotent:
         )
 
     def test_man_reset_only_when_driving(self, branch):
-        # man: 0 must carry the same guard (via will_drive) so it is not
-        # cleared without a drive (Invariant 7).
+        # Branches no longer write a snapshot-derived man value. The shared
+        # helper update clears it only for drive_dispatched.
         uv = _branch_update_values(branch)
-        man = str(uv.get("man", ""))
-        assert "will_drive" in man, (
-            "man:0 must be gated on actually driving the cover (Invariant 7, #538)"
-        )
+        assert "man" not in uv
+        helper = str(_find_variable_definition(_load_blueprint_yaml(), "helper_update"))
+        assert "drive_dispatched" in helper
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -668,6 +667,34 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
             force_allows_shade=True,
         ).strip() == "True"
 
+    def test_shading_intent_age_does_not_create_a_hidden_manual_policy(self):
+        blueprint = str(_load_blueprint_yaml())
+        assert "shading_start_event_allows_drive" not in blueprint
+        assert "shading_end_event_allows_drive" not in blueprint
+        assert "helper_ts_pending_arm > helper_ts_man" not in blueprint
+        assert "helper_ts_shade > helper_ts_man" not in blueprint
+
+    def test_all_shading_execution_drives_apply_the_configured_manual_gate(self):
+        blueprint = _load_blueprint_yaml()
+        for alias in (
+            "Shading start - hold ventilation floor (window tilted)",
+            "Start Shading",
+        ):
+            will_drive = str(_find_variable_definition(
+                _find_branch_by_alias(blueprint, alias), "will_drive"
+            ))
+            assert "manual_allows_state.shd" in will_drive, alias
+
+        for alias in (
+            "Ventilation after shading ends",
+            "Only tilt open after shading ends",
+            "Move cover after shading end - conditions still valid",
+        ):
+            will_drive = str(_find_variable_definition(
+                _find_branch_by_alias(blueprint, alias), "will_drive"
+            ))
+            assert "manual_allows_state.shd" in will_drive, alias
+
     def test_shading_end_is_not_gated_out_by_manual_or_force_state(self):
         end = _find_branch_by_alias(_load_blueprint_yaml(), "Check for shading end")
         conditions = str(end["conditions"])
@@ -690,13 +717,96 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
         update = _find_variable_definition(branch, "update_values")
         assert update == {"man": 0}
 
-    def test_force_pause_resume_respects_a_still_active_manual_blocker(self):
+    def test_force_pause_resume_explicitly_takes_control_from_manual(self):
         resume = _find_branch_by_alias(
             _load_blueprint_yaml(), "Drive to target position after force pause disabled"
         )
-        assert "manual_allows_state[resume_state]" in str(
-            _find_variable_definition(resume, "will_drive")
+        will_drive = str(_find_variable_definition(resume, "will_drive"))
+        assert "target_condition_ok" in will_drive
+        assert "manual_allows_state" not in will_drive
+
+    def test_target_gates_do_not_invent_a_second_manual_policy(self):
+        gates = _find_variable_definition(_load_blueprint_yaml(), "state_gates")
+        for target in ("opn", "vnt", "shd", "cls"):
+            assert "manual_allows_state" not in str(gates[target]), target
+
+    def test_resident_transitions_are_explicit_manual_handovers(self):
+        blueprint = _load_blueprint_yaml()
+        for alias in (
+            "Resident leaving: target LOCKOUT (window fully open)",
+            "Resident leaving: target VENTILATION (window tilted)",
+            "Resident leaving (ON→OFF)",
+            "Resident arriving: window tilted → hold ventilation position",
+            "Resident arriving (OFF→ON)",
+        ):
+            branch = _find_branch_by_alias(blueprint, alias)
+            assert branch is not None
+            assert "manual_allows_state" not in str(branch), alias
+
+        lockout = _find_branch_by_alias(
+            blueprint, "Resident leaving: target LOCKOUT (window fully open)"
         )
+        assert "auto_ventilate_condition" in str(lockout["conditions"])
+        assert "resident_flags.allow_ventilate" not in str(lockout)
+
+    def test_contact_ventilation_owns_its_manual_policy(self):
+        blueprint = _load_blueprint_yaml()
+        for alias in (
+            "Window tilted - Sun shading takes precedence",
+            "Window tilted - Partial ventilation",
+            "Window closed - Return to background state",
+        ):
+            will_drive = str(_find_variable_definition(
+                _find_branch_by_alias(blueprint, alias), "will_drive"
+            ))
+            assert "manual_allows_state.vnt" in will_drive, alias
+            assert "manual_allows_state[return_target]" not in will_drive, alias
+
+    def test_contact_and_resident_manual_policies_execute(self):
+        blueprint = _load_blueprint_yaml()
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+
+        partial = _find_branch_by_alias(blueprint, "Window tilted - Partial ventilation")
+        partial_tpl = env.from_string(str(_find_variable_definition(partial, "will_drive")))
+        common = dict(is_paused=False, force_allows_ventilate=True)
+        assert partial_tpl.render(manual_allows_state={"vnt": False}, **common).strip() == "False"
+        assert partial_tpl.render(manual_allows_state={"vnt": True}, **common).strip() == "True"
+
+        closed = _find_branch_by_alias(blueprint, "Window closed - Return to background state")
+        closed_tpl = env.from_string(str(_find_variable_definition(closed, "will_drive")))
+        closed_common = dict(
+            is_paused=False,
+            return_target="opn",
+            prevent_flags={"opening_after_ventilation_end": False},
+            force_allows_shade=True,
+            force_allows_open=True,
+            force_allows_close=True,
+        )
+        # The destination is open, but only the contact-ventilation policy owns
+        # this event; no opening policy is required or even provided here.
+        assert closed_tpl.render(manual_allows_state={"vnt": False}, **closed_common).strip() == "False"
+        assert closed_tpl.render(manual_allows_state={"vnt": True}, **closed_common).strip() == "True"
+
+        resident_gate = _find_variable_definition(blueprint, "state_gates")["cls"]
+        resident_tpl = env.from_string(str(resident_gate))
+        assert resident_tpl.render(
+            is_paused=False,
+            force_allows_close=True,
+            effective_state="cls",
+            in_close_position=False,
+        ).strip() == "True"
+
+    def test_force_release_handovers_do_not_consume_manual_options(self):
+        blueprint = _load_blueprint_yaml()
+        for alias in (
+            "Drive to target position after force pause disabled",
+            "Force disabled: Last Wins → switch to most recent force",
+            "Force disabled recovery: drive to background target",
+            "Force disabled recovery: return to ventilation or lockout",
+        ):
+            branch = _find_branch_by_alias(blueprint, alias)
+            assert branch is not None
+            assert "manual_allows_state" not in str(branch), alias
 
     def test_force_changes_do_not_clear_background_pending(self):
         blueprint = _load_blueprint_yaml()
@@ -704,7 +814,7 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
             "Force function triggered",
             "Force disabled: Last Wins → switch to most recent force",
             "Force disabled recovery: drive to background target",
-            "Force disabled recovery: return to VENTILATION (window tilted)",
+            "Force disabled recovery: return to ventilation or lockout",
         ):
             branch = _find_branch_by_alias(blueprint, alias)
             assert branch is not None
@@ -1003,7 +1113,7 @@ class TestIssue565OpenAtShadingPositionWithoutActiveShading:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-RECOVERY_VENT_ALIAS = "Force disabled recovery: return to VENTILATION (window tilted)"
+RECOVERY_VENT_ALIAS = "Force disabled recovery: return to ventilation or lockout"
 RECOVERY_LOCKOUT_ALIAS = "Force disabled recovery: return to OPEN (window open — lockout)"
 RECOVERY_CLOSE_ALIAS = "Force disabled recovery: return to CLOSE (base=cls)"
 RECOVERY_SHADING_ALIAS = "Force disabled recovery: return to SHADING"
@@ -1124,10 +1234,9 @@ class TestPatternAEShadingStartVentilationFloor:
         assert uv.get("ts", {}).get("arm") == 0
         assert uv.get("shd") == 1
         assert uv.get("win") == "tlt"
-        # man only cleared when actually driving (Invariant 7): the gate lives
-        # in will_drive, referenced by both man and drive_plan.run
+        # man is centrally cleared only after a real dispatch.
         assert "not in_ventilate_position" in str(variables.get("will_drive", ""))
-        assert "will_drive" in str(uv.get("man", ""))
+        assert "man" not in uv
 
     def test_position_comparison_defined(self):
         text = _blueprint_text()

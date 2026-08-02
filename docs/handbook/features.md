@@ -275,7 +275,7 @@ Both switches stop the cover from moving, and they look interchangeable. They ar
 
 Use the **Force Pause** when the cover must stay put for a while (someone is cleaning the windows, the terrace door is blocked, a baby is asleep). Use **`instance_active`** when a *different CCA automation* is running the cover.
 
-**Do not try to use the Force Pause for the multi-automation setup.** A paused automation still watches — and it cannot tell the *other* automation's movements apart from you grabbing the slider. It records them as a **manual override** and, once you un-pause it, refuses to touch the cover. `instance_active` switches the automation off entirely, which is exactly what stops that from happening.
+**Do not try to use the Force Pause for the multi-automation setup.** A paused automation still watches — and it cannot tell the *other* automation's movements apart from you grabbing the slider. Once you un-pause it, CCA explicitly takes control again and may immediately overwrite the other automation's position. `instance_active` switches the automation off entirely, which is exactly what stops that from happening.
 
 ### 💡 Bonus: a "re-sync now" switch — even with just one automation
 

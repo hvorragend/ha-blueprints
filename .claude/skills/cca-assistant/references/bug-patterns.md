@@ -355,9 +355,14 @@ In `effective_state`, replace the VENT floor condition:
 {% endif %}
 ```
 
-This is **surgical** — it only changes the VENT-floor decision. When the window is **not** tilted, `effective_state` still returns `'opn'` for `bas == 'opn'`, so shading-end (gated on `effective_state != 'cls'`), the contact "return to open" branch, and every other base=opn consumer are unaffected. Scheduled setups (`is_opening_scheduled == true`) keep the `2026.05.24` BASE=OPN-beats-VENT behavior unchanged.
+This is **surgical** — it only changes the VENT-floor decision. When the window is **not** tilted, `effective_state` still returns `'opn'` for `bas == 'opn'`, so the contact "return to open" branch and every other base=opn consumer are unaffected. Scheduled setups (`is_opening_scheduled == true`) keep the `2026.05.24` BASE=OPN-beats-VENT behavior unchanged.
 
-**Why not Option 1 (treat `bas` as `'cls'` for the whole cascade):** That was the maintainer's originally-documented intent, but making `effective_state` return `'cls'`/`'vnt'` wholesale breaks the shading-end handler, whose branch gate is `effective_state != 'cls'` — shading would never end. The VENT floor must be the *only* thing affected; gating just that line is the correct minimal change.
+**Historical constraint:** At the time of #553, shading end still used
+`effective_state != 'cls'` as a transition gate, so changing the whole cascade
+could make it unreachable. Invariant 15 has since removed that coupling:
+shading end always commits `shd: 0` and computes the prospective post-end
+target separately. The narrow VENT-floor fix remains the intended #553
+behavior, but the old shading-end branch gate must not be reintroduced.
 
 ---
 
@@ -688,13 +693,29 @@ The same source was also missing from the "no trigger source at all" configurati
 1. The settle window `now > helper_json.t + drive_time + 60` counted from **every** helper write — but `t` is stamped by pure state syncs too (window/resident updates, shading pending arming, base-only updates). Each such write opened a ~150 s blind window although nothing moved, so there was nothing to suppress.
 2. `this.attributes.current == 0` dropped manual events while **any** run was executing. With `mode: queued` and long in-run waits (fixed+random drive delay up to 10 minutes, contact settle delay, midnight-reset sleep) this window was large — and a hygiene-only run does not move the cover either.
 
-**Fix:** Distinguish "last write" from "last drive". New top-level helper field `d`, stamped by `helper_update` only when `(drive_plan | default({})).run | default(false)` is true — the same `will_drive` decision that gates `man: 0` (Invariant 7). The settle window keys off `d` (`helper_ts_drive`); the `current == 0` condition is removed entirely: under `mode: queued` a manual event always executes *after* the concurrent run's helper write, so a run that drove suppresses via the (now drive-scoped) window, and a run that did not drive must not suppress at all. `t` keeps its stamp-on-every-write semantic — `automation_resumed`, the takeover check and `midnight_reset_missed` depend on it.
+**Fix:** Distinguish "last write" from "last drive". The top-level helper
+field `d` is stamped by `helper_update` only after `apply_transition` projects
+a real position/relevant-tilt delta, passes the live pause/ownership check and
+sets `drive_dispatched`. The same signal owns the automatic `man: 0` clear
+(Invariant 7). The settle window keys off `d` (`helper_ts_drive`); the
+`current == 0` condition is removed entirely: under `mode: queued` a manual
+event always executes *after* the concurrent run's helper write, so a run that
+drove suppresses via the drive-scoped window, and a run that did not drive must
+not suppress at all. `t` keeps its stamp-on-every-write semantic.
 
-**Safety direction preserved:** CCA still never fights its own drive — a queued manual event that fired before a drive but executes after it lands inside the fresh `d` window and is suppressed, which is correct: the drive physically overrode that manual position anyway. The accepted corner (run=true but movement suppressed by the live pause check / tolerance no-op still stamps `d`) errs toward a missed detection, never toward a false `man: 1`.
+**Safety direction preserved:** CCA still never fights its own drive — a queued
+manual event that fired before a dispatch but executes after it lands inside
+the fresh `d` window and is suppressed, which is correct: the automation's
+movement physically overrode that position. A blocked or tolerance-no-op plan
+does not create such a window.
 
 **Consequence for the helper length:** the compact JSON grows to a worst-case 218 chars, so the minimum-length config check was raised 210 → 225 (recommended length stays 254). `tests/test_manual_detection_drive_window.py` pins the worst-case length against the configured minimum.
 
-**Rule:** A suppression that exists to hide CCA's *own movements* must key off the drive decision (`drive_plan.run` / `d`), never off write activity (`t`) or run activity (`this.attributes.current`) — bookkeeping writes and idle-waiting runs cannot have caused a position change, so suppressing detection around them silently discards real manual moves (same asymmetry family as Bug Pattern Y: suppress only when the thing being muted can actually occur).
+**Rule:** A suppression that exists to hide CCA's *own movements* must key off
+actual dispatch (`drive_dispatched` / `d`), never plan permission
+(`drive_plan.run`), write activity (`t`) or run activity
+(`this.attributes.current`) — bookkeeping, blocked plans and idle-waiting runs
+cannot have caused a position change.
 
 ---
 
@@ -709,7 +730,10 @@ The same source was also missing from the "no trigger source at all" configurati
 1. **`helper_update` re-reads the helper live at write time.** `current` is the parsed live `states(cover_status_helper)` when it is valid v6 JSON, and only falls back to the `helper_json` snapshot when the live value is invalid or pre-migration. "Omitted keys are preserved" now means preserved from the *live* truth, not from the run's trigger-time view — a delayed run can no longer undo intervening writes. Same design family as the 2026.07.25 "actuation-point checks are live reads" decision (pause/hand-over): the persistence point gets the live re-read the actuation points already had. Explicit keys in `update_values` still win unconditionally, and the `ts.shd` guard now compares against the live `shd`, which is strictly more correct (a redundant `shd` write no longer stamps).
 2. **The shading-tilt and alternate-shading-position drive gates check the live `shd` flag** (`states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]')`, Pattern-K-guarded, AF-guarded on `cover_status_helper != []`). A queued tilt run that executes after the shading ended consumes its trigger as a no-op instead of tilting into the shading angle. Branch *conditions* keep using the frozen variables (dispatch layer); the live read sits in `will_drive` (decision layer) because the staleness already exists when `will_drive` renders — unlike the pause case, where the flip happens later, during the in-run delay.
 
-**Known residual (accepted):** the Invariant-7 idiom `man: "{{ 0 if will_drive else helper_json.man ... }}"` writes the snapshot's `man` **explicitly**, so the live merge cannot preserve a newer `man` there. The exposure requires a manual run and a non-driving run to be queued in that order behind a long wait — bounded, and no worse than before this fix.
+**Former residual, eliminated:** normal branches no longer copy a plan-time
+`helper_json.man` into `update_values`. `helper_update` preserves the live value
+for a non-dispatching run and centrally clears it only for a real dispatch, so
+a queued stale write cannot resurrect or erase a newer manual intervention.
 
 **Rule:** A run may act on its trigger-time view, but it must never *persist* that view — every field a branch does not explicitly set has to come from the helper as it is at write time. And any branch whose drive is only meaningful while a helper flag holds (`shd` for the shading-tilt/depth adjustments) must re-check that flag live in `will_drive`: under `mode: queued`, "the trigger fired" only proves the flag held *then*. Tests: `tests/test_helper_update_live_reread.py`.
 
@@ -744,12 +768,25 @@ not where CCA would currently want it. When the blocker ended, there was no curr
 apply and no new environmental false → true edge to rebuild it.
 
 **Fix:** Manual detection now writes only `man`/`ts.man`. All scheduled, shading, window and
-resident transitions continue updating the helper while manual, a force target or force
-pause suppresses the corresponding drive. A matured shading start commits `shd: 1` without
-moving; a matured end clears it the same way. Releasing manual reconciles the current
-`effective_state` immediately through `state_targets`; force-disable and force-pause resume
-follow the same background-state model. The ventilation condition remains a real effect gate,
-and full-window lockout remains the safety exception that may overrule manual intent.
+resident transitions continue updating the helper while movement is suppressed. A matured
+shading start commits `shd: 1` without moving; a matured end clears it the same way.
+Releasing manual reconciles the current `effective_state` immediately through
+`state_targets`. Configured resident transitions, Force enable/switch, Force disable recovery
+and Force-Pause resume are ownership-changing events: they may replace an older manual intent,
+but still clear `man` only after an actual dispatch. The ventilation condition remains a real
+effect gate, including for full-window lockout; when false it blocks the proactive drive but
+not the persisted `win: 'opn'`/`lock` intent or the protection against later lowering. A
+permitted lockout remains the safety exception that may overrule manual and resident intent.
+
+This replaces #447's destructive implementation while making its protection
+explicitly configurable. Physical classification establishes only the override
+and no longer rewrites `bas` or clears `shd`/`pnd`. While `man == 1`, the
+`ignore_shading_after_manual` option is the single policy decision: selected
+means every shading start/end movement is held while the background state keeps
+progressing; not selected means shading may take control and an actual dispatch
+clears the override. Intent age must not create a second, hidden Manual policy.
+Neither a blocked plan nor a tolerance no-op stamps `d`; only dispatched
+reconciliation does.
 
 **Rule:** Blockers belong to the effect layer. Never use them to reject or erase a reducer
 transition; persist the desired state, suppress only `drive_plan.run`, then reconcile the

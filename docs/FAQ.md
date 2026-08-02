@@ -776,9 +776,11 @@ Forecast Temperature Value: 30°C
 - Optional lockout protection
 
 **Fully Opened Window:**
-- Cover opens completely
+- Cover proactively opens completely when the Additional Ventilation Condition permits it
 - **Always has lockout protection**
 - Prevents accidental closure
+
+Here, “always protected” and “always moves up” are deliberately different. If the Additional Ventilation Condition is false, CCA records the fully opened window and blocks later closing or sun shading, but it does not send the proactive opening command.
 
 **Window Closed:**
 - Cover returns to previous state:
@@ -832,7 +834,7 @@ Lockout Protection Options:
 
 **Opened sensor:**
 - Detects fully opened window/door
-- Moves to fully open position
+- Moves to the fully open position when the Additional Ventilation Condition permits it
 - **Mandatory lockout protection**
 
 **Can't I use one sensor?**
@@ -934,7 +936,7 @@ Lockout Protection Options:
 
 **Use case:** Small bathroom window where lockout isn't critical
 
-**Note:** Lockout for fully opened windows is **always active** and cannot be disabled!
+**Note:** Lockout for fully opened windows is **always active** and cannot be disabled. The Additional Ventilation Condition may suppress the immediate upward movement, but not the stored open-window state or protection against later lowering.
 
 ---
 
@@ -951,9 +953,9 @@ Lockout Protection Options:
 
 **What happens:**
 - Helper status set to "manual"
-- Automation pauses for configured timeout (default: 1 hour)
-- Your manual decision is respected
-- After timeout, automation resumes
+- The configured movement types respect your manual position
+- CCA keeps its current schedule, sun-shading, window and resident decisions in the background
+- When the override resets, CCA reconciles the target that is valid at that moment
 
 **Why respect manual changes?**
 - You know better than automation in the moment
@@ -962,22 +964,27 @@ Lockout Protection Options:
 
 ---
 
-### Q: Can I ignore manual overrides for specific actions?
+### Q: Can I block only specific automatic movements during Manual Override?
 
-**A:** Yes! Configure which actions can override manual changes:
+**A:** Yes. The four selections decide which automatic movements must respect the manual position while the override is active:
 
 **Options in "Manual Override" section:**
 ```yaml
-Ignore/override next automatic opening after manual changes
-Ignore/override next automatic closing after manual changes
-Ignore/override next automatic ventilation after manual changes
-Ignore/override next automatic sun shading after manual changes
+Block automatic opening during Manual Override
+Block automatic closing during Manual Override
+Block automatic ventilation during Manual Override
+Block automatic sun shading during Manual Override
 ```
+
+- ☑ Selected → this movement is blocked while Manual Override is active.
+- ☐ Not selected → this movement may take control; an actual CCA drive clears Manual Override.
 
 **Example scenario:**
 - You manually close a cover for privacy
-- ☑ "Ignore next automatic opening" → Cover stays closed until timeout
-- ☐ "Ignore next automatic shading" → Shading still works if sun hits
+- ☑ "Block automatic opening" → The scheduled opening does not move it while Manual Override is active
+- ☐ "Block automatic sun shading" → Sun shading may still move it if the shading conditions become valid
+
+CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately; an intent that already ended is not replayed.
 
 ---
 
@@ -1124,7 +1131,7 @@ Result: Cover stays closed (correct!)
 **What resident mode does:**
 - Prevents **automatic** opening when resident is present
 - Allows **automatic** closing when resident goes to sleep
-- Respects your manual adjustments
+- Treats a configured arrival/departure movement as a new presence decision; that later transition may take control from an older Manual Override
 
 **Optional override:**
 ```yaml
@@ -2548,4 +2555,3 @@ Trigger → Pending (timestamp set) → Execution Trigger → Re-evaluation → 
 - [Forum Discussion Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
 - [GitHub Issues](https://github.com/hvorragend/ha-blueprints/issues)
 {% endraw %}
-

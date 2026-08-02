@@ -139,6 +139,7 @@ CLEAN_LIVE_STATE = {
 def _render_helper_update(
     update_values=None,
     drive_plan=None,
+    drive_dispatched=False,
     snapshot=None,
     live=None,
     helper_input=HELPER_ENTITY,
@@ -150,6 +151,7 @@ def _render_helper_update(
         "update_values": update_values if update_values is not None else {},
         "cover_status_helper": helper_input,
         "invalid_states": INVALID_STATES,
+        "drive_dispatched": drive_dispatched,
     }
     if drive_plan is not None:
         variables["drive_plan"] = drive_plan
@@ -231,6 +233,48 @@ class TestHelperUpdateLiveReread:
         )
         assert result["pnd"] == "end"
 
+    def test_no_drive_preserves_a_manual_override_from_the_live_helper(self):
+        """A queued no-drive run must not copy snapshot man=0 over live man=1."""
+        live = dict(CLEAN_LIVE_STATE, man=1)
+        live["ts"] = dict(CLEAN_LIVE_STATE["ts"], man=TS_NEW)
+        result = _render_helper_update(
+            update_values={"win": "tlt"},
+            drive_plan={"run": True},
+            drive_dispatched=False,
+            snapshot=dict(CLEAN_LIVE_STATE),
+            live=json.dumps(live),
+        )
+        assert result["man"] == 1
+        assert result["d"] == CLEAN_LIVE_STATE["d"]
+
+    def test_dispatched_drive_clears_manual_and_stamps_d(self):
+        live = dict(CLEAN_LIVE_STATE, man=1)
+        result = _render_helper_update(
+            update_values={"win": "tlt"},
+            drive_plan={"run": True},
+            drive_dispatched=True,
+            snapshot=dict(CLEAN_LIVE_STATE),
+            live=json.dumps(live),
+        )
+        assert result["man"] == 0
+        assert result["d"] == NOW_TS
+
+    def test_explicit_manual_transition_wins_over_dispatch_default(self):
+        live = dict(CLEAN_LIVE_STATE, man=1)
+        result = _render_helper_update(
+            update_values={"man": 1},
+            drive_plan={"run": True},
+            drive_dispatched=True,
+            snapshot=dict(CLEAN_LIVE_STATE),
+            live=json.dumps(live),
+        )
+        assert result["man"] == 1
+
+    def test_no_leaf_copies_snapshot_manual_as_a_preserve_value(self):
+        text = BLUEPRINT_PATH.read_text(encoding="utf-8")
+        assert "0 if will_drive else helper_json.man" not in text
+        assert "'man': 0 if will_drive else helper_json.man" not in text
+
 
 class TestShadingDriveLiveGates:
     """A queued tilt/position-adjust run must not drive into the shading
@@ -241,6 +285,11 @@ class TestShadingDriveLiveGates:
         variables = {
             "is_paused": False,
             "force_allows_shade": True,
+            "manual_allows_state": {"shd": True},
+            "resident_flags": {"allow_shade": True},
+            "window_opened_now": False,
+            "window_tilted_now": False,
+            "shading_over_ventilation": False,
             "cover_status_helper": HELPER_ENTITY,
         }
         variables.update(extra or {})
@@ -264,6 +313,11 @@ class TestShadingDriveLiveGates:
         ).render(
             is_paused=True,
             force_allows_shade=True,
+            manual_allows_state={"shd": True},
+            resident_flags={"allow_shade": True},
+            window_opened_now=False,
+            window_tilted_now=False,
+            shading_over_ventilation=False,
             cover_status_helper=HELPER_ENTITY,
         )
         assert rendered.strip() == "False"

@@ -87,6 +87,11 @@ Lockout protection (window fully open → cover to open position) is a **safety 
 
 **Correct:** Check `resident_flags.allow_ventilate` only in the tilted sub-branch. The opened branch (lockout) must always run.
 
+The user's `auto_ventilate_condition` is the one deliberate opt-out for the
+lockout **drive**. If it is false, `win: 'opn'` and the `lock` target still
+persist, but no cover command is sent. Resident and manual gates do not block a
+permitted lockout drive; an explicit force target still has higher priority.
+
 ### ⚠️ Invariant 7: `man: 0` only when actually driving the cover
 
 The `man` flag (manual override) may only be set to `0` when the automation actually moves the cover to a defined position. Do **not** set `man: 0` in:
@@ -96,8 +101,20 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
 - Pure state changes without movement
 - Win-only helper updates
 
-**Wrong:** `man: 0` in `update_values` for every block that calls `*apply_transition`.
-**Correct:** `man: 0` only when the branch actually drives — encoded via the `will_drive` pattern: `man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"` with `drive_plan.run: "{{ will_drive }}"` (see Transition Architecture).
+**Wrong:** Copying the plan-time `helper_json.man` into `update_values`, or
+deriving `man: 0` from a branch-local `will_drive`. A queued run may otherwise
+overwrite a newer manual intervention, and a tolerance no-op may clear it
+without moving.
+
+**Correct:** Normal branches omit `man`. The terminal `helper_update` owns the
+automatic clear and writes `0` only when the actuation anchor has set
+`drive_dispatched: true` immediately before entering the movement services. For
+a full drive this happens at the first alignment, cover or tilt stage that
+passes its live ownership check after the user before-action. Raw tilt uses the
+same tilt-stage check. A later block may stop the remaining stages, but the flag
+correctly records the partial movement already dispatched.
+Explicit state-machine transitions of `man` (manual detection, reset,
+midnight reset, and recovery of an expired override) remain explicit updates.
 
 ### ⚠️ Invariant 8: Timestamp invariants
 
@@ -117,14 +134,23 @@ The `man` flag (manual override) may only be set to `0` when the automation actu
   - Start: Drive, Lockout-skip, Save-for-future, no-drive default of the drive choose, Abort (shared retry routine)
   - End: Tilt-only, Lockout, Ventilation, Move-cover (then/else and the opening-prevented else), Stop retry, stale-pending cleanup (#395)
   - Midnight reset (BRANCH 11, "Reset shading status")
-  - Incidental clears in non-shading branches (force, manual) — also clear all three for hygiene.
+- A force/manual enable, disable, detection or release must **not** clear these
+  keys merely as hygiene. Pending is autonomous background state and survives
+  actuation blockers.
 - **Every execution path must be terminal** (Bug Pattern AK): any path reachable from `t_shading_start_execution` / `t_shading_end_execution` must end in a helper write that either re-arms (`pnd` + new `ts.due`) or clears (`pnd: 'non'`, `ts.due/arm: 0`). The execution templates compare `now() >= ts.due`; once due is in the past they stay true forever and never re-fire — a path that stops without a helper write leaves the pending armed until the midnight reset. Drive chooses inside the execution handlers therefore need a default, and `if:` steps before a `stop:` need an else.
 - **Contact handler branches must NOT reset `pnd`/`ts.due`/`ts.arm`.** Window open/close events are orthogonal to shading pending state. Omit these keys from `update_values` so `helper_update` preserves the existing values (#484).
 
 **t / d (write and drive timestamps, both top-level):**
 - `t` is stamped on **every** helper write. Consumers rely on exactly that semantic: `automation_resumed`, the instance-takeover check, `midnight_reset_missed`. Never make `t` conditional.
-- `d` is stamped **only** when the writing run's `drive_plan.run` was true — derived inside `helper_update` from the same `will_drive` decision that gates the `man: 0` reset (Invariant 7). Pure state syncs (window/resident updates, pending arming, base-only updates) must never stamp it: the manual-detection settle window keys off `d` via `helper_ts_drive`, and a stamp from a non-driving write reopens the #614 blind window (Bug Pattern AP). No branch writes `d` through `update_values` — it is owned entirely by `helper_update`.
-- Known corner, accepted (same family as the pause design decision): `drive_plan.run` true with the movement suppressed at the last moment (live pause check, tolerance no-op) still stamps `d`. That errs in the safe direction — a suppressed manual detection is less harmful than CCA reading its own movement as a manual override.
+- `d` is stamped **only** after `apply_transition` finds a real position or
+  relevant tilt delta and a pause/instance ownership check dispatches a movement
+  stage (`drive_dispatched: true`). Full drives repeat the live check after the
+  user before-action and before cover/tilt stages separated by waits; raw tilt
+  enters the same tilt check. Pure state syncs, blocked
+  plans and tolerance no-ops never stamp it: the manual-detection settle window
+  keys off `d` via `helper_ts_drive`, and a stamp from a non-driving write
+  reopens the #614 blind window (Bug Pattern AP). No branch writes `d` through
+  `update_values` — it is owned entirely by `helper_update`.
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending
 
@@ -203,7 +229,7 @@ via `to_json`.
 **The second, user-facing entry (`enable_logbook_cover` / `log_user`):**
 `apply_transition` writes a short line to the logbook of the **cover** (one
 per entity in `blind_entities`), gated by `enable_logbook_cover`. It fires
-only when the branch drove (`drive_plan.run`) or explicitly opted in by
+only when a real movement was required or the branch explicitly opted in by
 setting `log_user`. Shape: `moved to 40% / tilt 50% · <reason>` or
 `no movement[ suppressor] · <reason>`.
 
@@ -228,14 +254,11 @@ cover already in position, a `res` update with no consequence) leave it unset
 so the cover's history stays readable. Repeated pending/retry cycles leave it
 unset too — only the terminal outcome (executed / given up) is logged.
 
-**A cover entry means a movement — one that happened, or one that was wanted
-and suppressed.** `drive_plan.run` is only the *decision*: `cover_move_action`
-sends nothing when the target is already held within `position_tolerance`
-(and `tilt_position_tolerance` on tilt covers), and HA's own logbook records
-nothing either — an entry there would describe a movement that never happened.
-The step's `if` therefore also computes `nothing_would_move` and suppresses the
-entry, symmetrically for `run: true` and for a suppressed drive whose target
-was already reached. A plan with no real target (`101` sentinel on both axes) —
+**A cover entry means a movement — one that was dispatched, or one that was
+wanted and suppressed.** `drive_plan.run` is only the plan permission;
+`drive_required` adds the position and relevant-tilt tolerance projection and
+`drive_dispatched` records the final live ownership check. A plan with no real
+target (`101` sentinel on both axes) —
 deferrals, pending arms, manual detection — is exempt: there a movement *was*
 expected and did not happen, which is exactly what the user wants to read. So
 do not give `log_user` to a branch that reports "nothing to do here"; that is
@@ -355,22 +378,27 @@ step is skipped when the position will not change (same tolerance check as
 
 ### ⚠️ Invariant 15: Blockers suppress effects, never state-machine progress
 
-Manual override, an active force target and force pause belong to the effect
-layer. They may suppress `drive_plan.run` or temporarily replace the projected
-target, but they must not stop the reducer that maintains `bas`, `shd`, `pnd`,
-`win`, `res` and their timestamps.
+Manual override, an active force target and force pause must not stop the
+reducer that maintains `bas`, `shd`, `pnd`, `win`, `res` and their timestamps.
+They can suppress `drive_plan.run` or temporarily replace the projected target.
+Whether Manual still owns the cover is a separate event-policy decision: a
+configured resident transition or Force/Resume event may deliberately replace
+the older manual intent without suppressing the reducer.
 
 - Manual detection writes only `man: 1` and `ts.man`; it never derives the
   autonomous state from the physical position and never clears pending timers.
 - A pending shading execution that matures while movement is blocked commits
   `shd: 1` (or clears it on a matured end) and suppresses only the drive.
-- Scheduled base transitions and live contact/resident updates persist normally
-  while manual or force prevents their movement.
+- Scheduled base transitions and live contact/resident updates persist normally.
+  Manual gates the owning scheduled, shading and ventilation event classes;
+  resident transitions deliberately take ownership instead.
 - Force targets override `effective_state`, while the background fields continue
   to evolve. Force pause changes no target at all; it only makes every drive gate
   false.
 - When manual, force or pause ends, the release path reconciles the current
   `effective_state`; it does not replay old triggers or restart their delays.
+  Force disable recovery and Force-Pause resume are explicit hand-over events,
+  so a dispatched movement may clear an older Manual Override.
 
 Lockout remains the safety exception that may drive over manual intent. Explicit
 force targets remain target overrides rather than inhibitors. Tests:

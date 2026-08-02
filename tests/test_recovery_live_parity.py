@@ -15,6 +15,7 @@ the real `variables:` chains (will_drive, drive_plan, update_values) and stops a
 the shared apply-transition anchor. The Python below only assembles context and
 normalizes outcomes; the decisions come from the blueprint.
 """
+import ast
 import types
 
 import pytest
@@ -48,6 +49,13 @@ def _cast(rendered: str):
         return True
     if text == "False":
         return False
+    if text == "None":
+        return None
+    if text.startswith(("{", "[")):
+        try:
+            return ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            pass
     try:
         return int(text)
     except ValueError:
@@ -270,7 +278,7 @@ def scenario(**over) -> dict:
 # Outcome extraction and comparison
 # ════════════════════════════════════════════════════════════════════════════
 
-def _resolved(ctx: dict, helper: dict) -> dict:
+def _resolved(ctx: dict, helper: dict, drove: bool = False) -> dict:
     """The persisted decision fields after the run: update_values merged over the
     helper, timestamps normalized ('now' stays 'now')."""
     uv = ctx.get("update_values") or {}
@@ -280,7 +288,7 @@ def _resolved(ctx: dict, helper: dict) -> dict:
         "bas": uv.get("bas", helper["bas"]),
         "shd": int(uv.get("shd", helper["shd"])),
         "pnd": uv.get("pnd", helper["pnd"]),
-        "man": int(uv.get("man", helper["man"])),
+        "man": int(uv.get("man", 0 if drove else helper["man"])),
         "win": uv.get("win", helper["win"]),
         "ts_opn": ts.get("opn", helper_ts["opn"]),
         "ts_cls": ts.get("cls", helper_ts["cls"]),
@@ -292,13 +300,28 @@ def _resolved(ctx: dict, helper: dict) -> dict:
 def _movement(ctx: dict, s: dict) -> dict:
     plan = ctx.get("drive_plan") or {}
     run = bool(plan.get("run"))
+    move = plan.get("move", "full")
     target = plan.get("target")
-    # both paths share cover_move_action's tolerance guard - normalize it here
-    moves = (run and target is not None
-             and abs(int(target) - s["current_position"]) > s["position_tolerance"])
+    target_tilt = plan.get("target_tilt")
+    position_relevant = move != "tilt" and target is not None
+    tilt_relevant = (
+        s["is_cover_tilt_enabled_and_possible"] and target_tilt is not None
+    )
+    position_moves = (
+        position_relevant
+        and abs(int(target) - s["current_position"]) > s["position_tolerance"]
+    )
+    tilt_moves = (
+        tilt_relevant
+        and abs(int(target_tilt) - s["current_tilt_position"])
+        > s["tilt_position_tolerance"]
+    )
+    # Mirrors apply_transition: a full plan moves when either its position or
+    # relevant tilt differs; a tilt-only plan deliberately ignores position.
+    moves = run and (tilt_moves if move == "tilt" else position_moves or tilt_moves)
     return {"moves": moves,
-            "target": int(target) if moves else None,
-            "tilt": int(plan.get("target_tilt")) if moves and plan.get("target_tilt") is not None else None,
+            "target": int(target) if moves and position_relevant else None,
+            "tilt": int(target_tilt) if moves and tilt_relevant else None,
             "action_set": (plan.get("action_set") or "") if moves else ""}
 
 
@@ -313,20 +336,22 @@ def run_live(s: dict, direction: str, verdicts: dict | None = None) -> dict:
                 "final": _resolved({}, ctx["helper_json"]),
                 **_movement({}, s)}
     runner.run(branch["sequence"])
+    movement = _movement(runner.ctx, s)
     return {"entered": True,
-            "final": _resolved(runner.ctx, ctx["helper_json"]),
-            **_movement(runner.ctx, s)}
+            "final": _resolved(runner.ctx, ctx["helper_json"], movement["moves"]),
+            **movement}
 
 
 def run_recovery(s: dict, verdicts: dict | None = None) -> dict:
     ctx, entities = _context(s, "t_recovery")
     runner = Runner(ctx, entities, verdicts or DEFAULT_VERDICTS)
     runner.run(_branch_body(RECOVERY))
+    movement = _movement(runner.ctx, s)
     return {"entered": True,
             "new_base": runner.ctx["new_base"],
             "state": runner.ctx["recovered_state"],
-            "final": _resolved(runner.ctx, ctx["helper_json"]),
-            **_movement(runner.ctx, s)}
+            "final": _resolved(runner.ctx, ctx["helper_json"], movement["moves"]),
+            **movement}
 
 
 HYGIENE_FIELDS = ("win",)   # re-read from the live sensors on every recovery run
@@ -480,8 +505,35 @@ class TestOncePerDayParity:
 # Windows: the ventilation condition, the lockout paths
 # ════════════════════════════════════════════════════════════════════════════
 class TestWindowParity:
+    def test_full_window_lockout_overrules_opening_manual_and_resident(self):
+        s = scenario(
+            brightness="5000", is_opening_phase=True, is_daytime_phase=True,
+            is_closing_phase=False, is_evening_phase=False,
+            window="opn", current_position=40, state_resident=True,
+            resident_config=[], helper={"bas": "cls", "man": 1},
+            override_flags={"opening": True, "closing": False,
+                            "ventilation": False, "shading": False},
+        )
+        live, recovery = assert_paired(s, "opening")
+        assert live["moves"] and recovery["moves"]
+        assert live["target"] == recovery["target"] == 100
+
+    def test_recovery_lockout_overrules_closing_manual_and_resident(self):
+        s = scenario(
+            brightness="40", window="opn", current_position=40,
+            state_resident=True, resident_config=[], helper={"man": 1},
+            override_flags={"opening": False, "closing": True,
+                            "ventilation": True, "shading": False},
+        )
+        recovery = run_recovery(s)
+        assert recovery["state"] == "lock"
+        assert recovery["moves"] and recovery["target"] == 100
+
     def test_tilted_window_goes_to_ventilation_in_both_paths(self):
-        live, recovery = assert_paired(scenario(brightness="40", window="tlt"))
+        live, recovery = assert_paired(scenario(
+            brightness="40", window="tlt",
+            is_cover_tilt_enabled_and_possible=True,
+        ))
         assert live["moves"] and live["target"] == 50
         assert recovery["state"] == "vnt" and recovery["tilt"] == 60
         assert recovery["action_set"] == "ventilate"
@@ -556,6 +608,20 @@ class TestWindowParity:
 # Shading interplay
 # ════════════════════════════════════════════════════════════════════════════
 class TestShadingParity:
+    def test_closing_shortcut_clears_shading_and_pending(self):
+        s = scenario(
+            brightness="40", current_position=0, live_force="cls",
+            helper={"bas": "opn", "frc": "cls", "shd": 1, "pnd": "beg"},
+            helper_ts_pending_due=NOW_TS + 600,
+            helper_ts_pending_arm=NOW_TS - 60,
+        )
+        live = run_live(s, "closing")
+        assert live["entered"] and live["moves"] is False
+        assert live["final"]["bas"] == "cls"
+        assert live["final"]["shd"] == 0
+        assert live["final"]["pnd"] == "non"
+        assert live["final"]["ts_due"] == live["final"]["ts_arm"] == 0
+
     def test_refused_ventilation_condition_does_not_remove_the_shading_floor(self):
         """The live shading-start floor has no auto_ventilate_condition gate.
         A global recovery mask must therefore not turn its VENT target into SHD."""
@@ -641,30 +707,49 @@ class TestOpeningParity:
         assert live["final"]["shd"] == recovery["final"]["shd"] == 1
 
     def test_a_resident_blocked_opening_does_not_become_a_closing_drive(self):
-        """Passing the opening entry gate authorizes the live opening outcome,
-        not an arbitrary closing target selected by the recovery cascade."""
+        """Live only records the opening edge; recovery also repairs the
+        resident/privacy target whose event may have been swallowed."""
         s = self._morning(brightness="5000", state_resident=True,
                           resident_config=[], current_position=100)
-        live, recovery = assert_paired(s, "opening")
+        live = run_live(s, "opening")
+        recovery = run_recovery(s)
         assert live["entered"] and live["moves"] is False
         assert recovery["state"] == "cls"
-        assert recovery["moves"] is False
+        assert recovery["moves"] and recovery["target"] == 0
 
     def test_an_open_window_still_uses_the_opening_lockout_target(self):
-        """The live opening O-E does not consume auto_ventilate_condition. Its
-        LOCK target must therefore stay authorized when that condition is false."""
+        """The user ventilation condition blocks lockout actuation in both
+        paths, while the background opening and window state still progress."""
         verdicts = dict(DEFAULT_VERDICTS, auto_ventilate_condition=False)
         s = self._morning(brightness="5000", window="opn", current_position=40)
         live, recovery = assert_paired(s, "opening", verdicts)
-        assert live["moves"] and live["target"] == 100
+        assert live["moves"] is False
         assert recovery["state"] == "lock"
-        assert recovery["moves"] and recovery["target"] == 100
+        assert recovery["moves"] is False
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # Force and pause
 # ════════════════════════════════════════════════════════════════════════════
 class TestForceAndPauseParity:
+    def test_position_match_but_wrong_tilt_is_a_real_drive_in_both_paths(self):
+        s = scenario(
+            brightness="40", current_position=0, current_tilt_position=100,
+            is_cover_tilt_enabled_and_possible=True,
+        )
+        live, recovery = assert_paired(s)
+        assert live["moves"] and recovery["moves"]
+        assert live["target"] == recovery["target"] == 0
+        assert live["tilt"] == recovery["tilt"] == 0
+
+    def test_matching_position_and_tilt_is_a_true_noop(self):
+        s = scenario(
+            brightness="40", current_position=0, current_tilt_position=0,
+            is_cover_tilt_enabled_and_possible=True,
+        )
+        live, recovery = assert_paired(s)
+        assert live["moves"] is recovery["moves"] is False
+
     def test_a_conflicting_force_suppresses_the_drive_in_both_paths(self):
         s = scenario(brightness="40", force_allows_close=False)
         live, recovery = assert_paired(s, hygiene=("win", "man"))
@@ -684,14 +769,15 @@ class TestForceAndPauseParity:
         assert recovery["state"] == "cls"
 
     def test_a_caught_up_closing_does_not_execute_a_conflicting_force_target(self):
-        """Passing the closing entry gate authorizes CLS/VNT/LOCK outcomes, not
-        an OPEN drive selected by the recovery cascade's current force state."""
+        """Recovery reconciles the current cascade, so a force that became
+        active during the outage wins over the simultaneous base flip."""
         s = scenario(brightness="40", current_position=40, live_force="opn",
                      helper={"frc": "opn"}, force_allows_close=False)
-        live, recovery = assert_paired(s, hygiene=("win", "man"))
+        live = run_live(s, "closing")
+        recovery = run_recovery(s)
         assert live["entered"] and live["moves"] is False
         assert recovery["state"] == "opn"
-        assert recovery["moves"] is False
+        assert recovery["moves"] and recovery["target"] == 100
 
 
 # ════════════════════════════════════════════════════════════════════════════

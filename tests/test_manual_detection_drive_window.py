@@ -15,8 +15,9 @@ overshooting suppressions:
      10 min, contact settle delay, midnight-reset sleep).
 
 The fix introduces a dedicated last-drive timestamp `d` in the helper JSON,
-stamped by `helper_update` only when `drive_plan.run` was true (the same
-decision that gates `man: 0`, Invariant 7). The settle window keys off `d`
+stamped by `helper_update` only after `apply_transition` dispatches a real
+position/relevant-tilt change (the same signal that gates `man: 0`, Invariant
+7). The settle window keys off `d`
 (via `helper_ts_drive`), and the `current == 0` check is removed: with
 `mode: queued` a manual event always executes AFTER the concurrent run's
 helper write, so a run that drove suppresses via the window and a run that
@@ -135,7 +136,8 @@ CURRENT_HELPER = {
 }
 
 
-def _render_helper_update(drive_plan=None, update_values=None, current=None, live=None) -> dict:
+def _render_helper_update(drive_plan=None, update_values=None, current=None, live=None,
+                          drive_dispatched=False) -> dict:
     """live: raw helper JSON string served by states() at write time (Bug
     Pattern AQ live re-read). Defaults to the serialized `current` snapshot so
     the snapshot and the live state agree, as they do outside queued races."""
@@ -147,6 +149,7 @@ def _render_helper_update(drive_plan=None, update_values=None, current=None, liv
         "update_values": update_values if update_values is not None else {},
         "cover_status_helper": entity,
         "invalid_states": INVALID_STATES,
+        "drive_dispatched": drive_dispatched,
     }
     if drive_plan is not None:
         variables["drive_plan"] = drive_plan
@@ -161,7 +164,7 @@ def _render_helper_update(drive_plan=None, update_values=None, current=None, liv
 
 class TestDriveTimestampStamping:
     def test_driving_run_stamps_d(self):
-        result = _render_helper_update(drive_plan={"run": True})
+        result = _render_helper_update(drive_plan={"run": True}, drive_dispatched=True)
         assert result["d"] == NOW_TS
         assert result["t"] == NOW_TS
 
@@ -188,8 +191,8 @@ class TestDriveTimestampStamping:
         """The suppression window and the man:0 reset must key off the same
         drive decision (drive_plan.run == will_drive, Invariant 7)."""
         tpl = _helper_update_value_template()
-        assert "(drive_plan | default({})).run | default(false)" in tpl, (
-            "d must be derived from drive_plan.run with the Invariant-14 guards"
+        assert "drive_dispatched | default(false)" in tpl, (
+            "d must be derived from the post-delay dispatch decision"
         )
 
 

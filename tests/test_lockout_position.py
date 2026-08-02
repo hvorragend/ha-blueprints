@@ -301,7 +301,10 @@ class TestLockoutFallThroughTargets:
         branch = _find_branch_by_alias(_load_blueprint_yaml()["actions"], alias)
         assert branch is not None, f"branch not found: {alias!r}"
         seq = str(branch["sequence"])
-        assert SWAP in seq, f"{alias}: open-drive target must swap on lock"
+        if alias == "Normal opening of the cover":
+            assert SWAP in seq, f"{alias}: open-drive target must swap on lock"
+        else:
+            assert "state_targets[shading_end_state]" in seq
 
     def test_swap_template_semantics(self):
         tmpl = _env().from_string(SWAP)

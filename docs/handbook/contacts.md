@@ -17,7 +17,7 @@ Settings if the feature ‘💨 - Ventilation Mode — React to open/tilted wind
 
 > 🧩 Input: `contact_window_opened`
 
-Contact sensor of a door or window handle for detecting <ins>total opening</ins>. If this sensor switches to on/true, the cover is <ins>fully opened</ins> — to the Open Position, or to the [💨 Full Ventilation Position](positions#lockout_position) if configured. At the same time, a lockout protection is <ins>always</ins> activated. The cover is not closed and the sun shading is not activated when the contact is open.
+Contact sensor of a door or window handle for detecting <ins>total opening</ins>. If this sensor switches to on/true and the [Additional Ventilation Condition](conditions#auto_ventilate_condition) permits the movement, the cover is <ins>fully opened</ins> — to the Open Position, or to the [💨 Full Ventilation Position](positions#lockout_position) if configured. Independently of that proactive movement, lockout protection is <ins>always</ins> activated: CCA records the open window and does not later close or sun-shade the cover while the contact remains open.
 
 ### Further descriptions
 

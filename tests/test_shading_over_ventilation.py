@@ -21,6 +21,7 @@ Verified here against the real templates/branches from the blueprint:
 Run with: pytest tests/ -v
 """
 import pathlib
+import re
 
 import jinja2
 import pytest
@@ -94,6 +95,7 @@ def _find_variable_definition(node, name: str):
 def _render(template: str, entity_states: dict, **variables) -> str:
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     env.globals["states"] = lambda entity_id: entity_states.get(entity_id, "unknown")
+    env.filters["regex_search"] = lambda value, pattern: re.search(pattern, str(value)) is not None
     return env.from_string(template).render(**variables).strip()
 
 
@@ -252,7 +254,7 @@ class TestContactHandler:
         branch = _find_branch_by_alias(BP["actions"], SHADING_FIRST_ALIAS)
         variables = branch["sequence"][0]["variables"]
         assert "state_targets.shd" in str(variables["drive_plan"])
-        assert variables["will_drive"] == "{{ state_gates.shd }}"
+        assert variables["will_drive"] == "{{ state_gates.shd and manual_allows_state.vnt }}"
         # Invariant 1: no position check in the branch conditions
         assert "in_shading_position" not in str(branch["conditions"])
 
@@ -260,7 +262,7 @@ class TestContactHandler:
         branch = _find_branch_by_alias(BP["actions"], SHADING_FIRST_ALIAS)
         update = branch["sequence"][0]["variables"]["update_values"]
         assert update["win"] == "tlt"
-        assert update["man"] == "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
+        assert "man" not in update
         # Invariant 8: a contact-handler branch must not touch the pending keys
         assert "pnd" not in update and "ts" not in update
 
@@ -279,13 +281,19 @@ class TestShadingFollowUpBranches:
     def test_tilted_window_only_blocks_without_the_option(self, alias):
         branch = _find_branch_by_alias(BP["actions"], alias)
         assert branch is not None
-        assert f"{{{{ {TILTED_GATE} }}}}" in branch["conditions"]
+        gate = str(branch["sequence"][0]["variables"]["will_drive"])
+        assert TILTED_GATE in gate
 
     @pytest.mark.parametrize("alias", [SHADING_TILT_ALIAS, SHADING_ALT_ALIAS])
     def test_open_window_always_blocks(self, alias):
         """The gate must stay false for a fully open window, option or not."""
         branch = _find_branch_by_alias(BP["actions"], alias)
-        gate = next(c for c in branch["conditions"] if "window_opened_now" in str(c))
+        gate = branch["sequence"][0]["variables"]["will_drive"]
         for option in (False, True):
-            assert _render(gate, {}, window_opened_now=True, window_tilted_now=False,
+            assert _render(gate, {"input_text.cca_status": '{"shd":1}'},
+                           is_paused=False, manual_allows_state={"shd": True},
+                           force_allows_shade=True, resident_flags={"allow_shade": True},
+                           cover_status_helper="input_text.cca_status",
+                           in_shading_position=False,
+                           window_opened_now=True, window_tilted_now=False,
                            shading_over_ventilation=option) == "False"

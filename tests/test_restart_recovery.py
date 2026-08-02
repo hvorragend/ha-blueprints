@@ -184,8 +184,8 @@ def _walk_steps(seq: list):
     """Every step of a sequence, including the ones nested in choose/if/sequence blocks.
 
     The recovery gate keeps its shared body in a YAML anchor behind a choose (the flip
-    direction decides which !input condition applies, and variables do not escape a
-    branch), so its variables live one level down.
+    direction decides which !input condition applies), so its variables live one level
+    down in the parsed YAML tree.
     """
     for step in seq or []:
         if not isinstance(step, dict):
@@ -582,9 +582,8 @@ class TestOverrideExpired:
 
     def test_recovery_clears_man_when_expired(self):
         for step in _walk_steps(_branch_body(RECOVERY)):
-            uv = step.get("variables", {}).get("update_values")
-            if uv and "man" in uv:
-                assert "override_expired" in uv["man"]
+            if "override_expired" in str(step.get("if", "")):
+                assert "dict(update_values, man=0)" in str(step.get("then", ""))
                 return
         raise AssertionError("recovery branch does not write man")
 
@@ -766,10 +765,10 @@ class TestLiveGatesTheCaughtUpBaseFlip:
             assert "override_ok" not in str(self._branch(direction)["conditions"])
 
     def test_override_is_consumed_by_the_drive_gate(self):
-        will_drive = _branch_var(RECOVERY, "will_drive")
-        assert "base_gates.opening.override_ok" in will_drive
-        assert "base_gates.closing.override_ok" in will_drive
-        assert "override_expired" in will_drive
+        gate = _branch_var(RECOVERY, "transition_manual_allows")
+        assert "base_gates.opening.override_ok" in gate
+        assert "base_gates.closing.override_ok" in gate
+        assert "override_expired" in gate
 
     # --- the once-a-day guard (the shared projection, rendered directly) ---
     def _once(self, direction: str, **variables) -> bool:
@@ -966,23 +965,21 @@ class TestCaughtUpClosingHold:
     def test_the_drive_gate_consumes_it(self):
         will_drive = _branch_var(RECOVERY, "will_drive")
         assert "caught_up_closing_hold" in will_drive
-        assert "caught_up_opening_hold" in will_drive
+        assert "transition_manual_allows" in will_drive
         assert "recovery_vent_condition_hold" in will_drive
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=True,
-                            caught_up_opening_hold=False,
+                            transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
-                            caught_up_opening=False, caught_up_closing=True,
-                            base_gates={"opening": {"override_ok": True},
-                                        "closing": {"override_ok": True}},
+                            recovered_state="cls", caught_up_closing=True,
+                            manual_allows_state={"vnt": True},
                             override_expired=False) is False
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=False,
-                            caught_up_opening_hold=False,
+                            transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
-                            caught_up_opening=False, caught_up_closing=True,
-                            base_gates={"opening": {"override_ok": True},
-                                        "closing": {"override_ok": True}},
+                            recovered_state="cls", caught_up_closing=True,
+                            manual_allows_state={"vnt": True},
                             override_expired=False) is True
 
 
@@ -1435,7 +1432,6 @@ class TestRecoveryDrive:
     TARGET = staticmethod(lambda: _branch_var(RECOVERY, "target_position"))
     TILT = staticmethod(lambda: _branch_var(RECOVERY, "target_tilt_position"))
     ALLOWED = staticmethod(lambda: _branch_var(RECOVERY, "recovery_allowed"))
-    IN_POS = staticmethod(lambda: _branch_var(RECOVERY, "recovery_in_position"))
 
     def _lockout(self, window, vent=True, tilted_option=False):
         return _render_bool(self.LOCKOUT(), {}, recovered_window=window,
@@ -1498,8 +1494,7 @@ class TestRecoveryDrive:
     def test_the_shading_target_honours_the_alternate_shading_position(self):
         """#580: every other shading drive uses effective_shading_position. If the recovery
         used the plain shading_position, a restart while the alternate position is active
-        would drag the cover back to the normal one - and recovery_in_position (which
-        compares against the recovery's own target) would not even notice."""
+        would drag the cover back to the normal one on every reconciliation."""
         assert self._targets("shd", effective_shading_position=70) == (70, 40)
 
     def test_the_lock_target_honours_the_full_ventilation_position(self):
@@ -1516,14 +1511,12 @@ class TestRecoveryDrive:
         assert "state_targets" in self.TILT()
 
     # --- the user's drive actions on a caught-up movement ---
-    def _action_set(self, state, in_position, will_drive=True,
-                    caught_up_opening=False):
+    def _action_set(self, state, will_drive=True, caught_up_opening=False):
         plan = _branch_var(RECOVERY, "drive_plan")
         targets = _state_targets(effective_shading_position=30,
                                  effective_lockout_position=100, **self.POSITIONS)
         return _render(plan["action_set"], {}, recovered_state=state,
-                       state_targets=targets, recovery_in_position=in_position,
-                       will_drive=will_drive,
+                       state_targets=targets, will_drive=will_drive,
                        caught_up_opening=caught_up_opening)
 
     @pytest.mark.parametrize("state,action_set", [
@@ -1533,27 +1526,22 @@ class TestRecoveryDrive:
     def test_a_caught_up_movement_runs_the_users_drive_actions(self, state, action_set):
         """A closing the outage swallowed and the recovery catches up IS a closing - it
         must run auto_down_action, exactly like the scheduled handler would have."""
-        assert self._action_set(state, in_position=False) == action_set
+        assert self._action_set(state) == action_set
 
     @pytest.mark.parametrize("state", ["opn", "cls", "vnt", "shd", "lock"])
-    def test_no_drive_actions_when_the_cover_does_not_move(self, state):
-        """recovery_allowed carries NO position check (unlike state_gates) - it must stay
-        true so a tilt-only correction still runs. So drive_plan.run is true on virtually
-        every recovery run and cover_move_action no-ops via its tolerance guard. But the
-        before/after actions in drive_with_actions sit OUTSIDE that guard: without this
-        gate each of the ~19 recovery sources would re-fire the user's notifications and
-        scenes after a restart although nothing moved."""
-        assert self._action_set(state, in_position=True) == ""
+    def test_the_plan_keeps_its_action_set_until_the_shared_movement_check(self, state):
+        """The shared apply anchor, not recovery's former position-only helper,
+        decides whether position or tilt differs before actions are invoked."""
+        assert self._action_set(state)
 
     @pytest.mark.parametrize("state", ["opn", "cls", "vnt", "shd", "lock"])
     def test_a_hygiene_only_run_runs_no_drive_actions(self, state):
         """Without the opt-in the gate cleans the helper and stops. It never drives, so
         the user's before/after actions must not fire either."""
-        assert self._action_set(state, in_position=False, will_drive=False) == ""
+        assert self._action_set(state, will_drive=False) == ""
 
     def test_a_caught_up_opening_uses_the_opening_actions_at_lockout(self):
-        assert self._action_set("lock", in_position=False,
-                                caught_up_opening=True) == "up"
+        assert self._action_set("lock", caught_up_opening=True) == "up"
 
     # --- recovery_allowed ---
     def _allowed(self, state, **over):
@@ -1608,11 +1596,9 @@ class TestRecoveryDrive:
     def test_no_manual_override_nothing_holds(self):
         assert self._manual_hold(helper_state_manual=False) is False
 
-    # --- recovery_in_position ---
-    @pytest.mark.parametrize("current,expected", [(100, True), (96, True), (94, False), (0, False)])
-    def test_in_position_uses_the_tolerance(self, current, expected):
-        assert _render_bool(self.IN_POS(), {}, target_position=100,
-                            current_position=current, position_tolerance=5) is expected
+    def test_the_position_only_recovery_shortcut_is_gone(self):
+        with pytest.raises(AssertionError):
+            _branch_var(RECOVERY, "recovery_in_position")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1660,22 +1646,15 @@ class TestRecoveryPersists:
         assert _render(ts["opn"], {}, caught_up_opening=True, recovered_state="shd",
                        helper_ts_open=111, stale_day=False) == "111"
 
-    def _man(self, **over):
-        base = dict(override_expired=False, will_drive=True, recovery_in_position=False,
-                    helper_json={"man": 1})
-        base.update(over)
-        return _render(_recovery_update_values()["man"], {}, **base)
+    def test_recovery_does_not_copy_a_snapshot_manual_value(self):
+        assert "man" not in _recovery_update_values()
 
-    def test_man_is_cleared_when_the_recovery_actually_drives(self):
-        assert self._man() == "0"
-
-    def test_man_is_kept_when_nothing_moves(self):
-        """Invariant 7: man: 0 only when the cover is actually driven."""
-        assert self._man(recovery_in_position=True) == "1"
-        assert self._man(will_drive=False) == "1"
-
-    def test_an_expired_override_is_cleared_even_without_a_drive(self):
-        assert self._man(override_expired=True, recovery_in_position=True) == "0"
+    def test_an_expired_override_is_an_explicit_transition(self):
+        assert any(
+            "override_expired" in str(s.get("if", ""))
+            and "dict(update_values, man=0)" in str(s.get("then", ""))
+            for s in _walk_steps(_branch_body(RECOVERY))
+        )
 
     def test_the_users_override_reset_action_runs_for_a_swallowed_reset(self):
         """BRANCH 10 runs it on every reset. A reset caught up by the recovery must not
@@ -2291,8 +2270,8 @@ class TestRecoveryTriggers:
         scheduled movement the user's additional condition had deliberately suppressed was
         replayed as if it had merely been missed (real report: opening blocked all morning by
         an additional condition, a restart flipped bas to opn and the cover opened). The flip
-        direction decides which condition applies, so it has to be a choose - and because
-        variables do not escape a branch, the rest of the gate hangs off a shared anchor."""
+        direction decides which condition applies, so it has to be a choose; the shared
+        anchor keeps the downstream reconciliation structurally identical."""
         branches = self._direction_gate()["choose"]
         by_input = {
             next(c["condition"] for c in b["conditions"]

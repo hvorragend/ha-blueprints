@@ -152,9 +152,13 @@ class TestApplyTransitionAnchorShape:
         assert _persists_helper(seq[-1]), (
             "apply_transition must end with the helper persist"
         )
-        # The drive must be gated on drive_plan.run.
+        # The drive must be gated on the combined permission-and-movement
+        # projection, which itself includes drive_plan.run.
         drive_step = next(s for s in seq if isinstance(s, dict) and "if" in s)
-        assert "drive_plan" in str(drive_step["if"]) and "run" in str(drive_step["if"])
+        assert drive_step["if"] == "{{ drive_required }}"
+        projection = seq[0]["variables"]["drive_required"]
+        assert "plan.run" in projection
+        assert "position_required" in projection and "tilt_required" in projection
 
     def test_anchor_guards_are_prerender_safe(self):
         # Invariant 14: every drive_plan reference inside the anchor body must
@@ -175,11 +179,9 @@ class TestApplyTransitionAnchorShape:
 
 class TestForcePauseIsPartOfEveryDriveGate:
     """The force pause suspends every movement. The move actions themselves are
-    guarded (cover_move_action / tilt_move_action check is_paused), but Invariant 7
-    ties the man: reset - and drive_with_actions ties the user's before/after
-    actions - to the DRIVE DECISION, not to the move action. A drive gate that
-    ignores the pause therefore cleared the manual override and fired the user's
-    notifications while nothing could move. Every gate must know the pause."""
+    reached only through the terminal ownership checks, while Invariant 7 ties
+    the man reset and d to the final dispatch signal. Every plan gate must still
+    know the pause so already-paused runs never enter the actuation sequence."""
 
     def _walk_drive_gates(self):
         """Yield (context, will_drive_template, drive_plan) for every leaf branch,
@@ -256,23 +258,40 @@ class TestForcePauseIsPartOfEveryDriveGate:
             assert env.from_string(tpl).render(is_paused=True, **permissive).strip() == "False", state
 
     def test_the_users_drive_actions_stay_quiet_while_paused(self):
-        """drive_with_actions opens with a condition guard, same mechanic as
-        cover_move_action: a false condition stops only this block, the helper
-        persist after it still runs (Invariant 2). The pause is read LIVE here,
-        not via the is_paused variable: the plan-time variables are frozen, and
-        a pre-drive delay may have outlived the pause state they captured."""
+        """The shared apply anchor checks ownership before invoking the grouped
+        drive actions; the group checks again after its before-action, and the
+        movement stages retain their own live checks after internal waits."""
         blueprint = _load_blueprint_yaml()
-        anchor = blueprint["actions"][0]["variables"]["drive_with_actions"]
-        first = anchor["sequence"][0]
-        assert first.get("condition") == "template"
-        assert "states(force_pause)" in str(first.get("value_template", ""))
+        anchors = blueprint["actions"][0]["variables"]
+        for name in ("apply_transition", "drive_with_actions",
+                     "cover_move_action", "tilt_move_action"):
+            assert "states(force_pause)" in _actuation_gate(anchors[name]), name
 
 
 def _actuation_gate(anchor: dict) -> str:
     """The live pause/hand-over condition template of a move/drive anchor."""
-    for step in anchor["sequence"]:
-        if isinstance(step, dict) and "force_pause" in str(step.get("value_template", "")):
-            return str(step["value_template"])
+    def walk(node):
+        if isinstance(node, str):
+            return node if "force_pause" in node else None
+        if isinstance(node, dict):
+            for key in ("value_template", "if", "conditions"):
+                value = node.get(key)
+                if isinstance(value, str) and "force_pause" in value:
+                    return str(value)
+            for value in node.values():
+                found = walk(value)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    found = walk(anchor.get("sequence", []))
+    if found is not None:
+        return found
     raise AssertionError("anchor has no live pause/hand-over gate")
 
 
@@ -282,12 +301,16 @@ class TestActuationPointLiveGates:
     (will_drive, state_gates) are computed before the delay and are stale by
     the time the cover actually moves, and with several instances the outgoing
     one may sit in a delay while the incoming one already repositions the
-    cover. So the three actuation anchors re-read both entities live, at the
-    moment of movement. Same shape as the global instance gate: a GONE entity
-    (states[x] is none) passes, so the entity validation stays the one place
-    that reports it (Bug Pattern AF family)."""
+    cover. apply_transition checks before invoking any user action. For a full
+    drive, drive_with_actions checks again after the user's before-action; the
+    cover and tilt stages re-check after intervening waits and mark dispatch
+    only as their services begin. Raw tilt-only drives enter the same tilt-stage
+    check. Same shape as the global instance gate: a GONE
+    entity (states[x] is none) passes, so the entity validation stays the one
+    place that reports it (Bug Pattern AF family)."""
 
-    ANCHORS = ["cover_move_action", "tilt_move_action", "drive_with_actions"]
+    ANCHORS = ["apply_transition", "drive_with_actions",
+               "cover_move_action", "tilt_move_action"]
 
     def _anchor(self, name: str) -> dict:
         blueprint = _load_blueprint_yaml()
@@ -350,17 +373,59 @@ class TestActuationPointLiveGates:
             assert self._render(gate, pause_state="off", instance_state="off") == "False", name
 
     def test_the_live_gate_matches_the_value_matched_variant(self):
-        gate = _actuation_gate(self._anchor("cover_move_action"))
-        assert self._render(gate, pause_state="off", instance_state="Summer",
-                            on_states=("Summer",)) == "True"
-        assert self._render(gate, pause_state="off", instance_state="Winter",
-                            on_states=("Summer",)) == "False"
+        for name in self.ANCHORS:
+            gate = _actuation_gate(self._anchor(name))
+            assert self._render(gate, pause_state="off", instance_state="Summer",
+                                on_states=("Summer",)) == "True"
+            assert self._render(gate, pause_state="off", instance_state="Winter",
+                                on_states=("Summer",)) == "False"
 
     def test_unconfigured_and_gone_entities_do_not_block(self):
-        gate = _actuation_gate(self._anchor("cover_move_action"))
-        # Neither input configured -> the gate is transparent.
-        assert self._render(gate, pause_configured=False,
-                            instance_configured=False) == "True"
-        # Entity deleted mid-run (states[x] is none) -> mirror of the global
-        # instance gate: let it through, the entity validation names it.
-        assert self._render(gate, pause_state="off", instance_state=None) == "True"
+        for name in self.ANCHORS:
+            gate = _actuation_gate(self._anchor(name))
+            # Neither input configured -> the gate is transparent.
+            assert self._render(gate, pause_configured=False,
+                                instance_configured=False) == "True"
+            # Entity deleted mid-run (states[x] is none) -> mirror of the global
+            # instance gate: let it through, the entity validation names it.
+            assert self._render(gate, pause_state="off", instance_state=None) == "True"
+
+    def test_each_movement_stage_claims_dispatch_after_its_live_gate(self):
+        for name in ["cover_move_action", "tilt_move_action"]:
+            sequence = self._anchor(name)["sequence"]
+            gate_index = next(
+                i for i, step in enumerate(sequence)
+                if isinstance(step, dict) and "states(force_pause)" in str(step)
+            )
+            dispatch_index = next(
+                i for i, step in enumerate(sequence)
+                if step.get("variables", {}).get("drive_dispatched") is True
+            )
+            service_index = next(
+                i for i, step in enumerate(sequence)
+                if "repeat" in step
+            )
+            assert gate_index < dispatch_index < service_index, name
+
+    def test_full_drive_rechecks_after_before_action_before_any_stage(self):
+        sequence = self._anchor("drive_with_actions")["sequence"]
+        gate_index = next(
+            i for i, step in enumerate(sequence)
+            if isinstance(step, dict) and "states(force_pause)" in str(step)
+        )
+        first_move_index = next(
+            i for i, step in enumerate(sequence)
+            if "cover_move_action" in str(step) or "Preliminary tilt alignment" in str(step)
+        )
+        assert gate_index > 0  # the target-specific before-action choose is first
+        assert gate_index < first_move_index
+        assert not any(
+            step.get("variables", {}).get("drive_dispatched") is True
+            for step in sequence[gate_index + 1:first_move_index]
+        )
+
+    def test_after_action_requires_at_least_one_dispatched_stage(self):
+        sequence = self._anchor("drive_with_actions")["sequence"]
+        after = sequence[-1]
+        assert after.get("if") == "{{ drive_dispatched }}"
+        assert "auto_up_action" in str(after)
