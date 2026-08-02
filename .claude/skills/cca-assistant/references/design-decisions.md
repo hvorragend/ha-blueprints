@@ -70,6 +70,13 @@ same tilt-stage check. A pause enabled, or a hand-over performed, before any
 stage therefore stops movement, the after-action, the drive timestamp and the
 automatic manual clear together.
 
+When **default cover actions are disabled**, the user after-action is the
+configured movement implementation rather than an optional notification.
+CCA cannot inspect whether that sequence calls a cover service, so after the
+same projection and live ownership checks, entering the custom-only pipeline
+counts as `drive_dispatched`. This preserves the documented custom-actions-only
+contract and keeps `d` / the automatic manual clear aligned with that contract.
+
 Enforced by `tests/test_apply_transition_architecture.py::TestForcePauseIsPartOfEveryDriveGate` — a new branch whose drive gate ignores the pause fails structurally. The live actuation gates are pinned by `TestActuationPointLiveGates` in the same file.
 
 ### Triggers from/to an invalid sensor state are deliberately ignored

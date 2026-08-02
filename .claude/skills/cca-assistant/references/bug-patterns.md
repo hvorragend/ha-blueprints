@@ -696,7 +696,8 @@ The same source was also missing from the "no trigger source at all" configurati
 **Fix:** Distinguish "last write" from "last drive". The top-level helper
 field `d` is stamped by `helper_update` only after `apply_transition` projects
 a real position/relevant-tilt delta, passes the live pause/ownership check and
-sets `drive_dispatched`. The same signal owns the automatic `man: 0` clear
+sets `drive_dispatched` for a built-in movement or the explicitly configured
+custom-only movement pipeline. The same signal owns the automatic `man: 0` clear
 (Invariant 7). The settle window keys off `d` (`helper_ts_drive`); the
 `current == 0` condition is removed entirely: under `mode: queued` a manual
 event always executes *after* the concurrent run's helper write, so a run that
@@ -712,7 +713,8 @@ does not create such a window.
 **Consequence for the helper length:** the compact JSON grows to a worst-case 218 chars, so the minimum-length config check was raised 210 → 225 (recommended length stays 254). `tests/test_manual_detection_drive_window.py` pins the worst-case length against the configured minimum.
 
 **Rule:** A suppression that exists to hide CCA's *own movements* must key off
-actual dispatch (`drive_dispatched` / `d`), never plan permission
+actual dispatch (`drive_dispatched` / `d`, including the explicitly configured
+custom-only movement pipeline), never plan permission
 (`drive_plan.run`), write activity (`t`) or run activity
 (`this.attributes.current`) — bookkeeping, blocked plans and idle-waiting runs
 cannot have caused a position change.

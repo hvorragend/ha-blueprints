@@ -91,6 +91,9 @@ The user's `auto_ventilate_condition` is the one deliberate opt-out for the
 lockout **drive**. If it is false, `win: 'opn'` and the `lock` target still
 persist, but no cover command is sent. Resident and manual gates do not block a
 permitted lockout drive; an explicit force target still has higher priority.
+Every proactive lockout path therefore uses the shared `state_gates.lock`,
+which requires `live_force == 'non'` and `effective_state == 'lock'` in
+addition to pause and position checks.
 
 ### ⚠️ Invariant 7: `man: 0` only when actually driving the cover
 
@@ -113,6 +116,10 @@ a full drive this happens at the first alignment, cover or tilt stage that
 passes its live ownership check after the user before-action. Raw tilt uses the
 same tilt-stage check. A later block may stop the remaining stages, but the flag
 correctly records the partial movement already dispatched.
+When default cover actions are disabled, the configured user after-action is
+the movement carrier. CCA cannot inspect its contents, so entry into that
+custom-only pipeline after the same live ownership checks is deliberately an
+actual dispatch and owns `d` and the automatic clear.
 Explicit state-machine transitions of `man` (manual detection, reset,
 midnight reset, and recovery of an expired override) remain explicit updates.
 
@@ -257,7 +264,9 @@ unset too — only the terminal outcome (executed / given up) is logged.
 **A cover entry means a movement — one that was dispatched, or one that was
 wanted and suppressed.** `drive_plan.run` is only the plan permission;
 `drive_required` adds the position and relevant-tilt tolerance projection and
-`drive_dispatched` records the final live ownership check. A plan with no real
+`drive_dispatched` records built-in movement dispatch or entry into the
+explicitly configured custom-only movement pipeline after the final live
+ownership check. A plan with no real
 target (`101` sentinel on both axes) —
 deferrals, pending arms, manual detection — is exempt: there a movement *was*
 expected and did not happen, which is exactly what the user wants to read. So

@@ -740,7 +740,9 @@ pause** after the drive delay; a full drive repeats the read in
 re-check after any intervening waits. The first service stage reached sets
 `drive_dispatched`; later stages may still be stopped without erasing that real
 partial movement (see the design decision "The force pause is part of every
-drive gate"). The late run's helper write still happens and is harmless — it writes this instance's *own* helper, which the next
+drive gate"). With default cover services disabled, entry into the configured
+custom-only action pipeline sets the same signal after those live checks. The
+late run's helper write still happens and is harmless — it writes this instance's *own* helper, which the next
 activation re-derives anyway. The gone-entity rule of Half 0 is mirrored
 (`states[x] is none` passes), so the mandatory entity validation stays the one place that
 reports a deleted switch. Pinned by

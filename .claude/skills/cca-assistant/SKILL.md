@@ -70,7 +70,7 @@ gates, version bumping) are indexed in `.claude/CLAUDE.md`.
 | `ts.arm` | Unix timestamp | First-arming anchor of current retry sequence (`0` when `pnd == 'non'`) |
 | `ts.man` | Unix timestamp | Last manual override event |
 | `t` | Unix timestamp | Last helper write (every run stamps it) |
-| `d` | Unix timestamp | Last write of a run that drove the cover (`drive_plan.run`) |
+| `d` | Unix timestamp | Last write of a dispatched built-in movement or explicitly configured custom-only action pipeline (`drive_dispatched`) |
 
 ### Pending field semantics (`pnd` enum)
 
@@ -247,7 +247,7 @@ can `stop:` a run needs a `PRE_DISPATCH_DEFINITIONS` entry in the trace tools.
 
 **Dispatch branches** (order pinned by `tests/test_trace_tools_branch_map.py`):
 
-- **Opening** — check → already-open guard → shading-detected/defer sub-branches → normal opening
+- **Opening** — check → warranted-shading arm → already-open guard → shading-detected/defer sub-branches → normal opening
 - **Closing** — check → lockout protection → tilted-ventilation → already-closed guard → normal closing
 - **Shading Start** — detection → pending arm (`pnd: 'beg'`) → execution (lockout skip / vent floor / drive / save-for-future / retry / abort)
 - **Shading Tilt** — adjusts tilt while shading is active

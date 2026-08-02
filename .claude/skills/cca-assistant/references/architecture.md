@@ -101,7 +101,11 @@ tilt delta → optional delay → live pause/instance ownership check → for a
 full drive, select and run the before-action → re-check ownership live → set
 `drive_dispatched` at the first alignment/cover/tilt service stage, with another
 live check before the cover and tilt stages after intervening waits → run the
-after-action only if some stage was dispatched. A raw `move: tilt` plan has no
+after-action only if some stage was dispatched. When
+`prevent_default_cover_actions` is configured, the user after-action is the
+movement carrier; after the same live ownership checks, entry into that
+custom-only pipeline sets `drive_dispatched` so the action runs and owns `d`
+and the automatic `man: 0` clear. A raw `move: tilt` plan has no
 before-action and enters the same live-gated `*tilt_move_action` directly
 → optional cover-logbook line (only with `enable_logbook_cover`, and only when
 the branch drove or set `log_user`) → **unconditional** `*helper_update`.
@@ -133,7 +137,10 @@ gates (`helper_state_manual and override_flags.X`).
 `state_targets` maps each state (`lock`/`opn`/`vnt`/`shd`/`cls`) to
 `{target, target_tilt, action_set}`; `state_gates` maps each state to the
 standard drive gate `force_allows_X and (effective_state != X or not
-in_X_position)`. Branches that "drive to state X" (force enable, force
+in_X_position)`. The `lock` gate is deliberately stricter: it requires
+`live_force == 'non'`, `effective_state == 'lock'` and a position delta, so a
+contact or resident event cannot move to lockout while Force owns the cover.
+Branches that "drive to state X" (force enable, force
 last-wins, force-pause resume) build their `drive_plan` from them instead of
 repeating position/tilt/action/gate triples. The force-pause-resume handler is
 a pure reconciler step: `resume_state` (= `effective_state` with `'opn'`
@@ -168,7 +175,10 @@ one generic message per handler.
 effect gates into `drive_plan.run` and omit `man` from ordinary updates. The
 terminal actuation anchors add position/tilt tolerances and live ownership;
 only their `drive_dispatched` result lets `helper_update` stamp `d` and clear
-`man`, so queued snapshots and no-op targets cannot impersonate a drive.
+`man`, so queued snapshots and no-op targets cannot impersonate a drive. The
+explicit exception is custom-actions-only mode: CCA cannot inspect the user's
+action sequence, so entering that configured movement pipeline after all gates
+is the dispatch contract.
 
 ---
 
