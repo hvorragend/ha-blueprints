@@ -276,6 +276,7 @@ class TestShadingEndProspectiveCascade:
         template = _find_variable(branch, "shading_end_state")
         variables = {
             "helper_state_force": "non",
+            "is_ventilation_enabled": True,
             "window_opened_now": False,
             "window_tilted_now": False,
             "state_resident": False,
@@ -332,6 +333,16 @@ class TestShadingEndProspectiveCascade:
         assert self._render_state(
             window_tilted_now=True, is_opening_scheduled=False
         ) == "vnt"
+
+    @pytest.mark.parametrize("contact", ["opened", "tilted"])
+    def test_ventilation_disabled_ignores_window_contacts(self, contact):
+        overrides = {
+            "is_ventilation_enabled": False,
+            "window_opened_now": contact == "opened",
+            "window_tilted_now": contact == "tilted",
+            "ventilation_flags": {"after_shading_end": True},
+        }
+        assert self._render_state(**overrides) == "opn"
 
     def test_tilted_window_keeps_the_ventilation_floor_over_privacy(self, choose):
         entity_states = {

@@ -244,8 +244,8 @@ def _context(s: dict, trigger_id: str) -> tuple[dict, dict]:
         drive_delay_standard=0,
         state_labels=_action_var("state_labels"),
     )
-    ctx["manual_allows_state"] = Runner(ctx, entities, {}).render(
-        _top_var("manual_allows_state")
+    ctx["manual_allows_event"] = Runner(ctx, entities, {}).render(
+        _top_var("manual_allows_event")
     )
     for name in ("window_opened_now", "window_tilted_now", "window_any_now",
                  "window_opened_clear"):

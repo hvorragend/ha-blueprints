@@ -155,7 +155,7 @@ class TestApplyTransitionAnchorShape:
         # The drive must be gated on the combined permission-and-movement
         # projection, which itself includes drive_plan.run.
         drive_step = next(s for s in seq if isinstance(s, dict) and "if" in s)
-        assert drive_step["if"] == "{{ drive_required }}"
+        assert drive_step["if"] == "{{ drive_required | default(false) }}"
         projection = seq[0]["variables"]["drive_required"]
         assert "plan.run" in projection
         assert "position_required" in projection and "tilt_required" in projection
@@ -170,6 +170,7 @@ class TestApplyTransitionAnchorShape:
             "anchor body must guard drive_plan with | default({}) "
             "(Invariant 14: anchor bodies are pre-rendered)"
         )
+        assert "{{ drive_required | default(false) }}" in flat
         # No unguarded direct attribute access on drive_plan.
         import re
 
@@ -250,7 +251,7 @@ class TestForcePauseIsPartOfEveryDriveGate:
             force_allows_shade=True, force_allows_close=True,
             effective_state="none_of_them",
             live_force="non",
-            manual_allows_state={"opn": True, "vnt": True, "shd": True, "cls": True},
+            manual_allows_event={"opn": True, "vnt": True, "shd": True, "cls": True},
             in_lockout_position=False,
             in_open_position=False, in_ventilate_position=False,
             in_shading_position=False, in_close_position=False,
@@ -432,7 +433,7 @@ class TestActuationPointLiveGates:
     def test_after_action_requires_dispatch(self):
         sequence = self._anchor("drive_with_actions")["sequence"]
         after = sequence[-1]
-        assert after.get("if") == "{{ drive_dispatched }}"
+        assert after.get("if") == "{{ drive_dispatched | default(false) }}"
         assert "auto_up_action" in str(after)
 
     def test_custom_actions_only_claims_dispatch_before_the_after_action(self):
@@ -445,4 +446,4 @@ class TestActuationPointLiveGates:
         assert custom["if"] == "{{ prevent_flags.default_cover_actions }}"
         assert custom["then"] == [{"variables": {"drive_dispatched": True}}]
         assert custom_index == len(sequence) - 2
-        assert sequence[-1].get("if") == "{{ drive_dispatched }}"
+        assert sequence[-1].get("if") == "{{ drive_dispatched | default(false) }}"

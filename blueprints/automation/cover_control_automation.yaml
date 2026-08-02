@@ -3303,7 +3303,9 @@ variables:
     ventilation: "{{ helper_state_manual and override_flags.ventilation }}"
     shading: "{{ helper_state_manual and override_flags.shading }}"
 
-  manual_allows_state:
+  # Manual policy is owned by the triggering event, not the physical target:
+  # e.g. a shading event that holds the ventilation floor still uses `.shd`.
+  manual_allows_event:
     lock: true
     opn: "{{ not override_blocks.opening }}"
     vnt: "{{ not override_blocks.ventilation }}"
@@ -4421,7 +4423,7 @@ actions:
           # Suppress the after-action if ownership was lost before dispatch.
           # If an earlier stage already moved and a later one was stopped, the
           # after-action still truthfully closes that partial dispatch.
-          - if: "{{ drive_dispatched }}"
+          - if: "{{ drive_dispatched | default(false) }}"
             then:
               - choose:
                   - conditions: "{{ drive_action_set | default('') == 'up' }}"
@@ -4591,7 +4593,7 @@ actions:
                 {{ plan.run | default(false) and
                    (tilt_required if move == 'tilt' else position_required or tilt_required) }}
               drive_dispatched: false
-          - if: "{{ drive_required }}"
+          - if: "{{ drive_required | default(false) }}"
             then:
               - if: "{{ (drive_plan | default({})).delay_s | default(0) | int > 0 }}"
                 then:
@@ -5997,12 +5999,10 @@ actions:
                                      (recovered_state == 'cls' and closing_position_hold) or
                                      (is_ventilation_enabled and lockout_tilted_when_closing and recovered_window == 'tlt')) }}
                               transition_manual_allows: >-
-                                {% if override_expired or recovered_state == 'lock' or live_force != 'non' %}true
-                                {% elif caught_up_opening %}
-                                  {{ base_gates.opening.override_ok }}
-                                {% elif caught_up_closing %}
-                                  {{ base_gates.closing.override_ok }}
-                                {% else %}true{% endif %}
+                                {{ true if override_expired or recovered_state == 'lock' or live_force != 'non'
+                                   else base_gates.opening.override_ok if caught_up_opening
+                                   else base_gates.closing.override_ok if caught_up_closing
+                                   else true }}
                               log_user: "{{ 'this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage' }}, target: {{ state_labels[recovered_state] }}"
                               log_extra: >-
                                 Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
@@ -6589,7 +6589,7 @@ actions:
                                 sequence:
                                   - variables:
                                       will_drive: >-
-                                        {{ not is_paused and manual_allows_state.shd and
+                                        {{ not is_paused and manual_allows_event.shd and
                                            force_allows_ventilate and
                                            not in_ventilate_position }}
                                       log_user: "sun shading is due, but the tilted window keeps the cover higher"
@@ -6632,7 +6632,7 @@ actions:
                                 sequence:
                                   - variables:
                                       will_drive: >-
-                                        {{ not is_paused and manual_allows_state.shd and
+                                        {{ not is_paused and manual_allows_event.shd and
                                            force_allows_shade }}
                                       log_user: "sun shading started"
                                       drive_plan:
@@ -6777,7 +6777,7 @@ actions:
         sequence:
           - variables:
               will_drive: >-
-                {{ not is_paused and manual_allows_state.shd and force_allows_shade and
+                {{ not is_paused and manual_allows_event.shd and force_allows_shade and
                    resident_flags.allow_shade and
                    not window_opened_now and (not window_tilted_now or shading_over_ventilation) and
                    cover_status_helper != [] and
@@ -6814,7 +6814,7 @@ actions:
         sequence:
           - variables:
               will_drive: >-
-                {{ not is_paused and manual_allows_state.shd and force_allows_shade and
+                {{ not is_paused and manual_allows_event.shd and force_allows_shade and
                    resident_flags.allow_shade and
                    not window_opened_now and (not window_tilted_now or shading_over_ventilation) and
                    not in_shading_position and
@@ -6861,12 +6861,12 @@ actions:
                   # Force, Privacy close, or ventilation floor.
                   shading_end_state: >-
                     {% if helper_state_force != 'non' %}{{ helper_state_force }}
-                    {% elif window_opened_now %}lock
+                    {% elif is_ventilation_enabled and window_opened_now %}lock
                     {% else %}
                       {% set base_target = 'cls' if state_resident and resident_flags.closing_trigger
                                            else 'cls' if helper_state_base == 'opn' and not resident_flags.allow_open
                                            else helper_state_base %}
-                      {% if window_tilted_now and resident_flags.allow_ventilate and
+                      {% if is_ventilation_enabled and window_tilted_now and resident_flags.allow_ventilate and
                             (ventilation_flags.after_shading_end or
                              not (base_target == 'opn' and is_opening_scheduled)) %}vnt
                       {% else %}{{ base_target }}{% endif %}
@@ -6948,7 +6948,7 @@ actions:
                     sequence:
                       - variables:
                           will_drive: >-
-                            {{ not is_paused and manual_allows_state.shd and
+                            {{ not is_paused and manual_allows_event.shd and
                                force_allows_ventilate }}
                           log_user: "sun shading is over, the window is tilted, going to the ventilation position"
                           drive_plan:
@@ -6982,7 +6982,7 @@ actions:
                     sequence:
                       - variables:
                           will_drive: >-
-                            {{ not is_paused and manual_allows_state.shd and not is_forced }}
+                            {{ not is_paused and manual_allows_event.shd and not is_forced }}
                           log_user: "sun shading is over, opening the slats only"
                           drive_plan:
                             run: "{{ will_drive }}"
@@ -7044,7 +7044,7 @@ actions:
                             {{ shading_end_target_condition_ok and
                                shading_end_opening_allows and shading_end_ventilation_allows and
                                not is_paused and shading_end_force_allows and
-                               (shading_end_state == 'lock' or manual_allows_state.shd) }}
+                               (shading_end_state == 'lock' or manual_allows_event.shd) }}
                           log_user: "{{ 'sun shading is over, back to: ' ~ state_labels[shading_end_state] if will_drive else 'sun shading is over, but the cover stays where it is' }}"
                           log_extra: >-
                             shading end; target={{ shading_end_state }}{{ '; opening_after_shading_end prevented' if prevent_flags.opening_after_shading_end else '' }}
@@ -7254,7 +7254,7 @@ actions:
                       # Manual option decides whether moving the window hands
                       # control back to CCA; the configured shading priority
                       # only selects the resulting target.
-                      will_drive: "{{ state_gates.shd and manual_allows_state.vnt }}"
+                      will_drive: "{{ state_gates.shd and manual_allows_event.vnt }}"
                       log_user: "the window was tilted, but sun shading takes precedence"
                       drive_plan: >-
                         {{ dict(state_targets.shd, run=will_drive,
@@ -7302,7 +7302,7 @@ actions:
                       - *auto_ventilate_condition_check
                     then:
                       - variables:
-                          will_drive: "{{ not is_paused and manual_allows_state.vnt and force_allows_ventilate }}"
+                          will_drive: "{{ not is_paused and manual_allows_event.vnt and force_allows_ventilate }}"
                           log_user: "the window was tilted, going to the ventilation position"
                           drive_plan:
                             run: "{{ will_drive }}"
@@ -7366,7 +7366,7 @@ actions:
                 sequence:
                   - variables:
                       will_drive: >-
-                        {{ not is_paused and manual_allows_state.vnt and
+                        {{ not is_paused and manual_allows_event.vnt and
                            {'shd': force_allows_shade,
                             'opn': not prevent_flags.opening_after_ventilation_end and force_allows_open,
                             'cls': force_allows_close}[return_target] }}
@@ -7448,7 +7448,7 @@ actions:
                       # 'non' updates only the resident status.
                       - variables:
                           leave_target: >-
-                            {% if window_opened_now %}non
+                            {% if is_ventilation_enabled and window_opened_now %}non
                             {% elif helper_state_shade and resident_flags.allow_shade and is_shading_enabled %}shd
                             {% elif helper_state_base == 'opn' and resident_flags.opening_trigger and is_up_enabled %}opn
                             {% elif helper_state_base == 'cls' and is_down_enabled %}cls

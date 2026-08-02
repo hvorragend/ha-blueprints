@@ -422,7 +422,7 @@ class TestReDriveBranch:
         gate = str(branch["sequence"][0]["variables"]["will_drive"])
         assert "force_allows_shade" in gate
         assert "resident_flags.allow_shade" in gate
-        assert "manual_allows_state.shd" in gate
+        assert "manual_allows_event.shd" in gate
 
     def test_lockout_window_checks_present(self, branch):
         # Both contact sensors gate the branch: an open window always blocks it,

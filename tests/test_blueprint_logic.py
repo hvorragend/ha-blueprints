@@ -2269,7 +2269,7 @@ class TestForcePauseDisabledHasBackgroundOpen:
         assert plan.get("run") == "{{ will_drive }}", "unpausing must drive via will_drive"
         will_drive = str(_find_variable_definition(handler, "will_drive"))
         assert "target_condition_ok" in will_drive
-        assert "manual_allows_state" not in will_drive, (
+        assert "manual_allows_event" not in will_drive, (
             "disabling Force Pause is an explicit hand-over back to CCA"
         )
         assert "state_targets[resume_state]" in str(plan), (

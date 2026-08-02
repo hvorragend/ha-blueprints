@@ -766,9 +766,38 @@ class TestLiveGatesTheCaughtUpBaseFlip:
 
     def test_override_is_consumed_by_the_drive_gate(self):
         gate = _branch_var(RECOVERY, "transition_manual_allows")
+        assert gate.strip().startswith("{{") and "{%" not in gate
         assert "base_gates.opening.override_ok" in gate
         assert "base_gates.closing.override_ok" in gate
         assert "override_expired" in gate
+
+    @pytest.mark.parametrize(
+        "caught_opening,caught_closing,opening_ok,closing_ok,expected",
+        [
+            (True, False, False, True, False),
+            (True, False, True, False, True),
+            (False, True, True, False, False),
+            (False, True, False, True, True),
+            (False, False, False, False, True),
+        ],
+    )
+    def test_transition_manual_gate_keeps_its_boolean_semantics(
+        self, caught_opening, caught_closing, opening_ok, closing_ok, expected
+    ):
+        gate = _branch_var(RECOVERY, "transition_manual_allows")
+        assert _render_bool(
+            gate,
+            {},
+            override_expired=False,
+            recovered_state="opn",
+            live_force="non",
+            caught_up_opening=caught_opening,
+            caught_up_closing=caught_closing,
+            base_gates={
+                "opening": {"override_ok": opening_ok},
+                "closing": {"override_ok": closing_ok},
+            },
+        ) is expected
 
     # --- the once-a-day guard (the shared projection, rendered directly) ---
     def _once(self, direction: str, **variables) -> bool:
@@ -972,14 +1001,14 @@ class TestCaughtUpClosingHold:
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
                             recovered_state="cls", caught_up_closing=True,
-                            manual_allows_state={"vnt": True},
+                            manual_allows_event={"vnt": True},
                             override_expired=False) is False
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=False,
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
                             recovered_state="cls", caught_up_closing=True,
-                            manual_allows_state={"vnt": True},
+                            manual_allows_event={"vnt": True},
                             override_expired=False) is True
 
 

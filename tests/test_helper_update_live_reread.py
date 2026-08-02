@@ -285,7 +285,7 @@ class TestShadingDriveLiveGates:
         variables = {
             "is_paused": False,
             "force_allows_shade": True,
-            "manual_allows_state": {"shd": True},
+            "manual_allows_event": {"shd": True},
             "resident_flags": {"allow_shade": True},
             "window_opened_now": False,
             "window_tilted_now": False,
@@ -313,7 +313,7 @@ class TestShadingDriveLiveGates:
         ).render(
             is_paused=True,
             force_allows_shade=True,
-            manual_allows_state={"shd": True},
+            manual_allows_event={"shd": True},
             resident_flags={"allow_shade": True},
             window_opened_now=False,
             window_tilted_now=False,

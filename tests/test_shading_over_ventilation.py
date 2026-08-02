@@ -254,7 +254,7 @@ class TestContactHandler:
         branch = _find_branch_by_alias(BP["actions"], SHADING_FIRST_ALIAS)
         variables = branch["sequence"][0]["variables"]
         assert "state_targets.shd" in str(variables["drive_plan"])
-        assert variables["will_drive"] == "{{ state_gates.shd and manual_allows_state.vnt }}"
+        assert variables["will_drive"] == "{{ state_gates.shd and manual_allows_event.vnt }}"
         # Invariant 1: no position check in the branch conditions
         assert "in_shading_position" not in str(branch["conditions"])
 
@@ -291,7 +291,7 @@ class TestShadingFollowUpBranches:
         gate = branch["sequence"][0]["variables"]["will_drive"]
         for option in (False, True):
             assert _render(gate, {"input_text.cca_status": '{"shd":1}'},
-                           is_paused=False, manual_allows_state={"shd": True},
+                           is_paused=False, manual_allows_event={"shd": True},
                            force_allows_shade=True, resident_flags={"allow_shade": True},
                            cover_status_helper="input_text.cca_status",
                            in_shading_position=False,
