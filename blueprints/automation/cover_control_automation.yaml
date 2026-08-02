@@ -4411,7 +4411,14 @@ actions:
                                     seconds: !input tilt_delay
           - *cover_move_action
           - *tilt_move_action
-          # Suppress the after-action if ownership was lost before any service.
+          # With built-in cover services disabled, the configured after-action
+          # is the movement carrier and therefore owns the dispatch signal.
+          - alias: "Custom actions only: claim the user action as dispatch"
+            if: "{{ prevent_flags.default_cover_actions }}"
+            then:
+              - variables:
+                  drive_dispatched: true
+          # Suppress the after-action if ownership was lost before dispatch.
           # If an earlier stage already moved and a later one was stopped, the
           # after-action still truthfully closes that partial dispatch.
           - if: "{{ drive_dispatched }}"
@@ -4897,12 +4904,14 @@ actions:
           action_set: "down"
 
       # Standard drive gate per target state: no force pause, force permits the
-      # move AND the cover is not already resting there. Branches whose will_drive
-      # is exactly this form reference state_gates[X] instead of restating it.
+      # move AND the cover is not already resting there. Lockout is special: it
+      # may drive only while lock is the effective state and no live Force owns
+      # the cover. Branches whose will_drive is exactly this form reference
+      # state_gates[X] instead of restating it.
       # Branches with a different gate (e.g. no position check in the force
       # recovery, or extra trigger conditions) keep their own expression.
       state_gates:
-        lock: "{{ not is_paused and force_allows_ventilate and (effective_state != 'lock' or not in_lockout_position) }}"
+        lock: "{{ not is_paused and live_force == 'non' and effective_state == 'lock' and not in_lockout_position }}"
         opn: "{{ not is_paused and force_allows_open and (effective_state != 'opn' or not in_open_position) }}"
         vnt: "{{ not is_paused and force_allows_ventilate and (effective_state != 'vnt' or not in_ventilate_position) }}"
         shd: "{{ not is_paused and force_allows_shade and (effective_state != 'shd' or not in_shading_position) }}"
@@ -7193,7 +7202,7 @@ actions:
                       - *auto_ventilate_condition_check
                     then:
                       - variables:
-                          will_drive: "{{ not is_paused and force_allows_open }}"
+                          will_drive: "{{ state_gates.lock }}"
                           log_user: "the window was opened, raising the cover out of the way"
                           drive_plan:
                             run: "{{ will_drive }}"

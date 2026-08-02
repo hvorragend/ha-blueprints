@@ -249,13 +249,18 @@ class TestForcePauseIsPartOfEveryDriveGate:
             force_allows_ventilate=True, force_allows_open=True,
             force_allows_shade=True, force_allows_close=True,
             effective_state="none_of_them",
+            live_force="non",
             manual_allows_state={"opn": True, "vnt": True, "shd": True, "cls": True},
+            in_lockout_position=False,
             in_open_position=False, in_ventilate_position=False,
             in_shading_position=False, in_close_position=False,
         )
         for state, tpl in gates.items():
-            assert env.from_string(tpl).render(is_paused=False, **permissive).strip() == "True", state
-            assert env.from_string(tpl).render(is_paused=True, **permissive).strip() == "False", state
+            context = dict(permissive)
+            if state == "lock":
+                context["effective_state"] = "lock"
+            assert env.from_string(tpl).render(is_paused=False, **context).strip() == "True", state
+            assert env.from_string(tpl).render(is_paused=True, **context).strip() == "False", state
 
     def test_the_users_drive_actions_stay_quiet_while_paused(self):
         """The shared apply anchor checks ownership before invoking the grouped
@@ -424,8 +429,20 @@ class TestActuationPointLiveGates:
             for step in sequence[gate_index + 1:first_move_index]
         )
 
-    def test_after_action_requires_at_least_one_dispatched_stage(self):
+    def test_after_action_requires_dispatch(self):
         sequence = self._anchor("drive_with_actions")["sequence"]
         after = sequence[-1]
         assert after.get("if") == "{{ drive_dispatched }}"
         assert "auto_up_action" in str(after)
+
+    def test_custom_actions_only_claims_dispatch_before_the_after_action(self):
+        sequence = self._anchor("drive_with_actions")["sequence"]
+        custom_index = next(
+            i for i, step in enumerate(sequence)
+            if step.get("alias") == "Custom actions only: claim the user action as dispatch"
+        )
+        custom = sequence[custom_index]
+        assert custom["if"] == "{{ prevent_flags.default_cover_actions }}"
+        assert custom["then"] == [{"variables": {"drive_dispatched": True}}]
+        assert custom_index == len(sequence) - 2
+        assert sequence[-1].get("if") == "{{ drive_dispatched }}"
