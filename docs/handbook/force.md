@@ -14,6 +14,8 @@ Emergency override controls for weather protection and special scenarios
   <br />
   All settings in this section are optional
 
+An active Force position is CCA's highest-priority target. It overrides scheduled operation, sun shading, ventilation, Manual Override and full-window lockout. The lower-priority state continues to be tracked in the background so CCA knows what target is current when Force ends. **Force Pause** is the final movement switch: it can suspend even a Force-position command without changing that target.
+
 **On this page:** [🔙 Return to Target State After Force Disable](#auto_recover_after_force) · [⏸️ Force Pause (Suspend Automatic Actions)](#force_pause) · [🔼 Force Immediate Opening via Entity](#auto_up_force) · [🔻 Force Immediate Closing via Entity](#auto_down_force) · [💨 Force Immediate Ventilation via Entity](#auto_ventilate_force) · [🥵 Force Activation Sun Shading via Entity](#auto_shading_start_force)
 
 ---
@@ -49,11 +51,11 @@ Seamless control with automatic recovery: When enabled, the cover automatically 
 > 🧩 Input: `force_pause`
 
 If the status of this entity changes to on or true, all automatic cover movements are suspended immediately. This holds even for a movement that was already planned and is waiting out its drive delay when the pause arrives — the pause is re-checked at the moment the cover would actually move. The background state (target positions) is still tracked continuously in the helper — even while paused.
-While paused, CCA also does **not** run your *before/after actions* (they announce a movement that cannot happen) and does **not** clear a manual override — both follow the actual drive decision, which the pause suspends.
+While paused, CCA also does **not** run your *before/after actions* (they announce a movement that cannot happen) and does **not** clear a manual override — both follow the actual dispatch decision, which the pause suspends.
 When this entity turns off again, the cover **immediately returns** to its correct target position — no waiting for the next scheduled trigger.
 💡 **Tip:** Use an `input_boolean` as a manual/automatic toggle. Unlike putting a switch in the global condition (which blocks helper state updates too), this force pause only blocks cover movement. The helper always reflects the correct background state, so resuming is instant and reliable.
 
-⚠️ **Not a way to run several CCA automations on one cover.** The force pause keeps the automation *running* — it only stops it from moving the cover. A paused automation therefore still watches, and it cannot tell a *different CCA automation's* movements apart from you grabbing the slider: it records them as a **manual override** and refuses to touch the cover once you un-pause it. For that setup use [🎚️ Only run this automation while this switch is on](features#instance_active), which switches the automation off entirely and hands the cover over properly.
+⚠️ **Not a way to run several CCA automations on one cover.** The force pause keeps the automation *running* — it only stops it from moving the cover. A paused automation therefore still watches, and it cannot tell a *different CCA automation's* movements apart from you grabbing the slider. When Force Pause is disabled, CCA explicitly takes control again and may immediately overwrite that other automation's position. For that setup use [🎚️ Only run this automation while this switch is on](features#instance_active), which switches the automation off entirely and hands the cover over properly.
 
 ---
 

@@ -45,7 +45,7 @@ This condition can be used to dynamically control the <ins>closing</ins> of the 
 
 > 🧩 Input: `auto_ventilate_condition`
 
-This condition can be used to dynamically control the <ins>start of the ventilation</ins> of the cover. <br /><br /> If the result of this condition is <ins>true</ins>, the automation will continue.<br /> The result of the conditions must be <ins>false</ins>, for the automation to stop in this sequence.
+This condition can be used to dynamically control the <ins>start of the ventilation</ins> of the cover, including the proactive movement to the Full Ventilation Position when a window is fully opened. <br /><br /> If the result of this condition is <ins>true</ins>, the automation will continue.<br /> If it is <ins>false</ins>, CCA does not send that ventilation-start movement. For a fully opened window the lockout itself remains active: the open state is recorded and later closing or sun-shading movement stays blocked while the contact remains open.
 
 ---
 

@@ -78,6 +78,23 @@ def _find_branch_by_alias(node, alias: str):
     return None
 
 
+def _find_variable(node, name: str):
+    if isinstance(node, dict):
+        variables = node.get("variables")
+        if isinstance(variables, dict) and name in variables:
+            return variables[name]
+        for value in node.values():
+            found = _find_variable(value, name)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _find_variable(item, name)
+            if found is not None:
+                return found
+    return None
+
+
 def _shading_end_choose(blueprint: dict) -> list:
     """The choose: list inside the 'Check for shading end' branch."""
     outer = _find_branch_by_alias(blueprint, "Check for shading end")
@@ -100,6 +117,10 @@ def _eval_condition(env: jinja2.Environment, cond, variables: dict) -> bool:
             return all(_eval_condition(env, c, variables) for c in cond["and"])
         if "or" in cond:
             return any(_eval_condition(env, c, variables) for c in cond["or"])
+        if "condition" in cond:
+            return variables.get("_input_verdicts", {}).get(
+                cond["condition"], True
+            )
         return True
     return True
 
@@ -152,6 +173,11 @@ def _base_execution_vars(entity_states: dict) -> dict:
         "current_tilt_position": 0,
         "ventilate_tilt_position": 60,
         "shading_end_conditions_met": True,
+        "shading_end_state": (
+            "lock" if entity_states.get("binary_sensor.window_opened") in ("on", "true")
+            else "vnt" if entity_states.get("binary_sensor.window_tilted") in ("on", "true")
+            else "opn"
+        ),
         "shading_end_max_duration": 0,
         "is_shading_allowed_window": True,
     }
@@ -236,8 +262,172 @@ class TestShadingEndBranchSelection:
             "after_shading_end": False,
             "if_lower_enabled": False,
         }
+        variables["shading_end_state"] = "opn"
         alias = _first_matching_alias(_env(entity_states), choose, variables)
         assert alias == "Only tilt open after shading ends"
+
+
+class TestShadingEndProspectiveCascade:
+    @staticmethod
+    def _render_state(**over):
+        branch = _find_branch_by_alias(
+            _load_blueprint_yaml(), "Check for shading end"
+        )
+        template = _find_variable(branch, "shading_end_state")
+        variables = {
+            "helper_state_force": "non",
+            "is_ventilation_enabled": True,
+            "window_opened_now": False,
+            "window_tilted_now": False,
+            "state_resident": False,
+            "resident_flags": {
+                "closing_trigger": False,
+                "allow_open": True,
+                "allow_ventilate": True,
+            },
+            "helper_state_base": "opn",
+            "is_opening_scheduled": True,
+            "ventilation_flags": {"after_shading_end": False},
+        }
+        variables.update(over)
+        return _env().from_string(template).render(**variables).strip()
+
+    def test_privacy_close_is_the_target_after_background_shading_ends(self):
+        rendered = self._render_state(
+            state_resident=True,
+            resident_flags={"closing_trigger": True, "allow_open": True,
+                            "allow_ventilate": True},
+        )
+        assert rendered == "cls"
+
+        branch = _find_branch_by_alias(
+            _load_blueprint_yaml(), "Check for shading end"
+        )
+        move = _find_branch_by_alias(
+            branch, "Move cover after shading end - conditions still valid"
+        )
+        assert "state_targets[shading_end_state]" in str(
+            _find_variable(move, "drive_plan")
+        )
+        update = _find_variable(move, "update_values")
+        assert "bas" not in update and update["shd"] == 0
+        assert update["pnd"] == "non"
+
+        open_update = next(
+            step for step in move["sequence"]
+            if isinstance(step, dict)
+            and step.get("if") == "{{ shading_end_state == 'opn' }}"
+        )
+        condition = _env().from_string(open_update["if"])
+        assert condition.render(shading_end_state="opn").strip() == "True"
+        assert condition.render(shading_end_state="cls").strip() == "False"
+
+    def test_ventilation_after_shading_option_overrides_scheduled_open_floor(self):
+        assert self._render_state(window_tilted_now=True) == "opn"
+        assert self._render_state(
+            window_tilted_now=True,
+            ventilation_flags={"after_shading_end": True},
+        ) == "vnt"
+
+    def test_scheduleless_tilt_keeps_the_normal_ventilation_floor(self):
+        assert self._render_state(
+            window_tilted_now=True, is_opening_scheduled=False
+        ) == "vnt"
+
+    @pytest.mark.parametrize("contact", ["opened", "tilted"])
+    def test_ventilation_disabled_ignores_window_contacts(self, contact):
+        overrides = {
+            "is_ventilation_enabled": False,
+            "window_opened_now": contact == "opened",
+            "window_tilted_now": contact == "tilted",
+            "ventilation_flags": {"after_shading_end": True},
+        }
+        assert self._render_state(**overrides) == "opn"
+
+    def test_tilted_window_keeps_the_ventilation_floor_over_privacy(self, choose):
+        entity_states = {
+            "binary_sensor.window_opened": "off",
+            "binary_sensor.window_tilted": "on",
+        }
+        variables = _base_execution_vars(entity_states)
+        variables["shading_end_state"] = "vnt"
+        alias = _first_matching_alias(_env(entity_states), choose, variables)
+        assert alias == "Ventilation after shading ends"
+
+    def test_stay_shaded_option_only_blocks_the_open_target(self):
+        move = _find_branch_by_alias(
+            _load_blueprint_yaml(),
+            "Move cover after shading end - conditions still valid",
+        )
+        gate = _find_variable(move, "shading_end_opening_allows")
+        env = _env()
+        flags = {"opening_after_shading_end": True}
+        assert env.from_string(gate).render(
+            shading_end_state="opn", prevent_flags=flags
+        ).strip() == "False"
+        for target in ("cls", "lock", "vnt", "shd"):
+            assert env.from_string(gate).render(
+                shading_end_state=target, prevent_flags=flags
+            ).strip() == "True"
+
+        ventilation_gate = _find_variable(
+            move, "shading_end_ventilation_allows"
+        )
+        assert env.from_string(ventilation_gate).render(
+            shading_end_state="vnt",
+            ventilation_flags={"after_shading_end": False},
+        ).strip() == "False"
+
+    def test_refused_ventilation_condition_cannot_fall_through_to_drive(self):
+        move = _find_branch_by_alias(
+            _load_blueprint_yaml(),
+            "Move cover after shading end - conditions still valid",
+        )
+        gate_step = next(
+            step for step in move["sequence"]
+            if isinstance(step, dict)
+            and any(
+                branch.get("alias") ==
+                "Shading end reconciliation: ventilation target allowed"
+                for branch in step.get("choose", [])
+            )
+        )
+
+        def verdict(state, allowed):
+            variables = {
+                "shading_end_state": state,
+                "_input_verdicts": {
+                    "auto_ventilate_condition": allowed,
+                },
+            }
+            alias = _first_matching_alias(_env(), gate_step["choose"], variables)
+            if alias is None:
+                return gate_step["default"][0]["variables"][
+                    "shading_end_target_condition_ok"
+                ]
+            branch = next(b for b in gate_step["choose"] if b["alias"] == alias)
+            return branch["sequence"][0]["variables"][
+                "shading_end_target_condition_ok"
+            ]
+
+        assert verdict("vnt", False) is False
+        assert verdict("lock", False) is False
+        assert verdict("vnt", True) is True
+        assert verdict("lock", True) is True
+        assert verdict("opn", False) is True
+
+    def test_non_open_shading_end_leaves_preserve_schedule_base_and_open_stamp(self):
+        blueprint = _load_blueprint_yaml()
+        for alias in (
+            "Lockout protection when shading ends",
+            "Ventilation after shading ends",
+            "Only tilt open after shading ends",
+        ):
+            update = _find_variable(
+                _find_branch_by_alias(blueprint, alias), "update_values"
+            )
+            assert "bas" not in update, alias
+            assert "opn" not in update.get("ts", {}), alias
 
     def test_issue_608_tilt_cover_at_ventilate_position_selects_ventilation(self, choose):
         # Venetian-style setup where shading and ventilation share the same

@@ -419,17 +419,18 @@ class TestReDriveBranch:
         assert "not helper_state_pending_start" in conds
 
     def test_gated_on_force_resident_and_override(self, branch):
-        conds = str(branch["conditions"])
-        assert "force_allows_shade" in conds
-        assert "resident_flags.allow_shade" in conds
-        assert "not override_blocks.shading" in conds
+        gate = str(branch["sequence"][0]["variables"]["will_drive"])
+        assert "force_allows_shade" in gate
+        assert "resident_flags.allow_shade" in gate
+        assert "manual_allows_event.shd" in gate
 
     def test_lockout_window_checks_present(self, branch):
         # Both contact sensors gate the branch: an open window always blocks it,
         # a tilted one only while the ventilation floor outranks the shading.
-        conds = str(branch["conditions"])
+        conds = str(branch["sequence"][0]["variables"]["will_drive"])
+        assert "not (is_ventilation_enabled and window_opened_now)" in conds
         assert (
-            "not window_opened_now and (not window_tilted_now or shading_over_ventilation)"
+            "not (is_ventilation_enabled and window_tilted_now) or shading_over_ventilation"
             in conds
         )
         blueprint = _load_blueprint_yaml()
@@ -449,8 +450,7 @@ class TestReDriveBranch:
                 f"re-drive must not set '{forbidden}' — would corrupt the "
                 f"shade-once-per-day guard / pending state"
             )
-        # It may only (optionally) reset the manual flag when it actually drives.
-        assert set(uv.keys()) <= {"man"}
+        assert uv == {}
 
     def test_reapplies_shading_tilt_after_position_move(self, branch):
         """A position drive physically disturbs the slat angle on tilt covers,
@@ -472,8 +472,9 @@ class TestReDriveBranch:
         (in the if-guard, not the branch conditions — Invariant 1)."""
         variables = branch["sequence"][0]["variables"]
         uv = _branch_update_values(branch)
-        # The drive gate lives in will_drive; man and drive_plan.run reference it.
+        # The drive gate lives in will_drive; helper_update centrally clears
+        # manual only after apply_transition dispatches a real movement.
         assert "not in_shading_position" in str(variables.get("will_drive", ""))
-        assert "will_drive" in uv["man"]
+        assert "man" not in uv
         assert "will_drive" in str(variables.get("drive_plan", {}).get("run", ""))
         assert "not in_shading_position" not in str(branch["conditions"])

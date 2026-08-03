@@ -113,12 +113,23 @@ def _find_branch_by_alias(node, alias: str):
 
 
 def _branch_drive_plan(branch: dict) -> dict:
-    for step in branch.get("sequence", []):
-        if isinstance(step, dict) and "variables" in step:
-            plan = step["variables"].get("drive_plan")
+    def walk(node):
+        if isinstance(node, dict):
+            plan = node.get("variables", {}).get("drive_plan")
             if plan is not None:
                 return plan
-    return {}
+            for value in node.values():
+                found = walk(value)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(branch.get("sequence", [])) or {}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -232,8 +243,31 @@ class TestConsumersUseEffective:
         gates = _find_variable_definition(_load_blueprint_yaml(), "state_gates")
         assert "in_lockout_position" in gates["lock"]
         assert "in_open_position" not in gates["lock"]
+        assert "live_force == 'non'" in gates["lock"]
+        assert "effective_state == 'lock'" in gates["lock"]
         # The open gate keeps the open-position check.
         assert "in_open_position" in gates["opn"]
+
+    @pytest.mark.parametrize(
+        "live_force,effective_state,in_position,expected",
+        [
+            ("non", "lock", False, True),
+            ("non", "lock", True, False),
+            ("opn", "opn", False, False),
+            ("vnt", "vnt", False, False),
+        ],
+    )
+    def test_lock_gate_never_overrides_force(
+        self, live_force, effective_state, in_position, expected
+    ):
+        gate = _find_variable_definition(_load_blueprint_yaml(), "state_gates")["lock"]
+        rendered = _env().from_string(gate).render(
+            is_paused=False,
+            live_force=live_force,
+            effective_state=effective_state,
+            in_lockout_position=in_position,
+        )
+        assert (rendered.strip() == "True") is expected
 
     def test_contact_opened_drive_branch(self):
         branch = _find_branch_by_alias(
@@ -247,6 +281,15 @@ class TestConsumersUseEffective:
         plan = _branch_drive_plan(branch)
         assert plan["target"] == "{{ effective_lockout_position | int }}"
         assert plan["target_tilt"] == "{{ open_tilt_position | int }}"
+        assert _find_variable_definition(branch, "will_drive") == "{{ state_gates.lock }}"
+
+    def test_resident_leaving_lockout_uses_the_force_safe_gate(self):
+        branch = _find_branch_by_alias(
+            _load_blueprint_yaml()["actions"],
+            "Resident leaving: target LOCKOUT (window fully open)",
+        )
+        assert branch is not None
+        assert _find_variable_definition(branch, "will_drive") == "{{ state_gates.lock }}"
 
     def test_contact_opened_sync_branch(self):
         branch = _find_branch_by_alias(
@@ -290,7 +333,10 @@ class TestLockoutFallThroughTargets:
         branch = _find_branch_by_alias(_load_blueprint_yaml()["actions"], alias)
         assert branch is not None, f"branch not found: {alias!r}"
         seq = str(branch["sequence"])
-        assert SWAP in seq, f"{alias}: open-drive target must swap on lock"
+        if alias == "Normal opening of the cover":
+            assert SWAP in seq, f"{alias}: open-drive target must swap on lock"
+        else:
+            assert "state_targets[shading_end_state]" in seq
 
     def test_swap_template_semantics(self):
         tmpl = _env().from_string(SWAP)

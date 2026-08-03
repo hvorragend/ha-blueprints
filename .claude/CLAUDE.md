@@ -18,6 +18,7 @@ changing the area it covers (see the map below). After any change, run
 | Any branch condition, drive gate, `update_values`, timestamps, pending logic | `.claude/skills/cca-assistant/references/invariants.md` |
 | Anything that looks asymmetric/inconsistent and tempts you to "harmonize" it | `.claude/skills/cca-assistant/references/design-decisions.md` |
 | Availability gates, `t_recovery`, `automation_resumed`, recovery gate — or **adding any new gate/condition that can stop a run** | `.claude/skills/cca-assistant/references/recovery.md` |
+| Live opening/closing entry conditions, `base_gates`, `closing_position_hold`, the caught-up base flip — or **adding any new gate to the open/close branch** | `.claude/skills/cca-assistant/references/recovery-parity.md` |
 | Branch conditions, global conditions, trigger `enabled:`, helper-JSON regexes, deferrals/handoffs between flows | `.claude/skills/cca-assistant/references/bug-patterns.md` |
 
 If a change touches one of these areas and you have not read the file, assume the
@@ -51,7 +52,7 @@ State is persisted as a JSON string in an `input_text` helper:
 | `ts.arm` | Unix ts | First-arming anchor of the retry sequence, preserved across retries (`0` when `pnd == 'non'`) |
 | `ts.man` | Unix ts | Last manual override event |
 | `t` | Unix ts | Last helper write (every run stamps it) |
-| `d` | Unix ts | Last write of a run that drove the cover (`drive_plan.run`) |
+| `d` | Unix ts | Last write of a dispatched built-in movement or explicitly configured custom-only action pipeline (`drive_dispatched`) |
 
 ---
 
@@ -88,21 +89,22 @@ One line each; full rationale, examples and edge cases in
 3. **Realtime vs. helper state** — `states(sensor)` is live; `helper_json.*` is stale until the write. `effective_state` reads live contacts only while `is_ventilation_enabled`. In resident handlers always read the live sensors.
 4. **`resident_flags.*` reads the live sensor** — no stale-state problem; don't add workarounds.
 5. **`opened` beats `tilted`** — every tilted branch must check that the opened contact is not active.
-6. **Lockout is independent of `resident_allow_ventilation`** — it is a safety feature; gate only the tilted sub-branch.
-7. **`man: 0` only when actually driving** — encoded via the `will_drive` pattern; never in pending timers or pure state syncs. (Documented exceptions: midnight reset, `override_expired`.)
-8. **Timestamp rules** — `ts.shd` only on a real `shd` 0↔1 change; `ts.arm` preserved across retries; `pnd: 'non'` implies `ts.due`/`ts.arm` = 0; every pending execution path must be terminal (re-arm or clear); contact-handler branches must not touch `pnd`/`ts.due`/`ts.arm`; `d` only when `drive_plan.run` was true (never on pure state syncs — the manual-detection settle window keys off it).
+6. **Lockout is independent of `resident_allow_ventilation`, but remains below Force** — gate the resident option only on the tilted sub-branch; every proactive lockout drive must require no live Force owner.
+7. **`man: 0` only on actual dispatch** — the terminal actuation anchor owns the automatic clear via `drive_dispatched`; never derive it from `will_drive`, and never clear it in pending timers or pure state syncs. (Documented exceptions: midnight reset, `override_expired`.)
+8. **Timestamp rules** — `ts.shd` only on a real `shd` 0↔1 change; `ts.arm` preserved across retries; `pnd: 'non'` implies `ts.due`/`ts.arm` = 0; every pending execution path must be terminal (re-arm or clear); contact-handler branches must not touch `pnd`/`ts.due`/`ts.arm`; `d` only when `drive_dispatched` is true (built-in movement or the explicitly configured custom-only action pipeline; never on pure state syncs — the manual-detection settle window keys off it).
 9. **`ts_now` at point of use** — never a global variable (delays make it stale).
 10. **`trigger_variables:` is a limited template context** — no `states()` / `is_state()` / `state_attr()`; move state reads into action-scope `variables:`.
 11. **`pnd` is a single enum** — start and end pending are mutually exclusive by schema; both arming branches gate on the opposite pending to prevent ping-pong.
 12. **Logbook = `trigger.id` + `update_values` dump** — no reason-inference table; add `log_extra` only where genuinely needed. The second, user-facing line on the cover (`enable_logbook_cover`) is driven by a per-branch `log_user` string — never by a central inference table.
 13. **`recovered_state` must mirror `effective_state`** — every cascade change lands in both, same commit; extend `TestCascadeParity`, never weaken it.
 14. **Anchor bodies are pre-rendered on every run** — every runtime-context reference inside an anchor body needs a template guard (`repeat is defined`, `| default(...)`); those guards are load-bearing.
+15. **Blockers suppress effects, never state progress** — manual override, force targets and force pause may stop or replace `drive_plan.run`, but `bas`/`shd`/`pnd`/`win`/`res` keep following their normal transitions. Releasing a blocker reconciles the current `effective_state`.
 
 ---
 
 ## Code Style
 
-- **No implementation comments in the blueprint YAML** (no "why this is placed here" notes — that belongs in the reference docs or commit messages) and **no Jinja2 `{# … #}` comments** in templates.
+- Blueprint YAML comments must be concise and local: structure, trace intent, or a runtime safety guard. Historical rationale and long design explanations belong in the reference docs or commit messages. **No Jinja2 `{# … #}` comments** in templates.
 - **Boolean variables must render as a single `{{ … }}` expression.** A bare `false` word from a `{% if %}` block renders as the *string* `"false"`, which is truthy after `literal_eval` fails. Multi-branch `{% if %}` blocks are only allowed for variables consumed as strings or numbers.
 - Guard every `states(x)` / `state_attr(x, …)` on an input whose `default` is `[]` with `x != []` — in every context (Bug Pattern AF).
 - Use YAML anchors for repeated sequences; extract shared expressions into `variables:`; do not over-abstract.

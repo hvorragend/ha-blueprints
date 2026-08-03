@@ -7,6 +7,8 @@ Settings if the feature ‘💨 - Ventilation Mode — React to open/tilted wind
   <br />
   All these settings are optional.
 
+When **Ventilation Mode is disabled**, configured opened/tilted contact entities are ignored throughout CCA. They neither trigger movements nor influence scheduled closing, sun-shading end, resident transitions or recovery. This makes disabling the feature a complete opt-out rather than merely disabling the contact triggers.
+
 **On this page:** [🚪 Contact Sensor For Open Window (Full Ventilation)](#contact_window_opened) · [💨 Contact Sensor For Tilted Window (Partial Ventilation)](#contact_window_tilted) · [💨 Lockout protection for window tilted](#lockout_tilted_options) · [💨 Ventilation Configuration](#auto_ventilate_options) · [🕛 Contact Trigger Delay](#contact_delay_trigger) · [🕛 Contact Sensor Status Delay](#contact_delay_status)
 
 ---
@@ -17,7 +19,9 @@ Settings if the feature ‘💨 - Ventilation Mode — React to open/tilted wind
 
 > 🧩 Input: `contact_window_opened`
 
-Contact sensor of a door or window handle for detecting <ins>total opening</ins>. If this sensor switches to on/true, the cover is <ins>fully opened</ins> — to the Open Position, or to the [💨 Full Ventilation Position](positions#lockout_position) if configured. At the same time, a lockout protection is <ins>always</ins> activated. The cover is not closed and the sun shading is not activated when the contact is open.
+Contact sensor of a door or window handle for detecting <ins>total opening</ins>. If this sensor switches to on/true and the [Additional Ventilation Condition](conditions#auto_ventilate_condition) permits the movement, the cover is <ins>fully opened</ins> — to the Open Position, or to the [💨 Full Ventilation Position](positions#lockout_position) if configured. Independently of that proactive movement, lockout protection is <ins>always</ins> activated: CCA records the open window and does not later close or sun-shade the cover while the contact remains open.
+
+An explicit **Force position has higher priority than lockout**. For example, Force Close may close the cover even while the window is fully open. The window state is still tracked in the background, and when the Force position ends CCA can return to the lockout target. Force Pause can suppress either movement.
 
 ### Further descriptions
 

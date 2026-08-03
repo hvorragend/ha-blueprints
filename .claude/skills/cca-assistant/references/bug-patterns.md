@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AQ, with cause and fix)
+# CCA Known Bug Patterns (A–AS, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -324,7 +324,7 @@ suppressed **every** manual position trigger fired while the cover is within tol
 ```
 
 - `man == 1` + move to reset position → still suppressed. This is the *"reopen to the reset position to resume automatic control"* gesture (the feature's intent, #506): detection stays quiet and `t_reset_position` clears the override after the dwell time. **Unchanged.**
-- `man == 0` + move to reset position → now detected as a normal manual change. The base state is synced (directly via the "Manual: opened/closed" sub-branch, or — when the open position is not recognized because the relevant `auto_*` is disabled — via the reset handler's "restore OPEN/CLOSE base state" after the dwell). Subsequent events then follow the correct `effective_state`.
+- `man == 0` + move to reset position → now detected as a normal manual change and recorded as `man: 1`. Per Invariant 15 the autonomous base/shading/window state is not derived from the physical position; configured override flags suppress movements while that state continues to advance.
 
 **Rule:** A manual-detection suppression that exists only to mute a *reset gesture* must carry the same precondition as the reset it is muting. Suppressing detection when there is nothing to reset silently discards a real manual change.
 
@@ -355,9 +355,14 @@ In `effective_state`, replace the VENT floor condition:
 {% endif %}
 ```
 
-This is **surgical** — it only changes the VENT-floor decision. When the window is **not** tilted, `effective_state` still returns `'opn'` for `bas == 'opn'`, so shading-end (gated on `effective_state != 'cls'`), the contact "return to open" branch, and every other base=opn consumer are unaffected. Scheduled setups (`is_opening_scheduled == true`) keep the `2026.05.24` BASE=OPN-beats-VENT behavior unchanged.
+This is **surgical** — it only changes the VENT-floor decision. When the window is **not** tilted, `effective_state` still returns `'opn'` for `bas == 'opn'`, so the contact "return to open" branch and every other base=opn consumer are unaffected. Scheduled setups (`is_opening_scheduled == true`) keep the `2026.05.24` BASE=OPN-beats-VENT behavior unchanged.
 
-**Why not Option 1 (treat `bas` as `'cls'` for the whole cascade):** That was the maintainer's originally-documented intent, but making `effective_state` return `'cls'`/`'vnt'` wholesale breaks the shading-end handler, whose branch gate is `effective_state != 'cls'` — shading would never end. The VENT floor must be the *only* thing affected; gating just that line is the correct minimal change.
+**Historical constraint:** At the time of #553, shading end still used
+`effective_state != 'cls'` as a transition gate, so changing the whole cascade
+could make it unreachable. Invariant 15 has since removed that coupling:
+shading end always commits `shd: 0` and computes the prospective post-end
+target separately. The narrow VENT-floor fix remains the intended #553
+behavior, but the old shading-end branch gate must not be reintroduced.
 
 ---
 
@@ -437,7 +442,11 @@ With ventilation disabled, the recovery now falls through to the correct shading
 
 **Second recurrence (CCA 2026.07.13 V6) — the restart recovery, and the scoping moved into the cascades.** The restart-recovery gate's `recovered_window` read the contacts unscoped too, and unlike `effective_state` (whose `'vnt'`/`'lock'` consumers all gate in their branches) it **drives directly** on the result: with ventilation disabled and a stuck contact, every restart *and every save of the automation* drove the cover to the ventilation position — or to open via `'lock'`, which additionally overrules a manual override (`recovery_allowed` passes on `recovered_state == 'lock'`). Ironically, `lockout_blocks_shading` three lines below was already scoped. The fix applies the AC rule at the *source*: the live-contact reads inside **both** `effective_state` and `recovered_window` are scoped to `is_ventilation_enabled` (one commit, Invariant 13), so `w` is `'cls'` while ventilation is disabled and contacts are configured. The no-contacts helper fallback (`h.win`) is untouched — a user driving `win` via the helper alone keeps working. Tests: `TestRecoveredWindow::test_ventilation_disabled_means_the_contacts_do_not_exist`, plus three vent-disabled rows in `TestCascadeParity`.
 
-**Rule:** Every direct `states(contact_window_opened/tilted)` read in a branch condition or drive guard must be scoped to `is_ventilation_enabled` — since CCA 2026.07.13 V6 the cascade-internal `w` derivations (`effective_state`, `recovered_window`) enforce this at the source. When the ventilation automation is disabled, the window contacts do not exist as far as CCA is concerned — this includes lockout (the trigger gate already treats it that way). Note this is about the feature toggle `auto_ventilate_enabled`, not the resident flag `resident_allow_ventilation` (Invariant 6 remains untouched).
+**Third recurrence (CCA 2026.08.02) — prospective shading end and resident leaving.** The consolidated `shading_end_state` cascade and the `leave_target` chain consumed the shared live contact flags without scoping them to `is_ventilation_enabled`. With ventilation disabled, shading end could therefore select `lock`/`vnt`, while resident leaving could stop at `non` instead of reconciling shading/open/close. Both consumers now treat the contacts as nonexistent while ventilation is disabled. Tests: `TestShadingEndProspectiveCascade::test_ventilation_disabled_ignores_window_contacts` and the AC consumer checks in `TestPatternACForceRecoveryVentilationGate`.
+
+**Fourth recurrence (CCA 2026.08.03) — shading follow-up drives and resident arrival.** The shading-tilt and alternate-depth `will_drive` gates still consumed the shared window flags directly, so a stuck contact blocked those follow-up adjustments even with ventilation disabled. The resident-arrival `arrive_target` projection likewise treated an open contact as lockout and suppressed configured privacy closing. All three consumers now scope the shared flags to `is_ventilation_enabled`; the AC regression tests render both enabled and disabled outcomes.
+
+**Rule:** Every direct contact read — raw `states(contact_window_opened/tilted)` or the shared `window_opened_now`/`window_tilted_now` flags — in a branch condition, target projection or drive guard must be scoped to `is_ventilation_enabled`. Since CCA 2026.07.13 V6 the cascade-internal `w` derivations (`effective_state`, `recovered_window`) enforce this at the source. When the ventilation automation is disabled, the window contacts do not exist as far as CCA is concerned — this includes lockout (the trigger gate already treats it that way). Note this is about the feature toggle `auto_ventilate_enabled`, not the resident flag `resident_allow_ventilation` (Invariant 6 remains untouched).
 
 ---
 
@@ -688,13 +697,31 @@ The same source was also missing from the "no trigger source at all" configurati
 1. The settle window `now > helper_json.t + drive_time + 60` counted from **every** helper write — but `t` is stamped by pure state syncs too (window/resident updates, shading pending arming, base-only updates). Each such write opened a ~150 s blind window although nothing moved, so there was nothing to suppress.
 2. `this.attributes.current == 0` dropped manual events while **any** run was executing. With `mode: queued` and long in-run waits (fixed+random drive delay up to 10 minutes, contact settle delay, midnight-reset sleep) this window was large — and a hygiene-only run does not move the cover either.
 
-**Fix:** Distinguish "last write" from "last drive". New top-level helper field `d`, stamped by `helper_update` only when `(drive_plan | default({})).run | default(false)` is true — the same `will_drive` decision that gates `man: 0` (Invariant 7). The settle window keys off `d` (`helper_ts_drive`); the `current == 0` condition is removed entirely: under `mode: queued` a manual event always executes *after* the concurrent run's helper write, so a run that drove suppresses via the (now drive-scoped) window, and a run that did not drive must not suppress at all. `t` keeps its stamp-on-every-write semantic — `automation_resumed`, the takeover check and `midnight_reset_missed` depend on it.
+**Fix:** Distinguish "last write" from "last drive". The top-level helper
+field `d` is stamped by `helper_update` only after `apply_transition` projects
+a real position/relevant-tilt delta, passes the live pause/ownership check and
+sets `drive_dispatched` for a built-in movement or the explicitly configured
+custom-only movement pipeline. The same signal owns the automatic `man: 0` clear
+(Invariant 7). The settle window keys off `d` (`helper_ts_drive`); the
+`current == 0` condition is removed entirely: under `mode: queued` a manual
+event always executes *after* the concurrent run's helper write, so a run that
+drove suppresses via the drive-scoped window, and a run that did not drive must
+not suppress at all. `t` keeps its stamp-on-every-write semantic.
 
-**Safety direction preserved:** CCA still never fights its own drive — a queued manual event that fired before a drive but executes after it lands inside the fresh `d` window and is suppressed, which is correct: the drive physically overrode that manual position anyway. The accepted corner (run=true but movement suppressed by the live pause check / tolerance no-op still stamps `d`) errs toward a missed detection, never toward a false `man: 1`.
+**Safety direction preserved:** CCA still never fights its own drive — a queued
+manual event that fired before a dispatch but executes after it lands inside
+the fresh `d` window and is suppressed, which is correct: the automation's
+movement physically overrode that position. A blocked or tolerance-no-op plan
+does not create such a window.
 
 **Consequence for the helper length:** the compact JSON grows to a worst-case 218 chars, so the minimum-length config check was raised 210 → 225 (recommended length stays 254). `tests/test_manual_detection_drive_window.py` pins the worst-case length against the configured minimum.
 
-**Rule:** A suppression that exists to hide CCA's *own movements* must key off the drive decision (`drive_plan.run` / `d`), never off write activity (`t`) or run activity (`this.attributes.current`) — bookkeeping writes and idle-waiting runs cannot have caused a position change, so suppressing detection around them silently discards real manual moves (same asymmetry family as Bug Pattern Y: suppress only when the thing being muted can actually occur).
+**Rule:** A suppression that exists to hide CCA's *own movements* must key off
+actual dispatch (`drive_dispatched` / `d`, including the explicitly configured
+custom-only movement pipeline), never plan permission
+(`drive_plan.run`), write activity (`t`) or run activity
+(`this.attributes.current`) — bookkeeping, blocked plans and idle-waiting runs
+cannot have caused a position change.
 
 ---
 
@@ -709,7 +736,10 @@ The same source was also missing from the "no trigger source at all" configurati
 1. **`helper_update` re-reads the helper live at write time.** `current` is the parsed live `states(cover_status_helper)` when it is valid v6 JSON, and only falls back to the `helper_json` snapshot when the live value is invalid or pre-migration. "Omitted keys are preserved" now means preserved from the *live* truth, not from the run's trigger-time view — a delayed run can no longer undo intervening writes. Same design family as the 2026.07.25 "actuation-point checks are live reads" decision (pause/hand-over): the persistence point gets the live re-read the actuation points already had. Explicit keys in `update_values` still win unconditionally, and the `ts.shd` guard now compares against the live `shd`, which is strictly more correct (a redundant `shd` write no longer stamps).
 2. **The shading-tilt and alternate-shading-position drive gates check the live `shd` flag** (`states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]')`, Pattern-K-guarded, AF-guarded on `cover_status_helper != []`). A queued tilt run that executes after the shading ended consumes its trigger as a no-op instead of tilting into the shading angle. Branch *conditions* keep using the frozen variables (dispatch layer); the live read sits in `will_drive` (decision layer) because the staleness already exists when `will_drive` renders — unlike the pause case, where the flip happens later, during the in-run delay.
 
-**Known residual (accepted):** the Invariant-7 idiom `man: "{{ 0 if will_drive else helper_json.man ... }}"` writes the snapshot's `man` **explicitly**, so the live merge cannot preserve a newer `man` there. The exposure requires a manual run and a non-driving run to be queued in that order behind a long wait — bounded, and no worse than before this fix.
+**Former residual, eliminated:** normal branches no longer copy a plan-time
+`helper_json.man` into `update_values`. `helper_update` preserves the live value
+for a non-dispatching run and centrally clears it only for a real dispatch, so
+a queued stale write cannot resurrect or erase a newer manual intervention.
 
 **Rule:** A run may act on its trigger-time view, but it must never *persist* that view — every field a branch does not explicitly set has to come from the helper as it is at write time. And any branch whose drive is only meaningful while a helper flag holds (`shd` for the shading-tilt/depth adjustments) must re-check that flag live in `will_drive`: under `mode: queued`, "the trigger fired" only proves the flag held *then*. Tests: `tests/test_helper_update_live_reread.py`.
 
@@ -723,4 +753,49 @@ The same source was also missing from the "no trigger source at all" configurati
 
 **Fix:** Move "Opening: Shading warranted, arm pending" **above** "Already in open position" in the opening handler's `choose:`. The arm branch's own conditions (`shading_start_warranted`, window/lockout/once guards, no active shading or pending) already scope it precisely; it is mutually exclusive with the shading-detected and pending-defer branches (`not helper_state_shade` / `not helper_state_pending_start`), so only the already-open overlap changes. When shading is not warranted, the already-open shortcut behaves exactly as before (#495 ts.opn preservation untouched).
 
+**Current prevention:** Invariant 15 now preserves the pending across manual detection, so the exact manual-open chain above no longer destroys it. The branch order remains required for other legitimate no-pending states and as a regression guard for the original handoff.
+
 **Rule:** The Invariant-1 spirit applies to branch *ordering* too: a position-based shortcut ("already there, nothing to do") must never sit in front of a position-independent priority decision (shading handoff). When adding an early-exit sub-branch, check every later sub-branch for a scenario in which the shortcut's position check is true but the later branch still has work to do. Test: `TestIssue651AlreadyOpenMustNotSwallowShadingArm` in `tests/test_documented_bug_patterns.py`.
+
+---
+
+### Bug Pattern AS: Override reset clears the only shading execution edge (Issue #655)
+
+**Symptom:** Sun shading was active, the cover was moved by hand, and the manual override
+was later cleared by moving the cover to its configured reset position. The reset is visible
+in the logbook, but the cover stays at the reset position instead of returning to shading.
+The same gap applies to fixed-time and timeout resets.
+
+**Cause:** Manual detection coupled the physical intervention to the autonomous reducer: it
+cleared `shd`, `pnd`, `ts.due` and `ts.arm`, while opening/closing/shading entry gates could
+also reject the entire state transition when manual blocked its movement. Force conditions
+had similar early gates. The helper therefore described where the user had moved the cover,
+not where CCA would currently want it. When the blocker ended, there was no current intent to
+apply and no new environmental false → true edge to rebuild it.
+
+**Fix:** Manual detection now writes only `man`/`ts.man`. All scheduled, shading, window and
+resident transitions continue updating the helper while movement is suppressed. A matured
+shading start commits `shd: 1` without moving; a matured end clears it the same way.
+Releasing manual reconciles the current `effective_state` immediately through
+`state_targets`. Configured resident transitions, Force enable/switch, Force disable recovery
+and Force-Pause resume are ownership-changing events: they may replace an older manual intent,
+but still clear `man` only after an actual dispatch. The ventilation condition remains a real
+effect gate, including for full-window lockout; when false it blocks the proactive drive but
+not the persisted `win: 'opn'`/`lock` intent or the protection against later lowering. A
+permitted lockout remains the safety exception that may overrule manual and resident intent.
+
+This replaces #447's destructive implementation while making its protection
+explicitly configurable. Physical classification establishes only the override
+and no longer rewrites `bas` or clears `shd`/`pnd`. While `man == 1`, the
+`ignore_shading_after_manual` option is the single policy decision: selected
+means every shading start/end movement is held while the background state keeps
+progressing; not selected means shading may take control and an actual dispatch
+clears the override. Intent age must not create a second, hidden Manual policy.
+Neither a blocked plan nor a tolerance no-op stamps `d`; only dispatched
+reconciliation does.
+
+**Rule:** Blockers belong to the effect layer. Never use them to reject or erase a reducer
+transition; persist the desired state, suppress only `drive_plan.run`, then reconcile the
+current state when the blocker is released (Invariant 15). Tests:
+`TestPatternASBlockedEffectsKeepStateCurrent` in
+`tests/test_documented_bug_patterns.py` and the paired manual/force parity scenarios.
