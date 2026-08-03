@@ -41,7 +41,10 @@ PARTIAL_VENT_ALIAS = "Window tilted - Partial ventilation"
 SHADING_TILT_ALIAS = "Check for shading tilt"
 SHADING_ALT_ALIAS = "Check for alternate shading position"
 
-TILTED_GATE = "not window_opened_now and (not window_tilted_now or shading_over_ventilation)"
+WINDOW_GATES = (
+    "not (is_ventilation_enabled and window_opened_now)",
+    "not (is_ventilation_enabled and window_tilted_now) or shading_over_ventilation",
+)
 
 
 def _blueprint_text() -> str:
@@ -282,7 +285,7 @@ class TestShadingFollowUpBranches:
         branch = _find_branch_by_alias(BP["actions"], alias)
         assert branch is not None
         gate = str(branch["sequence"][0]["variables"]["will_drive"])
-        assert TILTED_GATE in gate
+        assert all(part in gate for part in WINDOW_GATES)
 
     @pytest.mark.parametrize("alias", [SHADING_TILT_ALIAS, SHADING_ALT_ALIAS])
     def test_open_window_always_blocks(self, alias):
@@ -295,5 +298,25 @@ class TestShadingFollowUpBranches:
                            force_allows_shade=True, resident_flags={"allow_shade": True},
                            cover_status_helper="input_text.cca_status",
                            in_shading_position=False,
+                           is_ventilation_enabled=True,
                            window_opened_now=True, window_tilted_now=False,
                            shading_over_ventilation=option) == "False"
+
+    @pytest.mark.parametrize("alias", [SHADING_TILT_ALIAS, SHADING_ALT_ALIAS])
+    def test_contacts_do_not_block_when_ventilation_is_disabled(self, alias):
+        branch = _find_branch_by_alias(BP["actions"], alias)
+        gate = branch["sequence"][0]["variables"]["will_drive"]
+        assert _render(
+            gate,
+            {"input_text.cca_status": '{"shd":1}'},
+            is_paused=False,
+            manual_allows_event={"shd": True},
+            force_allows_shade=True,
+            resident_flags={"allow_shade": True},
+            cover_status_helper="input_text.cca_status",
+            in_shading_position=False,
+            is_ventilation_enabled=False,
+            window_opened_now=True,
+            window_tilted_now=True,
+            shading_over_ventilation=False,
+        ) == "True"

@@ -1198,6 +1198,29 @@ class TestPatternACForceRecoveryVentilationGate:
         )
         assert rendered.strip() == "shd"
 
+    @pytest.mark.parametrize(
+        "alias", ["Check for shading tilt", "Check for alternate shading position"]
+    )
+    def test_shading_follow_up_gates_scope_shared_contact_flags(self, blueprint, alias):
+        branch = _find_branch_by_alias(blueprint, alias)
+        gate = str(_find_variable_definition(branch, "will_drive"))
+        assert "not (is_ventilation_enabled and window_opened_now)" in gate
+        assert "not (is_ventilation_enabled and window_tilted_now)" in gate
+
+    def test_resident_arrival_ignores_open_contact_when_disabled(self, blueprint):
+        target = str(_find_variable_definition(blueprint, "arrive_target"))
+        assert "not (is_ventilation_enabled and window_opened_now)" in target
+        template = jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(
+            target
+        )
+        variables = {
+            "window_opened_now": True,
+            "is_down_enabled": True,
+            "resident_flags": {"closing_trigger": True},
+        }
+        assert template.render(is_ventilation_enabled=False, **variables).strip() == "cls"
+        assert template.render(is_ventilation_enabled=True, **variables).strip() == "non"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pattern AE: shading start must hold the ventilation floor when the window is

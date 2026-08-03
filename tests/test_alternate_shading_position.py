@@ -428,8 +428,9 @@ class TestReDriveBranch:
         # Both contact sensors gate the branch: an open window always blocks it,
         # a tilted one only while the ventilation floor outranks the shading.
         conds = str(branch["sequence"][0]["variables"]["will_drive"])
+        assert "not (is_ventilation_enabled and window_opened_now)" in conds
         assert (
-            "not window_opened_now and (not window_tilted_now or shading_over_ventilation)"
+            "not (is_ventilation_enabled and window_tilted_now) or shading_over_ventilation"
             in conds
         )
         blueprint = _load_blueprint_yaml()
