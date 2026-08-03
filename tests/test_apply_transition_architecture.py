@@ -177,6 +177,30 @@ class TestApplyTransitionAnchorShape:
         unguarded = re.findall(r"(?<!\()drive_plan\.\w+", flat)
         assert unguarded == [], f"unguarded drive_plan references: {unguarded}"
 
+    def test_drive_projection_prerenders_without_action_local_targets(self):
+        """Invariant 14: the anchor definition is rendered before the nested
+        target_position variables execute, so the projection must derive its
+        targets directly from the guarded drive_plan."""
+        import jinja2
+
+        blueprint = _load_blueprint_yaml()
+        projection = blueprint["actions"][0]["variables"]["apply_transition"][
+            "sequence"
+        ][0]["variables"]["drive_required"]
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        context = {
+            "current_position": 0,
+            "current_tilt_position": 0,
+            "position_tolerance": 0,
+            "tilt_position_tolerance": 0,
+            "is_cover_tilt_enabled_and_possible": False,
+        }
+
+        assert env.from_string(projection).render(**context).strip() == "False"
+        assert env.from_string(projection).render(
+            drive_plan={"run": True, "target": 87}, **context
+        ).strip() == "True"
+
 
 class TestForcePauseIsPartOfEveryDriveGate:
     """The force pause suspends every movement. The move actions themselves are
