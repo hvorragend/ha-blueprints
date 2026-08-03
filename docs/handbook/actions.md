@@ -7,6 +7,8 @@ All these settings are optional
 
 **On this page:**
 
+- [When movement actions run](#action_lifecycle)
+- [Using custom actions instead of CCA's cover services](#custom_actions_only)
 - [🔼 Additional Actions Before Opening The Cover](#auto_up_action_before)
 - [🔼 Additional Actions After Opening The Cover](#auto_up_action)
 - [🔻 Additional Actions Before Closing The Cover](#auto_down_action_before)
@@ -19,6 +21,42 @@ All these settings are optional
 - [🥵 Additional Actions After Disabling Sun Shading](#auto_shading_end_action)
 - [🖐️ Additional Actions After Manual Change](#auto_manual_action)
 - [🗑️ Additional Actions After Override Reset](#auto_override_reset_action)
+
+---
+
+<a id="action_lifecycle"></a>
+
+## When movement actions run
+
+The opening, closing, ventilation and sun-shading before/after actions belong to a real CCA movement pipeline. They do not run for a status-only update or when the cover position and relevant tilt are already within the configured tolerances.
+
+For a movement that is still required, CCA follows this order:
+
+1. Wait for the configured fixed/random drive delay.
+2. Confirm that Force Pause is still off and this automation instance still owns the cover.
+3. Run the matching **before-action**.
+4. Confirm ownership again, then dispatch the built-in position/tilt commands.
+5. Run the matching **after-action**, but only if a movement stage was actually dispatched.
+
+The live checks are repeated around movement stages that contain waits. If Force Pause becomes active or another CCA instance takes ownership, CCA suppresses every stage it has not dispatched yet. If an earlier stage already moved the cover, the after-action still runs for that partial dispatch.
+
+The actions after a manual change and after an override reset are state-event actions rather than movement wrappers. They run when their named event is recorded; they do not use the movement sequence above.
+
+---
+
+<a id="custom_actions_only"></a>
+
+## Using custom actions instead of CCA's cover services
+
+The **🔧 Use custom actions only** behavior option disables CCA's built-in `cover.set_cover_position` and `cover.set_cover_tilt_position` calls. In this mode, the matching **after-action is the movement implementation**: use it to call the script, service or device-specific command that actually moves the cover. Configure an appropriate after-action for every movement type CCA may use (opening, closing, ventilation, sun-shading start and sun-shading end).
+
+CCA cannot inspect what a custom action does or verify that the device moved. Reaching the custom-only after-action pipeline after all delay, tolerance, pause and ownership checks is therefore CCA's dispatch contract. At that point CCA records the movement time and may clear Manual Override just as it would after a built-in command.
+
+> ⚠️ **Important:** Do not enable **Use custom actions only** without complete movement after-actions. An empty, conditional or no-op after-action is still treated as a dispatched custom movement once its pipeline is reached, so the status helper and logbook may say that CCA moved the cover even though the physical cover stayed in place.
+
+Before-actions keep their normal role in this mode: they prepare for the custom movement, but they are not the movement carrier.
+
+Pure tilt-only plans, such as automatic sun-shading slat tracking, have no separate custom-action input. Because **Use custom actions only** disables CCA's built-in tilt service as well, those tilt-only adjustments are skipped: they do not dispatch a movement and do not run a before- or after-action. If your hardware needs continuous custom slat tracking, implement that behavior outside this option's movement after-actions.
 
 ---
 

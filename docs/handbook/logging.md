@@ -40,7 +40,9 @@ Cover Control  tilt to 100% · sun shading is over, opening the slats only
 
 A bracket after `no movement` names what suppressed the drive when CCA can tell: `[force pause]`, `[manual override]` or `[force: sun shading position]`.
 
-An entry is written when the cover **moved**, or when a movement was wanted and then **suppressed**. Everything else stays silent, so the cover's history does not fill up with non-events:
+With [**Use custom actions only**](actions#custom_actions_only), `moved to …` means that CCA dispatched the configured custom after-action. CCA cannot observe whether that action's script or device-specific service actually moved the physical cover. If the action is empty, conditional or fails to move the device, the CCA entry can therefore say `moved` while Home Assistant reports no corresponding position change.
+
+An entry is written when CCA **dispatched a movement**, or when a movement was wanted and then **suppressed**. Everything else stays silent, so the cover's history does not fill up with non-events:
 
 - Runs that only synchronise status fields — a window contact reporting the state CCA already assumed, a presence update with no consequence, a base-state refresh on a cover that is already where it belongs.
 - Decisions that would not have moved anything: if the cover already holds the target position (within your 〰️ Position Tolerance, and with the slats already at the target angle on tilt covers), nothing is logged — neither when CCA decides to drive there nor when that drive is suppressed. Home Assistant's own logbook stays silent in that case too, so an entry would look like a movement that never happened.

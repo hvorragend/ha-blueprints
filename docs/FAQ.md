@@ -850,26 +850,28 @@ Lockout Protection Options:
 
 **Priority Table:**
 
+In the tables below, **full ventilation position** means the dedicated Full Ventilation Position when configured, otherwise the Open Position.
+
 | `contact_window_opened` | `contact_window_tilted` | CCA Behavior |
 |------------------------|------------------------|--------------|
 | `off` | `off` | Normal operation |
 | `off` | `on` | Partial ventilation → `ventilate_position` |
-| `on` | `off` | Full ventilation + lockout → `open_position` |
-| `on` | `on` | Full ventilation + lockout → `open_position` (**opened wins!**) |
+| `on` | `off` | Full ventilation + lockout → full ventilation position |
+| `on` | `on` | Full ventilation + lockout → full ventilation position (**opened wins!**) |
 
 **How the priority is enforced per event:**
 
 | Event / Trigger | Only `opened` = on | Only `tilted` = on | Both = on |
 |-----------------|-------------------|-------------------|-----------|
-| Contact sensor changes (`t_contact_*`) | → `open_position` | → `ventilate_position` | → `open_position` |
+| Contact sensor changes (`t_contact_*`) | → full ventilation position | → `ventilate_position` | → full ventilation position |
 | Evening closing (`t_close_*`) | Lockout — no movement | → `ventilate_position` (if lockout for tilted disabled) | Lockout — no movement |
 | Shading start (`t_shading_start_*`) | Shading blocked (lockout) | Shading blocked (if lockout for tilted enabled) | Shading blocked |
 | Shading end (`t_shading_end_*`) | Lockout skip | → `ventilate_position` (if configured) | Lockout skip |
-| Force disabled — recovery (`t_force_disabled_*`) | → `open_position` | → `ventilate_position` | → `open_position` |
-| Resident leaves (`t_resident_update`) | → `open_position` | → `ventilate_position` | → `open_position` |
+| Force disabled — recovery (`t_force_disabled_*`) | → full ventilation position | → `ventilate_position` | → full ventilation position |
+| Resident leaves (`t_resident_update`) | → full ventilation position | → `ventilate_position` | → full ventilation position |
 | Resident arrives (`t_resident_update`) | Helper updated only (no movement) | → `ventilate_position` (if `resident_allow_ventilation`) | Helper updated only (no movement) |
 
-> **Note on the tilted column:** the rows above assume the default priority, where a tilted window outranks the sun shading. With **"🥵 Sun shading is more important than ventilation"** enabled (see [Ventilation Configuration](handbook/contacts#auto_ventilate_options)), an active sun shading keeps the cover at the shading position instead — in the contact handler, at shading start and in the force recovery. The `opened` column is unaffected: the lockout protection always wins.
+> **Note on the tilted column:** the rows above assume the default priority, where a tilted window outranks the sun shading. With **"🥵 Sun shading is more important than ventilation"** enabled (see [Ventilation Configuration](handbook/contacts#auto_ventilate_options)), an active sun shading keeps the cover at the shading position instead — in the contact handler, at shading start and in the force recovery. The `opened` column is unaffected: lockout continues to outrank ventilation and sun shading. An active Force position still has higher priority than lockout.
 
 **Implementation details:**
 
@@ -2028,7 +2030,7 @@ Additional Actions Before Shading:
 - Custom cover integration requires special commands
 - Shelly devices need combined position+tilt scripts
 - Homematic devices need custom service calls
-- Testing without actual cover movement
+- Testing the automation's decision flow without built-in cover services (CCA still records custom dispatches)
 
 **Configuration:**
 ```yaml
@@ -2040,6 +2042,8 @@ Additional Actions After Opening:
     data:
       entity_id: cover.living_room
 ```
+
+In this mode the matching **after-action is the movement command**, not merely a notification after a movement. Configure one for every movement type CCA may request. Once CCA reaches that custom-action pipeline after its delay, tolerance and ownership checks, it records a dispatched movement and may clear Manual Override; it cannot verify whether your script actually moved the device. An empty or no-op after-action can therefore leave the physical cover unchanged while CCA records the dispatch.
 
 **Examples:**
 

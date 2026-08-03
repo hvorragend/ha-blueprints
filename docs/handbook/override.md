@@ -18,7 +18,7 @@ Select which automatic movements must not move the cover while a Manual Override
 ### How the selection works
 
 - **Selected:** the manual position wins and this type of automatic movement is blocked until the Manual Override is reset.
-- **Not selected:** this automatic movement may take control even while Manual Override is active. If CCA actually sends a cover or tilt command, the Manual Override is cleared.
+- **Not selected:** this automatic movement may take control even while Manual Override is active. If CCA actually dispatches the movement — through its built-in cover services or the configured [custom-only after-action pipeline](actions#custom_actions_only) — the Manual Override is cleared.
 
 The four choices are independent: automatic opening, closing, ventilation and sun shading can each have a different policy. They govern the event that owns the movement: scheduled opening/closing, the sun-shading lifecycle, or a window-contact ventilation event. For example, you can keep a manually closed cover protected from the next scheduled opening while still allowing sun shading when the facade becomes hot.
 

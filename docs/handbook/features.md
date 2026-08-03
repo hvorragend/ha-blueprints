@@ -157,6 +157,8 @@ Some devices (e.g., Shelly, Homematic) have issues when 'set_cover_position' and
 - Homematic: Use custom service [homematicip_local.set_cover_combined_position](https://github.com/SukramJ/custom_homematic?tab=readme-ov-file#homematicip_localset_cover_combined_position)
 - Other devices: Implement via "Additional Actions" in the Service Calls section
 
+When **Use custom actions only** is selected, CCA sends no built-in position or tilt services. The matching **after-action must perform the movement**, and CCA treats entry into that action as a dispatched movement because it cannot inspect the user-defined sequence. See [Before/After Actions](actions#custom_actions_only) for the required setup and its effect on Manual Override and logging.
+
 ---
 
 <a id="enable_recovery"></a>
@@ -184,9 +186,9 @@ While a required entity (the cover, the status helper, a position sensor, a wind
 - A **force function** switched on or off during the outage is applied.
 - **Lockout, ventilation and privacy closing** are applied from the current window and presence state.
 
-**This can move the cover.** A caught-up movement is a real one, so it also runs the **action you configured for it** (*"Action before/after closing"*, opening, ventilation, sun shading) — a closing that the outage swallowed is still a closing. Those actions only run when the cover actually changes position: if CCA finds everything already in place (the normal case), it stays silent.
+**This can move the cover.** A caught-up movement is a real one, so it also runs the **action you configured for it** (*"Action before/after closing"*, opening, ventilation, sun shading) — a closing that the outage swallowed is still a closing. Those actions only enter the movement pipeline when a real position or relevant tilt difference remains: if CCA finds everything already in place (the normal case), it stays silent. With [**Use custom actions only**](actions#custom_actions_only), reaching the matching after-action is the dispatch itself because that action is responsible for moving the cover.
 
-A **manual override is respected** and blocks the movement — unless its reset has already come due in the meantime (then it is lifted and the cover follows the automation again), or the lockout protection applies (window fully open), which always takes precedence.
+A **manual override is respected**, but the owning event decides which of the four Manual Override choices applies. A caught-up scheduled opening uses **Block automatic opening**; a caught-up scheduled closing uses **Block automatic closing**, even if the currently effective target is changed by shading, presence, ventilation or Force. Recovery does not silently add the Manual Override choice belonging to that projected target. A reconciliation without a missed opening/closing event does not move over an active Manual Override at all. The exceptions are an override whose reset became due during the outage, an explicit Force target, and permitted full-window lockout protection; Force Pause can still suppress their movement.
 
 **Your additional conditions are respected.** A scheduled movement that your *additional opening/closing condition* (Conditions section) deliberately suppressed was never "missed", so it is not replayed: before a missed opening or closing is applied, the additional condition for that direction is evaluated. If it says no, CCA keeps the status it had. The *global condition* is respected as well (it drops the whole run). *(Up to `2026.07.13 V6` this was a known limitation — the catch-up derived the movement from the schedule alone and could open a cover your condition had blocked all morning.)*
 
