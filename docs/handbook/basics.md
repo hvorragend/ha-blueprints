@@ -5,6 +5,8 @@
 
 **On this page:** [🪟 Cover](#blind) · [🔤 Cover Status Helper](#cover_status_helper)
 
+> ⚠️ **Requirement:** CCA requires **Home Assistant 2025.4.0 or newer**. Its transition and recovery logic relies on values assigned inside nested `if`/`choose` actions remaining available to the enclosing automation sequence. Older Home Assistant versions do not provide the variable-scope behavior CCA needs, which can silently prevent movement decisions, after-actions and movement tracking from reaching the final transition step.
+
 ---
 
 <a id="blind"></a>

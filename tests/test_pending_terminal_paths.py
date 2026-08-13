@@ -67,6 +67,23 @@ def _steps_write_helper(steps: list) -> bool:
     return "input_text.set_value" in flat
 
 
+def _find_variable_definition(node, name):
+    if isinstance(node, dict):
+        variables = node.get("variables")
+        if isinstance(variables, dict) and name in variables:
+            return variables[name]
+        for value in node.values():
+            found = _find_variable_definition(value, name)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _find_variable_definition(item, name)
+            if found is not None:
+                return found
+    return None
+
+
 class TestShadingStartExecutionInnerDefault:
     """The drive choose (lockout / start shading / save for future) must have
     a default: a cover resting exactly at the shading position (non-tilt) or
@@ -166,34 +183,33 @@ class TestShadingEndMoveCoverPreventedPath:
     helper write, leaving pnd='end'/shd=1 armed forever (#395 pattern)."""
 
     @pytest.fixture(scope="class")
-    def outer_if(self):
+    def branch(self):
         branch = _find_branch_by_alias(
             _load_blueprint_yaml(), "Move cover after shading end - conditions still valid"
         )
         assert branch is not None
-        step = branch["sequence"][0]
-        assert "if" in step and "then" in step
-        return step
+        return branch
 
-    def test_prevented_path_has_else(self, outer_if):
-        assert "else" in outer_if, (
-            "prevent_flags.opening_after_shading_end path must still clear the "
-            "pending; without an else the sequence stops without a helper write"
+    def test_prevent_flag_is_part_of_the_drive_gate(self, branch):
+        will_drive = str(_find_variable_definition(branch, "will_drive"))
+        opening_gate = str(
+            _find_variable_definition(branch, "shading_end_opening_allows")
         )
+        assert "shading_end_opening_allows" in will_drive
+        assert "not prevent_flags.opening_after_shading_end" in opening_gate
+        assert "shading_end_state != 'opn'" in opening_gate
 
-    def test_prevented_path_terminates_pending_without_drive(self, outer_if):
-        else_steps = outer_if["else"]
-        variables = else_steps[0]["variables"]
-        uv = variables["update_values"]
+    def test_prevented_path_terminates_pending_without_drive(self, branch):
+        uv = _find_variable_definition(branch, "update_values")
         assert uv.get("shd") == 0
         assert uv.get("pnd") == "non"
         ts = uv.get("ts", {}) or {}
         assert ts.get("due") == 0 and ts.get("arm") == 0
-        # No drive happens here -> no man reset (Invariant 7), no base change,
-        # and no drive_plan (the apply_transition anchor only drives when a
-        # drive_plan with run=true is set).
-        assert "man" not in uv and "bas" not in uv
-        assert "drive_plan" not in variables, (
-            "prevented path must not set a drive_plan (no cover movement)"
+        assert "bas" not in uv
+        assert any(
+            isinstance(step, dict)
+            and step.get("if") == "{{ shading_end_state == 'opn' }}"
+            for step in branch["sequence"]
         )
-        assert _steps_write_helper(else_steps)
+        assert "man" not in uv
+        assert _steps_write_helper(branch["sequence"])

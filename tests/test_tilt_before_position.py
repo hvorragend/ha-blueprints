@@ -63,7 +63,9 @@ def _align_step(drive_with_actions: dict) -> dict:
 
 
 def _align_branches(align_step: dict) -> list[dict]:
-    repeat_seq = align_step["then"][0]["repeat"]["sequence"]
+    # A dispatch marker may precede the repeat; find the movement body by key.
+    repeat_step = next(step for step in align_step["then"] if "repeat" in step)
+    repeat_seq = repeat_step["repeat"]["sequence"]
     inner = repeat_seq[0]["then"]
     choose_step = next(s for s in inner if isinstance(s, dict) and "choose" in s)
     return choose_step["choose"]
@@ -106,15 +108,15 @@ class TestDriveOrder:
         assert "is_tilt_before_position_mode" in str(align["if"][0])
         assert "is_cover_tilt_enabled_and_possible" in str(align["if"][0])
 
-    def test_alignment_re_reads_pause_and_hand_over_live(self):
+    def test_alignment_does_not_recheck_ownership_after_central_dispatch(self):
         align = _align_step(_anchors()["drive_with_actions"])
-        gate = str(align["if"][1])
-        assert "states(force_pause)" in gate
-        assert "instance_active_on_states" in gate
+        gate = str(align["if"])
+        assert "states(force_pause)" not in gate
+        assert "instance_active_on_states" not in gate
 
     def test_alignment_skipped_when_position_will_not_change(self):
         align = _align_step(_anchors()["drive_with_actions"])
-        tolerance_gate = str(align["if"][2])
+        tolerance_gate = str(align["if"][1])
         assert not _render_bool(
             tolerance_gate,
             {"target_position": 40, "current_position": 40, "position_tolerance": 0},

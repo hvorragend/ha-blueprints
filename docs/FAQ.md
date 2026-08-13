@@ -90,7 +90,7 @@ My clear recommendation is to create **one automation for each cover**.
 
 **A:** 
 - **Cover/shutter** must have a `current_position` attribute (or alternative position source)
-- **Home Assistant** version **2024.10.0** or newer
+- **Home Assistant** version **2025.4.0** or newer
 - **Sun integration** (`sun.sun`) enabled and working correctly (for sun-based features)
 - **Accurate location** - Correct latitude/longitude in Home Assistant configuration
 
@@ -776,9 +776,11 @@ Forecast Temperature Value: 30°C
 - Optional lockout protection
 
 **Fully Opened Window:**
-- Cover opens completely
+- Cover proactively opens completely when the Additional Ventilation Condition permits it
 - **Always has lockout protection**
 - Prevents accidental closure
+
+Here, “always protected” and “always moves up” are deliberately different. If the Additional Ventilation Condition is false, CCA records the fully opened window and blocks later closing or sun shading, but it does not send the proactive opening command.
 
 **Window Closed:**
 - Cover returns to previous state:
@@ -832,7 +834,7 @@ Lockout Protection Options:
 
 **Opened sensor:**
 - Detects fully opened window/door
-- Moves to fully open position
+- Moves to the fully open position when the Additional Ventilation Condition permits it
 - **Mandatory lockout protection**
 
 **Can't I use one sensor?**
@@ -848,26 +850,28 @@ Lockout Protection Options:
 
 **Priority Table:**
 
+In the tables below, **full ventilation position** means the dedicated Full Ventilation Position when configured, otherwise the Open Position.
+
 | `contact_window_opened` | `contact_window_tilted` | CCA Behavior |
 |------------------------|------------------------|--------------|
 | `off` | `off` | Normal operation |
 | `off` | `on` | Partial ventilation → `ventilate_position` |
-| `on` | `off` | Full ventilation + lockout → `open_position` |
-| `on` | `on` | Full ventilation + lockout → `open_position` (**opened wins!**) |
+| `on` | `off` | Full ventilation + lockout → full ventilation position |
+| `on` | `on` | Full ventilation + lockout → full ventilation position (**opened wins!**) |
 
 **How the priority is enforced per event:**
 
 | Event / Trigger | Only `opened` = on | Only `tilted` = on | Both = on |
 |-----------------|-------------------|-------------------|-----------|
-| Contact sensor changes (`t_contact_*`) | → `open_position` | → `ventilate_position` | → `open_position` |
+| Contact sensor changes (`t_contact_*`) | → full ventilation position | → `ventilate_position` | → full ventilation position |
 | Evening closing (`t_close_*`) | Lockout — no movement | → `ventilate_position` (if lockout for tilted disabled) | Lockout — no movement |
 | Shading start (`t_shading_start_*`) | Shading blocked (lockout) | Shading blocked (if lockout for tilted enabled) | Shading blocked |
 | Shading end (`t_shading_end_*`) | Lockout skip | → `ventilate_position` (if configured) | Lockout skip |
-| Force disabled — recovery (`t_force_disabled_*`) | → `open_position` | → `ventilate_position` | → `open_position` |
-| Resident leaves (`t_resident_update`) | → `open_position` | → `ventilate_position` | → `open_position` |
+| Force disabled — recovery (`t_force_disabled_*`) | → full ventilation position | → `ventilate_position` | → full ventilation position |
+| Resident leaves (`t_resident_update`) | → full ventilation position | → `ventilate_position` | → full ventilation position |
 | Resident arrives (`t_resident_update`) | Helper updated only (no movement) | → `ventilate_position` (if `resident_allow_ventilation`) | Helper updated only (no movement) |
 
-> **Note on the tilted column:** the rows above assume the default priority, where a tilted window outranks the sun shading. With **"🥵 Sun shading is more important than ventilation"** enabled (see [Ventilation Configuration](handbook/contacts#auto_ventilate_options)), an active sun shading keeps the cover at the shading position instead — in the contact handler, at shading start and in the force recovery. The `opened` column is unaffected: the lockout protection always wins.
+> **Note on the tilted column:** the rows above assume the default priority, where a tilted window outranks the sun shading. With **"🥵 Sun shading is more important than ventilation"** enabled (see [Ventilation Configuration](handbook/contacts#auto_ventilate_options)), an active sun shading keeps the cover at the shading position instead — in the contact handler, at shading start and in the force recovery. The `opened` column is unaffected: lockout continues to outrank ventilation and sun shading. An active Force position still has higher priority than lockout.
 
 **Implementation details:**
 
@@ -934,7 +938,7 @@ Lockout Protection Options:
 
 **Use case:** Small bathroom window where lockout isn't critical
 
-**Note:** Lockout for fully opened windows is **always active** and cannot be disabled!
+**Note:** Lockout for fully opened windows is **always active** and cannot be disabled. The Additional Ventilation Condition may suppress the immediate upward movement, but not the stored open-window state or protection against later lowering.
 
 ---
 
@@ -951,9 +955,9 @@ Lockout Protection Options:
 
 **What happens:**
 - Helper status set to "manual"
-- Automation pauses for configured timeout (default: 1 hour)
-- Your manual decision is respected
-- After timeout, automation resumes
+- The configured movement types respect your manual position
+- CCA keeps its current schedule, sun-shading, window and resident decisions in the background
+- When the override resets, CCA reconciles the target that is valid at that moment
 
 **Why respect manual changes?**
 - You know better than automation in the moment
@@ -962,22 +966,27 @@ Lockout Protection Options:
 
 ---
 
-### Q: Can I ignore manual overrides for specific actions?
+### Q: Can I block only specific automatic movements during Manual Override?
 
-**A:** Yes! Configure which actions can override manual changes:
+**A:** Yes. The four selections decide which automatic movements must respect the manual position while the override is active:
 
 **Options in "Manual Override" section:**
 ```yaml
-Ignore/override next automatic opening after manual changes
-Ignore/override next automatic closing after manual changes
-Ignore/override next automatic ventilation after manual changes
-Ignore/override next automatic sun shading after manual changes
+Block automatic opening during Manual Override
+Block automatic closing during Manual Override
+Block automatic ventilation during Manual Override
+Block automatic sun shading during Manual Override
 ```
+
+- ☑ Selected → this movement is blocked while Manual Override is active.
+- ☐ Not selected → this movement may take control; an actual CCA drive clears Manual Override.
 
 **Example scenario:**
 - You manually close a cover for privacy
-- ☑ "Ignore next automatic opening" → Cover stays closed until timeout
-- ☐ "Ignore next automatic shading" → Shading still works if sun hits
+- ☑ "Block automatic opening" → The scheduled opening does not move it while Manual Override is active
+- ☐ "Block automatic sun shading" → Sun shading may still move it if the shading conditions become valid
+
+CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately; an intent that already ended is not replayed.
 
 ---
 
@@ -1124,7 +1133,7 @@ Result: Cover stays closed (correct!)
 **What resident mode does:**
 - Prevents **automatic** opening when resident is present
 - Allows **automatic** closing when resident goes to sleep
-- Respects your manual adjustments
+- Treats a configured arrival/departure movement as a new presence decision; that later transition may take control from an older Manual Override
 
 **Optional override:**
 ```yaml
@@ -2021,7 +2030,7 @@ Additional Actions Before Shading:
 - Custom cover integration requires special commands
 - Shelly devices need combined position+tilt scripts
 - Homematic devices need custom service calls
-- Testing without actual cover movement
+- Testing the automation's decision flow without built-in cover services (CCA still records custom dispatches)
 
 **Configuration:**
 ```yaml
@@ -2033,6 +2042,8 @@ Additional Actions After Opening:
     data:
       entity_id: cover.living_room
 ```
+
+In this mode the matching **after-action is the movement command**, not merely a notification after a movement. Configure one for every movement type CCA may request. Once CCA reaches that custom-action pipeline after its delay, tolerance and ownership checks, it records a dispatched movement and may clear Manual Override; it cannot verify whether your script actually moved the device. An empty or no-op after-action can therefore leave the physical cover unchanged while CCA records the dispatch.
 
 **Examples:**
 
@@ -2236,7 +2247,7 @@ Before posting for support, verify these essential points:
 - [ ] Resident sensor (if used) is binary (on/off or true/false only)
 - [ ] No multiple force functions active simultaneously
 - [ ] Calendar events (if used) have correct titles
-- [ ] Blueprint is version 2024.10.0 or higher
+- [ ] Home Assistant is version 2025.4.0 or higher
 - [ ] Checked the [online validator](https://hvorragend.github.io/ha-blueprints/validator/) for configuration errors
 - [ ] No typos in entity IDs or sensor names
 
@@ -2548,4 +2559,3 @@ Trigger → Pending (timestamp set) → Execution Trigger → Re-evaluation → 
 - [Forum Discussion Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539)
 - [GitHub Issues](https://github.com/hvorragend/ha-blueprints/issues)
 {% endraw %}
-

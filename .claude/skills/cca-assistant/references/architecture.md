@@ -67,9 +67,12 @@ old behavior. The lock tilt target stays `open_tilt_position`.
 
 The action tree follows an **event → reducer → reconciler** structure within the
 limits of HA YAML (user-supplied `!input` conditions can only be evaluated in
-`conditions:`/`if:`, and variables set inside `if/then` do not propagate — so
-branch *dispatch* stays a `choose:` skeleton, while state computation and
-actuation are centralized).
+`conditions:`/`if:` — so branch *dispatch* stays a `choose:` skeleton, while
+state computation and actuation are centralized). Variables assigned inside
+`if`/`choose` normally update the enclosing script scope; `repeat` is the
+important local-scope exception. This outer-scope behavior requires Home
+Assistant 2025.4, which is why the blueprint declares `min_version: "2025.4.0"`;
+lowering it silently breaks the transition anchors and recovery decisions.
 
 **Every leaf branch computes exactly two things, then calls one shared anchor:**
 
@@ -78,7 +81,7 @@ sequence:
   - variables:
       will_drive: "{{ <drive gate> }}"       # only when a gate exists
       drive_plan:                             # actuation plan (reconciler output)
-        run: "{{ will_drive }}"               # drive at all? (default false)
+        run: "{{ will_drive }}"               # plan permission (default false)
         move: "full"                          # 'full' (default) | 'tilt' (tilt only)
         action_set: "up"                      # before/after action selector
         target: "{{ open_position | int }}"
@@ -87,7 +90,6 @@ sequence:
         delay_s: "{{ drive_delay_standard }}" # pre-drive delay (0 = none)
       update_values:                          # state transition (reducer output)
         bas: "opn"
-        man: "{{ 0 if will_drive else helper_json.man | default(0) | int }}"
   - *apply_transition
   - stop: "..."
 ```
@@ -96,8 +98,17 @@ A branch may additionally set `log_user: "<short English phrase>"` — the reaso
 line for the cover logbook (`enable_logbook_cover`, Invariant 12). Leave it
 unset in pure state syncs and in pending/retry cycles.
 
-`&apply_transition` performs, in fixed order: optional delay (only when driving)
-→ optional drive (`*drive_with_actions`, or `*tilt_move_action` for `move: tilt`)
+`&apply_transition` performs, in fixed order: project a real position/relevant
+tilt delta → optional delay → live pause/instance ownership check → for a
+full drive, select and run the before-action → re-check ownership live → set
+`drive_dispatched` at the first alignment/cover/tilt service stage, with another
+live check before the cover and tilt stages after intervening waits → run the
+after-action only if some stage was dispatched. When
+`prevent_default_cover_actions` is configured, the user after-action is the
+movement carrier; after the same live ownership checks, entry into that
+custom-only pipeline sets `drive_dispatched` so the action runs and owns `d`
+and the automatic `man: 0` clear. A raw `move: tilt` plan has no
+before-action and enters the same live-gated `*tilt_move_action` directly
 → optional cover-logbook line (only with `enable_logbook_cover`, and only when
 the branch drove or set `log_user`) → **unconditional** `*helper_update`.
 The logbook step sits *before* the persist so the anchor still ends in the
@@ -128,7 +139,10 @@ gates (`helper_state_manual and override_flags.X`).
 `state_targets` maps each state (`lock`/`opn`/`vnt`/`shd`/`cls`) to
 `{target, target_tilt, action_set}`; `state_gates` maps each state to the
 standard drive gate `force_allows_X and (effective_state != X or not
-in_X_position)`. Branches that "drive to state X" (force enable, force
+in_X_position)`. The `lock` gate is deliberately stricter: it requires
+`live_force == 'non'`, `effective_state == 'lock'` and a position delta, so a
+contact or resident event cannot move to lockout while Force owns the cover.
+Branches that "drive to state X" (force enable, force
 last-wins, force-pause resume) build their `drive_plan` from them instead of
 repeating position/tilt/action/gate triples. The force-pause-resume handler is
 a pure reconciler step: `resume_state` (= `effective_state` with `'opn'`
@@ -159,9 +173,14 @@ truth-table simulation. The chosen target is visible in the trace (variable)
 and the logbook (`log_extra`); the per-target stop messages were merged into
 one generic message per handler.
 
-**The `will_drive` pattern encodes Invariant 7:** the drive gate is defined
-once per branch; `drive_plan.run` and the `man:` reset in `update_values` both
-reference it, so `man: 0` can never diverge from the actual drive decision.
+**`will_drive` is plan permission, not proof of movement.** Branches put the
+effect gates into `drive_plan.run` and omit `man` from ordinary updates. The
+terminal actuation anchors add position/tilt tolerances and live ownership;
+only their `drive_dispatched` result lets `helper_update` stamp `d` and clear
+`man`, so queued snapshots and no-op targets cannot impersonate a drive. The
+explicit exception is custom-actions-only mode: CCA cannot inspect the user's
+action sequence, so entering that configured movement pipeline after all gates
+is the dispatch contract.
 
 ---
 
@@ -179,4 +198,3 @@ Home Assistant distinguishes between *full* and *limited* template contexts. See
 **Unavailable in limited templates:** `states()`, `is_state()`, `state_attr()`, and any integration-specific runtime function.
 
 ---
-

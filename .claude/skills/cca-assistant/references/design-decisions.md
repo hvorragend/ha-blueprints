@@ -10,13 +10,27 @@ and invalid-sensor-state handling. Restart/outage handling has its own file:
 
 ## Design Decisions (intentional deviations from the general patterns)
 
-### Resident handler bypasses `helper_state_manual` / `override_flags.*`
+### Resident transitions replace earlier manual intent
 
-The resident sensor handler (`resident_leaving` / `resident_arriving`) does **not** check `not (helper_state_manual and override_flags.X)` in any of its branches. All other handlers (Open, Close, Shading-Start, Shading-End, Contact, Manual) do.
+The resident sensor handler always persists `res` and deliberately does **not**
+consume `manual_allows_event` / `override_flags.*` for its target movement.
+Presence transitions are configured ownership-changing events: when the
+resident leaves or arrives, the cover follows the newly applicable
+resident-derived target even while `man == 1`.
 
-**Rationale:** Presence transitions are treated as a hard reset of any earlier manual intent — when the resident leaves or arrives, the cover should follow the new presence-derived target regardless of an active manual override. The `ignore_*_after_manual` configuration only governs scheduled / environment-driven triggers, not presence transitions.
+This does not weaken the state/effect split. Pause, Force and additional
+conditions can still suppress the drive while `res` advances. An already
+reached target is a no-op. Only an actual dispatched resident movement clears
+`man`; a state-only resident update preserves it.
 
-This is intentional. Do not "harmonize" by adding the override gate to the resident handler.
+`manual_allows_event` is deliberately named for the **event policy**, not the
+destination state. A shading event can move to the ventilation floor and still
+uses `.shd`; a contact event can restore shading and still uses `.vnt`.
+
+The `ignore_*_after_manual` options govern their owning scheduled,
+environmental and contact-ventilation event classes, not resident transitions.
+This is intentional. Do not "harmonize" the resident handler by routing it
+through the ordinary Manual gates.
 
 ### Opening handler preserves shading-start pending **only while still warranted**; closing handler discards it
 
@@ -30,7 +44,7 @@ When the closing trigger fires while a shading-start pending is active, the clos
 
 This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it. Do not remove the `shading_start_warranted` gate from the opening "skip" branch — that reintroduces #514.
 
-**Branch order (#651):** The re-arm branch "Opening: Shading warranted, arm pending" (#555) sits **before** the "Already in open position" shortcut. A cover manually opened before the opening time rests at the open position with `bas: 'opn'` and a cleared pending (the manual-open detection clears `pnd` by design); with the shortcut first, the opening run ended in a base-only update and the warranted shading was never re-armed (Bug Pattern AR). Do not move the shortcut back in front of the arm branch.
+**Branch order (#651):** The re-arm branch "Opening: Shading warranted, arm pending" (#555) sits **before** the "Already in open position" shortcut. Invariant 15 now preserves pending through manual detection, but other legitimate no-pending states still need this handoff; with the shortcut first, an already-open cover can consume the run before warranted shading is armed (Bug Pattern AR). Do not move the shortcut back in front of the arm branch.
 
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving
 
@@ -42,21 +56,30 @@ The "Reset shading status that is no longer required" branch writes `man: 0` eve
 
 `is_paused` used to be checked only inside `cover_move_action` / `tilt_move_action` — the *movement* was suppressed, but everything keyed to the *drive decision* still ran: the user's before/after actions in `drive_with_actions` fired ("cover is opening" notifications with no movement), and the `man:` reset followed `will_drive` (Invariant 7), so a paused run cleared a manual override although nothing moved.
 
-The pause is therefore part of **every** drive gate: all five `state_gates`, every branch-local `will_drive`, and the inline `run:`/`if:` gates of the force handlers and the shading-end drive. `&drive_with_actions` additionally opens with a `not is_paused` condition guard (same mechanic as `cover_move_action`: a false condition only stops that grouped sequence; the `*helper_update` after it still runs — Invariant 2 intact). The inner `is_paused` conditions of the move actions stay as defense in depth.
+The pause is therefore part of **every** drive gate: all five `state_gates`, every branch-local `will_drive`, and the inline `run:`/`if:` gates of the force handlers and the shading-end drive.
 
 Semantics: a paused run **records** its state transition (helper write, `bas`/`shd`/`win`/`frc` all updated — that is what makes the pause-resume instant) but does not drive, does not run drive actions, and does not touch `man`. When the pause ends, `t_force_pause_disabled` (or, after an outage of the pause entity, its `t_recovery` trigger) drives the cover to `effective_state` — that handler's own `will_drive` is `not is_paused`, guarding the queued-run race where the pause was re-enabled before the resume run executed.
 
-**Since CCA 2026.07.25 the actuation-point checks are live reads.** The inner conditions of
-`cover_move_action` / `tilt_move_action` and the opening guard of `drive_with_actions` no
-longer read the `is_paused` variable (frozen when the variables step rendered) but
-`states(force_pause)` directly — and the same condition re-checks the `instance_active`
-gate. A pause enabled, or a hand-over performed, while a run sits in its pre-drive delay
-(up to minutes) must still stop the movement: the branch-level `will_drive` was computed
-before the delay and cannot see it. The branch-level gates keep using the `is_paused`
-variable — the decision and the actuation guard are different layers. Known corner,
-accepted: the helper write of such a run was computed with `will_drive` true, so `man: 0`
-can land although the movement was suppressed at the last moment — recomputing the whole
-transition after the delay would break the plan-then-apply architecture for a rare window.
+**The actuation-point checks are live reads.** `apply_transition` first projects
+whether position or relevant tilt differs outside tolerance. After any pre-drive
+delay it reads `states(force_pause)` and `instance_active` directly, before any
+user action runs. A full drive then runs the selected before-action and re-reads
+both ownership gates once more in `drive_with_actions`. This closes the remaining
+race when a user before-action itself waits. The cover and tilt movement anchors
+re-read again before their respective service stages because tilt alignment and
+cover movement can introduce further waits. The first stage that passes sets
+`drive_dispatched`; a later ownership loss can stop the remaining stages without
+denying that a partial movement already occurred. Raw tilt-only plans use the
+same tilt-stage check. A pause enabled, or a hand-over performed, before any
+stage therefore stops movement, the after-action, the drive timestamp and the
+automatic manual clear together.
+
+When **default cover actions are disabled**, the user after-action is the
+configured movement implementation rather than an optional notification.
+CCA cannot inspect whether that sequence calls a cover service, so after the
+same projection and live ownership checks, entering the custom-only pipeline
+counts as `drive_dispatched`. This preserves the documented custom-actions-only
+contract and keeps `d` / the automatic manual clear aligned with that contract.
 
 Enforced by `tests/test_apply_transition_architecture.py::TestForcePauseIsPartOfEveryDriveGate` — a new branch whose drive gate ignores the pause fails structurally. The live actuation gates are pinned by `TestActuationPointLiveGates` in the same file.
 
@@ -92,7 +115,7 @@ The fix is applied **at the trigger**, not in a global condition: each of the th
   ...
 ```
 
-**Why the trigger, not a global condition:** A global `condition` still lets the automation *start* — HA records a (stopped) trace for every triggered run. Filtering at the trigger means the automation never runs at all → no trace, no queue entry, no logbook noise. `not_to`/`not_from` require HA ≥ 2023.4; the blueprint's `min_version` (2024.10.0) covers this.
+**Why the trigger, not a global condition:** A global `condition` still lets the automation *start* — HA records a (stopped) trace for every triggered run. Filtering at the trigger means the automation never runs at all → no trace, no queue entry, no logbook noise. `not_to`/`not_from` require HA ≥ 2023.4; the blueprint's `min_version` (2025.4.0, required by the transition architecture's outer-scope variable updates) covers this.
 
 **Rationale:** A user binding a "noisy" entity to one of these inputs — classically a HA **Threshold helper** built on `sun.elevation`, whose `sensor_value` attribute updates on every elevation step — would otherwise re-fire the whole automation every few minutes although the entity's real state changes only twice a day. There was never any functional harm (`mode: queued`, every branch idempotent), only trace/logbook noise.
 
@@ -140,13 +163,13 @@ input in a consumer — that silently breaks the alt depth.
 
 The mid-shading depth switch is handled by `t_shading_position_alt` + the
 "Check for alternate shading position" branch (3b), modeled on "Check for
-shading tilt": only while `shd == 1`, gated on force/resident/window/manual.
-It re-applies the shading **tilt** after the position move (a position drive
-physically disturbs the slat angle on tilt covers) and clears `man` only when
-it actually drives (`not in_shading_position` in the if-guard, Invariants 1+7).
+shading tilt": the reducer branch remains reachable while `shd == 1`; force,
+resident, window and manual belong to its `will_drive` effect gate. It
+re-applies the shading **tilt** after the position move (a position drive
+physically disturbs the slat angle on tilt covers). The central transition
+anchor clears `man` only after a real dispatch (Invariants 1+7).
 A depth change is **not** a shading start: `shd`, `ts.shd`, and the pending
 keys stay untouched, so `prevent_shading_multiple_times` is unaffected. No
 helper field stores the active depth (same rationale as #558 — the helper
 holds logical state; the brief `in_shading_position` volatility after a switch
 is accepted and healed by the re-drive trigger).
-
