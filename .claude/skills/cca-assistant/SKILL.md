@@ -41,7 +41,7 @@ loading the reference first:
 | Anything that looks inconsistent and invites "harmonizing" (resident/override gates, pending preserve vs. discard, invalid sensor states, #558/#580) | [references/design-decisions.md](references/design-decisions.md) |
 | Availability gates, `t_recovery`, `automation_resumed`, the recovery gate — or adding any new gate that can stop a run | [references/recovery.md](references/recovery.md) (includes the orphan-audit checklist) |
 | Live opening/closing branch entry conditions, `base_gates`, `closing_position_hold`, the caught-up base flip — or adding any new gate to the live open/close branch | [references/recovery-parity.md](references/recovery-parity.md) (semantic contract, decision matrix, shared projections) |
-| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AS with cause and fix) |
+| Debugging a regression, changing global conditions / trigger `enabled:` / helper-JSON regexes / flow handoffs | [references/bug-patterns.md](references/bug-patterns.md) (patterns A–AT with cause and fix) |
 
 The always-binding rules (the 15 invariants as one-liners, code style, quality
 gates, version bumping) are indexed in `.claude/CLAUDE.md`.
@@ -181,7 +181,7 @@ prevent_flags:
 
 ### Normalized event flags (computed once per run — use these, not raw sensor idioms)
 ```yaml
-window_opened_now / window_tilted_now / window_any_now / window_opened_clear
+window_opened_now / window_tilted_now / window_any_now
 lockout_now.closing / .shading_start / .shading_end
 shading_once_guard_ok
 drive_delay_standard
@@ -296,7 +296,7 @@ Full rules: Invariant 12 in [references/invariants.md](references/invariants.md)
 
 ### Regressions
 Match the symptom against [references/bug-patterns.md](references/bug-patterns.md)
-(A–AS, each with symptom / cause / fix / derived rule) before writing a fix —
+(A–AT, each with symptom / cause / fix / derived rule) before writing a fix —
 most "new" bugs are a documented pattern reaching a new code path.
 
 ---

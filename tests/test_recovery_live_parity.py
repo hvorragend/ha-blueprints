@@ -247,8 +247,7 @@ def _context(s: dict, trigger_id: str) -> tuple[dict, dict]:
     ctx["manual_allows_event"] = Runner(ctx, entities, {}).render(
         _top_var("manual_allows_event")
     )
-    for name in ("window_opened_now", "window_tilted_now", "window_any_now",
-                 "window_opened_clear"):
+    for name in ("window_opened_now", "window_tilted_now", "window_any_now"):
         ctx[name] = Runner(ctx, entities, {}).render(_action_var(name))
     for name in ("in_open_position", "in_close_position", "in_shading_position",
                  "in_ventilate_position", "in_lockout_position",

@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.08.13
+
+- 🐛 **Fix:** The **evening closing could cancel an active ventilation**: with the window tilted and the cover at the 💨 Ventilation Position, the closing trigger (e.g. the latest closing time) **closed the cover completely** whenever the window's *opened* contact sensor happened to read unavailable/unknown at that moment — typical for battery handles and contacts (or template helpers built on them), which some hubs mark unavailable after hours without an event. The tilted contact was alive and reporting "tilted" the whole time, and everywhere else CCA already treats an unreachable opened contact as "not open" (that is what lets these runs proceed at all since `2026.07.25`) — only the "window tilted → keep the ventilation position" checks of the evening closing and of the sun shading end still insisted on an explicit "closed" reading and fell through to a full close. Both now accept the same reading as the rest of the automation: a tilted window keeps its ventilation position even while the opened contact is momentarily unreachable ([#650](https://github.com/hvorragend/ha-blueprints/issues/650))
+
+---
+
 # CCA 2026.08.02
 
 - ⚠️ **Change:** The minimum supported Home Assistant version is now **2025.4.0**. CCA's transition architecture relies on the variable-scope behavior introduced in HA 2025.4: values assigned inside nested `if`/`choose` actions update the enclosing script scope. On older versions those assignments remain local, which silently prevents movement decisions, after-actions and drive bookkeeping from reaching the shared transition epilogue
