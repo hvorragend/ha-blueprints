@@ -44,6 +44,8 @@ The full-window lockout remains the safety exception that may overrule Manual Ov
 
 If the detection of the manual position change was activated above, you may need a way to reset this status. Otherwise, the next cover movements will be permanently ignored or overridden. Or you have not activated an individual action, e.g. when closing the covers, which resets the status. <br /><br /> You can select **multiple** reset mechanisms — the first one whose condition is met clears the override. Leave empty to disable all timed resets.
 
+A reset hands control back to CCA immediately. If the automatic target that is valid then differs from the manually selected position, the cover can move as soon as the reset occurs. For example, closing a cover manually and configuring a 30-minute timeout can reopen it after 30 minutes while the opening schedule is still active. Choose a timeout that extends beyond the relevant automatic window, or disable timed resets, when the manual position must remain in control longer.
+
 ---
 
 <a id="reset_override_time"></a>
@@ -62,7 +64,7 @@ At what time do you want the manual detection to be reset?
 
 > 🧩 Input: `reset_override_timeout` · Default: `5`
 
-After how many minutes should it be reset?
+After how many minutes should CCA take control again? When the timer expires, the cover may immediately move to the automatic target that is valid then.
 
 ---
 

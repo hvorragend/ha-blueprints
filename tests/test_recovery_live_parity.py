@@ -467,9 +467,9 @@ class TestManualOverrideParity:
 
     def test_an_expired_override_is_the_post_repair_reconciliation(self):
         """Recovery-only composition, deliberate: the reset the outage swallowed is
-        applied first (man -> 0), then the flip proceeds - live's timeline depends on
-        an unknowable event order, and its reset (BRANCH 10 default) clears man
-        without ever driving, leaving the missed movement missed."""
+        applied first (man -> 0), then the flip proceeds. A live reset now enters
+        this same reducer; only the historical ordering of events swallowed by an
+        outage remains unknowable."""
         s = scenario(brightness="40", helper={"man": 1}, override_expired=True,
                      override_flags={"opening": False, "closing": True,
                                      "ventilation": False, "shading": False})
@@ -510,6 +510,30 @@ class TestManualOverrideParity:
         assert reset["final"]["bas"] == "opn"
         assert reset["final"]["man"] == 0
         assert reset["moves"] is False
+
+    def test_live_timeout_hands_back_to_a_still_open_schedule(self):
+        """#668 is the intentional inverse of the stale-base bug: a reset ends
+        manual ownership. If evening closing is not allowed yet, the still-open
+        automatic target may therefore reopen a cover that was closed by hand."""
+        s = scenario(
+            brightness="5000",
+            helper={"bas": "opn", "man": 1},
+            current_position=0,
+            override_expired=True,
+            manual_reset_event=True,
+            override_flags={"opening": True, "closing": False,
+                            "ventilation": False, "shading": True},
+            prevent_flags=dict(
+                SCENARIO_DEFAULTS["prevent_flags"],
+                opening_after_shading_end=True,
+            ),
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["state"] == "opn"
+        assert reset["target"] == 100
+        assert reset["moves"] is True
+        assert reset["final"]["man"] == 0
 
 
 # ════════════════════════════════════════════════════════════════════════════

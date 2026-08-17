@@ -861,6 +861,14 @@ schedule with the same once-per-day, environment, calendar and additional-condit
 then clears `man`, runs the configured reset action and reconciles `recovered_state`.
 Forecast and calendar load gates explicitly include this entry path.
 
+**The inverse is not this bug (#668):** if a user closes a cover manually while the
+currently valid automatic target is still `opn`, an explicit timeout reset opens it again.
+That is the configured hand-back, not a stale-base failure: the reset has ended Manual
+Override and the opening schedule still owns the target. Keeping that manual close requires
+a longer timeout or no timed reset. Do not special-case the physical direction of the manual
+move; doing so would reintroduce the coupling this fix removes and would break the original
+#655 requirement to return to a still-current shading/opening target after reset.
+
 **Rule:** A blocker-release path must not assume its cached background target is current
 when the mechanisms that maintain that target can lose or refuse one-shot events. Make the
 release an explicit reconciliation edge and route it through the existing schedule-aware
