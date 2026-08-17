@@ -24,7 +24,7 @@ The four choices are independent: automatic opening, closing, ventilation and su
 
 ### What continues in the background
 
-Manual Override blocks only the selected physical movements. CCA still tracks the current opening/closing schedule, sun-shading waiting period and active state, window contacts, resident state and force functions. Resetting the override therefore reconciles the target that is valid at that moment instead of waiting for a new sensor edge or restarting an old delay.
+Manual Override blocks only the selected physical movements. CCA still tracks the current opening/closing schedule, sun-shading waiting period and active state, window contacts, resident state and force functions. Resetting the override therefore reconciles the target that is valid at that moment instead of waiting for a new sensor edge or restarting an old delay. As a safety net, an explicit timeout, fixed-time or position reset also re-derives the current schedule before reconciliation; a missed or refused opening/closing event therefore cannot make the reset apply an outdated helper target.
 
 Some configured events explicitly hand control back to CCA instead of consuming these four choices: a resident arrival/departure that has a movement configured, enabling or switching a Force position, disabling Force Pause, and disabling a Force position with automatic return enabled. They replace the older manual intent only when CCA really dispatches a movement; a state-only update or already-reached target preserves Manual Override.
 

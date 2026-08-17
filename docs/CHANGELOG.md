@@ -1,5 +1,11 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.08.17
+
+- 🐛 **Fix:** Resetting a Manual Override by timeout, fixed time or position no longer applies a stale opening/closing state from the status helper. This could close a cover during the daytime after it had been opened manually when the scheduled opening transition had previously been missed or refused. Every explicit reset now re-derives the current target from the live schedule and the same opening/closing, calendar, weather, window and Manual Override gates used by restart recovery, then clears the override and reconciles that target. This works independently of the optional restart/outage catch-up setting ([#655](https://github.com/hvorragend/ha-blueprints/issues/655), follow-up to [#657](https://github.com/hvorragend/ha-blueprints/pull/657))
+
+---
+
 # CCA 2026.08.14
 
 - ✨ **Feature:** New sun-shading option **"Independent Shading: Keep shading active while the temperature threshold is exceeded"** ([#605](https://github.com/hvorragend/ha-blueprints/issues/605)). On hot days an active sun shading no longer ends during the day — e.g. when the sun leaves the configured azimuth range — as long as the forecasted temperature or (if enabled) *"Temperature Sensor 2"* stays above the *"Independent Temperature Threshold"* (with hysteresis, so the hold does not flap around the threshold). The cover then stays shaded until the normal closing time or the nightly reset. Requires *"Independent Shading via Temperature Comparison"*; on cooler days — and for everyone who does not enable the new option — the shading-end behavior is unchanged. Unlike the existing behavior option *"☀️ Stay shaded: Don't open cover when sun shading ends"*, which applies to **every** shading end, this hold is scoped to hot days detected by the independent temperature comparison — the normal shading still ends normally. Note: the shading-end triggers only fire when a condition *becomes* invalid, so if the temperature drops below the threshold later in the day, the shading usually still lasts until the next end trigger fires (or until the closing time) — which is exactly the requested "shade the whole day" behavior

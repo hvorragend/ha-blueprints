@@ -193,6 +193,7 @@ SCENARIO_DEFAULTS = dict(
     force_allows_open=True, force_allows_close=True,
     force_allows_shade=True, force_allows_ventilate=True,
     recovery_catch_up=True,
+    manual_reset_event=False,
     instance_activated=False, automation_resumed=False,
     is_restart_run=False, midnight_reset_missed=False,
     # cover
@@ -341,8 +342,9 @@ def run_live(s: dict, direction: str, verdicts: dict | None = None) -> dict:
             **movement}
 
 
-def run_recovery(s: dict, verdicts: dict | None = None) -> dict:
-    ctx, entities = _context(s, "t_recovery")
+def run_recovery(s: dict, verdicts: dict | None = None,
+                 trigger_id: str = "t_recovery") -> dict:
+    ctx, entities = _context(s, trigger_id)
     runner = Runner(ctx, entities, verdicts or DEFAULT_VERDICTS)
     runner.run(_branch_body(RECOVERY))
     movement = _movement(runner.ctx, s)
@@ -474,6 +476,40 @@ class TestManualOverrideParity:
         recovery = run_recovery(s)
         assert recovery["final"]["bas"] == "cls"
         assert recovery["moves"] and recovery["final"]["man"] == 0
+
+    def test_live_timeout_reconstructs_a_missed_daytime_opening(self):
+        """#655 follow-up: a manual open must not be closed on timeout merely
+        because the helper still carries yesterday's closed base. The explicit
+        reset uses the schedule-aware recovery reducer even in `never` mode."""
+        trigger = types.SimpleNamespace(id="t_reset_timeout")
+        assert _render(
+            _top_var("manual_reset_event"), {},
+            helper_state_manual=True, trigger=trigger,
+        ) == "True"
+        assert _render(
+            _top_var("recovery_catch_up"), {},
+            manual_reset_event=True, recovery_mode="never",
+            trigger=trigger, instance_activated=False, is_restart_run=True,
+        ) == "True"
+
+        s = scenario(
+            brightness="5000",
+            is_opening_phase=False,
+            is_daytime_phase=True,
+            is_closing_phase=False,
+            is_evening_phase=False,
+            is_time_up_late=True,
+            helper={"bas": "cls", "man": 1},
+            current_position=100,
+            override_expired=True,
+            manual_reset_event=True,
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["state"] == "opn"
+        assert reset["final"]["bas"] == "opn"
+        assert reset["final"]["man"] == 0
+        assert reset["moves"] is False
 
 
 # ════════════════════════════════════════════════════════════════════════════

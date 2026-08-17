@@ -404,10 +404,13 @@ the older manual intent without suppressing the reducer.
 - Force targets override `effective_state`, while the background fields continue
   to evolve. Force pause changes no target at all; it only makes every drive gate
   false.
-- When manual, force or pause ends, the release path reconciles the current
-  `effective_state`; it does not replay old triggers or restart their delays.
-  Force disable recovery and Force-Pause resume are explicit hand-over events,
-  so a dispatched movement may clear an older Manual Override.
+- When manual, force or pause ends, the release path reconciles the target that
+  is valid now; it does not replay old triggers or restart their delays. An
+  explicit timeout, fixed-time or position Manual reset first re-derives the
+  scheduled base through the recovery reducer, because the cached base may
+  predate a missed/refused schedule event. Force disable recovery and
+  Force-Pause resume reconcile the current `effective_state` as explicit
+  hand-over events, so a dispatched movement may clear an older Manual Override.
 
 Lockout remains the safety exception that may drive over manual intent. Explicit
 force targets remain target overrides rather than inhibitors. Tests:

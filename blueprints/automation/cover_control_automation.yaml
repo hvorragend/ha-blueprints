@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.14
+    **Version**: 2026.08.17
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2586,7 +2586,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.14"
+  version: "2026.08.17"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3167,13 +3167,22 @@ variables:
        as_timestamp(now()) < attached + 300 or
        (outage_began > 0 and outage_began < attached + 300) }}
 
+  # A live Manual Override reset is an explicit reconciliation event. Route it
+  # through the same schedule-aware reducer as recovery so a missed or refused
+  # opening/closing trigger cannot make the reset apply a stale helper base.
+  manual_reset_event: >-
+    {{ helper_state_manual and trigger is defined and
+       trigger.id | default('') in ['t_reset_fixedtime', 't_reset_timeout', 't_reset_position'] }}
+
   # CATCH UP - Is this run allowed to replay what was missed (re-derive the base state, arm a
   # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
-  # An activation catches up regardless of the opt-in. The asymmetry is deliberate: the trigger
-  # (a real off -> on flank, impossible on a restart) is exempt from is_restart_run, the
-  # timestamp proxy (which reads true on every restart) is not.
+  # An activation or an explicit Manual reset reconciles regardless of the opt-in. The
+  # activation asymmetry is deliberate: the trigger (a real off -> on flank, impossible on a
+  # restart) is exempt from is_restart_run, the timestamp proxy (which reads true on every
+  # restart) is not.
   recovery_catch_up: >-
-    {{ recovery_mode == 'always' or
+    {{ manual_reset_event or
+       recovery_mode == 'always' or
        (trigger is defined and trigger.id | default('') == 't_instance_activated') or
        ((recovery_mode == 'outage' or instance_activated) and not is_restart_run) }}
 
@@ -4789,7 +4798,7 @@ actions:
       # shading_end_conditions_met before restoring a stored shading, so it needs the forecast
       # as well (Bug Pattern T)
       - "{{ trigger.id | regex_match('^(t_shading_start|t_shading_end|t_open|t_calendar_event_start|t_recovery|t_instance_activated|t_force_disabled)')
-            or automation_resumed or instance_activated or midnight_reset_missed }}"
+            or manual_reset_event or automation_resumed or instance_activated or midnight_reset_missed }}"
     then:
       - action: weather.get_forecasts
         target:
@@ -4842,7 +4851,7 @@ actions:
           - "{{ trigger.id | regex_match('^t_shading_start') }}"
           - "{{ trigger.id | regex_match('^t_shading_end') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
-          - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or automation_resumed or instance_activated or midnight_reset_missed }}"
+          - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or manual_reset_event or automation_resumed or instance_activated or midnight_reset_missed }}"
     then:
       - action: calendar.get_events
         target:
@@ -5870,7 +5879,7 @@ actions:
       # was provably blocked - converts ANY trigger into a recovery, so nothing can act on a
       # helper that cannot be trusted. The manual triggers are exempt (as they are from the
       # contact gate): their handler records the intervention instead of driving.
-      - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or
+      - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or manual_reset_event or
             ((automation_resumed or instance_activated or midnight_reset_missed) and
              trigger.id not in ['t_manual_position', 't_manual_tilt']) }}"
     then:
@@ -6036,9 +6045,9 @@ actions:
                                    else base_gates.opening.override_ok if caught_up_opening
                                    else base_gates.closing.override_ok if caught_up_closing
                                    else true }}
-                              log_user: "{{ 'this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage' }}, target: {{ state_labels[recovered_state] }}"
+                              log_user: "{{ 'manual override reset, back to: ' ~ state_labels[recovered_state] if manual_reset_event else ('this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage') ~ ', target: ' ~ state_labels[recovered_state] }}"
                               log_extra: >-
-                                Recovery{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
+                                {{ 'Manual override reset reconciliation' if manual_reset_event else 'Recovery' }}{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
                                 base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', a live opening/closing gate refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},

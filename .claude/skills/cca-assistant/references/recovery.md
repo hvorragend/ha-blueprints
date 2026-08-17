@@ -23,7 +23,9 @@ restart, a reload and a UI save re-create the automation; a Zigbee gateway that 
 over the closing time does not. The complaints were about the first class; leaving a cover
 open all night because the stick hiccupped is nobody's preference. `recovery_catch_up`
 (action variable) is the single gate: `always`, or `outage` **and** neither `is_restart_run`
-nor `automation_resumed`.
+nor `automation_resumed`. An explicit live Manual Override reset is a separate release
+event, not restart/outage catch-up: `manual_reset_event` also opens this gate in every mode
+so the reset cannot actuate a stale cached base (Bug Pattern AU).
 
 **`is_restart_run` must not depend on HA's start-up order**, and it does not. A restart brings
 every entity back from `unavailable`, so the *source* `t_recovery` triggers fire then too —
@@ -398,7 +400,13 @@ A blocked automation **silently loses** every event of the outage: time/calendar
   `man == 1` — a named recovery-only policy (recovery-parity.md R2). All gates
   live in the drive path, not transition conditions. When `override_expired`
   explicitly clears `man`, the branch also runs the user's
-  `auto_override_reset_action`, even when the reconciliation is a no-op.
+  `auto_override_reset_action`, even when the reconciliation is a no-op. A live
+  `t_reset_timeout` / `t_reset_fixedtime` / `t_reset_position` sets
+  `manual_reset_event`, is claimed by this reducer before the numbered reset
+  branch, and enables catch-up regardless of `enable_recovery`: the release
+  re-derives the scheduled base instead of trusting a possibly stale `bas`.
+  Because this route consumes `recovered_pending` and `recovered_base`, the
+  forecast and calendar load gates must include `manual_reset_event` too.
 
 **Known limitation 1:** a source that never went `unavailable` (many helpers restore straight to their value) produces no recovery trigger — the `homeassistant: start` trigger covers that case.
 
@@ -435,15 +443,15 @@ against *which trigger actually fires it*.
 | `t_manual_position` / `t_manual_tilt` | no (state/attribute) | manual intervention unrecorded → recovery overrules the user, and with the opt-in on it drives the cover back immediately (#603) | **two exemptions**: from the contact gate, and from the `automation_resumed` claim of the recovery gate (the handler never drives; it must record `man: 1` so `recovery_allowed` can respect it) | always |
 | *(any trigger, on a resumed run, while a forecast shading condition is configured)* | — | `shading_start_warranted` renders false without forecast data → `recovered_pending` refuses a warranted shading, and the helper write clears `automation_resumed` → **permanent for that day** (#603, Bug Pattern T family) | the forecast-load gate also matches `automation_resumed`, not just the opening/shading/recovery trigger ids | **opt-in** (only `recovered_pending` consumes it) |
 | `t_resident_update` | no (state) | `res` stale → poisons the fallback on the *next* dropout | `state_resident` falls back to `helper_json.res`; the recovery gate re-reads **and persists `res`** | always |
-| `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — the cover stays under manual control forever | the recovery gate's `override_expired` (re-evaluates the reset rules, clears `man`, and with catch-up enabled reconciles the current target) | clearing: always; reconciliation drive: opt-in |
-| `t_reset_fixedtime` | yes, until midnight | override reset one day late | self-heals next day; also `override_expired` | always |
+| `t_reset_timeout` / `t_reset_position` | **yes** (`man == 1` keeps them true) | **manual override never resets** — the cover stays under manual control forever | a live reset enters the recovery reducer through `manual_reset_event`; a missed reset is found by `override_expired`. Both re-derive the current schedule, clear `man`, run the reset action and reconcile the resulting target | always — an explicit release is exempt from the restart/outage opt-in |
+| `t_reset_fixedtime` | yes, until midnight | override reset one day late | the live reset uses `manual_reset_event`; a swallowed edge also self-heals through `override_expired` | always |
 | `t_shading_reset` (23:55) **while the automation is off** | **yes** | `shd`/`pnd` from an earlier day still read as active → the next trigger drives into a days-old shading position | the recovery gate's `stale_day` → `recovered_shade`, `pending_is_stale` (**without** stamping `ts.shd`) — and since 2026.07.25 the `midnight_reset_missed` **claim** makes sure a recovery actually runs: `stale_day and (shd or pnd)` turns the next trigger of any kind into one, so the repair no longer depends on something else entering the gate | always — this one *prevents* a wrong drive rather than catching one up |
 | *(the automation itself is switched off and on, **or re-saved** — a UI save re-creates the entity)* | — | **nothing fires at all** — no entity changed, `homeassistant: start` does not fire, and every latching trigger is already true at attach time | a toggle: the **resume trigger** (live read of the automation's own `last_changed` + 60 s offset — **not** `this`, whose timestamps are pre-enable; Bug Pattern AM); a reload/save: the **`automation_reloaded` event trigger** (`this` is `None` at a reload attach, so the template path is dark there); `automation_resumed` makes the recovery gate claim any trigger as a backstop for both | always — neither the resume trigger nor the reload event carries the opt-in gate |
 | *(`instance_active` is off — this instance is not in charge)* | — | **every** trigger of the off period is dropped, so all the latching rows above happen at once, and the helper is arbitrarily old when the instance comes back | `t_instance_activated` (prompt) + the `instance_activated` claim (backstop for a swallowed edge) → the recovery gate re-derives everything | always — an activation is exempt from the opt-in (but **not** from `is_restart_run`) |
 | *(`instance_active` itself drops out)* | — | sixth gate source: while it is unusable the gate blocks every run — and the outage may have eaten a hand-over's `off → on` flank, which HA never keeps | its own ungated `t_recovery` trigger — and, unlike the five other gate sources, the return run is **not** hygiene-only with the catch-up off: the helper froze while the gate blocked, so `instance_activated` reads true on the return and the run takes over (deliberate — a dropout return is indistinguishable from a swallowed hand-over, losing a real one strands the cover, and the false positive drives to the cascade target anyway) | always — **even with the catch-up off** |
 | *(helper is `unknown`)* | — | init/repair step unreachable → automation permanently dead | helper gate blocks on `unavailable` **only** | always |
 
-`override_expired` is a global variable, not a branch-local one, because `recovery_allowed` and the `man` write both need it, and the reset triggers latch (see the table above). It clears `man` without driving, a deliberate Invariant 7 exception (same class as the midnight reset).
+`override_expired` is a global variable, not a branch-local one, because `recovery_allowed` and the `man` write both need it, and the reset triggers latch (see the table above). It clears `man` without driving, a deliberate Invariant 7 exception (same class as the midnight reset). `manual_reset_event` is the live-trigger counterpart: it claims the explicit release before dispatch and makes the same reducer schedule-aware even when restart/outage catch-up is disabled.
 
 **Rule for any new gate:** before adding a condition that stops a run, list every trigger it can suppress and ask *"if this fires exactly once and I drop it, does anything ever fire again?"* If the answer is no, the gate needs an exemption (contact triggers), a repair path (helper init), or a re-evaluation in the recovery gate (override, shading, force, base). Two of the three gates in this design needed one — assume the next one does too.
 
