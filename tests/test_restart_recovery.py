@@ -994,10 +994,12 @@ class TestCaughtUpClosingHold:
     def test_the_drive_gate_consumes_it(self):
         will_drive = _branch_var(RECOVERY, "will_drive")
         assert "caught_up_closing_hold" in will_drive
+        assert "caught_up_opening_hold" in will_drive
         assert "transition_manual_allows" in will_drive
         assert "recovery_vent_condition_hold" in will_drive
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=True,
+                            caught_up_opening_hold=False,
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
                             recovered_state="cls", caught_up_closing=True,
@@ -1005,11 +1007,54 @@ class TestCaughtUpClosingHold:
                             override_expired=False) is False
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=False,
+                            caught_up_opening_hold=False,
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
                             recovered_state="cls", caught_up_closing=True,
                             manual_allows_event={"vnt": True},
                             override_expired=False) is True
+        assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
+                            recovery_allowed=True, caught_up_closing_hold=False,
+                            caught_up_opening_hold=True,
+                            transition_manual_allows=True,
+                            recovery_vent_condition_hold=False,
+                            recovered_state="opn", caught_up_closing=False,
+                            manual_allows_event={"vnt": True},
+                            override_expired=False) is False
+
+
+class TestCaughtUpOpeningHold:
+    """The live normal-opening will_drive is feature-gated on is_up_enabled (#673):
+    with Morning Opening unchecked the base flip persists as state-only. The
+    caught-up opening mirrors exactly that - and ONLY that: overlay targets
+    (lock/vnt/shd/cls) and a live force-open keep their own drive authority."""
+
+    HOLD = staticmethod(lambda: _branch_var(RECOVERY, "caught_up_opening_hold"))
+
+    def _hold(self, **over):
+        base = dict(caught_up_opening=True, recovered_state="opn",
+                    is_up_enabled=False, live_force="non")
+        base.update(over)
+        return _render_bool(self.HOLD(), {}, **base)
+
+    def test_a_caught_up_opening_without_the_feature_is_state_only(self):
+        assert self._hold() is True
+
+    def test_the_enabled_feature_drives(self):
+        assert self._hold(is_up_enabled=True) is False
+
+    def test_overlay_targets_keep_their_own_authority(self):
+        for state in ("lock", "vnt", "shd", "cls"):
+            assert self._hold(recovered_state=state) is False
+
+    def test_a_live_force_open_still_drives(self):
+        assert self._hold(live_force="opn") is False
+
+    def test_only_a_caught_up_opening_is_gated(self):
+        """A plain re-position to an unchanged bas == 'opn' keeps today's semantics
+        (schedule-less setups reconcile to the open position regardless of the
+        Morning Opening checkbox)."""
+        assert self._hold(caught_up_opening=False) is False
 
 
 # ════════════════════════════════════════════════════════════════════════════

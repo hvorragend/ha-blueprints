@@ -839,3 +839,55 @@ consistent with the gate that decided to let the run through. Tests:
 `tests/test_documented_bug_patterns.py`.
 
 ---
+
+### Bug Pattern AU: `bas` has no writer back to 'opn' when Morning Opening is unchecked — the evening close latches forever (Issue #673)
+
+**Symptom:** A config with **Evening Closing but no Morning Opening** (`auto_down_enabled`
+set, `auto_up_enabled` not set — the user opens by hand every morning; time fields or
+another schedule source configured). After the first automatic evening close the cover
+starts driving **back to the close position in the middle of the day**: after every
+manual-override expiry (`t_reset_timeout` etc.), after a sun-shading end, on a recovery
+run. The helper shows `bas: 'cls'` around the clock, the status card is stuck on "Night
+Mode". With shading active the bug is masked (SHADING outranks BASE=CLS — the cover moves
+to the shading position anyway) and reappears the day shading is disabled.
+
+**Cause:** `bas: 'opn'` had exactly two writers — the opening branch and the recovery's
+caught-up opening — and **both were gated on `is_up_enabled`** (plus the resident-leaving
+handler, which only re-writes an existing `'opn'`). `bas: 'cls'` only needs
+`is_down_enabled`. So in this config `bas` was a one-way street: after the first evening
+close nothing could ever expire the `'cls'`, and `effective_state` fell through to
+BASE=CLS all day. Latent for a long time — it only became visible when the #655/#657
+rework (2026.08.02) made blockers-release reconciliation actually *drive*
+`effective_state` (the override reset used to write `man: 0` without a movement, and the
+position-based reset re-derived `bas` from the physical position; both repair paths were
+replaced by cascade reconciliation, which faithfully replayed the stale `'cls'`).
+
+**Fix:** `is_up_enabled` is an **effect gate, not an existence gate** (Invariant 15
+applied to the feature switch): the opening-time triggers exist whenever any schedule
+source is configured, so the base transition to `'opn'` must persist even with Morning
+Opening unchecked — only the opening *movement* stays with the feature.
+
+- Live: `is_up_enabled` removed from the "Check for opening" entry conditions; added to
+  the "Normal opening" `will_drive` instead. All other sub-branch drives keep their own
+  ownership (shading catch-up → shading gates, full-window reconciliation → lockout
+  safety).
+- Recovery: the `recovered_base` daytime clause drops `is_up_enabled`; the new
+  `caught_up_opening_hold` (`caught_up_opening and recovered_state == 'opn' and not
+  is_up_enabled and live_force == 'non'`) withholds exactly the opening-owned drive.
+  Overlay targets (`lock`/`vnt`/`shd`/`cls`) and a live force-open keep their authority.
+- `is_opening_scheduled` is deliberately **unchanged**: the sync writer never drives, so
+  it is not a source of "real open intent" — the VENT floor keeps applying (#553/AL/AO
+  preserved). This is the documented exception to the AL/AO rule "every new `bas='opn'`
+  writer joins `is_opening_scheduled`": that rule is about writers *whose flip an
+  automation will actuate*.
+
+**Rule:** Every schedule-derived helper field needs a writer for **both** directions of
+its transition under every feature-switch combination that leaves any of its triggers
+armed — a feature switch may suppress the movement, never the state progress. When a
+state field can only be entered but not left in some configuration, every consumer of the
+cascade inherits the stale value sooner or later. Tests:
+`TestIssue673MorningOpeningUnchecked` (paired live/recovery) in
+`tests/test_recovery_live_parity.py`, `TestCaughtUpOpeningHold` in
+`tests/test_restart_recovery.py`.
+
+---

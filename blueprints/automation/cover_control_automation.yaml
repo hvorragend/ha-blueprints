@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.14
+    **Version**: 2026.08.21
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2490,15 +2490,17 @@ trigger_variables:
   # selector value 'time_control_disabled' is no longer evaluated (its stored configs are
   # disabled via the missing checkbox anyway, matching their original intent).
   is_time_control_disabled: "{{ 'time_control_enabled' not in auto_options }}"
-  # An open base state ('opn') only reflects a real "open" intent when an opening automation
-  # exists that can drive bas to 'opn'. Without one, bas stays at its 'opn' init default forever
-  # (it is only ever driven to 'cls' by the close handler), so the VENT floor could never apply.
-  # The gate therefore mirrors the enabled: gates of the triggers that write bas='opn': time
-  # fields and calendar are only two of the five sources - brightness and sun elevation open the
-  # cover without any time control (the opening branch passes them through via
+  # An open base state ('opn') only reflects a real "open" intent - one an automation will
+  # actually drive - when an opening automation exists. Without one, bas is either the 'opn'
+  # init default or (since #673) a schedule-sync written by the opening branch with Morning
+  # Opening unchecked; neither carries a drive, so the VENT floor must still apply. The gate
+  # therefore mirrors the enabled: gates of the DRIVING bas='opn' writers: time fields and
+  # calendar are only two of the five sources - brightness and sun elevation open the cover
+  # without any time control (the opening branch passes them through via
   # is_time_control_disabled), and the resident-leaving handler opens (and writes bas='opn')
-  # when resident opening is configured, all without any other source. Used by effective_state
-  # (and its recovery mirror) to let VENT beat a bas='opn' that no opening automation ever set.
+  # when resident opening is configured, all without any other source. The state-only sync
+  # writer is deliberately NOT a source here. Used by effective_state (and its recovery
+  # mirror) to let VENT beat a bas='opn' that no opening automation would drive.
   is_opening_scheduled: >-
     {{ is_up_enabled and (
          is_time_field_enabled or
@@ -2586,7 +2588,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.14"
+  version: "2026.08.21"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5877,11 +5879,14 @@ actions:
       - variables:
           # Emulates the 23:55 reset, which did not run while the automation was off
           recovered_shade: "{{ helper_state_shade and not stale_day }}"
-          # Base state re-derived from the schedule
+          # Base state re-derived from the schedule. The daytime flip to 'opn' is
+          # deliberately NOT gated on is_up_enabled - it mirrors the live opening
+          # entry, which syncs the base state even with Morning Opening unchecked
+          # (#673); caught_up_opening_hold keeps the drive with the feature.
           recovered_base: >-
             {% if is_time_control_disabled %}{{ helper_state_base }}
             {% elif is_down_enabled and is_evening_phase %}cls
-            {% elif is_up_enabled and is_daytime_phase %}opn
+            {% elif is_daytime_phase %}opn
             {% elif is_down_enabled and (
                  (is_time_field_enabled and now() < today_at(time_up_early_today)) or
                  (is_calendar_enabled and calendar_open_start is not none and now_ts < calendar_open_start)) %}cls
@@ -6031,6 +6036,14 @@ actions:
                                 {{ caught_up_closing and (
                                      (recovered_state == 'cls' and closing_position_hold) or
                                      (is_ventilation_enabled and lockout_tilted_when_closing and recovered_window == 'tlt')) }}
+                              # Mirrors the live normal-opening will_drive: with Morning
+                              # Opening unchecked the caught-up flip persists as state-only
+                              # and the opening drive stays with the feature; overlay
+                              # targets (lock/vnt/shd/cls) and a live force-open keep
+                              # their own authority (#673)
+                              caught_up_opening_hold: >-
+                                {{ caught_up_opening and recovered_state == 'opn' and
+                                   not is_up_enabled and live_force == 'non' }}
                               transition_manual_allows: >-
                                 {{ true if override_expired or recovered_state == 'lock' or live_force != 'non'
                                    else base_gates.opening.override_ok if caught_up_opening
@@ -6043,13 +6056,14 @@ actions:
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one
                               will_drive: >-
                                 {{ recovery_catch_up and not is_paused and recovery_allowed and
-                                   not caught_up_closing_hold and transition_manual_allows and
+                                   not caught_up_closing_hold and not caught_up_opening_hold and
+                                   transition_manual_allows and
                                    not recovery_vent_condition_hold }}
                           - variables:
                               drive_plan:
@@ -6135,9 +6149,15 @@ actions:
       #   Note: Always updates base state, movement only if conditions allow
       ############################################################
 
+      # Deliberately NOT gated on is_up_enabled: the opening-time triggers exist
+      # whenever any schedule source is configured, and the base transition to
+      # 'opn' is state progress that must survive an unchecked Morning Opening -
+      # otherwise an evening 'cls' has no writer that ever expires it and every
+      # reconciliation (override reset, shading end, recovery) replays the stale
+      # closed state all day (#673). Only the opening DRIVE is feature-gated,
+      # inside the normal-opening will_drive below.
       - alias: "Check for opening"
         conditions:
-          - "{{ is_up_enabled }}"
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_open|t_calendar_event)') }}"
           - *auto_up_condition_check
@@ -6278,8 +6298,12 @@ actions:
                               will_drive: "{{ not is_paused and force_allows_ventilate }}"
                     default:
                       - variables:
+                          # is_up_enabled: with Morning Opening unchecked the branch
+                          # runs as a pure base-state sync - the transition persists,
+                          # the opening movement stays with the feature (#673)
                           will_drive: >-
                             {{ effective_state != 'lock' and not is_paused and
+                               is_up_enabled and
                                base_gates.opening.override_ok and resident_flags.allow_open and
                                (force_allows_open or trigger.id is match('^t_force_')) }}
                   - variables:
