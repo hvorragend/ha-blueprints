@@ -5879,17 +5879,18 @@ actions:
       - variables:
           # Emulates the 23:55 reset, which did not run while the automation was off
           recovered_shade: "{{ helper_state_shade and not stale_day }}"
-          # Base state re-derived from the schedule. The daytime flip to 'opn' is
-          # deliberately NOT gated on is_up_enabled - it mirrors the live opening
-          # entry, which syncs the base state even with Morning Opening unchecked
-          # (#673); caught_up_opening_hold keeps the drive with the feature.
+          # Base state re-derived from the schedule. The flips are deliberately
+          # NOT gated on is_up_enabled / is_down_enabled - they mirror the live
+          # opening/closing entries, which sync the base state even with the
+          # matching feature unchecked (#673); caught_up_opening_hold and the
+          # feature clause of caught_up_closing_hold keep the drives with their
+          # features.
           recovered_base: >-
             {% if is_time_control_disabled %}{{ helper_state_base }}
-            {% elif is_down_enabled and is_evening_phase %}cls
+            {% elif is_evening_phase %}cls
             {% elif is_daytime_phase %}opn
-            {% elif is_down_enabled and (
-                 (is_time_field_enabled and now() < today_at(time_up_early_today)) or
-                 (is_calendar_enabled and calendar_open_start is not none and now_ts < calendar_open_start)) %}cls
+            {% elif (is_time_field_enabled and now() < today_at(time_up_early_today)) or
+                 (is_calendar_enabled and calendar_open_start is not none and now_ts < calendar_open_start) %}cls
             {% else %}{{ helper_state_base }}{% endif %}
           recovered_window: >-
             {% set s_opn = is_ventilation_enabled and contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %}
@@ -6032,10 +6033,18 @@ actions:
                                     else force_allows_open if recovered_state == 'opn'
                                     else force_allows_shade if recovered_state == 'shd'
                                     else force_allows_close) }}
+                              # Third clause: mirrors the live tilted-ventilation and
+                              # normal-closing will_drive - with Evening Closing
+                              # unchecked the caught-up flip persists as state-only and
+                              # the closing-owned drives (cls target, and the tilted
+                              # window's vnt floor of the closing event) stay with the
+                              # feature; lock stays the safety exception and a live
+                              # force keeps its own authority (#673)
                               caught_up_closing_hold: >-
                                 {{ caught_up_closing and (
                                      (recovered_state == 'cls' and closing_position_hold) or
-                                     (is_ventilation_enabled and lockout_tilted_when_closing and recovered_window == 'tlt')) }}
+                                     (is_ventilation_enabled and lockout_tilted_when_closing and recovered_window == 'tlt') or
+                                     (recovered_state in ['cls', 'vnt'] and not is_down_enabled and live_force == 'non')) }}
                               # Mirrors the live normal-opening will_drive: with Morning
                               # Opening unchecked the caught-up flip persists as state-only
                               # and the opening drive stays with the feature; overlay
@@ -6346,9 +6355,16 @@ actions:
       #   Note: Always updates base state, movement only if conditions allow
       ############################################################
 
+      # Deliberately NOT gated on is_down_enabled - the mirror of the opening
+      # entry above: the closing-time triggers exist whenever any schedule
+      # source is configured, and the base transition to 'cls' is state
+      # progress that must survive an unchecked Evening Closing - otherwise a
+      # morning 'opn' has no writer that ever expires it and every night
+      # reconciliation replays the stale open state (#673). Only the
+      # closing-owned DRIVES are feature-gated, inside the tilted-ventilation
+      # and normal-closing will_drive below.
       - alias: "Check for closing cover"
         conditions:
-          - "{{ is_down_enabled }}"
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_close|t_calendar_event)') }}"
           - *auto_down_condition_check
@@ -6393,8 +6409,10 @@ actions:
                   - variables:
                       # This is still the scheduled closing event. Its Manual
                       # option owns the hand-over even though the tilted window
-                      # projects the physical target to the ventilation floor.
-                      will_drive: "{{ base_gates.closing.override_ok and state_gates.vnt }}"
+                      # projects the physical target to the ventilation floor -
+                      # and with Evening Closing unchecked its drive stays with
+                      # the feature while the transition persists (#673).
+                      will_drive: "{{ is_down_enabled and base_gates.closing.override_ok and state_gates.vnt }}"
                       log_user: "the window is tilted, going to the ventilation position instead of closing"
                       drive_plan:
                         run: "{{ will_drive }}"
@@ -6466,7 +6484,10 @@ actions:
             ###################################
             default:
               - variables:
-                  will_drive: "{{ not is_paused and base_gates.closing.override_ok and force_allows_close }}"
+                  # is_down_enabled: with Evening Closing unchecked the branch
+                  # runs as a pure base-state sync - the transition persists,
+                  # the closing movement stays with the feature (#673)
+                  will_drive: "{{ not is_paused and is_down_enabled and base_gates.closing.override_ok and force_allows_close }}"
                   log_user: "{{ 'closing as scheduled' if will_drive else 'closing time reached' }}"
                   drive_plan:
                     run: "{{ will_drive }}"

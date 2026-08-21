@@ -803,6 +803,67 @@ class TestIssue673MorningOpeningUnchecked:
         assert recovery["moves"] and recovery["target"] == 50
 
 
+class TestIssue673EveningClosingUnchecked:
+    """#673 mirror: with an opening automation configured but Evening Closing
+    unchecked, the day 'opn' had no writer that ever expired it - after a
+    manual evening close every reconciliation replayed the stale open target
+    (up to reopening the cover in the middle of the night). The closing-time
+    trigger now syncs the base state to 'cls' WITHOUT a movement, in the live
+    branch and the recovery flip alike."""
+
+    def _evening(self, **over):
+        base = dict(brightness="40", is_down_enabled=False,
+                    helper={"bas": "opn"}, current_position=100)
+        base.update(over)
+        return scenario(**base)
+
+    def test_the_night_start_expires_the_day_opn_without_a_movement(self):
+        live, recovery = assert_paired(self._evening(), "closing")
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["final"]["ts_cls"] == recovery["final"]["ts_cls"] == "now"
+        assert live["moves"] is False and recovery["moves"] is False
+
+    def test_with_the_feature_enabled_the_same_evening_drives(self):
+        live, recovery = assert_paired(self._evening(is_down_enabled=True),
+                                       "closing")
+        assert live["moves"] and live["target"] == 0
+        assert recovery["moves"] and recovery["target"] == 0
+
+    def test_a_bright_evening_still_refuses_the_flip(self):
+        s = self._evening(brightness="6780")
+        live, recovery = assert_paired(s, "closing")
+        assert live["entered"] is False
+        assert recovery["final"]["bas"] == "opn"
+        assert recovery["moves"] is False
+
+    def test_a_manual_override_survives_the_state_sync(self):
+        s = self._evening(helper={"bas": "opn", "man": 1})
+        live, recovery = assert_paired(s, "closing")
+        assert live["final"]["man"] == recovery["final"]["man"] == 1
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+
+    def test_a_tilted_window_holds_the_vent_drive_in_both_paths(self):
+        """The closing event's ventilation floor is closing-owned (unlike the
+        opening side, where vnt is contact-owned and recovery reconciles it as
+        R3): live C-B refuses its drive with the feature unchecked, and the
+        recovery's caught_up_closing_hold matches that decision."""
+        s = self._evening(window="tlt")
+        live, recovery = assert_paired(s, "closing")
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["moves"] is False and recovery["moves"] is False
+        assert recovery["state"] == "vnt"
+
+    def test_a_live_force_close_keeps_its_recovery_drive(self):
+        s = self._evening(live_force="cls", helper={"bas": "opn", "frc": "cls"})
+        live = run_live(s, "closing")
+        recovery = run_recovery(s)
+        assert live["entered"] and live["moves"] is False
+        assert recovery["state"] == "cls"
+        assert recovery["moves"] and recovery["target"] == 0
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Force and pause
 # ════════════════════════════════════════════════════════════════════════════
@@ -884,19 +945,17 @@ class TestClosedEntryStructure:
     def _flip(self, direction):
         return next(b for b in self._flip_gate()["choose"] if direction in b["alias"])
 
-    @pytest.mark.parametrize("direction,alias,flag,input_name", [
-        # The opening entry carries NO feature flag: the base transition to 'opn'
-        # is state progress that must survive an unchecked Morning Opening (#673);
-        # is_up_enabled gates only the normal-opening will_drive.
-        ("opening", "Check for opening", None, "auto_up_condition"),
-        ("closing", "Check for closing", "is_down_enabled", "auto_down_condition"),
+    @pytest.mark.parametrize("direction,alias,input_name", [
+        # Neither entry carries its feature flag: the base transitions are state
+        # progress that must survive an unchecked Morning Opening / Evening
+        # Closing (#673); is_up_enabled / is_down_enabled gate only the
+        # feature-owned drives inside the branches.
+        ("opening", "Check for opening", "auto_up_condition"),
+        ("closing", "Check for closing", "auto_down_condition"),
     ])
-    def test_the_live_entry_is_exactly_the_known_shape(self, direction, alias, flag,
+    def test_the_live_entry_is_exactly_the_known_shape(self, direction, alias,
                                                        input_name):
         conds = _branch(alias)["conditions"]
-        if flag is not None:
-            assert conds[0] == "{{ %s }}" % flag
-            conds = conds[1:]
         assert conds[0] == "{{ trigger.id is defined }}"
         assert "trigger.id | regex_match" in conds[1]
         assert conds[2] == {"condition": input_name}
@@ -920,6 +979,24 @@ class TestClosedEntryStructure:
                           if isinstance(s, dict) and "variables" in s
                           )["variables"]["will_drive"]
         assert "is_up_enabled" in will_drive
+
+    def test_the_closing_drives_are_feature_gated(self):
+        """Mirror of the opening counterpart: both closing-owned drives (the
+        normal closing and the tilted-window ventilation floor of the closing
+        event) must keep the is_down_enabled gate (#673)."""
+        closing = _branch("Check for closing")
+        dispatch = next(s for s in closing["sequence"]
+                        if isinstance(s, dict) and "choose" in s)
+        normal_will_drive = next(s for s in dispatch["default"]
+                                 if isinstance(s, dict) and "variables" in s
+                                 )["variables"]["will_drive"]
+        assert "is_down_enabled" in normal_will_drive
+        tilted = next(b for b in dispatch["choose"]
+                      if "Move to ventilation position" in str(b.get("alias", "")))
+        tilted_will_drive = next(s for s in tilted["sequence"]
+                                 if isinstance(s, dict) and "variables" in s
+                                 )["variables"]["will_drive"]
+        assert "is_down_enabled" in tilted_will_drive
 
     def test_the_opening_flip_is_exactly_the_known_shape(self):
         conds = self._flip("opening")["conditions"]

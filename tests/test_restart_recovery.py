@@ -627,9 +627,12 @@ class TestRecoveredBase:
         otherwise drive the cover OPEN on a 2 am restart."""
         assert self._run(time_up_early_today="22:00:00", helper_state_base="opn") == "cls"
 
-    def test_night_without_a_closing_schedule_keeps_the_helper_base(self):
+    def test_night_without_a_closing_feature_still_flips(self):
+        """#673 mirror: the night clause is state progress and no longer gated on
+        is_down_enabled - the closing-owned drives are withheld separately via
+        caught_up_closing_hold."""
         assert self._run(time_up_early_today="22:00:00", is_down_enabled=False,
-                         helper_state_base="opn") == "opn"
+                         helper_state_base="opn") == "cls"
 
     def test_calendar_night_before_the_open_event_closes(self):
         assert self._run(is_time_field_enabled=False, is_calendar_enabled=True,
@@ -649,8 +652,10 @@ class TestRecoveredBase:
     def test_time_control_disabled_keeps_the_helper_base(self):
         assert self._run(is_time_control_disabled=True, is_evening_phase=True, helper_state_base="opn") == "opn"
 
-    def test_no_closing_schedule_does_not_invent_one(self):
-        assert self._run(is_down_enabled=False, is_evening_phase=True, helper_state_base="opn") == "opn"
+    def test_the_evening_flip_no_longer_needs_the_closing_feature(self):
+        """#673 mirror: the schedule (not the feature switch) owns the base state;
+        an unchecked Evening Closing suppresses only the closing-owned drives."""
+        assert self._run(is_down_enabled=False, is_evening_phase=True, helper_state_base="opn") == "cls"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -922,7 +927,8 @@ class TestCaughtUpClosingHold:
         base = dict(caught_up_closing=True, recovered_state="cls",
                     closing_position_hold=position_hold,
                     is_ventilation_enabled=True, recovered_window="cls",
-                    lockout_tilted_when_closing=False)
+                    lockout_tilted_when_closing=False,
+                    is_down_enabled=True, live_force="non")
         base.update(over)
         return _render_bool(self.HOLD(), {}, **base)
 
@@ -990,6 +996,26 @@ class TestCaughtUpClosingHold:
         assert self._hold(caught_up_closing=False, position_hold=True) is False
         assert self._hold(caught_up_closing=False, recovered_window="tlt",
                           lockout_tilted_when_closing=True) is False
+
+    # --- the feature clause (#673 mirror) ---
+    def test_an_unchecked_evening_closing_withholds_the_close_drive(self):
+        assert self._hold(is_down_enabled=False) is True
+        assert self._hold(is_down_enabled=False, recovered_state="vnt") is True
+
+    def test_the_enabled_feature_still_drives(self):
+        assert self._hold(is_down_enabled=True) is False
+
+    def test_lockout_and_force_keep_their_authority(self):
+        """The full-window safety target and a live force target are not
+        closing-owned - the feature clause must not hold them."""
+        assert self._hold(is_down_enabled=False, recovered_state="lock") is False
+        assert self._hold(is_down_enabled=False, live_force="cls") is False
+        assert self._hold(is_down_enabled=False, recovered_state="vnt",
+                          live_force="vnt") is False
+
+    def test_only_a_caught_up_closing_is_feature_gated(self):
+        """Pure repositions to an unchanged bas == 'cls' keep today's semantics."""
+        assert self._hold(caught_up_closing=False, is_down_enabled=False) is False
 
     def test_the_drive_gate_consumes_it(self):
         will_drive = _branch_var(RECOVERY, "will_drive")
