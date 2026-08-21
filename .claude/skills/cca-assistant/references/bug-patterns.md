@@ -850,9 +850,6 @@ manual-override expiry (`t_reset_timeout` etc.), after a sun-shading end, on a r
 run. The helper shows `bas: 'cls'` around the clock, the status card is stuck on "Night
 Mode". With shading active the bug is masked (SHADING outranks BASE=CLS — the cover moves
 to the shading position anyway) and reappears the day shading is disabled.
-The **mirror config** (Morning Opening set, Evening Closing unchecked — closing by hand)
-latches `bas: 'opn'` the same way: after a manual evening close the override expiry (or
-any other reconciliation) **reopens the cover in the middle of the night**.
 
 **Cause:** `bas: 'opn'` had exactly two writers — the opening branch and the recovery's
 caught-up opening — and **both were gated on `is_up_enabled`** (plus the resident-leaving
@@ -878,14 +875,6 @@ Opening unchecked — only the opening *movement* stays with the feature.
   `caught_up_opening_hold` (`caught_up_opening and recovered_state == 'opn' and not
   is_up_enabled and live_force == 'non'`) withholds exactly the opening-owned drive.
   Overlay targets (`lock`/`vnt`/`shd`/`cls`) and a live force-open keep their authority.
-- Mirror (closing side): `is_down_enabled` removed from the "Check for closing cover"
-  entry and added to the two closing-owned drives — the normal closing AND the
-  tilted-window ventilation leaf (C-B is the closing event's own floor, unlike the
-  opening side where `vnt` is contact-owned). `recovered_base` drops `is_down_enabled`
-  from both `cls` clauses (evening + night-before-opening), and `caught_up_closing_hold`
-  gains the feature clause `recovered_state in ['cls', 'vnt'] and not is_down_enabled and
-  live_force == 'non'` — parity-consistent with the live `arrive_target`, whose privacy
-  close is already gated on `is_down_enabled`. Lockout stays the safety exception.
 - `is_opening_scheduled` is deliberately **unchanged**: the sync writer never drives, so
   it is not a source of "real open intent" — the VENT floor keeps applying (#553/AL/AO
   preserved). This is the documented exception to the AL/AO rule "every new `bas='opn'`
