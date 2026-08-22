@@ -194,6 +194,7 @@ SCENARIO_DEFAULTS = dict(
     force_allows_shade=True, force_allows_ventilate=True,
     recovery_catch_up=True,
     manual_reset_event=False,
+    is_manual_reset_recovery_enabled=False,
     instance_activated=False, automation_resumed=False,
     is_restart_run=False, midnight_reset_missed=False,
     # cover
@@ -503,6 +504,7 @@ class TestManualOverrideParity:
             current_position=100,
             override_expired=True,
             manual_reset_event=True,
+            is_manual_reset_recovery_enabled=True,
         )
         reset = run_recovery(s, trigger_id="t_reset_timeout")
         assert reset["new_base"] == "opn"
@@ -521,6 +523,7 @@ class TestManualOverrideParity:
             current_position=0,
             override_expired=True,
             manual_reset_event=True,
+            is_manual_reset_recovery_enabled=True,
             override_flags={"opening": True, "closing": False,
                             "ventilation": False, "shading": True},
             prevent_flags=dict(
@@ -534,6 +537,50 @@ class TestManualOverrideParity:
         assert reset["target"] == 100
         assert reset["moves"] is True
         assert reset["final"]["man"] == 0
+
+    def test_live_reset_does_not_drive_by_default(self):
+        """auto_recover_after_manual_reset defaults to disabled: a reset clears
+        the override and re-derives bas in the background (Invariant 15 state
+        progress), but withholds the drive - matching CCA's behavior before the
+        reset itself started driving the cover."""
+        s = scenario(
+            brightness="5000",
+            is_opening_phase=False,
+            is_daytime_phase=True,
+            is_closing_phase=False,
+            is_evening_phase=False,
+            is_time_up_late=True,
+            helper={"bas": "cls", "man": 1},
+            current_position=0,
+            override_expired=True,
+            manual_reset_event=True,
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["final"]["bas"] == "opn"
+        assert reset["final"]["man"] == 0
+        assert reset["moves"] is False
+
+    def test_live_reset_enabled_still_wont_open_without_an_opening_schedule(self):
+        """Issue #553 class: even with the new switch enabled, a reset must never
+        open a cover for which no opening automation exists - that resting 'opn'
+        is the permanent init default, not something CCA scheduled."""
+        s = scenario(
+            brightness="40",
+            is_up_enabled=False,
+            is_down_enabled=False,
+            is_opening_scheduled=False,
+            helper={"bas": "opn", "man": 1},
+            current_position=0,
+            override_expired=True,
+            manual_reset_event=True,
+            is_manual_reset_recovery_enabled=True,
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["state"] == "opn"
+        assert reset["final"]["man"] == 0
+        assert reset["moves"] is False
 
 
 # ════════════════════════════════════════════════════════════════════════════

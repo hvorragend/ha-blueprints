@@ -212,3 +212,34 @@ Deliberate semantics:
   without it, `forecast_temp_raw` is `None` on end triggers and the hold's
   forecast branch could never apply. This also fixed forecast-based *end*
   conditions, which previously evaluated without data on end triggers.
+
+---
+
+### A Manual Override reset's drive gate is opt-in (default off), asymmetric to `recovery_mode` (#553/#668/#677, CCA 2026.08.22)
+
+`auto_recover_after_manual_reset` gates only whether a live reset (timeout/fixed-time/position)
+*drives* the cover; the state correction (`recovered_base`/`new_base`, clearing `man`) always
+happens, via `manual_reset_event` unconditionally opening `recovery_catch_up`. This looks like
+it duplicates `recovery_mode` (never/outage/always) and invites "just reuse that setting" — do
+not. `recovery_mode` governs restart/outage catch-up specifically; an explicit live reset is a
+different event class the same way `manual_reset_event` is already documented as separate from
+it in `recovery.md`. Coupling the reset's drive to `recovery_mode` would resurface exactly the
+naming confusion this decision exists to avoid (a restart-scoped setting silently deciding an
+unrelated interaction), without even fixing the reported bug: BRANCH 10's pre-#669 code already
+drove to `effective_state` on every reset, unconditionally, with no `recovery_mode` involved at
+all — the reported "cover opens/closes for no reason after reset" complaints were never about
+staleness, they were about driving into a resting cascade value nothing scheduled.
+
+**The remaining, load-bearing asymmetry:** even with the opt-in on, a reset must still never
+drive to `'opn'` when `not is_opening_scheduled` — the Issue #553 resting-state class (a
+schedule-less instance's permanent `bas` init default). `manual_reset_recovery_hold` checks
+this unconditionally inside the opt-in branch; it is not itself a separate setting. There is
+deliberately **no** equivalent guard for `'cls'` — unlike `'opn'`, a `'cls'` result from the
+cascade is always backed by either `privacy_active` (an explicit resident/closing config) or an
+actual closing schedule having written `bas: 'cls'` at least once; there is no permanent
+schedule-less `'cls'` init-default class to guard against. Do not add a symmetric
+`is_closing_scheduled` gate here "for consistency" — it would guard against a class of bug that
+cannot occur through this path (a prior attempt to introduce a `bas: 'cls'` write with no
+owning automation was reverted for unrelated, real regressions — see the #677 discussion
+history — but that was a *different* proposed write path, not this reset's read-only
+reconciliation).

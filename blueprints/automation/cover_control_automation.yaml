@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.17
+    **Version**: 2026.08.22
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -1812,6 +1812,11 @@ blueprint:
             These choices govern scheduled opening/closing, sun shading and contact-triggered ventilation.
             Configured resident transitions and Force/Resume commands explicitly hand control back to CCA.
 
+            ⚠️ **Leave none selected and a Manual Override protects nothing:** the very next relevant
+            automatic movement simply overrides it, ending the override in the process — no separate
+            reset needed for that movement type. Select a type here only if you want the manual position
+            to stick until an explicit reset (below) instead.
+
             📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/override#ignore_after_manual_config).
 
           default: []
@@ -1841,9 +1846,9 @@ blueprint:
             You can select **multiple** reset mechanisms — the first one whose condition is met clears the override.
             Leave empty to disable all timed resets.
             <br /><br />
-            A reset hands control back to CCA immediately. If the current automatic target differs from the
-            manually selected position, the cover can move as soon as the reset occurs. For example, a manual
-            close can be reopened after the timeout while the opening schedule is still active.
+            A reset always hands control back to CCA and clears the override status. Whether it also
+            moves the cover right away is controlled separately below ("Return to Target State After
+            Manual Override Reset").
           default: []
           selector:
             select:
@@ -1859,6 +1864,37 @@ blueprint:
               custom_value: false
               mode: list
 
+        auto_recover_after_manual_reset:
+          name: "🔙 Return to Target State After Manual Override Reset"
+          description: >-
+            When a reset above fires, should the cover immediately move to the automatic
+            target that is valid then?
+            <br /><br />
+            **Disabled (default):** the reset only clears the override status. The cover
+            stays where it is until the next regular automatic event (opening/closing,
+            shading, ventilation) naturally moves it. This matches CCA's behavior before
+            the reset itself started driving the cover.
+            <br /><br />
+            **Enabled:** the reset re-derives the currently correct target from your
+            schedule and drives there immediately — even if that differs a lot from the
+            manually set position. It still will not open the cover if no opening
+            automation is configured for this instance (see "🕐 Enable Time Control" /
+            the opening-related inputs) — that specific case is always treated as "stay put".
+            <br /><br />
+            📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/override#auto_recover_after_manual_reset).
+          default: auto_recover_disabled
+          selector:
+            select:
+              options:
+                - label: "✅ Enable Automatic Return to Target State"
+                  value: "auto_recover_enabled"
+                - label: "❌ Disable Automatic Return to Target State"
+                  value: "auto_recover_disabled"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
+
         reset_override_time:
           name: "🗑️ Time to reset manual override"
           description: "At what time do you want the manual detection to be reset?"
@@ -1868,7 +1904,7 @@ blueprint:
 
         reset_override_timeout:
           name: "🗑️ Number of minutes until reset manual override"
-          description: "After how many minutes should CCA take control again? The cover may immediately move to the automatic target that is valid then."
+          description: "After how many minutes should the override status be cleared? Whether the cover then also moves depends on \"Return to Target State After Manual Override Reset\" above."
           default: 5
           selector:
             number:
@@ -2065,25 +2101,6 @@ blueprint:
       icon: mdi:arm-flex
       collapsed: true
       input:
-        auto_recover_after_force:
-          name: "🔙 Return to Target State After Force Disable"
-          description: >-
-            Seamless control with automatic recovery: When enabled, the cover automatically returns to its intended position when a force function is disabled.
-
-            📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/force#auto_recover_after_force).
-          default: auto_recover_disabled
-          selector:
-            select:
-              options:
-                - label: "✅ Enable Automatic Return to Target State"
-                  value: "auto_recover_enabled"
-                - label: "❌ Disable Automatic Return to Target State"
-                  value: "auto_recover_disabled"
-              multiple: false
-              sort: false
-              custom_value: false
-              mode: list
-
         force_pause:
           name: "⏸️ Force Pause (Suspend Automatic Actions)"
           description: >-
@@ -2092,7 +2109,9 @@ blueprint:
             is still tracked continuously in the helper — even while paused.
 
             When this entity turns off again, the cover **immediately returns** to its
-            correct target position — no waiting for the next scheduled trigger.
+            correct target position — no waiting for the next scheduled trigger. This is
+            unconditional and independent of "Return to Target State After Force Disable"
+            below, which only applies to the four Force functions further down.
 
             💡 **Tip:** Use an `input_boolean` as a manual/automatic toggle. Unlike
             putting a switch in the global condition (which blocks helper state updates
@@ -2160,6 +2179,28 @@ blueprint:
                 - input_boolean
                 - binary_sensor
                 - switch
+
+        auto_recover_after_force:
+          name: "🔙 Return to Target State After Force Disable"
+          description: >-
+            Applies only to the four Force functions above (Open/Close/Ventilate/Shading via
+            entity) — not to Force Pause. Seamless control with automatic recovery: When
+            enabled, the cover automatically returns to its intended position when one of
+            these force functions is disabled.
+
+            📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/force#auto_recover_after_force).
+          default: auto_recover_disabled
+          selector:
+            select:
+              options:
+                - label: "✅ Enable Automatic Return to Target State"
+                  value: "auto_recover_enabled"
+                - label: "❌ Disable Automatic Return to Target State"
+                  value: "auto_recover_disabled"
+              multiple: false
+              sort: false
+              custom_value: false
+              mode: list
 
     actions_section:
       name: "Additional Actions"
@@ -2539,6 +2580,12 @@ trigger_variables:
   is_reset_position: "{{ 'reset_in_position' in reset_override_config }}"
   is_reset_disabled: "{{ not is_reset_fixed_time and not is_reset_timeout and not is_reset_position }}"
 
+  # Whether a manual override reset is allowed to drive the cover, not just clear the
+  # status. Default off: a reset only hands control back, the same as before the reset
+  # itself started driving. Symmetric to auto_recover_after_force / is_force_recovery_enabled.
+  auto_recover_after_manual_reset: !input auto_recover_after_manual_reset
+  is_manual_reset_recovery_enabled: "{{ 'auto_recover_enabled' in auto_recover_after_manual_reset }}"
+
   # Force entities
   auto_up_force: !input auto_up_force
   auto_down_force: !input auto_down_force
@@ -2590,7 +2637,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.17"
+  version: "2026.08.22"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -6049,6 +6096,15 @@ actions:
                                    else base_gates.opening.override_ok if caught_up_opening
                                    else base_gates.closing.override_ok if caught_up_closing
                                    else true }}
+                              # A live manual-override reset never drives unless the user opted in
+                              # (default off - a reset only clears the status, matching CCA's
+                              # behavior before the reset itself started driving). Even opted in,
+                              # it never opens the cover into an 'opn' resting state that no opening
+                              # automation ever set (Issue #553 class) - that case always stays put.
+                              manual_reset_recovery_hold: >-
+                                {{ manual_reset_event and (
+                                     not is_manual_reset_recovery_enabled or
+                                     (recovered_state == 'opn' and not is_opening_scheduled)) }}
                               log_user: "{{ 'manual override reset, back to: ' ~ state_labels[recovered_state] if manual_reset_event else ('this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage') ~ ', target: ' ~ state_labels[recovered_state] }}"
                               log_extra: >-
                                 {{ 'Manual override reset reconciliation' if manual_reset_event else 'Recovery' }}{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
@@ -6056,14 +6112,14 @@ actions:
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one
                               will_drive: >-
                                 {{ recovery_catch_up and not is_paused and recovery_allowed and
                                    not caught_up_closing_hold and transition_manual_allows and
-                                   not recovery_vent_condition_hold }}
+                                   not recovery_vent_condition_hold and not manual_reset_recovery_hold }}
                           - variables:
                               drive_plan:
                                 run: "{{ will_drive }}"

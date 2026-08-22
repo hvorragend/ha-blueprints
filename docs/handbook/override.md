@@ -3,7 +3,7 @@
 
 [📖 CCA Handbook](index) › Blueprint section: **Manual Override**
 
-**On this page:** [🖐️ Automatic movements blocked during Manual Override](#ignore_after_manual_config) · [🗑️ Reset manual override](#reset_override_config) · [🗑️ Time to reset manual override](#reset_override_time) · [🗑️ Number of minutes until reset manual override](#reset_override_timeout) · [🗑️ Position for reset manual override](#reset_override_position) · [🗑️ Dwell time at reset position (minutes)](#reset_override_position_dwell)
+**On this page:** [🖐️ Automatic movements blocked during Manual Override](#ignore_after_manual_config) · [🗑️ Reset manual override](#reset_override_config) · [🔙 Return to Target State After Manual Override Reset](#auto_recover_after_manual_reset) · [🗑️ Time to reset manual override](#reset_override_time) · [🗑️ Number of minutes until reset manual override](#reset_override_timeout) · [🗑️ Position for reset manual override](#reset_override_position) · [🗑️ Dwell time at reset position (minutes)](#reset_override_position_dwell)
 
 ---
 
@@ -14,6 +14,12 @@
 > 🧩 Input: `ignore_after_manual_config`
 
 Select which automatic movements must not move the cover while a Manual Override is active.
+
+⚠️ **Leave all four unselected and Manual Override protects nothing.** The very next relevant
+automatic movement simply overrides it and clears it in the process — no separate reset needed
+for that movement type. This is the correct choice if you only want CCA to *know* a manual
+change happened without actually changing anything. Select a type here only if you want the
+manual position to stick until an explicit reset instead.
 
 ### How the selection works
 
@@ -44,7 +50,35 @@ The full-window lockout remains the safety exception that may overrule Manual Ov
 
 If the detection of the manual position change was activated above, you may need a way to reset this status. Otherwise, the next cover movements will be permanently ignored or overridden. Or you have not activated an individual action, e.g. when closing the covers, which resets the status. <br /><br /> You can select **multiple** reset mechanisms — the first one whose condition is met clears the override. Leave empty to disable all timed resets.
 
-A reset hands control back to CCA immediately. If the automatic target that is valid then differs from the manually selected position, the cover can move as soon as the reset occurs. For example, closing a cover manually and configuring a 30-minute timeout can reopen it after 30 minutes while the opening schedule is still active. Choose a timeout that extends beyond the relevant automatic window, or disable timed resets, when the manual position must remain in control longer.
+A reset always hands control back to CCA and clears the override status. Whether it also moves
+the cover right away is a separate decision — see [🔙 Return to Target State After Manual
+Override Reset](#auto_recover_after_manual_reset) below.
+
+---
+
+<a id="auto_recover_after_manual_reset"></a>
+
+## 🔙 Return to Target State After Manual Override Reset
+
+> 🧩 Input: `auto_recover_after_manual_reset` · Default: `❌ Disable Automatic Return to Target State`
+
+When one of the resets above fires, should the cover immediately move to the automatic target
+that is valid then?
+
+- **Disabled (default):** the reset only clears the override status. The cover stays where it
+  is until the next regular automatic event (opening/closing, sun shading, ventilation)
+  naturally moves it. This matches CCA's behavior from before the reset itself started driving
+  the cover.
+- **Enabled:** the reset re-derives the currently correct target from your schedule — the same
+  gates restart/outage recovery uses — and drives there immediately, even if that differs a lot
+  from the manually set position. For example, closing a cover manually and enabling this with a
+  30-minute timeout can reopen it after 30 minutes while the opening schedule is still active.
+  Choose a timeout that extends beyond the relevant automatic window, or leave this disabled,
+  when the manual position must remain in control longer.
+
+Even enabled, a reset will never open a cover for which no opening automation is configured on
+this instance — an `opn` resting state with no opening schedule is CCA's permanent init default,
+not something it ever scheduled, so that case always stays put.
 
 ---
 
@@ -64,7 +98,7 @@ At what time do you want the manual detection to be reset?
 
 > 🧩 Input: `reset_override_timeout` · Default: `5`
 
-After how many minutes should CCA take control again? When the timer expires, the cover may immediately move to the automatic target that is valid then.
+After how many minutes should the override status be cleared? Whether the cover then also moves depends on [🔙 Return to Target State After Manual Override Reset](#auto_recover_after_manual_reset) above.
 
 ---
 
