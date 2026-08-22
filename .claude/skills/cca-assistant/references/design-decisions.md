@@ -232,14 +232,26 @@ staleness, they were about driving into a resting cascade value nothing schedule
 
 **The remaining, load-bearing asymmetry:** even with the opt-in on, a reset must still never
 drive to `'opn'` when `not is_opening_scheduled` — the Issue #553 resting-state class (a
-schedule-less instance's permanent `bas` init default). `manual_reset_recovery_hold` checks
-this unconditionally inside the opt-in branch; it is not itself a separate setting. There is
-deliberately **no** equivalent guard for `'cls'` — unlike `'opn'`, a `'cls'` result from the
-cascade is always backed by either `privacy_active` (an explicit resident/closing config) or an
-actual closing schedule having written `bas: 'cls'` at least once; there is no permanent
-schedule-less `'cls'` init-default class to guard against. Do not add a symmetric
-`is_closing_scheduled` gate here "for consistency" — it would guard against a class of bug that
-cannot occur through this path (a prior attempt to introduce a `bas: 'cls'` write with no
-owning automation was reverted for unrelated, real regressions — see the #677 discussion
-history — but that was a *different* proposed write path, not this reset's read-only
-reconciliation).
+schedule-less instance's permanent `bas` init default, which requires no write at all: `bas`
+starts at `'opn'`). `manual_reset_recovery_hold` checks this unconditionally inside the opt-in
+branch; it is not itself a separate setting. There is deliberately **no** equivalent guard for
+`'cls'`, but the reasoning is narrower than "it can't happen" — be precise about what it does
+and doesn't cover:
+
+- `bas` can only ever become `'cls'` through a real write: an actual closing schedule firing,
+  or live `privacy_active`. Unlike `'opn'`, there is no zero-write, permanently-wrong default —
+  the #553 class genuinely cannot occur for `'cls'`.
+- It *can* still go stale a different way: a schedule that fires once, gets disabled later
+  (e.g. the user turns off closing entirely after using it), while `bas` stays parked at the
+  last value it wrote. A reset with the opt-in on would then drive to a `'cls'` that is no
+  longer backed by any live automation — the same surprise-movement complaint #553/#668/#677
+  were about, just reached via a config change instead of an unconfigured default. This is
+  documented as a known residual risk in the `auto_recover_after_manual_reset` input
+  description rather than silently ignored.
+- Closing this residual gap with a symmetric `is_closing_scheduled` gate was tried once and
+  reverted for unrelated, real regressions (see the #677 discussion history) — that attempt
+  introduced a `bas: 'cls'` write path, not this reset's read-only reconciliation, but it shows
+  the two legitimate `'cls'` sources (schedule *and* `privacy_active`) make a correct live gate
+  meaningfully harder to get right than the single-source `is_opening_scheduled` case. Do not
+  re-attempt it casually "for consistency" — if you do, both sources must be covered and the
+  #677 regression must not reappear.
