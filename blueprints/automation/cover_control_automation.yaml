@@ -7065,9 +7065,16 @@ actions:
                       - "{{ not window_opened_now }}"
                       - or:
                           - "{{ position_comparisons.current_below_ventilate }}"
+                          # Tilt covers rarely rest exactly at the commanded position
+                          # (#538): within position_tolerance with the slats off the
+                          # ventilate angle still needs the tilt drive (#667)
                           - and:
                               - "{{ is_cover_tilt_enabled_and_possible }}"
-                              - "{{ position_comparisons.current_below_ventilate or current_position == ventilate_position }}"
+                              - >-
+                                {{ position_comparisons.current_below_ventilate or
+                                   current_position == ventilate_position or
+                                   ((current_position - ventilate_position) | abs <= position_tolerance
+                                    and not in_ventilate_position) }}
                           - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                     sequence:
                       - variables:
@@ -7405,10 +7412,18 @@ actions:
                   - or:
                       # Standard: Cover is below ventilate position
                       - "{{ position_comparisons.current_below_ventilate }}"
-                      # Tilt-enabled covers at or near ventilate position
+                      # Tilt-enabled covers at or near ventilate position. Tilt covers
+                      # rarely rest exactly at the commanded position (#538): within
+                      # position_tolerance with the slats off the ventilate angle
+                      # still needs the tilt drive (#667). Fully in position (incl.
+                      # tilt) stays with the sync-only branch below.
                       - and:
                           - "{{ is_cover_tilt_enabled_and_possible }}"
-                          - "{{ position_comparisons.current_below_ventilate or current_position == ventilate_position }}"
+                          - >-
+                            {{ position_comparisons.current_below_ventilate or
+                               current_position == ventilate_position or
+                               ((current_position - ventilate_position) | abs <= position_tolerance
+                                and not in_ventilate_position) }}
                       # User option: Allow from higher positions
                       - "{{ ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position) }}"
                       # Transition from full to partial ventilation (handle: open → tilted)
