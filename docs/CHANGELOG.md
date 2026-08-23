@@ -1,5 +1,12 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.08.23
+
+- 🐛 **Fix:** A daily fixed-time Manual Override reset could still drive the cover even with **"Return to Target State After Manual Override Reset"** left at its default (disabled) — a leftover code path that only the new setting was supposed to gate could still trigger if the override had already ended on its own beforehand (e.g. by the nightly reset). It now correctly does nothing in that situation, matching the disabled default
+- 🐛 **Fix:** A Manual Override reset firing in the same instant as a manual position change could, in rare cases, still move the cover even with the new return-to-target setting disabled. The reset now consistently waits for the override to be fully cleared before considering a drive
+- 🐛 **Fix:** With the new return-to-target setting enabled, a reset could withhold a legitimate movement to an active Force position on instances without an opening automation configured, mistaking it for the unrelated [#553](https://github.com/hvorragend/ha-blueprints/issues/553) resting-state case it is meant to guard against
+- 🔧 **Improvement:** The cover's logbook line for a reset that did not move the cover (return-to-target disabled) no longer reads as if a movement happened
+
 # CCA 2026.08.22
 
 - ✨ **Feature:** New setting **"Return to Target State After Manual Override Reset"** (`auto_recover_after_manual_reset`, default: disabled). By default, a Manual Override reset (timeout, fixed time or position) now only clears the override status — the cover stays where it is until the next regular automatic event moves it, matching CCA's behavior from before the reset itself started driving. Enable this setting if you instead want the reset to immediately re-derive the current target from your schedule and drive there — even when that differs a lot from the manually set position. Even enabled, a reset will never open a cover for which no opening automation is configured on this instance ([#553](https://github.com/hvorragend/ha-blueprints/issues/553)-class resting state) — that case always stays put. This addresses the surprise reported in [#668](https://github.com/hvorragend/ha-blueprints/issues/668)/[#677](https://github.com/hvorragend/ha-blueprints/issues/677), where a reset drove the cover into a position nothing had actually scheduled

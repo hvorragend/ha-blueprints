@@ -218,25 +218,42 @@ Deliberate semantics:
 ### A Manual Override reset's drive gate is opt-in (default off), asymmetric to `recovery_mode` (#553/#668/#677, CCA 2026.08.22)
 
 `auto_recover_after_manual_reset` gates only whether a live reset (timeout/fixed-time/position)
-*drives* the cover; the state correction (`recovered_base`/`new_base`, clearing `man`) always
-happens, via `manual_reset_event` unconditionally opening `recovery_catch_up`. This looks like
-it duplicates `recovery_mode` (never/outage/always) and invites "just reuse that setting" — do
-not. `recovery_mode` governs restart/outage catch-up specifically; an explicit live reset is a
-different event class the same way `manual_reset_event` is already documented as separate from
-it in `recovery.md`. Coupling the reset's drive to `recovery_mode` would resurface exactly the
-naming confusion this decision exists to avoid (a restart-scoped setting silently deciding an
-unrelated interaction), without even fixing the reported bug: BRANCH 10's pre-#669 code already
-drove to `effective_state` on every reset, unconditionally, with no `recovery_mode` involved at
-all — the reported "cover opens/closes for no reason after reset" complaints were never about
-staleness, they were about driving into a resting cascade value nothing scheduled.
+*drives* the cover; the state correction (`man` clearing) always happens once `override_expired`
+(Invariant 7's documented exception), via `manual_reset_event` opening `recovery_catch_up`. This
+looks like it duplicates `recovery_mode` (never/outage/always) and invites "just reuse that
+setting" — do not. `recovery_mode` governs restart/outage catch-up specifically; an explicit live
+reset is a different event class the same way `manual_reset_event` is already documented as
+separate from it in `recovery.md`. Coupling the reset's drive to `recovery_mode` would resurface
+exactly the naming confusion this decision exists to avoid (a restart-scoped setting silently
+deciding an unrelated interaction), without even fixing the reported bug: BRANCH 10's pre-#669
+code already drove to `effective_state` on every reset, unconditionally, with no `recovery_mode`
+involved at all — the reported "cover opens/closes for no reason after reset" complaints were
+never about staleness, they were about driving into a resting cascade value nothing scheduled.
+
+**`recovery_catch_up` for a manual reset additionally requires `override_expired`** (CCA
+2026.08.23 review finding): a manual change that falls inside the reset's own tolerance window
+has not actually expired by the strict rule yet, so schedule re-derivation and any drive must
+wait for a later run rather than race the timestamp. `man` clearing is unaffected by this — it
+is gated on `override_expired` directly, not on `recovery_catch_up`, so it still fires the moment
+the override genuinely expires. **BRANCH 10 (the numbered "Reset manual detection" branch) now
+also requires `helper_state_manual`** (same finding): without it, a reset trigger firing with
+`man == 0` (nothing active to reset — e.g. right after the 23:55 midnight reset had already
+cleared it) fell through past `manual_reset_event`'s pre-dispatch claim and drove unconditionally,
+bypassing the opt-in through the back door. With the gate added, BRANCH 10 is unreachable dead
+code (every run it could match was already claimed and stopped upstream); it is kept as a
+structural safety net rather than removed in the same change.
 
 **The remaining, load-bearing asymmetry:** even with the opt-in on, a reset must still never
-drive to `'opn'` when `not is_opening_scheduled` — the Issue #553 resting-state class (a
-schedule-less instance's permanent `bas` init default, which requires no write at all: `bas`
-starts at `'opn'`). `manual_reset_recovery_hold` checks this unconditionally inside the opt-in
-branch; it is not itself a separate setting. There is deliberately **no** equivalent guard for
-`'cls'`, but the reasoning is narrower than "it can't happen" — be precise about what it does
-and doesn't cover:
+drive to `'opn'` when `not is_opening_scheduled and live_force == 'non'` — the Issue #553
+resting-state class (a schedule-less instance's permanent `bas` init default, which requires no
+write at all: `bas` starts at `'opn'`). `manual_reset_recovery_hold` checks this unconditionally
+inside the opt-in branch; it is not itself a separate setting. The `live_force == 'non'` term
+(CCA 2026.08.23 review finding) matters because `recovered_state` mirrors `live_force` first
+(architecture.md): an `'opn'` produced by an active Force-Open target has a live owner and is
+not the ownerless #553 default, so the guard must not hold it back — without this term, an
+enabled reset could silently withhold a legitimate Force-Open drive. There is deliberately
+**no** equivalent guard for `'cls'`, but the reasoning is narrower than "it can't happen" — be
+precise about what it does and doesn't cover:
 
 - `bas` can only ever become `'cls'` through a real write: an actual closing schedule firing,
   or live `privacy_active`. Unlike `'opn'`, there is no zero-write, permanently-wrong default —

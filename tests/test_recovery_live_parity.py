@@ -22,7 +22,7 @@ import pytest
 
 from test_restart_recovery import (
     BP, NOW, NOW_TS, RECOVERY,
-    _action_var, _branch, _branch_body, _render, _top_var,
+    _action_var, _branch, _branch_body, _branch_var, _render, _top_var,
 )
 
 
@@ -489,7 +489,7 @@ class TestManualOverrideParity:
         ) == "True"
         assert _render(
             _top_var("recovery_catch_up"), {},
-            manual_reset_event=True, recovery_mode="never",
+            manual_reset_event=True, override_expired=True, recovery_mode="never",
             trigger=trigger, instance_activated=False, is_restart_run=True,
         ) == "True"
 
@@ -581,6 +581,55 @@ class TestManualOverrideParity:
         assert reset["state"] == "opn"
         assert reset["final"]["man"] == 0
         assert reset["moves"] is False
+
+    def test_recovery_catch_up_requires_override_expired_for_a_manual_reset(self):
+        """A manual change inside the reset's own tolerance window has not
+        actually expired yet: catch-up (and therefore any drive) must wait
+        rather than race the timestamp, even outside 'never' recovery mode."""
+        trigger = types.SimpleNamespace(id="t_reset_fixedtime")
+        assert _render(
+            _top_var("recovery_catch_up"), {},
+            manual_reset_event=True, override_expired=False, recovery_mode="never",
+            trigger=trigger, instance_activated=False, is_restart_run=True,
+        ) == "False"
+        assert _render(
+            _top_var("recovery_catch_up"), {},
+            manual_reset_event=True, override_expired=True, recovery_mode="never",
+            trigger=trigger, instance_activated=False, is_restart_run=True,
+        ) == "True"
+
+    def test_reset_hold_ignores_the_553_guard_for_a_live_force_target(self):
+        """recovered_state == 'opn' can mean the #553 resting default OR a live
+        Force-Open target (recovered_state mirrors live_force first). Only the
+        former is an ownerless resting state; a Force target has a live owner
+        and must not be held back by the opening-schedule guard."""
+        template = _branch_var("Recovery after restart", "manual_reset_recovery_hold")
+        assert _render(
+            template, {},
+            manual_reset_event=True, is_manual_reset_recovery_enabled=True,
+            recovered_state="opn", is_opening_scheduled=False, live_force="opn",
+        ) == "False"
+        assert _render(
+            template, {},
+            manual_reset_event=True, is_manual_reset_recovery_enabled=True,
+            recovered_state="opn", is_opening_scheduled=False, live_force="non",
+        ) == "True"
+
+    def test_log_user_names_the_withheld_reset_instead_of_implying_a_move(self):
+        """When the reset's drive is withheld, the cover-facing logbook line must
+        not read as if a movement happened ('back to: open')."""
+        template = _branch_var("Recovery after restart", "log_user")
+        labels = _action_var("state_labels")
+        assert _render(
+            template, {},
+            manual_reset_event=True, manual_reset_recovery_hold=True,
+            recovered_state="opn", instance_activated=False, state_labels=labels,
+        ) == "manual override reset, control returned to automation"
+        assert _render(
+            template, {},
+            manual_reset_event=True, manual_reset_recovery_hold=False,
+            recovered_state="cls", instance_activated=False, state_labels=labels,
+        ) == f"manual override reset, back to: {labels['cls']}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
