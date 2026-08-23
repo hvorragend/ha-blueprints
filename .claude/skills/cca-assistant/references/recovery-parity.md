@@ -2,7 +2,7 @@
 
 Read this before touching: the live opening/closing branch entry conditions, the
 recovery's caught-up base flip, `base_gates`, `closing_position_hold`,
-`caught_up_closing_hold`, `transition_manual_allows`,
+`caught_up_closing_hold`, `caught_up_opening_hold`, `transition_manual_allows`,
 `manual_holds_reposition`, `recovered_vent_ok` /
 `recovered_cascade_window` — or before adding ANY new gate to the live opening
 or closing branch (the checklist at the end tells you where it must also land).
@@ -143,6 +143,7 @@ shading active/pending, prevent options, force, pause, resident privacy.
 | Situation | Live | Recovery | Status |
 |---|---|---|---|
 | entry gates | `base_gates.opening.*` + anchored condition | same + compositions | shared |
+| `is_up_enabled` (Morning Opening unchecked) | NOT an entry condition — the base flip is state progress (#673); only the "Normal opening" `will_drive` carries the feature gate | `recovered_base` flips on `is_daytime_phase` alone; `caught_up_opening_hold` withholds exactly the `recovered_state == 'opn'` drive (`live_force == 'non'`), overlay targets and force-open keep their authority | shared (state-only sync in both paths) |
 | manual override, ignore option active | base transition persists, drive is suppressed and `man` remains | flip persists the same transition; drive gate consumes `override_ok` | shared |
 | manual override, no ignore option | O-E permits a drive; central dispatch clears `man` only if position/tilt differs and ownership is still live | same | shared |
 | shading warranted (O-A) / pending (O-D) | arm/defer | `recovered_pending` re-evaluates; `defer_to_shading` | re-evaluation semantic (R5) |

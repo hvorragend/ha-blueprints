@@ -8,6 +8,7 @@
 - 🐛 **Fix:** With the new return-to-target setting enabled, a reset could withhold a legitimate movement to an active Force position on instances without an opening automation configured, mistaking it for the unrelated [#553](https://github.com/hvorragend/ha-blueprints/issues/553) resting-state case it is meant to guard against
 - 🔧 **Improvement:** The cover's logbook line for a reset that did not move the cover (return-to-target disabled) no longer reads as if a movement happened
 - 🔧 **Improvement:** The cover's logbook line for a reset trigger that fired while the Manual Override had not actually expired yet (a manual change inside the reset's own tolerance window) now says the override was kept instead of implying a reset happened
+- 🐛 **Fix:** Configurations with **🔻 Evening Closing but without 🔼 Morning Opening** — the setup for everyone who opens the cover by hand every morning — no longer treat the whole day as night ([#673](https://github.com/hvorragend/ha-blueprints/issues/673)). Internally, the evening closing switched the stored base state to "closed", but with Morning Opening unchecked **nothing ever switched it back**: the status helper reported "closed" around the clock (status cards showed a permanent "Night Mode"), and since `2026.08.02` every reconciliation faithfully replayed that stale target — after each 🖐️ Manual Override expiry the cover drove **back down to the closed position in the middle of the day**, a sun shading that ended around noon closed the cover instead of releasing it, and a restart catch-up could do the same. With sun shading active the bug was masked (the shading position outranks the stale "closed"), which is why it often surfaced only when shading was disabled. The opening time now updates the stored day state even when Morning Opening is unchecked — **without moving the cover**: the flip respects the same time window, brightness/sun checks, additional opening condition and once-per-day rule as a real opening, the opening *movement* remains strictly disabled, and the restart catch-up mirrors the same behavior. After a manual morning opening the cover now simply stays where you put it — until sun shading, ventilation or the evening closing take over, exactly as before the `2026.08.02` rework
 
 # CCA 2026.08.22
 
@@ -19,6 +20,7 @@
 - 🔧 **Improvement:** The description of **"Additional Condition for the entire automation"** now warns that while it is false, nothing runs at all — not even the background state tracking that keeps the status helper current. Using it to skip a single scheduled movement can make a later automatic movement (e.g. shading ending) return the cover to the wrong position; **"⏸️ Force Pause"** is the correct tool for temporarily suspending movement without losing track of the current target ([#673](https://github.com/hvorragend/ha-blueprints/issues/673))
 
 ---
+
 
 # CCA 2026.08.14
 

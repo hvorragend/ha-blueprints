@@ -898,6 +898,82 @@ class TestOpeningParity:
         assert recovery["moves"] is False
 
 
+class TestIssue673MorningOpeningUnchecked:
+    """#673: with Evening Closing configured but Morning Opening unchecked, the
+    evening 'cls' had no writer that ever expired it - the helper stayed 'cls'
+    all day and every reconciliation (override reset, shading end, recovery)
+    replayed the stale closed target. The opening-time trigger now syncs the
+    base state to 'opn' WITHOUT a movement, in the live branch and the recovery
+    flip alike."""
+
+    def _morning(self, **over):
+        base = dict(brightness="5000", is_opening_phase=True, is_daytime_phase=True,
+                    is_closing_phase=False, is_evening_phase=False,
+                    is_up_enabled=False, is_opening_scheduled=False,
+                    helper={"bas": "cls"}, current_position=100)
+        base.update(over)
+        return scenario(**base)
+
+    def test_the_day_start_expires_the_evening_cls_without_a_movement(self):
+        live, recovery = assert_paired(self._morning(), "opening")
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "opn"
+        assert live["final"]["ts_opn"] == recovery["final"]["ts_opn"] == "now"
+        assert live["moves"] is False and recovery["moves"] is False
+
+    def test_a_cover_away_from_the_open_position_still_only_syncs(self):
+        """The missing drive is the feature gate, not the position tolerance."""
+        live, recovery = assert_paired(self._morning(current_position=50), "opening")
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "opn"
+        assert live["moves"] is False and recovery["moves"] is False
+
+    def test_a_manual_override_survives_the_state_sync(self):
+        s = self._morning(helper={"bas": "cls", "man": 1})
+        live, recovery = assert_paired(s, "opening")
+        assert live["final"]["man"] == recovery["final"]["man"] == 1
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "opn"
+
+    def test_a_dark_morning_still_refuses_the_flip(self):
+        """Environment gates keep gating the sync flip. (The cover rests at the
+        close position here: a pure reposition to an unchanged base is
+        established recovery-only motion and not this scenario's subject.)"""
+        s = self._morning(brightness="40", current_position=0)
+        live, recovery = assert_paired(s, "opening")
+        assert live["entered"] is False
+        assert recovery["final"]["bas"] == "cls"
+        assert recovery["moves"] is False
+
+    def test_with_the_feature_enabled_the_same_morning_drives(self):
+        s = self._morning(is_up_enabled=True, is_opening_scheduled=True,
+                          current_position=0)
+        live, recovery = assert_paired(s, "opening")
+        assert live["moves"] and live["target"] == 100
+        assert recovery["moves"] and recovery["target"] == 100
+
+    def test_a_live_force_open_keeps_its_recovery_drive(self):
+        """R3-style overlay: the force target's catch-up movement is
+        force-owned and must not be held by the unchecked Morning Opening."""
+        s = self._morning(current_position=50, live_force="opn",
+                          helper={"bas": "cls", "frc": "opn"})
+        live = run_live(s, "opening")
+        recovery = run_recovery(s)
+        assert live["entered"] and live["moves"] is False
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] and recovery["target"] == 100
+
+    def test_a_tilted_window_reconciles_the_vent_floor_in_recovery_only(self):
+        """Deliberate R3 deviation: without an opening automation the VENT floor
+        stays in charge (#553); live only records the flip and leaves actuation
+        to the contact event, recovery repairs the currently effective overlay."""
+        s = self._morning(window="tlt")
+        live = run_live(s, "opening")
+        recovery = run_recovery(s)
+        assert live["entered"] and live["moves"] is False
+        assert live["final"]["bas"] == "opn"
+        assert recovery["state"] == "vnt"
+        assert recovery["moves"] and recovery["target"] == 50
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Force and pause
 # ════════════════════════════════════════════════════════════════════════════
@@ -980,20 +1056,41 @@ class TestClosedEntryStructure:
         return next(b for b in self._flip_gate()["choose"] if direction in b["alias"])
 
     @pytest.mark.parametrize("direction,alias,flag,input_name", [
-        ("opening", "Check for opening", "is_up_enabled", "auto_up_condition"),
+        # The opening entry carries NO feature flag: the base transition to 'opn'
+        # is state progress that must survive an unchecked Morning Opening (#673);
+        # is_up_enabled gates only the normal-opening will_drive.
+        ("opening", "Check for opening", None, "auto_up_condition"),
         ("closing", "Check for closing", "is_down_enabled", "auto_down_condition"),
     ])
     def test_the_live_entry_is_exactly_the_known_shape(self, direction, alias, flag,
                                                        input_name):
         conds = _branch(alias)["conditions"]
-        assert conds[0] == "{{ %s }}" % flag
-        assert conds[1] == "{{ trigger.id is defined }}"
-        assert "trigger.id | regex_match" in conds[2]
-        assert conds[3] == {"condition": input_name}
-        assert conds[4:] == [
+        if flag is not None:
+            assert conds[0] == "{{ %s }}" % flag
+            conds = conds[1:]
+        assert conds[0] == "{{ trigger.id is defined }}"
+        assert "trigger.id | regex_match" in conds[1]
+        assert conds[2] == {"condition": input_name}
+        assert conds[3:] == [
             "{{ base_gates.%s.once_ok }}" % direction,
             "{{ base_gates.%s.schedule_ok }}" % direction,
         ]
+
+    def test_the_normal_opening_drive_is_feature_gated(self):
+        """The counterpart of the flagless opening entry: the drive itself must
+        keep the is_up_enabled gate, otherwise removing the entry flag would turn
+        the state sync back into an opening movement (#673)."""
+        opening = _branch("Check for opening")
+        dispatch = next(s for s in opening["sequence"]
+                        if isinstance(s, dict) and "choose" in s)
+        normal = next(b for b in dispatch["choose"]
+                      if "Normal opening" in str(b.get("alias", "")))
+        inner = next(s for s in normal["sequence"]
+                     if isinstance(s, dict) and "choose" in s)
+        will_drive = next(s for s in inner["default"]
+                          if isinstance(s, dict) and "variables" in s
+                          )["variables"]["will_drive"]
+        assert "is_up_enabled" in will_drive
 
     def test_the_opening_flip_is_exactly_the_known_shape(self):
         conds = self._flip("opening")["conditions"]
