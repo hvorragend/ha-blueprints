@@ -632,15 +632,36 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
         return _find_branch_by_alias(_load_blueprint_yaml(), RESET_BRANCH_ALIAS)
 
     def test_manual_detection_only_records_the_override(self):
+        # The #671 schedule adoption is the one documented opt-in exception:
+        # the opened/closed branches may additionally advance `bas` (with its
+        # timestamp) when `adopt_schedule` is true — nothing else, ever.
+        import ast
+
         manual = _find_branch_by_alias(
             _load_blueprint_yaml(), "Checking for manual position changes"
         )
         choose = next(step for step in manual["sequence"] if "choose" in step)
         forbidden = {"bas", "shd", "pnd", "win", "frc", "res"}
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+
+        def _rendered(template: str, **ctx) -> dict:
+            return ast.literal_eval(env.from_string(template).render(**ctx).strip())
+
         for candidate in choose["choose"]:
             update = candidate["sequence"][0]["variables"]["update_values"]
-            assert update["man"] == 1
-            assert forbidden.isdisjoint(update)
+            if isinstance(update, str):
+                off = _rendered(update, adopt_schedule=False)
+                assert off["man"] == 1
+                assert forbidden.isdisjoint(off)
+                on = _rendered(update, adopt_schedule=True)
+                assert on["man"] == 1
+                assert (forbidden - {"bas"}).isdisjoint(on), (
+                    "adoption may only add `bas`, never other background state"
+                )
+                assert "bas" in on and set(on["ts"]) <= {"man", "opn", "cls"}
+            else:
+                assert update["man"] == 1
+                assert forbidden.isdisjoint(update)
         update = choose["default"][0]["variables"]["update_values"]
         assert update["man"] == 1 and forbidden.isdisjoint(update)
 

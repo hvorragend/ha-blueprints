@@ -3,7 +3,7 @@
 
 [📖 CCA Handbook](index) › Blueprint section: **Manual Override**
 
-**On this page:** [🖐️ Automatic movements blocked during Manual Override](#ignore_after_manual_config) · [🗑️ Reset manual override](#reset_override_config) · [🔙 Return to Target State After Manual Override Reset](#auto_recover_after_manual_reset) · [🗑️ Time to reset manual override](#reset_override_time) · [🗑️ Number of minutes until reset manual override](#reset_override_timeout) · [🗑️ Position for reset manual override](#reset_override_position) · [🗑️ Dwell time at reset position (minutes)](#reset_override_position_dwell)
+**On this page:** [🖐️ Automatic movements blocked during Manual Override](#ignore_after_manual_config) · [🖐️ Manual movement inside the schedule window counts as the scheduled event](#manual_schedule_adoption) · [🗑️ Reset manual override](#reset_override_config) · [🔙 Return to Target State After Manual Override Reset](#auto_recover_after_manual_reset) · [🗑️ Time to reset manual override](#reset_override_time) · [🗑️ Number of minutes until reset manual override](#reset_override_timeout) · [🗑️ Position for reset manual override](#reset_override_position) · [🗑️ Dwell time at reset position (minutes)](#reset_override_position_dwell)
 
 ---
 
@@ -39,6 +39,56 @@ For contact ventilation, **Block automatic ventilation** controls both the react
 A selected sun-shading option blocks every shading-related movement while Manual Override remains active; it does not discard the shading state. If shading starts and ends entirely during the override, no obsolete shading movement is replayed afterwards. If shading is still required when the override resets, CCA can move directly to the shading target.
 
 The full-window lockout remains the safety exception that may overrule Manual Override when its ventilation condition permits the proactive movement. If that condition is false, CCA still records the open window and prevents later closing or sun-shading movement; it merely does not raise the cover at the moment the window opens. Enabling a Force position is also an explicit higher-priority command; Force Pause can still suppress it.
+
+---
+
+<a id="manual_schedule_adoption"></a>
+
+## 🖐️ Manual movement inside the schedule window counts as the scheduled event
+
+> 🧩 Input: `manual_schedule_adoption` · Default: nothing selected
+
+For everyone who prefers to open or close the cover **by hand** even though a schedule is
+configured ([#671](https://github.com/hvorragend/ha-blueprints/issues/671)): with this option,
+a manual movement that lands in the open (or closed) position **while the matching schedule
+window is running** is treated as if the scheduled event itself had happened. CCA's internal
+day state advances — "the cover opened today" — so later automatic events no longer act on the
+assumption that the scheduled opening or closing is still outstanding.
+
+The two directions are independent checkboxes:
+
+- **🔼 Manual opening during the opening window** — between the early and late opening times
+  (or during the calendar opening event), a manual move to the open position advances the
+  internal state to "open", exactly as the scheduled opening would.
+- **🔻 Manual closing during the closing window** — between the early and late closing times
+  (or during the calendar closing event), a manual move to the closed position advances the
+  internal state to "closed".
+
+### What it changes — and what it does not
+
+- **State only, never a movement.** The manual change is still recorded as a normal Manual
+  Override, the cover is not moved, and everything under [🖐️ Automatic movements blocked
+  during Manual Override](#ignore_after_manual_config) and the reset options applies
+  unchanged.
+- **Without this option** the internal state only advances when an automatic event actually
+  fires. On a day where the opening's brightness/sun condition never crosses its threshold,
+  a later automatic event — the end of sun shading, a Manual Override reset with
+  [return-to-target](#auto_recover_after_manual_reset) enabled, a restart catch-up — could
+  still treat the day state as "not opened yet" and move the cover accordingly. With the
+  option enabled, your manual opening settles that question.
+- **The once-per-day guards count the adoption.** With *"open only once a day"* (or the
+  closing equivalent) enabled, the adopted event counts as that day's opening/closing.
+- **Sun shading is untouched.** An active or pending sun shading keeps its own lifecycle; a
+  manual close during the closing window does not cancel it, the shading simply ends through
+  its normal end conditions and then lands on the adopted "closed" state.
+
+### Requirements
+
+- The matching feature must be enabled ("🔼 Morning Opening" / "🔻 Evening Closing").
+- A time window must exist for that direction: the time fields or a calendar. With time
+  control disabled entirely there is no window, and nothing is adopted.
+- Outside the window (e.g. a manual opening in the evening) nothing is adopted either — the
+  movement stays a plain Manual Override.
 
 ---
 

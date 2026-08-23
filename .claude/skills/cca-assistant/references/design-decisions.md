@@ -215,6 +215,55 @@ Deliberate semantics:
 
 ---
 
+### Manual schedule adoption advances `bas` at detection time — opt-in, state only (#671, CCA 2026.08.23)
+
+`manual_schedule_adoption` (override section, default `[]`, one checkbox per direction) makes a
+manual move that the detection classifies as "opened"/"closed" count as the scheduled event —
+**when it lands inside the matching schedule window** (`is_opening_phase` / `is_closing_phase`,
+so it works for time fields and calendar mode alike, and is inert with time control disabled).
+The branch then writes `bas` and stamps `ts.opn`/`ts.cls` next to the normal `man: 1`/`ts.man`.
+Guarded on `helper_state_base != <target>` so a redundant adoption does not re-stamp the
+once-per-day timestamps.
+
+This looks like it violates two documented rules; it deliberately doesn't:
+
+- **Invariant 15's "manual detection never derives the autonomous state from the physical
+  position"** — the general rule stands and is the default. The opt-in is an explicit user
+  statement that, inside the window, the hand movement *is* the scheduled event. Everything
+  else about the rule is preserved: no drive, no `shd`/`pnd`/`win`/`frc`/`res` writes, the
+  Manual Override itself is recorded unchanged.
+- **Bug Pattern AU's "do not special-case the physical direction of the manual move"** — that
+  warning is about the *reset's* reconciliation path (coupling the release drive to the manual
+  direction would break the #655 return-to-target contract). Adoption happens at *detection*
+  time, through the ordinary reducer write; the reset path is untouched and keeps re-deriving
+  the base through the recovery reducer. The two compose: an adopted `bas` simply *is* the
+  schedule-correct value by the time any reset fires, so the reducer's flip branches see
+  `helper base == recovered_base` and pass through.
+
+Deliberate scope decisions:
+
+- **Environment conditions are not consulted.** The point of the feature (issue #671) is that
+  the user's hand movement is the authority inside the window — including on days where the
+  brightness/sun condition never fires at all. Requiring `environment_allows_opening` would
+  re-create exactly the gap the feature closes.
+- **The adoption writer does not join `is_opening_scheduled`** — same exception as the #673
+  sync writer (Bug Pattern AV): that flag mirrors writers whose flip an automation will
+  *actuate*; this writer never drives.
+- **A closing adoption does not emulate the full closing write** (no `shd: 0` / `pnd` clear,
+  unlike the live closing branches and the caught-up closing flip). Manual detection stays
+  barred from pending/shading (Invariants 8/15); with `shd` still 1 the cascade keeps SHADING
+  above BASE=CLS, and the ordinary shading-end flow clears it and then lands on the adopted
+  `'cls'`. Self-healing, no fight.
+- **The classification gates (`is_up_enabled` / `is_down_enabled`) stay in force** — with
+  Morning Opening unchecked the "opened" class is never assigned, so nothing is adopted; the
+  #673 sync writer already advances `bas` at the trigger time in that configuration.
+- **The calendar load gate includes `t_manual_position` when adoption is configured** (Bug
+  Pattern T family): `is_opening_phase`/`is_closing_phase` read the calendar windows, and
+  without the load a calendar-mode adoption would silently never apply. Scoped to
+  `adopt_flags.opening or adopt_flags.closing` so the default configuration keeps the
+  performance gate; `t_manual_tilt` is deliberately excluded — the tilted classification
+  consumes it before the opened/closed branches.
+
 ### A Manual Override reset's drive gate is opt-in (default off), asymmetric to `recovery_mode` (#553/#668/#677, CCA 2026.08.22)
 
 `auto_recover_after_manual_reset` gates only whether a live reset (timeout/fixed-time/position)

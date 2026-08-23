@@ -123,7 +123,9 @@ _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "instance_active_on_states": ["on", "true"],
                  "midnight_reset_missed": False,
                  "manual_reset_event": False,
-                 "manual_reset_recovery_hold": False}
+                 "manual_reset_recovery_hold": False,
+                 # manual schedule adoption (#671) off unless a test opts in
+                 "adopt_flags": {"opening": False, "closing": False}}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
