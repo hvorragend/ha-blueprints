@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AS, with cause and fix)
+# CCA Known Bug Patterns (A–AU, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -568,6 +568,8 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 
 **Third recurrence (Issue #615, CCA 2026.07.25) — the slat-angle guard makes the ventilate state unreachable:** the tilt-cover alternative copied around in the #608 fix carried a guard `current_tilt_position <= ventilate_tilt_position` ("slats not yet beyond the ventilate angle — don't pull them down"). The #615 trace shows the flow that breaks it: shading ends with the window still **closed**, so the tilt-only branch legitimately opens the slats to `open_tilt_position` (100). The user then tilts the window — and the contact handler's tilted branch finds slats *beyond* the ventilate angle, so the drive alternative fails; `in_ventilate_position` also fails (it checks the tilt angle within `tilt_position_tolerance`, #558), so the sync-only branch fails too, and with `effective_state == 'vnt'` **no branch consumes the tilt event at all**: no drive, no `win: 'tlt'` sync. The knock-on is worse than the missing movement — when the window later closes, `was_ventilating` is false (helper `win` still `'cls'`, cover not in ventilate position), so the return branch is skipped as well; the whole ventilation cycle is dead and the slats stay at the open angle. The guard's "already ventilating enough" floor-rationale contradicts the state model: `in_ventilate_position` does *not* accept a more-open slat angle, so the system simultaneously said "not in the ventilate state" and "refuse to drive there". Fix: drop the slat-angle guard from **both** ORs (contact tilted + shading-end ventilation, keeping them alternative-for-alternative identical) — a tilted window on a tilt cover at/below the ventilate position always resolves to the configured ventilate target, from any slat angle. **Rule:** a drive gate must never contradict its own position checker — if `in_X_position` says the cover is not in state X, some branch must be able to drive to X (or deliberately record why not); a gate that blocks the only path to a reachable-by-definition state creates a dead zone where events are swallowed with no helper write.
 
+**Fourth recurrence (Issue #667, CCA 2026.08.21) — exact equality vs. reported resting position:** the tilt-cover alternative accepted the shared-position venetian setup only via `current_position == ventilate_position`. Many motors report the resting position a point or two off the commanded value — the #538 caveat (tilt movement shifts the reported `current_position`) documents exactly this — so a cover commanded to 0 rested at 1 and the equality failed. With the slats at the shading angle, `in_ventilate_position` also failed (tilt outside `tilt_position_tolerance`), so in the contact handler **no branch consumed the tilt event** (same swallow shape as the third recurrence: no drive, no `win: 'tlt'` sync, `effective_state == 'vnt'`); in the shading-end handler the event fell through to the reconciliation branch (wrong action set, no `win` update). Fix: extend the tilt-cover alternative in **both** ORs (alternative-for-alternative identical) with `((current_position - ventilate_position) | abs <= position_tolerance and not in_ventilate_position)`. The `not in_ventilate_position` guard is load-bearing: without it, a cover *near* the position with the slats already within tilt tolerance would newly take the drive branch instead of the sync-only branch — re-dispatching the tilt, clearing `man` and running the ventilate action pipeline. The exact-equality alternative is kept alongside (it is **not** redundant: exact position + slats in tolerance drives today, and must keep doing so). Tests: `tests/test_blueprint_logic.py` (`test_issue_667_*`), `tests/test_shading_end_priority.py`. **Rule:** never compare `current_position` to a target with `==` in any gate — covers do not reliably report the commanded value; use `position_tolerance` (or the `in_X_position` checker), and when widening a drive gate from equality to tolerance, exclude the fully-in-position case so the sync-only branch keeps owning it.
+
 ---
 
 ### Bug Pattern AK: Pending execution path ends without a helper write → pending stuck until midnight
@@ -840,7 +842,43 @@ consistent with the gate that decided to let the run through. Tests:
 
 ---
 
-### Bug Pattern AU: `bas` has no writer back to 'opn' when Morning Opening is unchecked — the evening close latches forever (Issue #673)
+### Bug Pattern AU: Manual reset actuates a stale cached base (Issue #655 follow-up)
+
+**Symptom:** A cover is opened manually before or during the daytime. When the Manual
+Override timeout expires, the reset closes it again even though the scheduled target is
+open. The logbook says `manual override reset, back to: closed`.
+
+**Cause:** Invariant 15 correctly stopped manual detection from deriving `bas` from the
+physical position. That exposed a latent reset assumption: the numbered reset branch
+projected `effective_state` directly from the cached helper. If a scheduled opening run
+had been missed, gated or refused before persisting its base transition, `bas` could still
+be yesterday's `cls`; releasing Manual Override then actuated that stale value. The reset
+itself is the first reliable reconciliation edge, so merely waiting for another opening
+trigger can strand the wrong target for the whole day.
+
+**Fix:** `manual_reset_event` claims every live timeout, fixed-time and position reset in
+the pre-dispatch recovery reducer and makes that run catch up independently of the user's
+restart/outage recovery opt-in. The reducer re-derives `recovered_base` from the current
+schedule with the same once-per-day, environment, calendar and additional-condition gates,
+then clears `man`, runs the configured reset action and reconciles `recovered_state`.
+Forecast and calendar load gates explicitly include this entry path.
+
+**The inverse is not this bug (#668):** if a user closes a cover manually while the
+currently valid automatic target is still `opn`, an explicit timeout reset opens it again.
+That is the configured hand-back, not a stale-base failure: the reset has ended Manual
+Override and the opening schedule still owns the target. Keeping that manual close requires
+a longer timeout or no timed reset. Do not special-case the physical direction of the manual
+move; doing so would reintroduce the coupling this fix removes and would break the original
+#655 requirement to return to a still-current shading/opening target after reset.
+
+**Rule:** A blocker-release path must not assume its cached background target is current
+when the mechanisms that maintain that target can lose or refuse one-shot events. Make the
+release an explicit reconciliation edge and route it through the existing schedule-aware
+reducer, including every upstream data-load gate that reducer consumes. Tests:
+`TestManualOverrideParity::test_live_timeout_reconstructs_a_missed_daytime_opening`,
+`TestOverrideExpired::test_a_live_reset_is_claimed_by_the_schedule_aware_reducer`, and the
+manual-reset forecast/calendar gate tests in `TestRecoveryTriggers`.
+### Bug Pattern AV: `bas` has no writer back to 'opn' when Morning Opening is unchecked — the evening close latches forever (Issue #673)
 
 **Symptom:** A config with **Evening Closing but no Morning Opening** (`auto_down_enabled`
 set, `auto_up_enabled` not set — the user opens by hand every morning; time fields or

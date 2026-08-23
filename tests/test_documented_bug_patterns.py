@@ -717,6 +717,15 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
         update = _find_variable_definition(branch, "update_values")
         assert update == {"man": 0}
 
+    def test_reset_branch_requires_an_active_override(self, branch):
+        # A live manual_reset_event (man == 1) is always claimed and stopped by
+        # the pre-dispatch recovery reducer first. Without this gate, a reset
+        # trigger firing with man == 0 (e.g. right after the midnight reset
+        # cleared it) would fall through here and drive unconditionally,
+        # bypassing auto_recover_after_manual_reset entirely.
+        conditions = str(branch["conditions"])
+        assert "helper_state_manual" in conditions
+
     def test_force_pause_resume_explicitly_takes_control_from_manual(self):
         resume = _find_branch_by_alias(
             _load_blueprint_yaml(), "Drive to target position after force pause disabled"

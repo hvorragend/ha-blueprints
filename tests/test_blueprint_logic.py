@@ -1348,7 +1348,9 @@ WIN_TILT_DRIVE_BRANCH = {
         # OR-block flattened into one Jinja expression
         "{{ position_comparisons.current_below_ventilate"
         " or (is_cover_tilt_enabled_and_possible"
-        "     and (position_comparisons.current_below_ventilate or current_position == ventilate_position))"
+        "     and (position_comparisons.current_below_ventilate or current_position == ventilate_position"
+        "          or ((current_position - ventilate_position) | abs <= position_tolerance"
+        "              and not in_ventilate_position)))"
         " or (ventilation_flags.if_lower_enabled and (position_comparisons.current_above_ventilate or current_position == ventilate_position))"
         " or (helper_state_window == 'opn' and position_comparisons.current_above_ventilate)"
         " or (position_comparisons.current_above_ventilate and effective_state == 'cls') }}",
@@ -1383,6 +1385,7 @@ def _make_tilt_vars(
     is_cover_tilt_enabled_and_possible: bool = False,
     current_position: int = 100,
     ventilate_position: int = 50,
+    position_tolerance: int = 3,
     current_tilt_position: int = 100,
     ventilate_tilt_position: int = 50,
     effective_state: str = "vnt",
@@ -1411,6 +1414,7 @@ def _make_tilt_vars(
         "is_cover_tilt_enabled_and_possible": is_cover_tilt_enabled_and_possible,
         "current_position": current_position,
         "ventilate_position": ventilate_position,
+        "position_tolerance": position_tolerance,
         "current_tilt_position": current_tilt_position,
         "ventilate_tilt_position": ventilate_tilt_position,
         "effective_state": effective_state,
@@ -1561,6 +1565,85 @@ class TestKeepOpenOnFullToTilt:
         assert branch == "partial_ventilation_drive", (
             "A freshly tilted window must drive a tilt cover at the ventilate "
             "position to the ventilate tilt, even from a more-open slat angle."
+        )
+
+    def test_issue_667_near_vent_position_tilt_off_angle_drives(self):
+        """
+        Issue #667: tilt cover resting NEAR (not exactly at) the ventilate
+        position — venetian setups share one cover position for close/shading/
+        ventilate and the motor reports e.g. 1% instead of 0% (#538). With the
+        slats at the shading angle, tilting the window must still drive to the
+        ventilate target. Before the fix the tilt alternative required exact
+        position equality, so NO branch matched: no tilt drive and no win sync.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="cls",
+            is_cover_tilt_enabled_and_possible=True,
+            current_position=1,
+            ventilate_position=0,
+            position_tolerance=3,
+            current_above_ventilate=True,  # raw comparison: 1 > 0
+            current_tilt_position=30,      # slats at shading angle
+            ventilate_tilt_position=70,
+            in_ventilate_position=False,   # tilt outside tilt_position_tolerance
+            effective_state="vnt",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "partial_ventilation_drive", (
+            "A tilt cover within position_tolerance of the ventilate position "
+            "with the slats off the ventilate angle must drive (issue #667)."
+        )
+
+    def test_issue_667_near_vent_position_fully_in_position_syncs_only(self):
+        """
+        Guard for the #667 fix: the same near-position case with the slats
+        already within tilt tolerance is fully in the ventilate position —
+        it must keep taking the sync-only branch (no drive, no man clear),
+        exactly as before the fix.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="cls",
+            is_cover_tilt_enabled_and_possible=True,
+            current_position=1,
+            ventilate_position=0,
+            position_tolerance=3,
+            current_above_ventilate=True,
+            current_tilt_position=70,
+            ventilate_tilt_position=70,
+            in_ventilate_position=True,
+            effective_state="vnt",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch == "no_drive_helper_only", (
+            "Fully in the ventilate position (incl. tilt) must stay a helper "
+            "sync, not a drive (#667 must not shadow the sync branch)."
+        )
+
+    def test_issue_667_beyond_tolerance_unchanged(self):
+        """
+        Guard for the #667 fix: a tilt cover clearly ABOVE the ventilate
+        position (outside position_tolerance) keeps the pre-fix behaviour —
+        VENT is a floor, lowering needs ventilation_if_lower_enabled.
+        """
+        env = make_jinja_env()
+        variables = _make_tilt_vars(
+            helper_state_window="cls",
+            is_cover_tilt_enabled_and_possible=True,
+            current_position=40,
+            ventilate_position=0,
+            position_tolerance=3,
+            current_above_ventilate=True,
+            current_tilt_position=30,
+            ventilate_tilt_position=70,
+            in_ventilate_position=False,
+            effective_state="vnt",
+        )
+        branch = first_matching_branch(env, WIN_TILT_BRANCHES, variables)
+        assert branch is None, (
+            "Outside position_tolerance the tolerance alternative must not "
+            "fire — the VENT floor semantics stay unchanged."
         )
 
 

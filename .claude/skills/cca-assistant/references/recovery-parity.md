@@ -31,7 +31,7 @@ below) is exactly that class, each with the reason and the test that asserts it
 **Two separable concepts, and every recovery step belongs to exactly one:**
 
 1. **State hygiene / repair** — no live counterpart by design, can never move
-   the cover by itself: clearing an expired override (`override_expired`),
+   the cover by itself: clearing an override after a reset or missed reset (`override_expired`),
    dropping a stale-day shading (`stale_day`), clearing a dead pending
    (`pending_is_stale`), re-reading `win`/`res`/`frc` from the live entities.
 2. **Current-state reconciliation** — the *shared* live decision model: the
@@ -154,8 +154,9 @@ shading active/pending, prevent options, force, pause, resident privacy.
 ### Recovery-only hygiene (deliberately no live counterpart, never moves the cover)
 
 `stale_day` cleanup, `pending_is_stale` cleanup, `override_expired` repair
-(`man: 0` + the user's reset action; the live reset reconciles the already-current
-background `effective_state`, #655),
+(`man: 0` + the user's reset action; an explicit live reset enters this reducer
+and re-derives the scheduled base before reconciliation, while a recovery may
+discover a reset moment that was missed entirely, #655),
 `win`/`res`/`frc` re-read and persistence.
 
 ---
@@ -164,7 +165,7 @@ background `effective_state`, #655),
 
 | # | Deviation | Why it stays, and what the live reference says | Test |
 |---|---|---|---|
-| R1 | `… or override_expired` lets the recovery drive after the override's reset moment fell into the outage | Whether the swallowed movement fell before or after the expiry is unknowable. Live continuously persists background transitions and its reset reconciles the current `effective_state`; recovery repairs the expired override and performs the equivalent reconciliation after deriving any transition whose event the outage swallowed. | `TestManualOverrideParity::test_an_expired_override_is_the_post_repair_reconciliation` |
+| R1 | `… or override_expired` lets the recovery drive after the override's reset moment fell into the outage | Whether the swallowed movement fell before or after the expiry is unknowable. An explicit live reset and a recovered missed reset both enter the same reducer, re-derive the current scheduled base, repair the override and reconcile the resulting target. | `TestManualOverrideParity::test_an_expired_override_is_the_post_repair_reconciliation`, `test_live_timeout_reconstructs_a_missed_daytime_opening` |
 | R2 | `manual_holds_reposition`: a recovery run **without** a base transition does not drive over `man == 1` | There is no live event to compare — nothing happened; a pure re-position is recovery-only motion, and driving over a recorded intervention without a caught-up event would *fight* the user. Caught-up transitions apply their direction-specific manual option; lockout remains the safety exception. | `TestRecoveryDrive::test_a_manual_override_holds_a_pure_reposition` / `TestManualOverrideParity` / `TestForceAndPauseParity` |
 | R3 | A caught-up base flip reconciles the **current effective overlay target**, even when the corresponding live opening/closing leaf would only persist `bas` and leave actuation to the overlay's owning event | Recovery cannot assume that the owner event (window, resident, force) ran during the outage. Deterministically driving the present cascade repairs the same system target without guessing branch ownership. Examples: full-window lockout away from its target, a resident-blocked opening whose target remains `cls`, and an active force target. The missed event's Manual option remains authoritative (opening for a caught-up opening, closing for a caught-up closing); the projected target does not silently add another Manual option. Force/Pause and target-specific additional conditions still apply. | `TestWindowParity::test_open_window_away_from_lockout_position_is_reconciled`, `TestOpeningParity::test_a_resident_blocked_opening_does_not_become_a_closing_drive`, `TestForceAndPauseParity::test_a_caught_up_closing_does_not_execute_a_conflicting_force_target` |
 | R4 | `win` is persisted as the live sensor reading; C-A's `'opn'` stamp for a tilted window with the lockout option is not replicated | The helper's `win` is the Tier-2 fallback truth for the next outage; the contact handler — the normal owner of persisted window state — writes sensor truth, and the next contact event re-syncs live to it anyway. The no-movement outcome is identical (the hold). Narrow scope: tilted + option + caught-up closing only. | `TestWindowParity::test_tilted_lockout_option_holds_both_paths` (outcome parity; `win` declared hygiene) |

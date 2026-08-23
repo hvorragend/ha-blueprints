@@ -22,7 +22,7 @@ import pytest
 
 from test_restart_recovery import (
     BP, NOW, NOW_TS, RECOVERY,
-    _action_var, _branch, _branch_body, _render, _top_var,
+    _action_var, _branch, _branch_body, _branch_var, _render, _top_var,
 )
 
 
@@ -193,6 +193,8 @@ SCENARIO_DEFAULTS = dict(
     force_allows_open=True, force_allows_close=True,
     force_allows_shade=True, force_allows_ventilate=True,
     recovery_catch_up=True,
+    manual_reset_event=False,
+    is_manual_reset_recovery_enabled=False,
     instance_activated=False, automation_resumed=False,
     is_restart_run=False, midnight_reset_missed=False,
     # cover
@@ -341,8 +343,9 @@ def run_live(s: dict, direction: str, verdicts: dict | None = None) -> dict:
             **movement}
 
 
-def run_recovery(s: dict, verdicts: dict | None = None) -> dict:
-    ctx, entities = _context(s, "t_recovery")
+def run_recovery(s: dict, verdicts: dict | None = None,
+                 trigger_id: str = "t_recovery") -> dict:
+    ctx, entities = _context(s, trigger_id)
     runner = Runner(ctx, entities, verdicts or DEFAULT_VERDICTS)
     runner.run(_branch_body(RECOVERY))
     movement = _movement(runner.ctx, s)
@@ -465,15 +468,183 @@ class TestManualOverrideParity:
 
     def test_an_expired_override_is_the_post_repair_reconciliation(self):
         """Recovery-only composition, deliberate: the reset the outage swallowed is
-        applied first (man -> 0), then the flip proceeds - live's timeline depends on
-        an unknowable event order, and its reset (BRANCH 10 default) clears man
-        without ever driving, leaving the missed movement missed."""
+        applied first (man -> 0), then the flip proceeds. A live reset now enters
+        this same reducer; only the historical ordering of events swallowed by an
+        outage remains unknowable."""
         s = scenario(brightness="40", helper={"man": 1}, override_expired=True,
                      override_flags={"opening": False, "closing": True,
                                      "ventilation": False, "shading": False})
         recovery = run_recovery(s)
         assert recovery["final"]["bas"] == "cls"
         assert recovery["moves"] and recovery["final"]["man"] == 0
+
+    def test_live_timeout_reconstructs_a_missed_daytime_opening(self):
+        """#655 follow-up: a manual open must not be closed on timeout merely
+        because the helper still carries yesterday's closed base. The explicit
+        reset uses the schedule-aware recovery reducer even in `never` mode."""
+        trigger = types.SimpleNamespace(id="t_reset_timeout")
+        assert _render(
+            _top_var("manual_reset_event"), {},
+            helper_state_manual=True, trigger=trigger,
+        ) == "True"
+        assert _render(
+            _top_var("recovery_catch_up"), {},
+            manual_reset_event=True, override_expired=True, recovery_mode="never",
+            trigger=trigger, instance_activated=False, is_restart_run=True,
+        ) == "True"
+
+        s = scenario(
+            brightness="5000",
+            is_opening_phase=False,
+            is_daytime_phase=True,
+            is_closing_phase=False,
+            is_evening_phase=False,
+            is_time_up_late=True,
+            helper={"bas": "cls", "man": 1},
+            current_position=100,
+            override_expired=True,
+            manual_reset_event=True,
+            is_manual_reset_recovery_enabled=True,
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["state"] == "opn"
+        assert reset["final"]["bas"] == "opn"
+        assert reset["final"]["man"] == 0
+        assert reset["moves"] is False
+
+    def test_live_timeout_hands_back_to_a_still_open_schedule(self):
+        """#668 is the intentional inverse of the stale-base bug: a reset ends
+        manual ownership. If evening closing is not allowed yet, the still-open
+        automatic target may therefore reopen a cover that was closed by hand."""
+        s = scenario(
+            brightness="5000",
+            helper={"bas": "opn", "man": 1},
+            current_position=0,
+            override_expired=True,
+            manual_reset_event=True,
+            is_manual_reset_recovery_enabled=True,
+            override_flags={"opening": True, "closing": False,
+                            "ventilation": False, "shading": True},
+            prevent_flags=dict(
+                SCENARIO_DEFAULTS["prevent_flags"],
+                opening_after_shading_end=True,
+            ),
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["state"] == "opn"
+        assert reset["target"] == 100
+        assert reset["moves"] is True
+        assert reset["final"]["man"] == 0
+
+    def test_live_reset_does_not_drive_by_default(self):
+        """auto_recover_after_manual_reset defaults to disabled: a reset clears
+        the override and re-derives bas in the background (Invariant 15 state
+        progress), but withholds the drive - matching CCA's behavior before the
+        reset itself started driving the cover."""
+        s = scenario(
+            brightness="5000",
+            is_opening_phase=False,
+            is_daytime_phase=True,
+            is_closing_phase=False,
+            is_evening_phase=False,
+            is_time_up_late=True,
+            helper={"bas": "cls", "man": 1},
+            current_position=0,
+            override_expired=True,
+            manual_reset_event=True,
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["final"]["bas"] == "opn"
+        assert reset["final"]["man"] == 0
+        assert reset["moves"] is False
+
+    def test_live_reset_enabled_still_wont_open_without_an_opening_schedule(self):
+        """Issue #553 class: even with the new switch enabled, a reset must never
+        open a cover for which no opening automation exists - that resting 'opn'
+        is the permanent init default, not something CCA scheduled."""
+        s = scenario(
+            brightness="40",
+            is_up_enabled=False,
+            is_down_enabled=False,
+            is_opening_scheduled=False,
+            helper={"bas": "opn", "man": 1},
+            current_position=0,
+            override_expired=True,
+            manual_reset_event=True,
+            is_manual_reset_recovery_enabled=True,
+        )
+        reset = run_recovery(s, trigger_id="t_reset_timeout")
+        assert reset["new_base"] == "opn"
+        assert reset["state"] == "opn"
+        assert reset["final"]["man"] == 0
+        assert reset["moves"] is False
+
+    def test_recovery_catch_up_requires_override_expired_for_a_manual_reset(self):
+        """A manual change inside the reset's own tolerance window has not
+        actually expired yet: catch-up (and therefore any drive) must wait
+        rather than race the timestamp, even outside 'never' recovery mode."""
+        trigger = types.SimpleNamespace(id="t_reset_fixedtime")
+        assert _render(
+            _top_var("recovery_catch_up"), {},
+            manual_reset_event=True, override_expired=False, recovery_mode="never",
+            trigger=trigger, instance_activated=False, is_restart_run=True,
+        ) == "False"
+        assert _render(
+            _top_var("recovery_catch_up"), {},
+            manual_reset_event=True, override_expired=True, recovery_mode="never",
+            trigger=trigger, instance_activated=False, is_restart_run=True,
+        ) == "True"
+
+    def test_reset_hold_ignores_the_553_guard_for_a_live_force_target(self):
+        """recovered_state == 'opn' can mean the #553 resting default OR a live
+        Force-Open target (recovered_state mirrors live_force first). Only the
+        former is an ownerless resting state; a Force target has a live owner
+        and must not be held back by the opening-schedule guard."""
+        template = _branch_var("Recovery after restart", "manual_reset_recovery_hold")
+        assert _render(
+            template, {},
+            manual_reset_event=True, is_manual_reset_recovery_enabled=True,
+            recovered_state="opn", is_opening_scheduled=False, live_force="opn",
+        ) == "False"
+        assert _render(
+            template, {},
+            manual_reset_event=True, is_manual_reset_recovery_enabled=True,
+            recovered_state="opn", is_opening_scheduled=False, live_force="non",
+        ) == "True"
+
+    def test_log_user_names_the_withheld_reset_instead_of_implying_a_move(self):
+        """When the reset's drive is withheld, the cover-facing logbook line must
+        not read as if a movement happened ('back to: open')."""
+        template = _branch_var("Recovery after restart", "log_user")
+        labels = _action_var("state_labels")
+        assert _render(
+            template, {},
+            manual_reset_event=True, override_expired=True,
+            manual_reset_recovery_hold=True,
+            recovered_state="opn", instance_activated=False, state_labels=labels,
+        ) == "manual override reset, control returned to automation"
+        assert _render(
+            template, {},
+            manual_reset_event=True, override_expired=True,
+            manual_reset_recovery_hold=False,
+            recovered_state="cls", instance_activated=False, state_labels=labels,
+        ) == f"manual override reset, back to: {labels['cls']}"
+
+    def test_log_user_names_the_premature_reset_instead_of_claiming_one(self):
+        """A reset trigger firing while the override has not expired by the strict
+        rule (a manual change inside the reset's own tolerance window) runs
+        hygiene-only and keeps man set: the line must not claim a reset happened."""
+        template = _branch_var("Recovery after restart", "log_user")
+        labels = _action_var("state_labels")
+        assert _render(
+            template, {},
+            manual_reset_event=True, override_expired=False,
+            manual_reset_recovery_hold=False,
+            recovered_state="opn", instance_activated=False, state_labels=labels,
+        ) == "manual override kept, it has not expired yet"
 
 
 # ════════════════════════════════════════════════════════════════════════════
