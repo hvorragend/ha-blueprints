@@ -2,7 +2,8 @@
 
 Read this before touching: the live opening/closing branch entry conditions, the
 recovery's caught-up base flip, `base_gates`, `closing_position_hold`,
-`caught_up_closing_hold`, `caught_up_opening_hold`, `transition_manual_allows`,
+`caught_up_closing_hold`, `caught_up_opening_hold`, `closing_ownership_hold`,
+`is_closing_scheduled` / `closing_target_owned`, `transition_manual_allows`,
 `manual_holds_reposition`, `recovered_vent_ok` /
 `recovered_cascade_window` — or before adding ANY new gate to the live opening
 or closing branch (the checklist at the end tells you where it must also land).
@@ -125,7 +126,7 @@ shading active/pending, prevent options, force, pause, resident privacy.
 
 | Gate / situation | Live | Recovery | Status |
 |---|---|---|---|
-| `is_down_enabled` | entry condition | inside `recovered_base` | equivalent by construction |
+| `is_down_enabled` (Evening Closing unchecked) | NOT an entry condition — the base flip is state progress (#673 mirror); the normal-closing and tilted-ventilation `will_drive` carry the feature gate, every other close drive gates on `closing_target_owned` | `recovered_base` flips on the phases alone; `closing_ownership_hold` (all recovery drives) and the vnt clause of `caught_up_closing_hold` withhold exactly the closing-owned drives | shared (state-only sync in both paths) |
 | `auto_down_condition` | alias | anchor | same node |
 | override / once / schedule | `base_gates.closing.*` | same (+`override_expired`, night clause) | shared |
 | window fully open, condition allowed | C-A: status only; cover normally reached lockout through the contact handler | `lock` → same target; no movement at the target | shared **system** outcome (see R3 for the away-from-target case) |

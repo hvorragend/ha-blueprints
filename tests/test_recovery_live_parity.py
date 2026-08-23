@@ -180,6 +180,7 @@ SCENARIO_DEFAULTS = dict(
     resident_config=[],
     state_resident=False,
     is_opening_scheduled=True,
+    is_closing_scheduled=True,
     shading_over_ventilation=False,
     is_shading_enabled=True,
     ventilation_flags={"start_no_delay": False, "delay_enabled": False,
@@ -257,7 +258,8 @@ def _context(s: dict, trigger_id: str) -> tuple[dict, dict]:
         ctx[name] = Runner(ctx, entities, {}).render(_top_var(name))
     for name in ("lockout_now", "environment_allows_opening",
                  "environment_allows_closing", "base_gates",
-                 "closing_position_hold", "state_targets", "state_gates"):
+                 "closing_position_hold", "closing_target_owned",
+                 "state_targets", "state_gates"):
         ctx[name] = Runner(ctx, entities, {}).render(_action_var(name))
     return ctx, entities
 
@@ -563,13 +565,18 @@ class TestManualOverrideParity:
 
     def test_live_reset_enabled_still_wont_open_without_an_opening_schedule(self):
         """Issue #553 class: even with the new switch enabled, a reset must never
-        open a cover for which no opening automation exists - that resting 'opn'
-        is the permanent init default, not something CCA scheduled."""
+        MOVE a cover for which neither an opening nor a closing automation exists.
+        Since the #673 mirror the evening base state syncs to 'cls' even here (the
+        schedule phases own the state), so the reset's target is now the night
+        'cls' - unowned, therefore held by closing_ownership_hold instead of
+        manual_reset_recovery_hold. The user-facing outcome is identical: no
+        movement, override cleared."""
         s = scenario(
             brightness="40",
             is_up_enabled=False,
             is_down_enabled=False,
             is_opening_scheduled=False,
+            is_closing_scheduled=False,
             helper={"bas": "opn", "man": 1},
             current_position=0,
             override_expired=True,
@@ -577,8 +584,9 @@ class TestManualOverrideParity:
             is_manual_reset_recovery_enabled=True,
         )
         reset = run_recovery(s, trigger_id="t_reset_timeout")
-        assert reset["new_base"] == "opn"
-        assert reset["state"] == "opn"
+        assert reset["new_base"] == "cls"
+        assert reset["state"] == "cls"
+        assert reset["moves"] is False
         assert reset["final"]["man"] == 0
         assert reset["moves"] is False
 
@@ -974,6 +982,88 @@ class TestIssue673MorningOpeningUnchecked:
         assert recovery["moves"] and recovery["target"] == 50
 
 
+class TestIssue673EveningClosingUnchecked:
+    """#673 mirror: with an opening automation configured but Evening Closing
+    unchecked, the day 'opn' had no writer that ever expired it - after a
+    manual evening close every reconciliation replayed the stale open target
+    (up to reopening the cover in the middle of the night). The closing-time
+    trigger now syncs the base state to 'cls' WITHOUT a movement, and every
+    automatic drive toward the close position gates on the ownership rule
+    (closing_target_owned), so the unowned night 'cls' never closes a
+    deliberately open cover either."""
+
+    def _evening(self, **over):
+        base = dict(brightness="40", is_down_enabled=False,
+                    is_closing_scheduled=False,
+                    helper={"bas": "opn"}, current_position=100)
+        base.update(over)
+        return scenario(**base)
+
+    def test_the_night_start_expires_the_day_opn_without_a_movement(self):
+        live, recovery = assert_paired(self._evening(), "closing")
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["final"]["ts_cls"] == recovery["final"]["ts_cls"] == "now"
+        assert live["moves"] is False and recovery["moves"] is False
+
+    def test_with_the_feature_enabled_the_same_evening_drives(self):
+        s = self._evening(is_down_enabled=True, is_closing_scheduled=True)
+        live, recovery = assert_paired(s, "closing")
+        assert live["moves"] and live["target"] == 0
+        assert recovery["moves"] and recovery["target"] == 0
+
+    def test_a_bright_evening_still_refuses_the_flip(self):
+        s = self._evening(brightness="6780")
+        live, recovery = assert_paired(s, "closing")
+        assert live["entered"] is False
+        assert recovery["final"]["bas"] == "opn"
+        assert recovery["moves"] is False
+
+    def test_a_manual_override_survives_the_state_sync(self):
+        s = self._evening(helper={"bas": "opn", "man": 1})
+        live, recovery = assert_paired(s, "closing")
+        assert live["final"]["man"] == recovery["final"]["man"] == 1
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+
+    def test_a_tilted_window_holds_the_vent_drive_in_both_paths(self):
+        """The closing event's ventilation floor is closing-owned (unlike the
+        opening side, where vnt is contact-owned and recovery reconciles it as
+        R3): live C-B refuses its drive with the feature unchecked, and the
+        recovery's caught_up_closing_hold vnt clause matches that decision."""
+        s = self._evening(window="tlt")
+        live, recovery = assert_paired(s, "closing")
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["moves"] is False and recovery["moves"] is False
+        assert recovery["state"] == "vnt"
+
+    def test_a_live_force_close_keeps_its_recovery_drive(self):
+        s = self._evening(live_force="cls", helper={"bas": "opn", "frc": "cls"})
+        live = run_live(s, "closing")
+        recovery = run_recovery(s)
+        assert live["entered"] and live["moves"] is False
+        assert recovery["state"] == "cls"
+        assert recovery["moves"] and recovery["target"] == 0
+
+    def test_an_unowned_night_cls_never_repositions_the_cover(self):
+        """The ownership hold also covers pure repositions: a restart at night
+        with the synced (unowned) 'cls' leaves a deliberately open cover alone."""
+        s = self._evening(helper={"bas": "cls"})
+        recovery = run_recovery(s)
+        assert recovery["state"] == "cls"
+        assert recovery["moves"] is False
+
+    def test_the_resident_privacy_close_keeps_its_authority(self):
+        """closing_target_owned: a present resident with the closing trigger owns
+        the close target even with Evening Closing unchecked - recovery still
+        reconciles the privacy overlay (R3)."""
+        s = self._evening(state_resident=True,
+                          resident_config=["resident_closing_enabled"])
+        recovery = run_recovery(s)
+        assert recovery["state"] == "cls"
+        assert recovery["moves"] and recovery["target"] == 0
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Force and pause
 # ════════════════════════════════════════════════════════════════════════════
@@ -1055,19 +1145,18 @@ class TestClosedEntryStructure:
     def _flip(self, direction):
         return next(b for b in self._flip_gate()["choose"] if direction in b["alias"])
 
-    @pytest.mark.parametrize("direction,alias,flag,input_name", [
-        # The opening entry carries NO feature flag: the base transition to 'opn'
-        # is state progress that must survive an unchecked Morning Opening (#673);
-        # is_up_enabled gates only the normal-opening will_drive.
-        ("opening", "Check for opening", None, "auto_up_condition"),
-        ("closing", "Check for closing", "is_down_enabled", "auto_down_condition"),
+    @pytest.mark.parametrize("direction,alias,input_name", [
+        # Neither entry carries its feature flag: the base transitions are state
+        # progress that must survive an unchecked Morning Opening / Evening
+        # Closing (#673); is_up_enabled / is_down_enabled gate only the
+        # feature-owned drives inside the branches, and every other automatic
+        # drive toward the close position gates on closing_target_owned.
+        ("opening", "Check for opening", "auto_up_condition"),
+        ("closing", "Check for closing", "auto_down_condition"),
     ])
-    def test_the_live_entry_is_exactly_the_known_shape(self, direction, alias, flag,
+    def test_the_live_entry_is_exactly_the_known_shape(self, direction, alias,
                                                        input_name):
         conds = _branch(alias)["conditions"]
-        if flag is not None:
-            assert conds[0] == "{{ %s }}" % flag
-            conds = conds[1:]
         assert conds[0] == "{{ trigger.id is defined }}"
         assert "trigger.id | regex_match" in conds[1]
         assert conds[2] == {"condition": input_name}
@@ -1075,6 +1164,34 @@ class TestClosedEntryStructure:
             "{{ base_gates.%s.once_ok }}" % direction,
             "{{ base_gates.%s.schedule_ok }}" % direction,
         ]
+
+    def test_the_closing_drives_are_feature_gated(self):
+        """Counterpart of the flagless closing entry: both closing-owned drives
+        (the normal closing and the tilted-window ventilation floor of the
+        closing event) must keep the is_down_enabled gate (#673 mirror)."""
+        closing = _branch("Check for closing")
+        dispatch = next(s for s in closing["sequence"]
+                        if isinstance(s, dict) and "choose" in s)
+        normal_will_drive = next(s for s in dispatch["default"]
+                                 if isinstance(s, dict) and "variables" in s
+                                 )["variables"]["will_drive"]
+        assert "is_down_enabled" in normal_will_drive
+        tilted = next(b for b in dispatch["choose"]
+                      if "Move to ventilation position" in str(b.get("alias", "")))
+        tilted_will_drive = next(s for s in tilted["sequence"]
+                                 if isinstance(s, dict) and "variables" in s
+                                 )["variables"]["will_drive"]
+        assert "is_down_enabled" in tilted_will_drive
+
+    def test_the_unowned_cls_drives_are_ownership_gated(self):
+        """Every automatic drive that can target the close position outside the
+        closing branch consumes the ownership rule (#673 mirror): the recovery
+        (closing_ownership_hold), the window-closed return, the shading-end
+        move, the force-disable return and the force-pause resume."""
+        assert "closing_ownership_hold" in _branch_var(RECOVERY, "will_drive")
+        blueprint_text = str(BP["actions"])
+        for token in ("closing_target_owned", "is_closing_scheduled"):
+            assert token in blueprint_text
 
     def test_the_normal_opening_drive_is_feature_gated(self):
         """The counterpart of the flagless opening entry: the drive itself must
