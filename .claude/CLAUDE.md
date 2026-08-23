@@ -98,7 +98,7 @@ One line each; full rationale, examples and edge cases in
 12. **Logbook = `trigger.id` + `update_values` dump** — no reason-inference table; add `log_extra` only where genuinely needed. The second, user-facing line on the cover (`enable_logbook_cover`) is driven by a per-branch `log_user` string — never by a central inference table.
 13. **`recovered_state` must mirror `effective_state`** — every cascade change lands in both, same commit; extend `TestCascadeParity`, never weaken it.
 14. **Anchor bodies are pre-rendered on every run** — every runtime-context reference inside an anchor body needs a template guard (`repeat is defined`, `| default(...)`); those guards are load-bearing.
-15. **Blockers suppress effects, never state progress** — manual override, force targets and force pause may stop or replace `drive_plan.run`, but `bas`/`shd`/`pnd`/`win`/`res` keep following their normal transitions. Releasing a blocker reconciles the current `effective_state`.
+15. **Blockers suppress effects, never state progress** — manual override, force targets and force pause may stop or replace `drive_plan.run`, but `bas`/`shd`/`pnd`/`win`/`res` keep following their normal transitions. An explicit Manual reset first re-derives the scheduled base through the recovery reducer; other release paths reconcile the current `effective_state`.
 
 ---
 

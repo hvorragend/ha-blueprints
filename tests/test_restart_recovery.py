@@ -121,7 +121,9 @@ def _env(entity_states: dict | None = None, last_changed: dict | None = None,
 _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "instance_active_value": "",
                  "instance_active_on_states": ["on", "true"],
-                 "midnight_reset_missed": False}
+                 "midnight_reset_missed": False,
+                 "manual_reset_event": False,
+                 "manual_reset_recovery_hold": False}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
@@ -586,6 +588,21 @@ class TestOverrideExpired:
                 assert "dict(update_values, man=0)" in str(step.get("then", ""))
                 return
         raise AssertionError("recovery branch does not write man")
+
+    def test_a_live_reset_is_claimed_by_the_schedule_aware_reducer(self):
+        """The numbered reset branch only knows the cached effective state. A reset
+        must enter recovery first so it can reconstruct a base transition that was
+        missed or refused while the manual override was active."""
+        assert any("manual_reset_event" in str(c) for c in _branch_gate(RECOVERY))
+
+    @pytest.mark.parametrize("tid", [
+        "t_reset_timeout", "t_reset_fixedtime", "t_reset_position",
+    ])
+    def test_every_live_reset_is_a_reconciliation_event(self, tid):
+        assert _render_bool(
+            _top_var("manual_reset_event"), {},
+            helper_state_manual=True, trigger=types.SimpleNamespace(id=tid),
+        ) is True
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2134,6 +2151,12 @@ class TestRecoveryTriggers:
         assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id="t_recovery"),
                             automation_resumed=False) is True
 
+    def test_forecast_is_loaded_for_a_live_manual_reset(self):
+        """A reset runs the recovery reducer, including recovered shading."""
+        gate = next(c for c in self._forecast_gate() if "regex_match" in c)
+        assert _render_bool(gate, {}, trigger=types.SimpleNamespace(id="t_reset_timeout"),
+                            manual_reset_event=True, automation_resumed=False) is True
+
     @pytest.mark.parametrize("tid", ["t_close_1", "t_resident_update", "t_contact_tilted_changed"])
     def test_forecast_is_loaded_on_a_resumed_run_claimed_by_any_trigger(self, tid):
         """The resumed-run backstop turns ANY trigger into a recovery, and that run evaluates
@@ -2160,9 +2183,11 @@ class TestRecoveryTriggers:
                 return [c for c in or_cond["or"] if isinstance(c, str)]
         raise AssertionError("no calendar.get_events step found")
 
-    def _calendar_gate_passes(self, tid: str, resumed: bool) -> bool:
+    def _calendar_gate_passes(self, tid: str, resumed: bool,
+                              manual_reset_event: bool = False) -> bool:
         return any(_render_bool(c, {}, trigger=types.SimpleNamespace(id=tid),
-                                automation_resumed=resumed)
+                                automation_resumed=resumed,
+                                manual_reset_event=manual_reset_event)
                    for c in self._calendar_gate_or())
 
     def test_calendar_events_are_loaded_for_the_recovery(self):
@@ -2175,6 +2200,12 @@ class TestRecoveryTriggers:
         is silently dead for every calendar-controlled user. recovered_due/arm lose the
         window-start deferral (Bug Pattern L) the same way."""
         assert self._calendar_gate_passes("t_recovery", resumed=False) is True
+
+    def test_calendar_events_are_loaded_for_a_live_manual_reset(self):
+        """The reset's recovered base may depend on a calendar opening/closing."""
+        assert self._calendar_gate_passes(
+            "t_reset_timeout", resumed=False, manual_reset_event=True
+        ) is True
 
     @pytest.mark.parametrize("tid", ["t_resident_update", "t_contact_tilted_changed"])
     def test_calendar_events_are_loaded_on_a_resumed_run_claimed_by_any_trigger(self, tid):

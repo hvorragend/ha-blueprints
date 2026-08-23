@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AS, with cause and fix)
+# CCA Known Bug Patterns (A–AU, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -837,5 +837,44 @@ is binding — any handler that interprets a window contact must read an invalid
 consistent with the gate that decided to let the run through. Tests:
 `TestPatternATVentHoldSurvivesInvalidOpenedContact` in
 `tests/test_documented_bug_patterns.py`.
+
+---
+
+### Bug Pattern AU: Manual reset actuates a stale cached base (Issue #655 follow-up)
+
+**Symptom:** A cover is opened manually before or during the daytime. When the Manual
+Override timeout expires, the reset closes it again even though the scheduled target is
+open. The logbook says `manual override reset, back to: closed`.
+
+**Cause:** Invariant 15 correctly stopped manual detection from deriving `bas` from the
+physical position. That exposed a latent reset assumption: the numbered reset branch
+projected `effective_state` directly from the cached helper. If a scheduled opening run
+had been missed, gated or refused before persisting its base transition, `bas` could still
+be yesterday's `cls`; releasing Manual Override then actuated that stale value. The reset
+itself is the first reliable reconciliation edge, so merely waiting for another opening
+trigger can strand the wrong target for the whole day.
+
+**Fix:** `manual_reset_event` claims every live timeout, fixed-time and position reset in
+the pre-dispatch recovery reducer and makes that run catch up independently of the user's
+restart/outage recovery opt-in. The reducer re-derives `recovered_base` from the current
+schedule with the same once-per-day, environment, calendar and additional-condition gates,
+then clears `man`, runs the configured reset action and reconciles `recovered_state`.
+Forecast and calendar load gates explicitly include this entry path.
+
+**The inverse is not this bug (#668):** if a user closes a cover manually while the
+currently valid automatic target is still `opn`, an explicit timeout reset opens it again.
+That is the configured hand-back, not a stale-base failure: the reset has ended Manual
+Override and the opening schedule still owns the target. Keeping that manual close requires
+a longer timeout or no timed reset. Do not special-case the physical direction of the manual
+move; doing so would reintroduce the coupling this fix removes and would break the original
+#655 requirement to return to a still-current shading/opening target after reset.
+
+**Rule:** A blocker-release path must not assume its cached background target is current
+when the mechanisms that maintain that target can lose or refuse one-shot events. Make the
+release an explicit reconciliation edge and route it through the existing schedule-aware
+reducer, including every upstream data-load gate that reducer consumes. Tests:
+`TestManualOverrideParity::test_live_timeout_reconstructs_a_missed_daytime_opening`,
+`TestOverrideExpired::test_a_live_reset_is_claimed_by_the_schedule_aware_reducer`, and the
+manual-reset forecast/calendar gate tests in `TestRecoveryTriggers`.
 
 ---
