@@ -622,14 +622,29 @@ class TestManualOverrideParity:
         labels = _action_var("state_labels")
         assert _render(
             template, {},
-            manual_reset_event=True, manual_reset_recovery_hold=True,
+            manual_reset_event=True, override_expired=True,
+            manual_reset_recovery_hold=True,
             recovered_state="opn", instance_activated=False, state_labels=labels,
         ) == "manual override reset, control returned to automation"
         assert _render(
             template, {},
-            manual_reset_event=True, manual_reset_recovery_hold=False,
+            manual_reset_event=True, override_expired=True,
+            manual_reset_recovery_hold=False,
             recovered_state="cls", instance_activated=False, state_labels=labels,
         ) == f"manual override reset, back to: {labels['cls']}"
+
+    def test_log_user_names_the_premature_reset_instead_of_claiming_one(self):
+        """A reset trigger firing while the override has not expired by the strict
+        rule (a manual change inside the reset's own tolerance window) runs
+        hygiene-only and keeps man set: the line must not claim a reset happened."""
+        template = _branch_var("Recovery after restart", "log_user")
+        labels = _action_var("state_labels")
+        assert _render(
+            template, {},
+            manual_reset_event=True, override_expired=False,
+            manual_reset_recovery_hold=False,
+            recovered_state="opn", instance_activated=False, state_labels=labels,
+        ) == "manual override kept, it has not expired yet"
 
 
 # ════════════════════════════════════════════════════════════════════════════

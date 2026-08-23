@@ -6,6 +6,7 @@
 - 🐛 **Fix:** A Manual Override reset firing in the same instant as a manual position change could, in rare cases, still move the cover even with the new return-to-target setting disabled. The reset now consistently waits for the override to be fully cleared before considering a drive
 - 🐛 **Fix:** With the new return-to-target setting enabled, a reset could withhold a legitimate movement to an active Force position on instances without an opening automation configured, mistaking it for the unrelated [#553](https://github.com/hvorragend/ha-blueprints/issues/553) resting-state case it is meant to guard against
 - 🔧 **Improvement:** The cover's logbook line for a reset that did not move the cover (return-to-target disabled) no longer reads as if a movement happened
+- 🔧 **Improvement:** The cover's logbook line for a reset trigger that fired while the Manual Override had not actually expired yet (a manual change inside the reset's own tolerance window) now says the override was kept instead of implying a reset happened
 
 # CCA 2026.08.22
 

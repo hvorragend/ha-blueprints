@@ -6122,7 +6122,10 @@ actions:
                                      not is_manual_reset_recovery_enabled or
                                      (recovered_state == 'opn' and not is_opening_scheduled and
                                       live_force == 'non')) }}
-                              log_user: "{{ ('manual override reset, control returned to automation' if manual_reset_recovery_hold else 'manual override reset, back to: ' ~ state_labels[recovered_state]) if manual_reset_event else ('this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage') ~ ', target: ' ~ state_labels[recovered_state] }}"
+                              # A reset trigger firing while the override has not expired by the
+                              # strict rule (manual change inside the reset's own tolerance window)
+                              # runs hygiene-only: man stays set, so the line must not claim a reset.
+                              log_user: "{{ ('manual override reset, control returned to automation' if manual_reset_recovery_hold else 'manual override reset, back to: ' ~ state_labels[recovered_state]) if manual_reset_event and override_expired else 'manual override kept, it has not expired yet' if manual_reset_event else ('this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage') ~ ', target: ' ~ state_labels[recovered_state] }}"
                               log_extra: >-
                                 {{ 'Manual override reset reconciliation' if manual_reset_event else 'Recovery' }}{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
                                 base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', a live opening/closing gate refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
