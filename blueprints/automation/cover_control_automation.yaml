@@ -1836,6 +1836,36 @@ blueprint:
               custom_value: false
               mode: list
 
+        manual_schedule_adoption:
+          name: "🖐️ Manual movement inside the schedule window counts as the scheduled event"
+          description: >-
+            When you open the cover by hand while the morning opening window is still running
+            (between the early and late opening times, or during the calendar opening event),
+            CCA can treat that as if the scheduled opening itself had already happened: the
+            internal day state advances to "open", so later automatic events — a Manual Override
+            reset, the end of sun shading, a restart catch-up — no longer act as if the cover
+            had never opened that day. The same is available for closing the cover by hand
+            during the evening closing window.
+            <br /><br />
+            Only the internal state advances — the manual movement is still recorded as a
+            Manual Override and never moves the cover by itself. Requires the matching feature
+            ("🔼 Morning Opening" / "🔻 Evening Closing") and a time schedule or calendar for
+            that direction; without a time window nothing is adopted.
+            <br /><br />
+            📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/override#manual_schedule_adoption).
+          default: []
+          selector:
+            select:
+              options:
+                - label: "🔼 Manual opening during the opening window counts as the scheduled opening"
+                  value: "manual_adopt_opening"
+                - label: "🔻 Manual closing during the closing window counts as the scheduled closing"
+                  value: "manual_adopt_closing"
+              multiple: true
+              sort: false
+              custom_value: false
+              mode: list
+
         reset_override_config:
           name: "🗑️ Reset manual override"
           description: >-
@@ -3403,6 +3433,15 @@ variables:
     ventilation: "{{ helper_state_manual and override_flags.ventilation }}"
     shading: "{{ helper_state_manual and override_flags.shading }}"
 
+  # Manual schedule adoption (#671, opt-in): a manual move that lands in the
+  # open/close position inside the matching schedule window advances the base
+  # state as if the scheduled event had fired. State progress only - the
+  # manual handler still never drives and never touches pending/shading.
+  manual_schedule_adoption: !input manual_schedule_adoption
+  adopt_flags:
+    opening: "{{ 'manual_adopt_opening' in manual_schedule_adoption }}"
+    closing: "{{ 'manual_adopt_closing' in manual_schedule_adoption }}"
+
   # Manual policy is owned by the triggering event, not the physical target:
   # e.g. a shading event that holds the ventilation floor still uses `.shd`.
   manual_allows_event:
@@ -4935,6 +4974,10 @@ actions:
           - "{{ trigger.id | regex_match('^t_shading_end') }}"
           - "{{ trigger.id | regex_match('^t_calendar_event') }}"
           - "{{ trigger.id in ['t_recovery', 't_instance_activated'] or manual_reset_event or automation_resumed or instance_activated or midnight_reset_missed }}"
+          # Manual schedule adoption (#671) reads the calendar windows via
+          # is_opening_phase/is_closing_phase (Bug Pattern T family). Tilt
+          # triggers never reach the opened/closed classification.
+          - "{{ trigger.id == 't_manual_position' and (adopt_flags.opening or adopt_flags.closing) }}"
     then:
       - action: calendar.get_events
         target:
@@ -8091,10 +8134,16 @@ actions:
                       - "{{ (is_awning and current_position == 0) or (not is_awning and current_position == 100) }}"
                 sequence:
                   - variables:
-                      update_values:
-                        man: 1
-                        ts:
-                          man: "now"
+                      # Opt-in (#671): inside the opening window this manual
+                      # open counts as the scheduled opening (state only).
+                      adopt_schedule: >-
+                        {{ adopt_flags.opening
+                           and is_opening_phase
+                           and helper_state_base != 'opn' }}
+                      adopt_label: "{{ 'opening' if adopt_schedule else '' }}"
+                      update_values: >-
+                        {{ {'man': 1, 'bas': 'opn', 'ts': {'man': 'now', 'opn': 'now'}}
+                           if adopt_schedule else {'man': 1, 'ts': {'man': 'now'}} }}
 
               - alias: "Manual: ventilated"
                 conditions:
@@ -8129,10 +8178,16 @@ actions:
                       - "{{ (is_awning and current_position == 100) or (not is_awning and current_position == 0) }}"
                 sequence:
                   - variables:
-                      update_values:
-                        man: 1
-                        ts:
-                          man: "now"
+                      # Opt-in (#671): inside the closing window this manual
+                      # close counts as the scheduled closing (state only).
+                      adopt_schedule: >-
+                        {{ adopt_flags.closing
+                           and is_closing_phase
+                           and helper_state_base != 'cls' }}
+                      adopt_label: "{{ 'closing' if adopt_schedule else '' }}"
+                      update_values: >-
+                        {{ {'man': 1, 'bas': 'cls', 'ts': {'man': 'now', 'cls': 'now'}}
+                           if adopt_schedule else {'man': 1, 'ts': {'man': 'now'}} }}
 
             # Manual: position cannot be assigned (unknown) - catch-all so a
             # real manual change is never silently dropped.
@@ -8144,7 +8199,7 @@ actions:
                       man: "now"
 
           - variables:
-              log_user: "the cover was moved by hand, the automation stands back"
+              log_user: "the cover was moved by hand{{ ' and counts as the scheduled ' ~ adopt_label if adopt_label | default('') else ', the automation stands back' }}"
           - *apply_transition
           - choose: []
             default: !input auto_manual_action

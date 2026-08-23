@@ -158,7 +158,9 @@ can only *prevent* a wrong one. That single rule places all three pieces:
 **The `automation_resumed` claim exempts the manual triggers** (`t_manual_position`,
 `t_manual_tilt`, #603) — the same exemption they already have from the contact gate,
 and for the same reason: the manual handler **never drives**, it only *records* the
-intervention (`man: 1`, `ts.man`). It deliberately preserves `bas`, `shd`,
+intervention (`man: 1`, `ts.man` — plus, with the `manual_schedule_adoption` opt-in,
+the in-window `bas` advance, which is a schedule-correct state progress, not a drive;
+see the design-decisions entry for #671). It deliberately preserves `bas`, `shd`,
 `pnd`, `win`, `res`, `frc` and their timestamps. Claiming it would mean `man: 1`
 is never written; the recovery then reads the stale `man: 0` as "no override",
 `recovery_allowed` passes, and it drives the cover straight back — actively fighting
@@ -289,7 +291,7 @@ Three tiers, and the tier a source belongs to is decided by **what CCA can do wi
 
 **The contact triggers themselves are exempt from that gate** (`trigger.id in ['t_contact_opened_changed', 't_contact_tilted_changed']`). Without the exemption the gate **deadlocks**: with `win == 'opn'` and one contact stateless, the very event that would write `win: 'cls'` — the other contact reporting the window shut — is the one the gate blocks, so `win` stays `opn` forever. A contact trigger carries a *valid* `to_state` by construction (`not_to` on the trigger plus the `invalid_states` guards in the handler), so letting it through is safe.
 
-**The manual triggers are exempt too** (`t_manual_position`, `t_manual_tilt`). The manual-detection handler only records the intervention (`man: 1`, `ts.man`) and preserves the autonomous background state — it never drives the cover, so it cannot act on the unknown window state. Without the exemption a manual move during a contact outage would go unrecorded, and the recovery would later overrule the user's intervention. The critical-entities and helper gates still apply to these triggers — with the cover unavailable there is no position data to detect a manual change from.
+**The manual triggers are exempt too** (`t_manual_position`, `t_manual_tilt`). The manual-detection handler only records the intervention (`man: 1`, `ts.man`; the optional #671 schedule adoption adds an in-window `bas` advance, which reads no window state) and preserves the autonomous background state — it never drives the cover, so it cannot act on the unknown window state. Without the exemption a manual move during a contact outage would go unrecorded, and the recovery would later overrule the user's intervention. The critical-entities and helper gates still apply to these triggers — with the cover unavailable there is no position data to detect a manual change from.
 
 **Dead battery = parked cover.** If a contact never reports again while `win` is `opn`/`tlt`, the cover stays at its lockout/vent position indefinitely. That is the deliberate trade: never lower a cover onto a window last known to be open. The failing condition is visible in the trace; there is no log warning (a condition cannot log).
 

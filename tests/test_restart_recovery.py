@@ -124,6 +124,8 @@ _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "midnight_reset_missed": False,
                  "manual_reset_event": False,
                  "manual_reset_recovery_hold": False,
+                 # manual schedule adoption (#671) off unless a test opts in
+                 "adopt_flags": {"opening": False, "closing": False},
                  # #673 mirror baseline: an owned closing target, no hold
                  "closing_ownership_hold": False,
                  "closing_target_owned": True}

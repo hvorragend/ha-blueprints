@@ -396,6 +396,14 @@ the older manual intent without suppressing the reducer.
 
 - Manual detection writes only `man: 1` and `ts.man`; it never derives the
   autonomous state from the physical position and never clears pending timers.
+  One documented opt-in exception (#671, `manual_schedule_adoption`): a manual
+  move classified as "opened"/"closed" inside the matching schedule window
+  (`is_opening_phase` / `is_closing_phase`) additionally advances `bas` and
+  stamps `ts.opn`/`ts.cls`, exactly as the scheduled event would — state
+  progress only. The handler still never drives, never touches
+  `shd`/`pnd`/`win`/`frc`/`res`, and the adoption writer deliberately does not
+  join `is_opening_scheduled` (it never actuates a flip — the Bug Pattern AV
+  exception rule). See the design-decisions entry for the full rationale.
 - A pending shading execution that matures while movement is blocked commits
   `shd: 1` (or clears it on a matured end) and suppresses only the drive.
 - Scheduled base transitions and live contact/resident updates persist normally.
