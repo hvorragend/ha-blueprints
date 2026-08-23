@@ -882,7 +882,9 @@ manual-reset forecast/calendar gate tests in `TestRecoveryTriggers`.
 
 **Symptom:** A config with **Evening Closing but no Morning Opening** (`auto_down_enabled`
 set, `auto_up_enabled` not set — the user opens by hand every morning; time fields or
-another schedule source configured). After the first automatic evening close the cover
+another schedule source configured). The **mirror config** (Morning Opening set, Evening
+Closing unchecked — closing by hand) latches `bas: 'opn'` the same way: after a manual
+evening close the next reconciliation **reopens the cover in the middle of the night**. After the first automatic evening close the cover
 starts driving **back to the close position in the middle of the day**: after every
 manual-override expiry (`t_reset_timeout` etc.), after a sun-shading end, on a recovery
 run. The helper shows `bas: 'cls'` around the clock, the status card is stuck on "Night
@@ -918,10 +920,31 @@ Opening unchecked — only the opening *movement* stays with the feature.
   preserved). This is the documented exception to the AL/AO rule "every new `bas='opn'`
   writer joins `is_opening_scheduled`": that rule is about writers *whose flip an
   automation will actuate*.
+- **Mirror (closing side, 2026.08.23 V2):** `is_down_enabled` moves from the closing
+  entry into the two closing-owned drives (normal closing AND the tilted-ventilation
+  leaf — C-B is the closing event's own floor, unlike the opening side where `vnt` is
+  contact-owned and recovery reconciles it as R3). `recovered_base` flips on the phases
+  alone. Crucially, the closing side had an **implicit invariant the opening side never
+  had**: `bas == 'cls'` used to imply "a closing automation exists", and four drive
+  consumers were built on it ungated. The mirror therefore ships WITH the ownership
+  layer: `is_closing_scheduled` (trigger_variables, mirror of the driving t_close
+  sources) + `closing_target_owned` (action scope; adds the live resident privacy
+  ownership) gate every automatic drive toward the close position — the recovery
+  (`closing_ownership_hold`, covering flips, repositions and opted-in manual resets),
+  the window-closed return (`is_closing_scheduled or resident_blocks_open or
+  in_ventilate_position` — undoing a real ventilation hold stays allowed), the
+  partial-ventilation pull-down clause (`current_above_ventilate and effective_state ==
+  'cls'`), the shading-end move, the force-disable return and the force-pause resume.
+  A live force-close keeps its authority at every consumer. The `vnt` floor of a
+  caught-up closing is held via the third clause of `caught_up_closing_hold`.
 
 **Rule:** Every schedule-derived helper field needs a writer for **both** directions of
 its transition under every feature-switch combination that leaves any of its triggers
-armed — a feature switch may suppress the movement, never the state progress. When a
+armed — a feature switch may suppress the movement, never the state progress. And the
+moment a state value can exist without its owning automation, every drive consumer of
+that value needs an explicit ownership gate (`is_opening_scheduled` /
+`closing_target_owned`) — an implicit "this value implies the feature" invariant does
+not survive new writers. When a
 state field can only be entered but not left in some configuration, every consumer of the
 cascade inherits the stale value sooner or later. Tests:
 `TestIssue673MorningOpeningUnchecked` (paired live/recovery) in
