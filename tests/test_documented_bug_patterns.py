@@ -790,6 +790,9 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
             force_allows_shade=True,
             force_allows_open=True,
             force_allows_close=True,
+            is_closing_scheduled=True,
+            resident_blocks_open=False,
+            in_ventilate_position=False,
         )
         # The destination is open, but only the contact-ventilation policy owns
         # this event; no opening policy is required or even provided here.

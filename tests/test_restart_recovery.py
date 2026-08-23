@@ -123,7 +123,10 @@ _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "instance_active_on_states": ["on", "true"],
                  "midnight_reset_missed": False,
                  "manual_reset_event": False,
-                 "manual_reset_recovery_hold": False}
+                 "manual_reset_recovery_hold": False,
+                 # #673 mirror baseline: an owned closing target, no hold
+                 "closing_ownership_hold": False,
+                 "closing_target_owned": True}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
@@ -644,9 +647,12 @@ class TestRecoveredBase:
         otherwise drive the cover OPEN on a 2 am restart."""
         assert self._run(time_up_early_today="22:00:00", helper_state_base="opn") == "cls"
 
-    def test_night_without_a_closing_schedule_keeps_the_helper_base(self):
+    def test_night_without_a_closing_feature_still_flips(self):
+        """#673 mirror: the night clause is state progress and no longer gated on
+        is_down_enabled - the closing-owned drives are withheld separately via
+        closing_ownership_hold / caught_up_closing_hold."""
         assert self._run(time_up_early_today="22:00:00", is_down_enabled=False,
-                         helper_state_base="opn") == "opn"
+                         helper_state_base="opn") == "cls"
 
     def test_calendar_night_before_the_open_event_closes(self):
         assert self._run(is_time_field_enabled=False, is_calendar_enabled=True,
@@ -666,8 +672,10 @@ class TestRecoveredBase:
     def test_time_control_disabled_keeps_the_helper_base(self):
         assert self._run(is_time_control_disabled=True, is_evening_phase=True, helper_state_base="opn") == "opn"
 
-    def test_no_closing_schedule_does_not_invent_one(self):
-        assert self._run(is_down_enabled=False, is_evening_phase=True, helper_state_base="opn") == "opn"
+    def test_the_evening_flip_no_longer_needs_the_closing_feature(self):
+        """#673 mirror: the schedule (not the feature switch) owns the base state;
+        an unchecked Evening Closing suppresses only the closing-owned drives."""
+        assert self._run(is_down_enabled=False, is_evening_phase=True, helper_state_base="opn") == "cls"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -939,7 +947,8 @@ class TestCaughtUpClosingHold:
         base = dict(caught_up_closing=True, recovered_state="cls",
                     closing_position_hold=position_hold,
                     is_ventilation_enabled=True, recovered_window="cls",
-                    lockout_tilted_when_closing=False)
+                    lockout_tilted_when_closing=False,
+                    is_down_enabled=True, live_force="non")
         base.update(over)
         return _render_bool(self.HOLD(), {}, **base)
 
@@ -1012,8 +1021,18 @@ class TestCaughtUpClosingHold:
         will_drive = _branch_var(RECOVERY, "will_drive")
         assert "caught_up_closing_hold" in will_drive
         assert "caught_up_opening_hold" in will_drive
+        assert "closing_ownership_hold" in will_drive
         assert "transition_manual_allows" in will_drive
         assert "recovery_vent_condition_hold" in will_drive
+        assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
+                            recovery_allowed=True, caught_up_closing_hold=False,
+                            caught_up_opening_hold=False,
+                            closing_ownership_hold=True,
+                            transition_manual_allows=True,
+                            recovery_vent_condition_hold=False,
+                            recovered_state="cls", caught_up_closing=True,
+                            manual_allows_event={"vnt": True},
+                            override_expired=False) is False
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=True,
                             caught_up_opening_hold=False,
