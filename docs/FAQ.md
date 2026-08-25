@@ -1217,6 +1217,46 @@ lets a cover close during vacation that normally stays open. Unlike the global
 condition, the per-action conditions only suppress that one movement — the
 background state tracking stays intact.
 
+**Real-world example — selective vacation closing on a door cover:**
+
+A utility-room door cover that opens at a fixed time every morning and normally
+stays open all day. Only during vacation does it close in the evening — with
+lockout protection so it never closes while the door is open:
+
+```yaml
+use_blueprint:
+  path: hvorragend/cover_control_automation.yaml
+  input:
+    blind: cover.utility_room_door
+    cover_status_options: cover_helper_enabled
+    cover_status_helper: input_text.cover_status_utility_room_door
+    auto_options:
+      - auto_up_enabled
+      - auto_down_enabled
+      - auto_ventilate_enabled   # includes the lockout protection
+      - time_control_enabled
+    # Fixed schedule, no brightness/sun sensors:
+    time_up_early: '07:00:00'
+    time_up_late: '07:00:00'
+    time_down_early: '21:45:00'
+    time_down_late: '21:45:00'
+    # Evening closing only runs while the vacation boolean is on:
+    auto_down_condition:
+      - condition: state
+        entity_id: input_boolean.vacation_mode
+        state: 'on'
+    # Door contact → lockout: never close (and drive open) while the door is open.
+    # Leave the tilted contact empty on a door — lockout only, no ventilation position.
+    contact_window_opened: binary_sensor.door_contact_utility_room
+```
+
+Rest of the year the door cover opens at 07:00 and stays open; with
+`input_boolean.vacation_mode` on it also closes at 21:45 every evening.
+Timing note: the condition is only evaluated when the closing trigger fires —
+if you switch the vacation boolean on **after** the closing time, the first
+automatic close happens the next evening, so enable it before you leave (or
+close that cover once by hand).
+
 **Also worth knowing:** for a completely different vacation *configuration*
 (other times, other positions), run a second CCA automation for the same cover
 with its own status helper and switch between them — a vacation calendar can do
