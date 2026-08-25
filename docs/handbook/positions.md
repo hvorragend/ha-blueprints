@@ -66,6 +66,10 @@ Select the type of cover you want to control. <br /><br /> <strong>Blind/Roller 
 
 <strong>For Blinds/Shutters:</strong><br /> - Open Position: 100% (fully up)<br /> - Shading Position: 25% (partially down for sun protection)<br /> - Ventilate Position: 30% (slightly down for air flow)<br /> - Close Position: 0% (fully down)<br /> <br /> <strong>For Awnings:</strong><br /> - Open Position: 0% (retracted/closed)<br /> - Shading Position: 75% (extended for sun protection)<br /> - Close Position: 100% (fully extended)<br /> <br /> <em>Note: Ventilate Position is not used for awnings.</em>
 
+### Evening behavior for awnings
+
+*Closing* always drives to the Close Position — for an awning that means **extending** it. Do not enable 🔻 *Evening Closing* together with ☀️ *Sun Elevation Control* to retract an awning at sunset: it will extend instead. To retract the awning when the sun gets low, use the **shading end conditions** (sun shading elevation minimum) — shading end returns the awning to the Open Position (retracted) — or a *Force Opening* entity for a guaranteed retract that also overrides a manual extension. Full recipe: [FAQ: How do I retract my awning in the evening based on sun elevation?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-do-i-retract-my-awning-in-the-evening-based-on-sun-elevation)
+
 ---
 
 <a id="open_position"></a>

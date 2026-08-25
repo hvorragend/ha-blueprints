@@ -516,6 +516,10 @@ class CCAValidator {
 
         if (isAwning) {
             this.addInfo('☂️ Awning mode detected (0%=retracted, 100%=extended)');
+            const awningAutoOptions = c.auto_options || [];
+            if (awningAutoOptions.includes('auto_down_enabled')) {
+                this.addInfo('☂️ Awning + Evening Closing: closing always drives to close_position, which for an awning means EXTENDING it (also with Sun Elevation Control: falling sun → extend). To retract the awning when the sun gets low, use the shading END conditions (sun elevation minimum) or a Force Opening entity instead. See FAQ: "How do I retract my awning in the evening based on sun elevation?"');
+            }
             this.checkPositionOrder('open_position', 'close_position', '<', 'For awnings: open_position must be lower than close_position');
             if (c.shading_position !== undefined) {
                 this.checkPositionOrder('shading_position', 'close_position', '<', 'For awnings: shading_position must be lower than close_position');

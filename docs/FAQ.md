@@ -14,6 +14,7 @@ This comprehensive FAQ covers the most common questions about Cover Control Auto
 4. [Time & Schedule Control](#time--schedule-control)
 5. [Position Settings](#position-settings)
 6. [Cover Types (Blinds vs. Awnings)](#cover-types-blinds-vs-awnings)
+   - [How do I retract my awning in the evening based on sun elevation?](#q-how-do-i-retract-my-awning-in-the-evening-based-on-sun-elevation)
 7. [Sun Shading & Sun Protection](#sun-shading--sun-protection)
 8. [Ventilation & Contact Sensors](#ventilation--contact-sensors)
    - [Which window sensor has higher priority — opened or tilted?](#q-which-window-sensor-has-higher-priority--opened-or-tilted)
@@ -526,6 +527,33 @@ Open Position: 0%     # Retracted
 Shading Position: 75% # Extended for shade
 Close Position: 100%  # Fully extended
 ```
+
+---
+
+### Q: How do I retract my awning in the evening based on sun elevation?
+
+**A:** Not with *Evening Closing* — closing always drives to the **Close Position**, and for an awning that means *extending* it. Enabling ☀️ Sun Elevation Control together with 🔻 Evening Closing therefore extends the awning around sunset instead of retracting it. There is no combination of the opening/closing options that maps a falling sun to the Open Position — that job belongs to the **shading end**:
+
+**Recommended setup (pure sun-driven awning):**
+
+1. In *What should CCA control?* enable only **🥵 Sun Protection / Shading**. Leave Morning Opening, Evening Closing and Time Control unchecked — the base state then stays "open" (= retracted) permanently, and shading is the only thing that ever extends the awning.
+2. Configure the shading start conditions as usual (azimuth, elevation, brightness, …).
+3. Set the **Sun Shading Elevation minimum** to your evening threshold (e.g. `10°`). Once the sun drops below it, the shading END triggers fire and the awning returns to the Open Position — retracted, purely elevation-based, no fixed time involved.
+
+If shading ended earlier for another reason (brightness, azimuth out of range), the awning is already retracted by then — there is nothing left to do in the evening.
+
+**Guaranteed retract, independent of everything (recommended for wind-sensitive awnings):**
+
+A manually extended awning is protected by the manual override, so the shading end will not touch it. If the awning must be retracted below a certain elevation *no matter what*, use the **Force Open** entity with a template sensor:
+
+```yaml
+template:
+  - binary_sensor:
+      - name: "Awning night retract"
+        state: "{{ state_attr('sun.sun', 'elevation') | float(0) < 10 }}"
+```
+
+Configure it as *Force Opening* (`auto_up_force`). Force sits at the top of the priority cascade: when the sensor turns `on`, the awning retracts — regardless of shading state or manual override — and stays retracted all night. In the morning the sensor turns `off` and (with force recovery enabled) CCA resumes normal control.
 
 ---
 
