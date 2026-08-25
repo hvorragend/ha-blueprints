@@ -9,6 +9,7 @@ This comprehensive FAQ covers the most common questions about Cover Control Auto
 
 1. [General Questions](#general-questions)
 2. [Installation & Requirements](#installation--requirements)
+   - [Can I define CCA automations in YAML packages instead of automations.yaml?](#q-can-i-define-cca-automations-in-yaml-packages-instead-of-automationsyaml)
 3. [Configuration Basics](#configuration-basics)
 4. [Time & Schedule Control](#time--schedule-control)
 5. [Position Settings](#position-settings)
@@ -133,6 +134,21 @@ My clear recommendation is to create **one automation for each cover**.
 2. Go to Settings → Automations & Scenes → Blueprints
 3. The blueprint should appear automatically
 4. Create a new automation using the CCA blueprint
+
+---
+
+### Q: Can I define CCA automations in YAML packages instead of automations.yaml?
+
+**A:** The automation will **run** fine from a package, but **do not open it in the UI editor** — the page will load forever and Home Assistant becomes very unresponsive. Keep CCA automations in `automations.yaml` (or create them via the UI) instead.
+
+**Why this happens** (Home Assistant behavior, not a CCA bug):
+- The UI editor can only edit automations stored in `automations.yaml`. For any other location (packages, `!include`d files), it falls back to a read-only view based on the entity's `raw_config`.
+- For blueprint automations, Home Assistant stores `raw_config` as the **fully expanded** blueprint — not your small `use_blueprint:` block.
+- Since the expanded config no longer contains `use_blueprint`, the frontend renders the manual visual editor for the entire expanded automation instead of the compact blueprint input form.
+
+With small blueprints this is unnoticeable, but CCA expands to thousands of YAML lines with deeply nested logic — rendering and validating all of that freezes the page.
+
+**Recommendation:** Store CCA automations in `automations.yaml`. If you want to organize many automations, use labels, categories, or areas in the UI — packages would disable UI editing for automations anyway.
 
 ---
 

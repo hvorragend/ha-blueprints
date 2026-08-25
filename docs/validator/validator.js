@@ -91,7 +91,9 @@ class CCAValidator {
             'resident_sensor', 'resident_config',
 
             // Manual Override
-            'ignore_after_manual_config', 'reset_override_config',
+            'ignore_after_manual_config', 'manual_schedule_adoption',
+            'reset_override_config',
+            'auto_recover_after_manual_reset',
             'reset_override_time', 'reset_override_timeout',
             'reset_override_position', 'reset_override_position_dwell',
 
@@ -310,6 +312,37 @@ class CCAValidator {
             this.addWarning('🦮 Force recovery (auto_recover_after_force) is enabled but no cover_status_helper configured. This feature requires a helper.');
         } else {
             this.addInfo('✅ Force recovery enabled — cover returns to target state after force functions are disabled.');
+        }
+
+        const manualRecover = this.config.auto_recover_after_manual_reset;
+        const manualRecoverEnabled = typeof manualRecover === 'string'
+            ? manualRecover === 'auto_recover_enabled'
+            : Array.isArray(manualRecover) && manualRecover.includes('auto_recover_enabled');
+        if (!manualRecoverEnabled) {
+            this.addInfo('ℹ️ Manual Override reset recovery is disabled (default). The cover stays put after a reset until the next regular automatic event; set auto_recover_after_manual_reset to "auto_recover_enabled" for the reset itself to drive the cover.');
+        } else if (!this.config.cover_status_helper || this.config.cover_status_helper.length === 0) {
+            this.addWarning('🦮 Manual Override reset recovery (auto_recover_after_manual_reset) is enabled but no cover_status_helper configured. This feature requires a helper.');
+        } else {
+            this.addInfo('✅ Manual Override reset recovery enabled — a reset drives the cover to its current automatic target immediately.');
+        }
+
+        const adoption = this.config.manual_schedule_adoption || [];
+        if (Array.isArray(adoption) && adoption.length > 0) {
+            const adoptOptions = this.config.auto_options || [];
+            const adoptTimeControlDisabled = !adoptOptions.includes('time_control_enabled');
+            if (!this.config.cover_status_helper || this.config.cover_status_helper.length === 0) {
+                this.addWarning('🦮 Manual schedule adoption (manual_schedule_adoption) is enabled but no cover_status_helper configured. This feature requires a helper.');
+            } else if (adoptTimeControlDisabled) {
+                this.addWarning('⚠️ Manual schedule adoption (manual_schedule_adoption) is enabled but Time Control is disabled — without a time window or calendar there is no schedule window, so no manual movement is ever adopted.');
+            } else {
+                if (adoption.includes('manual_adopt_opening') && !adoptOptions.includes('auto_up_enabled')) {
+                    this.addWarning('⚠️ Manual schedule adoption for opening is selected but "Morning Opening" (auto_up_enabled) is disabled — a manual opening is never classified as an opening, so nothing is adopted.');
+                }
+                if (adoption.includes('manual_adopt_closing') && !adoptOptions.includes('auto_down_enabled')) {
+                    this.addWarning('⚠️ Manual schedule adoption for closing is selected but "Evening Closing" (auto_down_enabled) is disabled — a manual closing is never classified as a closing, so nothing is adopted.');
+                }
+                this.addInfo('✅ Manual schedule adoption enabled — an in-window manual opening/closing advances the internal day state like the scheduled event.');
+            }
         }
     }
 

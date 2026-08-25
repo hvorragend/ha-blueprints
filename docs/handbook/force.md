@@ -16,31 +16,7 @@ Emergency override controls for weather protection and special scenarios
 
 An active Force position is CCA's highest-priority target. It overrides scheduled operation, sun shading, ventilation, Manual Override and full-window lockout. The lower-priority state continues to be tracked in the background so CCA knows what target is current when Force ends. **Force Pause** is the final movement switch: it can suspend even a Force-position command without changing that target.
 
-**On this page:** [🔙 Return to Target State After Force Disable](#auto_recover_after_force) · [⏸️ Force Pause (Suspend Automatic Actions)](#force_pause) · [🔼 Force Immediate Opening via Entity](#auto_up_force) · [🔻 Force Immediate Closing via Entity](#auto_down_force) · [💨 Force Immediate Ventilation via Entity](#auto_ventilate_force) · [🥵 Force Activation Sun Shading via Entity](#auto_shading_start_force)
-
----
-
-<a id="auto_recover_after_force"></a>
-
-## 🔙 Return to Target State After Force Disable
-
-> 🧩 Input: `auto_recover_after_force` · Default: `auto_recover_disabled`
-
-Seamless control with automatic recovery: When enabled, the cover automatically returns to its intended position when a force function is disabled.
-
-### How it works: Smart Background Tracking
-
-**Continuous Status Tracking:**
-- The helper constantly monitors what the cover *should* be doing (open, close, shading, ventilate)
-- Even when a force function is active, the background state is always up-to-date
-- When the force function is disabled, the cover knows exactly where to return
-
-**Perfect for:**
-- 🌧️ Rain Protection (force-close, auto-recover to shading)
-- 💨 Wind Protection (force-open, auto-recover to normal state)
-- ❄️ Frost Protection (force-open, auto-resume after sunrise)
-- 🔥 Emergency Scenarios (temporary manual control, then auto-recovery)
-- 🏠 Cleaning/Maintenance (force-open, then auto-return when done)
+**On this page:** [⏸️ Force Pause (Suspend Automatic Actions)](#force_pause) · [🔼 Force Immediate Opening via Entity](#auto_up_force) · [🔻 Force Immediate Closing via Entity](#auto_down_force) · [💨 Force Immediate Ventilation via Entity](#auto_ventilate_force) · [🥵 Force Activation Sun Shading via Entity](#auto_shading_start_force) · [🔙 Return to Target State After Force Disable](#auto_recover_after_force)
 
 ---
 
@@ -52,7 +28,7 @@ Seamless control with automatic recovery: When enabled, the cover automatically 
 
 If the status of this entity changes to on or true, all automatic cover movements are suspended immediately. This holds even for a movement that was already planned and is waiting out its drive delay when the pause arrives — the pause is re-checked at the moment the cover would actually move. The background state (target positions) is still tracked continuously in the helper — even while paused.
 While paused, CCA also does **not** run your *before/after actions* (they announce a movement that cannot happen) and does **not** clear a manual override — both follow the actual dispatch decision, which the pause suspends.
-When this entity turns off again, the cover **immediately returns** to its correct target position — no waiting for the next scheduled trigger.
+When this entity turns off again, the cover **immediately returns** to its correct target position — no waiting for the next scheduled trigger. This is unconditional and independent of [🔙 Return to Target State After Force Disable](#auto_recover_after_force) below, which only applies to the four Force functions further down this page.
 💡 **Tip:** Use an `input_boolean` as a manual/automatic toggle. Unlike putting a switch in the global condition (which blocks helper state updates too), this force pause only blocks cover movement. The helper always reflects the correct background state, so resuming is instant and reliable.
 
 ⚠️ **Not a way to run several CCA automations on one cover.** The force pause keeps the automation *running* — it only stops it from moving the cover. A paused automation therefore still watches, and it cannot tell a *different CCA automation's* movements apart from you grabbing the slider. When Force Pause is disabled, CCA explicitly takes control again and may immediately overwrite that other automation's position. For that setup use [🎚️ Only run this automation while this switch is on](features#instance_active), which switches the automation off entirely and hands the cover over properly.
@@ -96,6 +72,33 @@ If the status of this entity changes to on or true, the cover is immediately set
 > 🧩 Input: `auto_shading_start_force`
 
 If the status of this entity changes to on or true, the shading is immediately activated and without further checking.
+
+---
+
+<a id="auto_recover_after_force"></a>
+
+## 🔙 Return to Target State After Force Disable
+
+> 🧩 Input: `auto_recover_after_force` · Default: `auto_recover_disabled`
+
+Applies only to the four Force functions above (Open/Close/Ventilate/Shading via entity) — not
+to Force Pause, which always returns immediately and unconditionally (see above). Seamless
+control with automatic recovery: When enabled, the cover automatically returns to its intended
+position when one of these force functions is disabled.
+
+### How it works: Smart Background Tracking
+
+**Continuous Status Tracking:**
+- The helper constantly monitors what the cover *should* be doing (open, close, shading, ventilate)
+- Even when a force function is active, the background state is always up-to-date
+- When the force function is disabled, the cover knows exactly where to return
+
+**Perfect for:**
+- 🌧️ Rain Protection (force-close, auto-recover to shading)
+- 💨 Wind Protection (force-open, auto-recover to normal state)
+- ❄️ Frost Protection (force-open, auto-resume after sunrise)
+- 🔥 Emergency Scenarios (temporary manual control, then auto-recovery)
+- 🏠 Cleaning/Maintenance (force-open, then auto-return when done)
 
 ---
 

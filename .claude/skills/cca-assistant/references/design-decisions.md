@@ -212,3 +212,112 @@ Deliberate semantics:
   without it, `forecast_temp_raw` is `None` on end triggers and the hold's
   forecast branch could never apply. This also fixed forecast-based *end*
   conditions, which previously evaluated without data on end triggers.
+
+---
+
+### Manual schedule adoption advances `bas` at detection time — opt-in, state only (#671, CCA 2026.08.23)
+
+`manual_schedule_adoption` (override section, default `[]`, one checkbox per direction) makes a
+manual move that the detection classifies as "opened"/"closed" count as the scheduled event —
+**when it lands inside the matching schedule window** (`is_opening_phase` / `is_closing_phase`,
+so it works for time fields and calendar mode alike, and is inert with time control disabled).
+The branch then writes `bas` and stamps `ts.opn`/`ts.cls` next to the normal `man: 1`/`ts.man`.
+Guarded on `helper_state_base != <target>` so a redundant adoption does not re-stamp the
+once-per-day timestamps.
+
+This looks like it violates two documented rules; it deliberately doesn't:
+
+- **Invariant 15's "manual detection never derives the autonomous state from the physical
+  position"** — the general rule stands and is the default. The opt-in is an explicit user
+  statement that, inside the window, the hand movement *is* the scheduled event. Everything
+  else about the rule is preserved: no drive, no `shd`/`pnd`/`win`/`frc`/`res` writes, the
+  Manual Override itself is recorded unchanged.
+- **Bug Pattern AU's "do not special-case the physical direction of the manual move"** — that
+  warning is about the *reset's* reconciliation path (coupling the release drive to the manual
+  direction would break the #655 return-to-target contract). Adoption happens at *detection*
+  time, through the ordinary reducer write; the reset path is untouched and keeps re-deriving
+  the base through the recovery reducer. The two compose: an adopted `bas` simply *is* the
+  schedule-correct value by the time any reset fires, so the reducer's flip branches see
+  `helper base == recovered_base` and pass through.
+
+Deliberate scope decisions:
+
+- **Environment conditions are not consulted.** The point of the feature (issue #671) is that
+  the user's hand movement is the authority inside the window — including on days where the
+  brightness/sun condition never fires at all. Requiring `environment_allows_opening` would
+  re-create exactly the gap the feature closes.
+- **The adoption writer does not join `is_opening_scheduled`** — same exception as the #673
+  sync writer (Bug Pattern AV): that flag mirrors writers whose flip an automation will
+  *actuate*; this writer never drives.
+- **A closing adoption does not emulate the full closing write** (no `shd: 0` / `pnd` clear,
+  unlike the live closing branches and the caught-up closing flip). Manual detection stays
+  barred from pending/shading (Invariants 8/15); with `shd` still 1 the cascade keeps SHADING
+  above BASE=CLS, and the ordinary shading-end flow clears it and then lands on the adopted
+  `'cls'`. Self-healing, no fight.
+- **The classification gates (`is_up_enabled` / `is_down_enabled`) stay in force** — with
+  Morning Opening unchecked the "opened" class is never assigned, so nothing is adopted; the
+  #673 sync writer already advances `bas` at the trigger time in that configuration.
+- **The calendar load gate includes `t_manual_position` when adoption is configured** (Bug
+  Pattern T family): `is_opening_phase`/`is_closing_phase` read the calendar windows, and
+  without the load a calendar-mode adoption would silently never apply. Scoped to
+  `adopt_flags.opening or adopt_flags.closing` so the default configuration keeps the
+  performance gate; `t_manual_tilt` is deliberately excluded — the tilted classification
+  consumes it before the opened/closed branches.
+
+### A Manual Override reset's drive gate is opt-in (default off), asymmetric to `recovery_mode` (#553/#668/#677, CCA 2026.08.22)
+
+`auto_recover_after_manual_reset` gates only whether a live reset (timeout/fixed-time/position)
+*drives* the cover; the state correction (`man` clearing) always happens once `override_expired`
+(Invariant 7's documented exception), via `manual_reset_event` opening `recovery_catch_up`. This
+looks like it duplicates `recovery_mode` (never/outage/always) and invites "just reuse that
+setting" — do not. `recovery_mode` governs restart/outage catch-up specifically; an explicit live
+reset is a different event class the same way `manual_reset_event` is already documented as
+separate from it in `recovery.md`. Coupling the reset's drive to `recovery_mode` would resurface
+exactly the naming confusion this decision exists to avoid (a restart-scoped setting silently
+deciding an unrelated interaction), without even fixing the reported bug: BRANCH 10's pre-#669
+code already drove to `effective_state` on every reset, unconditionally, with no `recovery_mode`
+involved at all — the reported "cover opens/closes for no reason after reset" complaints were
+never about staleness, they were about driving into a resting cascade value nothing scheduled.
+
+**`recovery_catch_up` for a manual reset additionally requires `override_expired`** (CCA
+2026.08.23 review finding): a manual change that falls inside the reset's own tolerance window
+has not actually expired by the strict rule yet, so schedule re-derivation and any drive must
+wait for a later run rather than race the timestamp. `man` clearing is unaffected by this — it
+is gated on `override_expired` directly, not on `recovery_catch_up`, so it still fires the moment
+the override genuinely expires. **BRANCH 10 (the numbered "Reset manual detection" branch) now
+also requires `helper_state_manual`** (same finding): without it, a reset trigger firing with
+`man == 0` (nothing active to reset — e.g. right after the 23:55 midnight reset had already
+cleared it) fell through past `manual_reset_event`'s pre-dispatch claim and drove unconditionally,
+bypassing the opt-in through the back door. With the gate added, BRANCH 10 is unreachable dead
+code (every run it could match was already claimed and stopped upstream); it is kept as a
+structural safety net rather than removed in the same change.
+
+**The remaining, load-bearing asymmetry:** even with the opt-in on, a reset must still never
+drive to `'opn'` when `not is_opening_scheduled and live_force == 'non'` — the Issue #553
+resting-state class (a schedule-less instance's permanent `bas` init default, which requires no
+write at all: `bas` starts at `'opn'`). `manual_reset_recovery_hold` checks this unconditionally
+inside the opt-in branch; it is not itself a separate setting. The `live_force == 'non'` term
+(CCA 2026.08.23 review finding) matters because `recovered_state` mirrors `live_force` first
+(architecture.md): an `'opn'` produced by an active Force-Open target has a live owner and is
+not the ownerless #553 default, so the guard must not hold it back — without this term, an
+enabled reset could silently withhold a legitimate Force-Open drive. There is deliberately
+**no** equivalent guard for `'cls'`, but the reasoning is narrower than "it can't happen" — be
+precise about what it does and doesn't cover:
+
+- `bas` can only ever become `'cls'` through a real write: an actual closing schedule firing,
+  or live `privacy_active`. Unlike `'opn'`, there is no zero-write, permanently-wrong default —
+  the #553 class genuinely cannot occur for `'cls'`.
+- It *can* still go stale a different way: a schedule that fires once, gets disabled later
+  (e.g. the user turns off closing entirely after using it), while `bas` stays parked at the
+  last value it wrote. A reset with the opt-in on would then drive to a `'cls'` that is no
+  longer backed by any live automation — the same surprise-movement complaint #553/#668/#677
+  were about, just reached via a config change instead of an unconfigured default. This is
+  documented as a known residual risk in the `auto_recover_after_manual_reset` input
+  description rather than silently ignored.
+- Closing this residual gap with a symmetric `is_closing_scheduled` gate was tried once and
+  reverted for unrelated, real regressions (see the #677 discussion history) — that attempt
+  introduced a `bas: 'cls'` write path, not this reset's read-only reconciliation, but it shows
+  the two legitimate `'cls'` sources (schedule *and* `privacy_active`) make a correct live gate
+  meaningfully harder to get right than the single-source `is_opening_scheduled` case. Do not
+  re-attempt it casually "for consistency" — if you do, both sources must be covered and the
+  #677 regression must not reappear.

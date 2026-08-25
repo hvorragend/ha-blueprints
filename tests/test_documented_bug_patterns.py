@@ -632,15 +632,36 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
         return _find_branch_by_alias(_load_blueprint_yaml(), RESET_BRANCH_ALIAS)
 
     def test_manual_detection_only_records_the_override(self):
+        # The #671 schedule adoption is the one documented opt-in exception:
+        # the opened/closed branches may additionally advance `bas` (with its
+        # timestamp) when `adopt_schedule` is true — nothing else, ever.
+        import ast
+
         manual = _find_branch_by_alias(
             _load_blueprint_yaml(), "Checking for manual position changes"
         )
         choose = next(step for step in manual["sequence"] if "choose" in step)
         forbidden = {"bas", "shd", "pnd", "win", "frc", "res"}
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+
+        def _rendered(template: str, **ctx) -> dict:
+            return ast.literal_eval(env.from_string(template).render(**ctx).strip())
+
         for candidate in choose["choose"]:
             update = candidate["sequence"][0]["variables"]["update_values"]
-            assert update["man"] == 1
-            assert forbidden.isdisjoint(update)
+            if isinstance(update, str):
+                off = _rendered(update, adopt_schedule=False)
+                assert off["man"] == 1
+                assert forbidden.isdisjoint(off)
+                on = _rendered(update, adopt_schedule=True)
+                assert on["man"] == 1
+                assert (forbidden - {"bas"}).isdisjoint(on), (
+                    "adoption may only add `bas`, never other background state"
+                )
+                assert "bas" in on and set(on["ts"]) <= {"man", "opn", "cls"}
+            else:
+                assert update["man"] == 1
+                assert forbidden.isdisjoint(update)
         update = choose["default"][0]["variables"]["update_values"]
         assert update["man"] == 1 and forbidden.isdisjoint(update)
 
@@ -717,6 +738,15 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
         update = _find_variable_definition(branch, "update_values")
         assert update == {"man": 0}
 
+    def test_reset_branch_requires_an_active_override(self, branch):
+        # A live manual_reset_event (man == 1) is always claimed and stopped by
+        # the pre-dispatch recovery reducer first. Without this gate, a reset
+        # trigger firing with man == 0 (e.g. right after the midnight reset
+        # cleared it) would fall through here and drive unconditionally,
+        # bypassing auto_recover_after_manual_reset entirely.
+        conditions = str(branch["conditions"])
+        assert "helper_state_manual" in conditions
+
     def test_force_pause_resume_explicitly_takes_control_from_manual(self):
         resume = _find_branch_by_alias(
             _load_blueprint_yaml(), "Drive to target position after force pause disabled"
@@ -781,6 +811,9 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
             force_allows_shade=True,
             force_allows_open=True,
             force_allows_close=True,
+            is_closing_scheduled=True,
+            resident_blocks_open=False,
+            in_ventilate_position=False,
         )
         # The destination is open, but only the contact-ventilation policy owns
         # this event; no opening policy is required or even provided here.

@@ -257,7 +257,7 @@ can `stop:` a run needs a `PRE_DISPATCH_DEFINITIONS` entry in the trace tools.
 - **Resident Sensor** — leaving: `leave_target` chain + VENT-tilted leaf; arriving: `arrive_target` + VENT-hold leaf
 - **Midnight Reset (23:55)** — clears `shd`/`pnd`/`man`
 - **Force enable/disable** — incl. `recovery_target` chain on disable; force pause resume
-- **Manual detection** — position/tilt → `man: 1` (never drives)
+- **Manual detection** — position/tilt → `man: 1` (never drives); opt-in `manual_schedule_adoption` (#671) additionally advances `bas` for an in-window manual open/close
 - **Override reset** — fixed time / timeout / in-position
 
 ---
