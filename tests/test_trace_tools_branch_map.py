@@ -94,6 +94,58 @@ class TestBranchMap:
         )
 
 
+def _has_stop(node) -> bool:
+    if isinstance(node, dict):
+        return "stop" in node or any(_has_stop(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_has_stop(v) for v in node)
+    return False
+
+
+def _pre_dispatch_stop_steps() -> list[dict]:
+    """Top-level action steps before the main dispatch that can stop: a run."""
+    with open(BLUEPRINT, encoding="utf-8") as f:
+        bp = yaml.load(f, Loader=_Loader)
+    steps = []
+    for step in bp["actions"]:
+        if isinstance(step, dict) and isinstance(step.get("choose"), list) and len(step["choose"]) > 5:
+            return steps
+        if isinstance(step, dict) and _has_stop(step):
+            steps.append(step)
+    raise AssertionError("main dispatch choose not found in the blueprint")
+
+
+class TestPreDispatchMap:
+    """A run that ends before the dispatch choose carries no choose/M - the tools can
+    only name it through the step's own alias (PRE_DISPATCH_DEFINITIONS). recovery.md:
+    a new pre-dispatch step that can stop: a run needs an entry there, or its traces
+    become anonymous ('No branch executed')."""
+
+    def test_every_stop_capable_step_has_an_alias(self):
+        unnamed = [i for i, s in enumerate(_pre_dispatch_stop_steps()) if not s.get("alias")]
+        assert not unnamed, (
+            f"pre-dispatch stop steps without an alias (positions {unnamed}): "
+            "the trace tools cannot name a run that ends there"
+        )
+
+    @pytest.mark.parametrize("tool", TOOLS)
+    def test_every_stop_capable_step_has_a_definition(self, tool):
+        html = TOOLS[tool].read_text(encoding="utf-8")
+        defined = set(_js_object_keys(html, "PRE_DISPATCH_DEFINITIONS"))
+        missing = [s["alias"] for s in _pre_dispatch_stop_steps()
+                   if s.get("alias") and s["alias"] not in defined]
+        assert not missing, f"{tool}: no PRE_DISPATCH_DEFINITIONS entry for {missing}"
+
+    @pytest.mark.parametrize("tool", TOOLS)
+    def test_no_stale_pre_dispatch_definitions(self, tool):
+        html = TOOLS[tool].read_text(encoding="utf-8")
+        aliases = {s.get("alias") for s in _pre_dispatch_stop_steps()}
+        stale = [k for k in _js_object_keys(html, "PRE_DISPATCH_DEFINITIONS") if k not in aliases]
+        assert not stale, (
+            f"{tool}: PRE_DISPATCH_DEFINITIONS has entries for unknown pre-dispatch steps {stale}"
+        )
+
+
 class TestConfigResolution:
     """The tools must prefer the aliases carried in the trace's own config, so a trace
     from a different blueprint version still resolves correctly."""
