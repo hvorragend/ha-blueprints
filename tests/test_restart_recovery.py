@@ -1541,6 +1541,7 @@ class TestRecoveredDueAndArm:
 class TestRecoveryDrive:
     LOCKOUT = staticmethod(lambda: _branch_var(RECOVERY, "lockout_blocks_shading"))
     DEFER = staticmethod(lambda: _branch_var(RECOVERY, "defer_to_shading"))
+    DEFER_END = staticmethod(lambda: _branch_var(RECOVERY, "defer_to_shading_end"))
     TARGET = staticmethod(lambda: _branch_var(RECOVERY, "target_position"))
     TILT = staticmethod(lambda: _branch_var(RECOVERY, "target_tilt_position"))
     ALLOWED = staticmethod(lambda: _branch_var(RECOVERY, "recovery_allowed"))
@@ -1582,6 +1583,35 @@ class TestRecoveryDrive:
 
     def test_no_defer_when_the_target_is_not_open(self):
         assert self._defer("beg", "cls", lockout=False) is False
+
+    # --- defer_to_shading_end ---
+    def _defer_end(self, pending, state, live_force="non"):
+        return _render_bool(self.DEFER_END(), {}, recovered_pending=pending,
+                            recovered_state=state, live_force=live_force)
+
+    def test_a_shading_drive_is_deferred_to_the_armed_end_pending(self):
+        """#674: the end conditions already hold, so the armed end pending will move
+        the cover after one waiting period - driving into the shading position first
+        (e.g. on an instance take-over with the cover standing open) is a movement
+        that is immediately reverted."""
+        assert self._defer_end("end", "shd") is True
+
+    def test_a_live_force_shade_keeps_its_own_authority(self):
+        """recovered_state == 'shd' from a live force-shade owns its target - the
+        end pending must not withhold that drive."""
+        assert self._defer_end("end", "shd", live_force="shd") is False
+
+    def test_no_end_defer_without_an_end_pending(self):
+        assert self._defer_end("non", "shd") is False
+        assert self._defer_end("beg", "shd") is False
+
+    def test_no_end_defer_when_the_target_is_not_shading(self):
+        """Overlay targets (lockout, the vent floor) and base targets keep their
+        drives - only the about-to-end shading target itself is withheld."""
+        assert self._defer_end("end", "lock") is False
+        assert self._defer_end("end", "vnt") is False
+        assert self._defer_end("end", "cls") is False
+        assert self._defer_end("end", "opn") is False
 
     # --- targets ---
     POSITIONS = dict(open_position=100, close_position=0, ventilate_position=50, shading_position=30,
@@ -1659,7 +1689,8 @@ class TestRecoveryDrive:
     def _allowed(self, state, **over):
         base = dict(force_allows_open=True, force_allows_close=True,
                     force_allows_shade=True, force_allows_ventilate=True,
-                    defer_to_shading=False, manual_holds_reposition=False)
+                    defer_to_shading=False, defer_to_shading_end=False,
+                    manual_holds_reposition=False)
         base.update(over)
         return _render_bool(self.ALLOWED(), {}, recovered_state=state, **base)
 
@@ -1674,6 +1705,9 @@ class TestRecoveryDrive:
 
     def test_deferring_to_shading_means_no_drive_here(self):
         assert self._allowed("opn", defer_to_shading=True) is False
+
+    def test_deferring_to_the_shading_end_means_no_drive_here(self):
+        assert self._allowed("shd", defer_to_shading_end=True) is False
 
     # --- the manual policy: conservative for re-positioning, live parity for transitions ---
     MANUAL = staticmethod(lambda: _branch_var(RECOVERY, "manual_holds_reposition"))

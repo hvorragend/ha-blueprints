@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.23
+    **Version**: 2026.08.25
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2697,7 +2697,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.23"
+  version: "2026.08.25"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -6161,6 +6161,13 @@ actions:
                               new_pending: "{{ recovered_pending if recovered_pending != 'non' else ('non' if pending_is_stale or caught_up_closing else helper_state_pending) }}"
                               # Let the shading execution do the movement instead of opening first
                               defer_to_shading: "{{ recovered_pending == 'beg' and recovered_state == 'opn' and not lockout_blocks_shading }}"
+                              # End mirror (#674): the end conditions already hold and the armed
+                              # end pending will move the cover shortly - driving into the shading
+                              # position now would be reverted after one waiting period. A live
+                              # force-shade keeps its own authority.
+                              defer_to_shading_end: >-
+                                {{ recovered_pending == 'end' and recovered_state == 'shd' and
+                                   live_force == 'non' }}
                               # From the shared reconciler projection, so the shading target honours the alternate depth
                               target_position: "{{ state_targets[recovered_state].target | int }}"
                               target_tilt_position: "{{ state_targets[recovered_state].target_tilt | int }}"
@@ -6173,6 +6180,7 @@ actions:
                                 {{ recovered_state in ['lock', 'vnt'] and not recovered_vent_ok }}
                               recovery_allowed: >-
                                 {{ not defer_to_shading and
+                                   not defer_to_shading_end and
                                    not manual_holds_reposition and
                                    (force_allows_ventilate if recovered_state in ['lock', 'vnt']
                                     else force_allows_open if recovered_state == 'opn'
@@ -6234,7 +6242,7 @@ actions:
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one

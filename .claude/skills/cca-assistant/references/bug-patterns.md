@@ -952,3 +952,38 @@ cascade inherits the stale value sooner or later. Tests:
 `tests/test_restart_recovery.py`.
 
 ---
+
+### Bug Pattern AW: The recovery drives into a shading whose end it just armed (Issue #674)
+
+**Symptom:** An instance take-over (`instance_active` switched on) or a restart catch-up
+runs while the helper still says `shd: 1` but the shading **end** conditions already hold
+(sun past the end azimuth, brightness dropped, …). The recovery correctly arms the end
+pending (`pnd: 'end'`, due after one `shading_waitingtime_end`) — and **simultaneously
+drives the cover to the shading position**, because `recovered_state` is `'shd'`. One
+waiting period later the shading end moves it back. User-visible as "I turned the
+automation's switch on and the cover drove to its *old* position": a fully open cover
+dips to the shading depth for a few minutes for no reason.
+
+**Cause:** `recovered_pending` re-evaluates the shading ("re-evaluated, not replayed",
+recovery.md) and the shading-end *execution* owns the eventual movement — but nothing
+connected the freshly armed end pending to the recovery's own drive gate. The start side
+had exactly this link (`defer_to_shading`, #555: don't open first when a start pending
+will shade a moment later); the end side did not.
+
+**Fix:** `defer_to_shading_end` (`recovered_pending == 'end' and recovered_state ==
+'shd' and live_force == 'non'`) joins `recovery_allowed`: the helper write (shd kept,
+end pending armed) still happens, only the movement is withheld and left to the shading
+end execution — which then reconciles from wherever the cover actually stands (usually a
+no-op via the apply-transition tolerance). A live force-shade keeps its own authority
+(its `'shd'` target has an owner). Accepted residual: if the end conditions un-cross
+before the due time (a transient dip at exactly the recovery moment), the end aborts and
+the cover stays un-shaded while `shd` reads 1 — the same "not warranted *now*" trade the
+environment-flip and pending re-evaluation already make (recovery-parity.md R5).
+
+**Rule:** When the recovery arms a pending that will move the cover shortly, its own
+drive toward the *same* flow's target must defer to that pending's execution — in both
+directions (start: `defer_to_shading`; end: `defer_to_shading_end`). A recovery movement
+that the just-armed pending will revert is a replay, not a reconciliation. Tests:
+`TestRecoveryDrive` (defer_to_shading_end cases) in `tests/test_restart_recovery.py`.
+
+---
