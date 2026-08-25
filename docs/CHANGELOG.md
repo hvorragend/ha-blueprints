@@ -1,5 +1,9 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
+# CCA 2026.08.25 V2
+
+- 🐛 **Fix:** A manual cover movement is now also detected on covers that report **intermediate positions while travelling** (forum report). The manual detection waits until the position has been stable for a minute and then compares the last two reported values against the **Position Tolerance** — a dead-band that protects against covers re-reporting their position with a small drift. But on covers that send several position updates during one travel, the "last two values" are just the final couple of percent of the movement (e.g. 97% → 100% of a full manual open), so the whole hand movement fell inside the dead-band and was never recorded as a 🖐️ Manual Override — the next automatic event (closing the window, a scheduled closing, a shading end) then simply drove over the position set by hand. The detection now also accepts a position change whose previous report was taken **while the cover was physically moving** (state `opening`/`closing`) outside of CCA's own drive window — a real motor movement is never drift. Covers that report only their final position, and idle position drift, behave exactly as before
+
 # CCA 2026.08.25
 
 - 🔧 **Improvement:** The [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/) and Trace Compare tools now recognize the three configuration-error stops (a disabled or deleted state-critical entity, a missing Cover Status Helper, and a helper whose maximum length is too small). A trace that ends in one of these safety stops is now labeled with the actual reason instead of reading as an anonymous "No branch executed"; the two helper checks also received their own step names in the automation trace timeline

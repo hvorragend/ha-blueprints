@@ -987,3 +987,50 @@ that the just-armed pending will revert is a replay, not a reconciliation. Tests
 `TestRecoveryDrive` (defer_to_shading_end cases) in `tests/test_restart_recovery.py`.
 
 ---
+
+### Bug Pattern AX: Per-step dead-band swallows manual moves on covers that report intermediate positions (forum report)
+
+**Symptom:** A genuine manual movement (e.g. full open by wall switch at 06:24) is never
+recorded: `man` stays `0`, `ts.man` unchanged, no helper write at all although
+`this.last_triggered` proves the `t_manual_position` run fired (position stable + 60 s
+later, 06:25:45). The next automatic event — in the report, the "window closed → return
+to background state" contact branch — then drives straight over the hand-set position.
+Affects only covers whose integration reports **several position updates during one
+travel** (Zigbee/Shelly/KNX-style live feedback); single-report covers are fine.
+
+**Cause:** Bug Pattern Q's drift dead-band compares `trigger.from_state` against
+`trigger.to_state` — but with `for: 60` on an attribute trigger, every intermediate
+report re-arms the timer with a fresh from/to pair, so at fire time `from_state` is the
+**penultimate report of the travel**, not the position before the movement. The measured
+"delta" is only the final reporting step (e.g. 97 → 100 = 3), which on granular covers
+is ≤ `position_tolerance` — the whole 0 → 100 hand movement classifies as drift. All
+other branch-9 entry conditions provably pass (settle window keyed on `d`, Bug Pattern
+AP), so the run falls through to the terminal "No operational branch matched" stop with
+no helper write — silently, every time; the `for: 60` never re-fires on the stable
+position (same loss mode as AP).
+
+**Fix:** The per-step dead-band stays (it is Q's protection), but each cover-attribute
+source accepts the event alternatively when `trigger.from_state.state in ['opening',
+'closing']` — a from_state captured while the cover was physically travelling proves a
+real motor movement, which outside the `d` settle window is by definition not CCA's own
+drive and never idle drift (drift reports arrive with the cover idle, state
+`open`/`closed`). No schema change, no new suppression.
+
+**Residuals (accepted, documented):**
+- A cover that reports granular positions but **never** exposes `opening`/`closing`
+  states, and the pathological ordering "state flips back to `open` *before* the final
+  position refinement", both keep the blind spot — workaround: `position_tolerance: 0`
+  (Q's note) at the cost of drift sensitivity.
+- The `custom_sensor` source is unchanged: a sensor has no motion state, and a
+  last-changed/last-updated burst heuristic false-positives on periodically recomputing
+  template sensors and attribute-chatty entities.
+- If `drive_time` underestimates the real travel time, CCA's own drive can already
+  escape the `d` settle window today; the movement-state disjunct widens that existing
+  exposure from single-report to granular covers. `drive_time` must cover the real
+  travel time — pre-existing input contract, not new.
+
+**Rule:** The dead-band measures one *reporting step*, never the *movement* — any
+condition that must classify a movement needs a movement-scoped signal (motion state,
+`d` window), not a per-event delta. Tests: `tests/test_manual_detection_movement.py`.
+
+---
