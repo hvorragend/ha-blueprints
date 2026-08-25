@@ -19,6 +19,7 @@ This comprehensive FAQ covers the most common questions about Cover Control Auto
    - [Which window sensor has higher priority — opened or tilted?](#q-which-window-sensor-has-higher-priority--opened-or-tilted)
 9. [Manual Override & Detection](#manual-override--detection)
 10. [Resident Mode](#resident-mode)
+    - [How do I set up CCA for a vacation (nobody home)?](#q-how-do-i-set-up-cca-for-a-vacation-nobody-home)
 11. [Force Functions & Emergency Control](#force-functions--emergency-control)
     - [What is Force Pause and how is it different from a global condition?](#q-what-is-force-pause-and-how-is-it-different-from-a-global-condition)
 12. [Cover Status Helper](#cover-status-helper)
@@ -1156,6 +1157,71 @@ Result: Cover stays closed (correct!)
 ☑ Allow opening the cover when resident is still present
 ```
 Enables automatic opening even if resident sensor is "on"
+
+---
+
+### Q: How do I set up CCA for a vacation (nobody home)?
+
+**A:** There are two proven approaches — pick one, or mix them per room:
+
+**Option 1: Vacation boolean as resident sensor (keeps covers closed)**
+
+Vacation is, from CCA's point of view, just a very long sleep. Create one
+`input_boolean.vacation_mode` and select it as the **Resident Sensor** in every
+CCA automation that should stay closed:
+
+```yaml
+Resident Sensor: input_boolean.vacation_mode
+
+Resident Configuration:
+☑ Enable automatic closing when resident goes to sleep (immediate)
+☑ Enable automatic opening when resident wakes up
+☐ Allow opening the cover when resident is still present
+☐ Allow sun protection when resident is still present
+☐ Allow ventilation when resident is still present
+```
+
+**Behavior:**
+- Boolean **on** → covers close immediately and stay closed; automatic opening
+  is blocked as long as the boolean is on (leave the three "Allow …" options
+  unchecked, otherwise you punch holes into the vacation close).
+- **Force functions keep working:** a bad-weather / storm **Force Open** has the
+  highest priority in the cascade and overrides the vacation close. Enable
+  **"🔙 Return to Target State After Force Disable"** so the covers close again
+  automatically once the force entity switches off
+  (see [Force Functions](handbook/force#auto_recover_after_force)).
+- Boolean **off** (back home) → the normal schedule takes over again; with
+  "opening enabled" the covers open as soon as the regular time, brightness and
+  sun conditions are met.
+
+**Option 2: Additional Conditions on a vacation boolean (per-cover behavior / presence simulation)**
+
+If all covers stay closed for two weeks, the house looks empty. With the
+per-action [Additional Conditions](handbook/conditions) you can decide **per
+cover** what vacation means — some stay closed, others keep the normal
+morning/evening rhythm as a presence simulation:
+
+```yaml
+# Covers that must stay closed during vacation (e.g. terrace door):
+Additional Condition For Opening The Cover:
+  condition: state
+  entity_id: input_boolean.vacation_mode
+  state: 'off'
+
+# Covers that should keep moving (e.g. living room):
+# → leave the conditions empty; the normal schedule continues.
+```
+
+The inverse also works: a condition on `state: 'on'` for the **closing** side
+lets a cover close during vacation that normally stays open. Unlike the global
+condition, the per-action conditions only suppress that one movement — the
+background state tracking stays intact.
+
+**Also worth knowing:** for a completely different vacation *configuration*
+(other times, other positions), run a second CCA automation for the same cover
+with its own status helper and switch between them — a vacation calendar can do
+the switching for you (see
+[Only run this automation while this switch is on](handbook/features#instance_active)).
 
 ---
 

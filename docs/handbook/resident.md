@@ -39,6 +39,13 @@ Configure how the automation responds to resident sensor changes.
 - **Opening enabled**: Cover opens when resident wakes up, but only if time, brightness, and sun elevation conditions are met
 - **Closing enabled**: Cover closes when resident goes to sleep (immediate, ignores other conditions)
 
+> 💡 **Vacation tip:** The resident sensor does not have to be a bed sensor — a shared
+> `input_boolean.vacation_mode` turns this feature into a whole-house vacation mode:
+> covers close when you leave and stay closed, while Force functions (e.g. a
+> bad-weather force open) keep their higher priority. The full recipe, including a
+> per-cover presence simulation via Additional Conditions, is in the
+> [FAQ](../FAQ#q-how-do-i-set-up-cca-for-a-vacation-nobody-home).
+
 ---
 
 [⬅️ Handbook index](index) · Previous: [🪟 Tilt Positions (Venetian Blinds)](tilt) · Next: [✋ Manual Override & Reset](override)
