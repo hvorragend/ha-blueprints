@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.25
+    **Version**: 2026.08.25 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2697,7 +2697,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.25"
+  version: "2026.08.25 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -8094,7 +8094,13 @@ actions:
                   - "{{ trigger.to_state.attributes.current_position not in invalid_states }}"
                   - "{{ is_number(trigger.from_state.attributes.current_position) }}"
                   - "{{ is_number(trigger.to_state.attributes.current_position) }}"
-                  - "{{ ((trigger.to_state.attributes.current_position | float(0)) - (trigger.from_state.attributes.current_position | float(0))) | abs > position_tolerance }}"
+                  # from_state is the report BEFORE the final one, so a travel
+                  # reported in small steps ends below the drift dead-band -
+                  # a from_state captured mid-movement ('opening'/'closing')
+                  # marks a real motor move regardless (Bug Pattern AX).
+                  - or:
+                      - "{{ ((trigger.to_state.attributes.current_position | float(0)) - (trigger.from_state.attributes.current_position | float(0))) | abs > position_tolerance }}"
+                      - "{{ trigger.from_state.state in ['opening', 'closing'] }}"
 
               # Position change via position attribute
               - and:
@@ -8105,7 +8111,10 @@ actions:
                   - "{{ trigger.to_state.attributes.position not in invalid_states }}"
                   - "{{ is_number(trigger.from_state.attributes.position) }}"
                   - "{{ is_number(trigger.to_state.attributes.position) }}"
-                  - "{{ ((trigger.to_state.attributes.position | float(0)) - (trigger.from_state.attributes.position | float(0))) | abs > position_tolerance }}"
+                  # Mid-movement from_state accepted like above (Bug Pattern AX)
+                  - or:
+                      - "{{ ((trigger.to_state.attributes.position | float(0)) - (trigger.from_state.attributes.position | float(0))) | abs > position_tolerance }}"
+                      - "{{ trigger.from_state.state in ['opening', 'closing'] }}"
 
               # Tilt change detection
               - and:
