@@ -9,6 +9,7 @@ All these settings are optional
 
 - [When movement actions run](#action_lifecycle)
 - [Using custom actions instead of CCA's cover services](#custom_actions_only)
+- [Example: Overkiz combined position and tilt call](#custom_actions_overkiz)
 - [🔼 Additional Actions Before Opening The Cover](#auto_up_action_before)
 - [🔼 Additional Actions After Opening The Cover](#auto_up_action)
 - [🔻 Additional Actions Before Closing The Cover](#auto_down_action_before)
@@ -57,6 +58,34 @@ CCA cannot inspect what a custom action does or verify that the device moved. Re
 Before-actions keep their normal role in this mode: they prepare for the custom movement, but they are not the movement carrier.
 
 Pure tilt-only plans, such as automatic sun-shading slat tracking, have no separate custom-action input. Because **Use custom actions only** disables CCA's built-in tilt service as well, those tilt-only adjustments are skipped: they do not dispatch a movement and do not run a before- or after-action. If your hardware needs continuous custom slat tracking, implement that behavior outside this option's movement after-actions.
+
+---
+
+<a id="custom_actions_overkiz"></a>
+
+## Example: Overkiz combined position and tilt call
+
+The Overkiz integration provides the service `overkiz.set_cover_position_and_tilt`, which sets the cover position **and** the slat tilt in a single command. For Somfy venetian covers (e.g. J4 IO motors) this sidesteps the sequencing constraints of separate position and tilt commands — these motors ignore tilt commands while fully open and re-apply their last tilt target after every positioning run (see [#355](https://github.com/hvorragend/ha-blueprints/issues/355), [#612](https://github.com/hvorragend/ha-blueprints/issues/612) and [#684](https://github.com/hvorragend/ha-blueprints/issues/684), where this recipe was contributed).
+
+Setup:
+
+1. Enable **🔧 Use custom actions only** (Automation Options → Behavior Customization) so CCA's built-in `cover.set_cover_position` / `cover.set_cover_tilt_position` calls and their tilt waits are skipped.
+2. Add the following action to **every** movement after-action — opening, closing, ventilating, activating sun shading and disabling sun shading:
+
+```yaml
+action: overkiz.set_cover_position_and_tilt
+data:
+  tilt_position: "{{ target_tilt_position | default(101) }}"
+  position: "{{ target_position | default(101) }}"
+target:
+  entity_id: "{{ blind }}"
+```
+
+Notes:
+
+- This works only for covers managed through the **Overkiz** integration.
+- In custom-actions-only mode the after-action **is** the movement. A movement type whose after-action does not carry this call will not move the cover — configure all five slots.
+- The tilt-only limitation described above still applies: pure slat-tracking adjustments without a position change are skipped in this mode.
 
 ---
 
