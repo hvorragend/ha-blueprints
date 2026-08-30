@@ -1034,3 +1034,43 @@ condition that must classify a movement needs a movement-scoped signal (motion s
 `d` window), not a per-event delta. Tests: `tests/test_manual_detection_movement.py`.
 
 ---
+
+### Bug Pattern AY: Force-pause resume actuates the ownerless 'opn' resting state (Issue #695)
+
+**Symptom:** On an instance without an opening automation (Morning Opening unchecked —
+the "opens by hand" setup), toggling the Force Pause on and immediately off again pulls
+a closed cover all the way up. Trace: `t_force_pause_disabled` → BRANCH (8a) →
+`resume_state = 'opn'` → drive to the open position.
+
+**Cause:** The AV rule half-applied. `effective_state` returns `'opn'` for `bas ==
+'opn'` regardless of `is_opening_scheduled` (the flag only gates the VENT floor — #553),
+and since #673 the opening-time sync writer flips `bas` to `'opn'` daily even with
+Morning Opening unchecked. The #673 mirror added the closing-side ownership gate
+(`closing_target_owned`) to every automatic drive toward the close position — but the
+opening side got ownership gates only in the recovery reducer (`caught_up_opening_hold`,
+`manual_reset_recovery_hold`). The three reconcilers that map `effective_state`/
+`recovery_target` onto a drive — force-pause resume (8a), force-disable return (8) and
+the BRANCH-10 reset safety net — drove an `'opn'` target with no owning automation.
+
+**Fix:** Mirror of the closing-side clause at all three sites: the `'opn'` target
+actuates only when `is_opening_scheduled` or a live force-open owns it
+(`helper_state_force == 'opn'` in 8a/10 — `effective_state` maps `frc` first, so the
+force keeps its authority; in branch 8 the Last-Wins path already handles a live force).
+The force-disable return additionally lets `shading_ended_during_force` through: a
+shading end swallowed during the force keeps the shading's own restore-to-open
+authority, exactly like the (deliberately ungated) `'opn'` restore of the normal
+shading-end branch. State progress is untouched — the branches still run, still write
+the helper, only the movement is withheld (Invariant 15).
+
+**Deliberately NOT gated:** the shading-end `'opn'` restore and the window-closed
+return-to-open — those drives are owned by the automation that displaced the cover
+(shading / ventilation), not by the opening schedule.
+
+**Rule:** AV's rule, opening-side recurrence: the moment a state value can exist without
+its owning automation, EVERY drive consumer of that value needs an explicit ownership
+gate — auditing only the sites the original issue mentioned leaves the mirror sites to
+recur one by one. When adding such a gate, list every consumer of the target value and
+classify each as schedule-owned (gate) or displacer-owned (leave). Tests:
+`TestOpeningOwnershipGates` in `tests/test_blueprint_logic.py`.
+
+---

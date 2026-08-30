@@ -2365,6 +2365,80 @@ class TestForcePauseDisabledHasBackgroundOpen:
         assert "open_position" in str(targets["opn"]["target"])
 
 
+class TestOpeningOwnershipGates:
+    """
+    #695 (Bug Pattern AY, opening-side recurrence of AV): an 'opn' that only
+    exists as the bas init default or the #673 state-only schedule sync has no
+    owning automation and must never be actuated by a reconciliation. The
+    three reconcilers that project effective_state / recovery_target onto a
+    drive gate their 'opn' target on is_opening_scheduled, with a live
+    force-open keeping its own authority — mirroring the closing-side
+    closing_target_owned clause they already carry.
+    """
+
+    _OPN_CLAUSE = "or is_opening_scheduled or"
+
+    def _handler(self, blueprint, alias):
+        handler = _find_branch_by_alias(blueprint, alias)
+        assert handler is not None, f"handler {alias!r} missing"
+        return handler
+
+    def test_force_pause_resume_gates_the_unowned_opn(self):
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        handler = self._handler(
+            blueprint, "Drive to target position after force pause disabled")
+        will_drive = str(_find_variable_definition(handler, "will_drive"))
+        assert "resume_state != 'opn'" in will_drive
+        assert self._OPN_CLAUSE in will_drive
+        assert "helper_state_force == 'opn'" in will_drive, (
+            "a live force-open mapped to 'opn' by effective_state must keep "
+            "its authority"
+        )
+        # The closing-side clause (#673 mirror) must survive next to it.
+        assert "closing_target_owned" in will_drive
+
+    def test_force_pause_resume_log_line_matches_the_hold(self):
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        handler = self._handler(
+            blueprint, "Drive to target position after force pause disabled")
+        log_user = str(_find_variable_definition(handler, "log_user"))
+        assert "stays where it is" in log_user, (
+            "a withheld resume must not log as if a movement happened"
+        )
+
+    def test_force_disable_return_gates_the_unowned_opn(self):
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        handler = self._handler(
+            blueprint, "Force disabled recovery: drive to background target")
+        will_drive = str(_find_variable_definition(handler, "will_drive"))
+        assert "is_opening_scheduled" in will_drive
+        assert "shading_ended_during_force" in will_drive, (
+            "a shading end swallowed during the force keeps the shading's "
+            "restore-to-open authority (mirrors the ungated shading-end 'opn')"
+        )
+        assert "closing_target_owned" in will_drive
+
+    def test_reset_safety_net_gates_the_unowned_opn(self):
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        handler = self._handler(blueprint, "Reset manual detection")
+        will_drive = str(_find_variable_definition(handler, "reset_will_drive"))
+        assert "reset_state != 'opn'" in will_drive
+        assert self._OPN_CLAUSE in will_drive
+        assert "helper_state_force == 'opn'" in will_drive
+
+    def test_the_displacer_owned_opn_restores_stay_ungated(self):
+        """The shading-end 'opn' restore is owned by the shading itself (the
+        automation that displaced the cover), not by the opening schedule —
+        gating it would strand shading-only setups at the shading position."""
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        handler = _find_branch_by_alias(
+            blueprint, "Shading end reconciliation: non-ventilation target")
+        assert handler is not None, (
+            "shading-end reconciliation shape changed - re-audit Bug Pattern "
+            "AY's consumer classification before adapting this test"
+        )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Tests: contact "window closed" return respects privacy gate, not bare presence
 # ─────────────────────────────────────────────────────────────────────────────

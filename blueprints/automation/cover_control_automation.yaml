@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.25 V2
+    **Version**: 2026.08.30
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2697,7 +2697,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.25 V2"
+  version: "2026.08.30"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -7863,7 +7863,6 @@ actions:
           - variables:
               resume_state: "{{ effective_state if effective_state in ['lock', 'vnt', 'shd', 'cls'] else 'opn' }}"
               reconcile_state: "{{ resume_state }}"
-              log_user: "force pause is over, back to: {{ state_labels[resume_state] }}"
               log_extra: "force pause disabled; resuming to {{ resume_state }}"
           - &target_condition_gate
             alias: "Reconciliation: evaluate the target's additional condition"
@@ -7900,12 +7899,18 @@ actions:
               - variables:
                   target_condition_ok: false
           - variables:
-              # The 'cls' target is closing-owned (#673 mirror); a force-close
-              # mapped to 'cls' by effective_state keeps its own authority
+              # The 'cls' target is closing-owned (#673 mirror) and the 'opn'
+              # target is opening-owned (#695): an 'opn' that only exists as the
+              # bas init default or a state-only schedule sync must not be
+              # actuated. A force mapped to either target by effective_state
+              # keeps its own authority
               will_drive: >-
                 {{ target_condition_ok and not is_paused and
                    (resume_state != 'cls' or closing_target_owned or
-                    helper_state_force == 'cls') }}
+                    helper_state_force == 'cls') and
+                   (resume_state != 'opn' or is_opening_scheduled or
+                    helper_state_force == 'opn') }}
+              log_user: "{{ 'force pause is over, back to: ' ~ state_labels[resume_state] if will_drive else 'force pause is over, the cover stays where it is' }}"
               drive_plan:
                 run: "{{ will_drive }}"
                 action_set: "{{ state_targets[resume_state].action_set }}"
@@ -8008,16 +8013,20 @@ actions:
                               - "{{ target_condition_ok }}"
                             sequence:
                               - variables:
-                                  # 'cls' is closing-owned (#673 mirror): the automatic
-                                  # return after a force disable must not close when
-                                  # Evening Closing is unchecked - the state is synced,
-                                  # the cover stays put
+                                  # 'cls' is closing-owned (#673 mirror) and 'opn' is
+                                  # opening-owned (#695): the automatic return after a
+                                  # force disable must not actuate a target whose
+                                  # automation does not exist - the state is synced,
+                                  # the cover stays put. A shading end swallowed during
+                                  # the force keeps the shading's own restore-to-open
+                                  # authority (mirrors the ungated shading-end 'opn')
                                   will_drive: >-
                                     {{ not is_paused and
                                        {'cls': force_allows_close and closing_target_owned,
                                         'shd': force_allows_shade,
                                         'lock': force_allows_ventilate,
-                                        'opn': force_allows_open}[recovery_target] }}
+                                        'opn': force_allows_open and
+                                               (is_opening_scheduled or shading_ended_during_force)}[recovery_target] }}
                                   drive_plan: "{{ dict(state_targets[recovery_target], run=will_drive) }}"
                                   log_user: "force function switched off, back to: {{ state_labels[recovery_target] }}{{ ', the sun shading had ended meanwhile' if shading_ended_during_force else '' }}"
                                   log_extra: "force disabled; recovery_target={{ recovery_target }}{{ '; shading end conditions met, shd cleared' if shading_ended_during_force else '' }}"
@@ -8249,12 +8258,15 @@ actions:
                    else force_allows_close }}
           - *target_condition_gate
           - variables:
-              # 'cls' is closing-owned (#673 mirror); a force-close mapped to
-              # 'cls' by effective_state keeps its own authority
+              # 'cls' is closing-owned (#673 mirror) and 'opn' is opening-owned
+              # (#553/#695); a force mapped to either target by effective_state
+              # keeps its own authority
               reset_will_drive: >-
                 {{ target_condition_ok and not is_paused and reset_force_allows and
                    (reset_state != 'cls' or closing_target_owned or
-                    helper_state_force == 'cls') }}
+                    helper_state_force == 'cls') and
+                   (reset_state != 'opn' or is_opening_scheduled or
+                    helper_state_force == 'opn') }}
               drive_plan: "{{ dict(state_targets[reset_state], run=reset_will_drive, delay_s=drive_delay_standard) }}"
               update_values:
                 man: 0
