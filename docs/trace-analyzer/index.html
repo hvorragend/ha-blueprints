@@ -1961,7 +1961,7 @@
             const steps = parseExecutionSteps(innerTrace, lastStep);
 
             // Render everything
-            renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId, innerTrace);
+            renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId, innerTrace, variables);
             renderLastStepAnalysis(lastStep, innerTrace, branchInfo);
 
             // OPT #2: Render Branch Decision Tree
@@ -2962,8 +2962,60 @@
             return steps;
         }
 
-        function renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId, innerTrace) {
+        // Configuration diagnosis: the one runtime state that keeps producing
+        // "opens too early / closes too late" reports (issues #595, #661) - time
+        // control switched off (the time_control_enabled checkbox is missing, e.g.
+        // a config saved before the ~2026.05 options consolidation) while the
+        // brightness/sun triggers still fire. Nothing in the run itself is wrong,
+        // so no branch or condition panel would ever point at it.
+        function isTruthyVar(value) {
+            return value === true || value === 'True' || value === 'true';
+        }
+
+        function buildConfigDiagnosis(variables, triggerInfo) {
+            if (!variables || !isTruthyVar(variables.is_time_control_disabled)) return '';
+            const upOrDown = isTruthyVar(variables.is_up_enabled) || isTruthyVar(variables.is_down_enabled);
+            if (!upOrDown) return '';
+
+            const hasSensorSource = isTruthyVar(variables.is_brightness_enabled) || isTruthyVar(variables.is_sun_elevation_enabled);
+            const sensorTrigger = /^t_(open|close)_[45]$/.test(triggerInfo.id || '');
+            const fix = 'If time windows are wanted, open the automation, check <strong>⏲️ Time Control</strong> in ' +
+                '<em>"What should CCA control?"</em> and save. Configurations saved before ~2026.05 do not store this ' +
+                'checkbox and lost their time windows with the 2026.07.12 update (breaking change, see the ' +
+                '<a href="https://hvorragend.github.io/ha-blueprints/FAQ" target="_blank">FAQ</a>).';
+
+            let title, detail;
+            if (hasSensorSource) {
+                title = sensorTrigger
+                    ? 'Time Control is off - this run moved on a sensor threshold without a time window'
+                    : 'Time Control is off - Brightness / Sun Elevation triggers fire without a time window';
+                detail = 'The Early/Late opening and closing times are ignored while the ⏲️ Time Control checkbox is ' +
+                    'unchecked. The cover opens as soon as the brightness or sun elevation threshold is crossed ' +
+                    '(typically around sunrise) and closes at the evening threshold, regardless of the configured ' +
+                    'earliest time. In the variables this reads as <code>is_time_control_disabled: true</code> with ' +
+                    '<code>is_opening_phase: false</code> but <code>should_be_open_now: true</code>. ' + fix;
+            } else {
+                title = 'Time Control is off - no automatic opening/closing trigger left';
+                detail = 'Morning Opening / Evening Closing is enabled, but the ⏲️ Time Control checkbox is unchecked and ' +
+                    'no Brightness / Sun Elevation source is configured, so nothing schedules the cover. ' + fix;
+            }
+
+            return `
+                <div class="summary-card" style="grid-column: 1 / -1; background: rgba(234, 179, 8, 0.1); border-color: var(--accent-yellow);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.5rem;">⚠️</span>
+                        <div>
+                            <div class="card-value" style="color: var(--accent-yellow); font-size: 1rem;">${title}</div>
+                            <div class="card-detail">${detail}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSummary(state, scriptExecution, triggerInfo, branchInfo, timestamp, lastStep, runId, innerTrace, variables) {
             const startTime = timestamp.start ? new Date(timestamp.start).toLocaleString('de-DE') : 'N/A';
+            const configDiagnosis = buildConfigDiagnosis(variables, triggerInfo);
             const duration = timestamp.start && timestamp.finish ?
                 ((new Date(timestamp.finish) - new Date(timestamp.start)) / 1000).toFixed(1) + 's' : 'N/A';
 
@@ -2983,7 +3035,7 @@
             const statusDisplay = (scriptExecution === 'finished' || state === 'stopped') ? '✅ Finished' : '🛑 Stopped';
             const statusClass = (scriptExecution === 'finished' || state === 'stopped') ? 'status-finished' : 'status-stopped';
 
-            document.getElementById('summaryGrid').innerHTML = `${repairWarning}
+            document.getElementById('summaryGrid').innerHTML = `${repairWarning}${configDiagnosis}
                 <div class="summary-card ${statusClass}">
                     <div class="card-label">Execution Status</div>
                     <div class="card-value">${statusDisplay}</div>
