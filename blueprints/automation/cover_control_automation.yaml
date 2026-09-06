@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.25 V2
+    **Version**: 2026.09.06
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2043,7 +2043,11 @@ blueprint:
             You can use this, for example, if the covers normally don't open, but you really want to do it on vacation.
             <br /><br />
             If the result of this condition is <ins>true</ins>, the automation will continue.<br />
-            The result of the conditions must be <ins>false</ins>, for the automation to stop in this sequence.
+            If it is <ins>false</ins>, CCA does not send the opening movement — neither at the opening time nor as
+            a later return to the open position (e.g. when sun shading ends, a window closes or after a restart).
+            The internal day state still advances at the opening time, so a cover you open by hand is treated as
+            open for the rest of the day instead of being closed again by the next automatic event.
+            Sun shading and ventilation keep their own conditions and are not affected.
           default: []
           selector:
             condition: {}
@@ -2697,7 +2701,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.25 V2"
+  version: "2026.09.06"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -6044,6 +6048,20 @@ actions:
             {% set s_tlt = is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %}
             {{ 'opn' if s_opn else 'tlt' if s_tlt else helper_state_window if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' }}
 
+      # The opening condition is an effect gate, not a flip gate (#698): it
+      # withholds every drive toward the open position, never the base
+      # transition. Evaluated once here; every live consumer aliases the node.
+      - alias: "Recovery: the user's opening condition decides the opening drive"
+        if:
+          - &auto_up_condition_check
+            condition: !input auto_up_condition
+        then:
+          - variables:
+              recovered_up_ok: true
+        else:
+          - variables:
+              recovered_up_ok: false
+
       - alias: "Recovery: the user's ventilation condition decides the ventilation floor"
         choose:
           - alias: "Recovery: ventilation floor allowed"
@@ -6061,8 +6079,6 @@ actions:
                       - "{{ recovery_catch_up and recovered_base == 'opn' and helper_state_base != 'opn' }}"
                       - "{{ base_gates.opening.schedule_ok }}"
                       - "{{ base_gates.opening.once_ok }}"
-                      - &auto_up_condition_check
-                        condition: !input auto_up_condition
                     sequence:
                       - variables:
                           new_base: "opn"
@@ -6180,6 +6196,14 @@ actions:
                                    recovered_state != 'lock' }}
                               recovery_vent_condition_hold: >-
                                 {{ recovered_state in ['lock', 'vnt'] and not recovered_vent_ok }}
+                              # Mirrors the live normal-opening will_drive (#698): a
+                              # refused opening condition withholds every drive toward
+                              # the open position - flip and reposition alike - while
+                              # the base state persists; a live force-open keeps its
+                              # own authority
+                              recovery_up_condition_hold: >-
+                                {{ recovered_state == 'opn' and not recovered_up_ok and
+                                   live_force == 'non' }}
                               recovery_allowed: >-
                                 {{ not defer_to_shading and
                                    not defer_to_shading_end and
@@ -6244,7 +6268,7 @@ actions:
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (opening condition)' if recovery_up_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one
@@ -6252,7 +6276,8 @@ actions:
                                 {{ recovery_catch_up and not is_paused and recovery_allowed and
                                    not caught_up_closing_hold and not caught_up_opening_hold and
                                    not closing_ownership_hold and transition_manual_allows and
-                                   not recovery_vent_condition_hold and not manual_reset_recovery_hold }}
+                                   not recovery_vent_condition_hold and not recovery_up_condition_hold and
+                                   not manual_reset_recovery_hold }}
                           - variables:
                               drive_plan:
                                 run: "{{ will_drive }}"
@@ -6337,18 +6362,18 @@ actions:
       #   Note: Always updates base state, movement only if conditions allow
       ############################################################
 
-      # Deliberately NOT gated on is_up_enabled: the opening-time triggers exist
-      # whenever any schedule source is configured, and the base transition to
-      # 'opn' is state progress that must survive an unchecked Morning Opening -
-      # otherwise an evening 'cls' has no writer that ever expires it and every
-      # reconciliation (override reset, shading end, recovery) replays the stale
-      # closed state all day (#673). Only the opening DRIVE is feature-gated,
-      # inside the normal-opening will_drive below.
+      # Deliberately NOT gated on is_up_enabled or the user's opening condition:
+      # the opening-time triggers exist whenever any schedule source is
+      # configured, and the base transition to 'opn' is state progress that must
+      # survive an unchecked Morning Opening (#673) or a refused additional
+      # condition (#698) - otherwise an evening 'cls' has no writer that ever
+      # expires it and every reconciliation (override reset, shading end,
+      # recovery) replays the stale closed state all day. Only the opening
+      # DRIVE is gated, inside the normal-opening will_drive below.
       - alias: "Check for opening"
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_open|t_calendar_event)') }}"
-          - *auto_up_condition_check
           - "{{ base_gates.opening.once_ok }}"
           - "{{ base_gates.opening.schedule_ok }}"
         sequence:
@@ -6473,6 +6498,17 @@ actions:
                 conditions:
                   - "{{ not in_shading_position or not helper_state_shade }}" # Defer to Shading End only while shading is active (shd == 1) - with shd == 0 the shading-end triggers are blocked and the cover would never open (Issue #565)
                 sequence:
+                  # The user's opening condition gates the opening movement only
+                  # (#698) - the same node the recovery evaluates before its flip
+                  - alias: "Opening: evaluate the user's opening condition"
+                    if:
+                      - *auto_up_condition_check
+                    then:
+                      - variables:
+                          up_condition_ok: true
+                    else:
+                      - variables:
+                          up_condition_ok: false
                   - choose:
                       - alias: "Opening reconciliation: full-window lockout allowed"
                         conditions:
@@ -6486,12 +6522,13 @@ actions:
                               will_drive: "{{ not is_paused and force_allows_ventilate }}"
                     default:
                       - variables:
-                          # is_up_enabled: with Morning Opening unchecked the branch
-                          # runs as a pure base-state sync - the transition persists,
-                          # the opening movement stays with the feature (#673)
+                          # is_up_enabled / up_condition_ok: with Morning Opening
+                          # unchecked (#673) or the opening condition refused (#698)
+                          # the branch runs as a pure base-state sync - the
+                          # transition persists, the opening movement is withheld
                           will_drive: >-
                             {{ effective_state != 'lock' and not is_paused and
-                               is_up_enabled and
+                               is_up_enabled and up_condition_ok and
                                base_gates.opening.override_ok and resident_flags.allow_open and
                                (force_allows_open or trigger.id is match('^t_force_')) }}
                   - variables:
@@ -7295,16 +7332,26 @@ actions:
                             sequence:
                               - variables:
                                   shading_end_target_condition_ok: true
+                          # The open target honours the user's opening condition
+                          # (#698) - a shading end must not perform an opening the
+                          # condition currently refuses; the state still ends
+                          - alias: "Shading end reconciliation: opening target allowed"
+                            conditions:
+                              - "{{ shading_end_state == 'opn' }}"
+                              - *auto_up_condition_check
+                            sequence:
+                              - variables:
+                                  shading_end_target_condition_ok: true
                           - alias: "Shading end reconciliation: non-ventilation target"
                             conditions:
-                              - "{{ shading_end_state not in ['lock', 'vnt'] }}"
+                              - "{{ shading_end_state not in ['lock', 'vnt', 'opn'] }}"
                             sequence:
                               - variables:
                                   shading_end_target_condition_ok: true
                         default:
                           - variables:
-                              # Only lock/vnt can reach this default: their
-                              # configured ventilation condition refused.
+                              # Only lock/vnt/opn can reach this default: their
+                              # configured ventilation/opening condition refused.
                               shading_end_target_condition_ok: false
                       - variables:
                           # The 'cls' destination is closing-owned (#673 mirror): a
@@ -7649,6 +7696,27 @@ actions:
                   - "{{ was_ventilating }}"
                   - condition: !input auto_ventilate_end_condition
                 sequence:
+                  # The open return honours the user's opening condition (#698):
+                  # a refused condition leaves the cover at the ventilation
+                  # position instead of performing the opening it withholds
+                  - alias: "Window closed: evaluate the open target's condition"
+                    choose:
+                      - alias: "Return condition: opening target allowed"
+                        conditions:
+                          - "{{ return_target == 'opn' }}"
+                          - *auto_up_condition_check
+                        sequence:
+                          - variables:
+                              return_condition_ok: true
+                      - alias: "Return condition: non-opening target"
+                        conditions:
+                          - "{{ return_target != 'opn' }}"
+                        sequence:
+                          - variables:
+                              return_condition_ok: true
+                    default:
+                      - variables:
+                          return_condition_ok: false
                   - variables:
                       # The 'cls' return is closing-owned (#673 mirror): without a
                       # closing automation it only runs to undo a real ventilation
@@ -7656,14 +7724,14 @@ actions:
                       # resident privacy close - a hand-opened cover whose tilt was
                       # merely recorded stays where the user put it.
                       will_drive: >-
-                        {{ not is_paused and manual_allows_event.vnt and
+                        {{ return_condition_ok and not is_paused and manual_allows_event.vnt and
                            {'shd': force_allows_shade,
                             'opn': not prevent_flags.opening_after_ventilation_end and force_allows_open,
                             'cls': force_allows_close and
                                    (is_closing_scheduled or resident_blocks_open or
                                     in_ventilate_position)}[return_target] }}
                       drive_plan: "{{ dict(state_targets[return_target], run=will_drive, delay_s=drive_delay_standard if ventilation_flags.delay_enabled else 0) }}"
-                      log_user: "the window was closed again, back to: {{ state_labels[return_target] }}"
+                      log_user: "{{ 'the window was closed again, back to: ' ~ state_labels[return_target] if return_condition_ok else 'the window was closed again, but the opening condition refused movement' }}"
                       log_extra: "window closed; return_target={{ return_target }}"
                       update_values: >-
                         {% set base = {'win': 'cls'} %}

@@ -1026,12 +1026,14 @@ class TestCaughtUpClosingHold:
         assert "closing_ownership_hold" in will_drive
         assert "transition_manual_allows" in will_drive
         assert "recovery_vent_condition_hold" in will_drive
+        assert "recovery_up_condition_hold" in will_drive
         assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
                             recovery_allowed=True, caught_up_closing_hold=False,
                             caught_up_opening_hold=False,
                             closing_ownership_hold=True,
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
+                            recovery_up_condition_hold=False,
                             recovered_state="cls", caught_up_closing=True,
                             manual_allows_event={"vnt": True},
                             override_expired=False) is False
@@ -1040,6 +1042,7 @@ class TestCaughtUpClosingHold:
                             caught_up_opening_hold=False,
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
+                            recovery_up_condition_hold=False,
                             recovered_state="cls", caught_up_closing=True,
                             manual_allows_event={"vnt": True},
                             override_expired=False) is False
@@ -1048,6 +1051,7 @@ class TestCaughtUpClosingHold:
                             caught_up_opening_hold=False,
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
+                            recovery_up_condition_hold=False,
                             recovered_state="cls", caught_up_closing=True,
                             manual_allows_event={"vnt": True},
                             override_expired=False) is True
@@ -1056,6 +1060,16 @@ class TestCaughtUpClosingHold:
                             caught_up_opening_hold=True,
                             transition_manual_allows=True,
                             recovery_vent_condition_hold=False,
+                            recovery_up_condition_hold=False,
+                            recovered_state="opn", caught_up_closing=False,
+                            manual_allows_event={"vnt": True},
+                            override_expired=False) is False
+        assert _render_bool(will_drive, {}, recovery_catch_up=True, is_paused=False,
+                            recovery_allowed=True, caught_up_closing_hold=False,
+                            caught_up_opening_hold=False,
+                            transition_manual_allows=True,
+                            recovery_vent_condition_hold=False,
+                            recovery_up_condition_hold=True,
                             recovered_state="opn", caught_up_closing=False,
                             manual_allows_event={"vnt": True},
                             override_expired=False) is False
@@ -2431,22 +2445,52 @@ class TestRecoveryTriggers:
         replayed as if it had merely been missed (real report: opening blocked all morning by
         an additional condition, a restart flipped bas to opn and the cover opened). The flip
         direction decides which condition applies, so it has to be a choose; the shared
-        anchor keeps the downstream reconciliation structurally identical."""
+        anchor keeps the downstream reconciliation structurally identical.
+
+        Since #698 the OPENING condition is an effect gate like is_up_enabled: the
+        opening flip carries no !input condition any more - the base state advances,
+        and recovery_up_condition_hold withholds the drive toward the open position
+        (the report's movement stays suppressed, only the state progresses). The
+        closing flip keeps auto_down_condition as a flip gate."""
         branches = self._direction_gate()["choose"]
-        by_input = {
-            next(c["condition"] for c in b["conditions"]
-                 if isinstance(c, dict) and "condition" in c):
-            next(c for c in b["conditions"] if isinstance(c, str))
-            for b in branches
-        }
-        assert set(by_input) == {"auto_up_condition", "auto_down_condition"}
-        assert "'opn'" in by_input["auto_up_condition"]
-        assert "'cls'" in by_input["auto_down_condition"]
+        opening = next(b for b in branches if "opening" in b["alias"])
+        closing = next(b for b in branches if "closing" in b["alias"])
+        assert not any(isinstance(c, dict) and "condition" in c
+                       for c in opening["conditions"])
+        assert "'opn'" in next(c for c in opening["conditions"] if isinstance(c, str))
+        closing_input = next(c["condition"] for c in closing["conditions"]
+                             if isinstance(c, dict) and "condition" in c)
+        assert closing_input == "auto_down_condition"
+        assert "'cls'" in next(c for c in closing["conditions"] if isinstance(c, str))
         # Both flip branches and the default run the SAME body (the anchor), so refusing a
         # flip never costs the hygiene - it only keeps the base state.
         bodies = [b["sequence"][-1]["default"] for b in branches]
         bodies.append(self._direction_gate()["default"][-1]["default"])
         assert all(body is bodies[0] for body in bodies), "the shared body is not one anchor"
+
+    def test_the_opening_condition_is_evaluated_before_the_flip_and_holds_the_drive(self):
+        """#698: the opening condition is evaluated once, before the flip, into
+        recovered_up_ok; the hold withholds exactly the opn drive (flip AND
+        reposition - a restart at noon must not open a cover the condition kept
+        closed all morning), and a live force-open keeps its own authority."""
+        step = next(s for s in _walk_steps(_branch_body(RECOVERY))
+                    if "opening condition" in str(s.get("alias", "")))
+        assert step["if"] == [{"condition": "auto_up_condition"}]
+        assert step["then"][0]["variables"]["recovered_up_ok"] is True
+        assert step["else"][0]["variables"]["recovered_up_ok"] is False
+        hold = _branch_var(RECOVERY, "recovery_up_condition_hold")
+        assert _render_bool(hold, {}, recovered_state="opn", recovered_up_ok=False,
+                            live_force="non") is True
+        assert _render_bool(hold, {}, recovered_state="opn", recovered_up_ok=True,
+                            live_force="non") is False
+        assert _render_bool(hold, {}, recovered_state="opn", recovered_up_ok=False,
+                            live_force="opn") is False
+        for state in ("lock", "vnt", "shd", "cls"):
+            assert _render_bool(hold, {}, recovered_state=state, recovered_up_ok=False,
+                                live_force="non") is False
+        # the hold is a drive gate, never a write gate
+        assert "recovered_up_ok" not in str(_recovery_update_values())
+        assert "recovery_up_condition_hold" not in str(_recovery_update_values())
 
     def test_recovery_flag_is_a_static_trigger_variable(self):
         """`enabled:` is evaluated in the limited trigger context (Invariant 10) - the flags

@@ -1243,7 +1243,16 @@ Additional Condition For Opening The Cover:
 The inverse also works: a condition on `state: 'on'` for the **closing** side
 lets a cover close during vacation that normally stays open. Unlike the global
 condition, the per-action conditions only suppress that one movement — the
-background state tracking stays intact.
+background state tracking stays intact (for the opening condition since
+`2026.09.06`, [#698](https://github.com/hvorragend/ha-blueprints/issues/698)).
+
+Note for covers with **sun shading** configured: the opening condition only
+withholds movements *toward the open position*. Because the internal day state
+still switches to "open" at the opening time, a sun shading that starts on a
+still-closed cover raises it to the shading position, and at the shading end
+the cover stays there (the opening is withheld). If such a cover must not move
+at all during vacation, put the same vacation condition into **🥵 Additional
+Condition When Activating Sun Shading** as well — or use Option 1 (Force Close).
 
 **Real-world example — selective vacation closing on a door cover:**
 
@@ -2095,7 +2104,9 @@ Additional Condition For Opening:
   entity_id: input_boolean.vacation_mode
   state: 'off'
 
-Result: Covers stay closed during vacation
+Result: No automatic opening during vacation (the day state still advances,
+        so a cover opened by hand is treated as open; sun shading keeps its
+        own condition — see the vacation entry above)
 ```
 
 **Party Mode:**

@@ -807,6 +807,7 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
         closed_common = dict(
             is_paused=False,
             return_target="opn",
+            return_condition_ok=True,
             prevent_flags={"opening_after_ventilation_end": False},
             force_allows_shade=True,
             force_allows_open=True,

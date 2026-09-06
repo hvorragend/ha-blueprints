@@ -321,3 +321,32 @@ precise about what it does and doesn't cover:
   meaningfully harder to get right than the single-source `is_opening_scheduled` case. Do not
   re-attempt it casually "for consistency" — if you do, both sources must be covered and the
   #677 regression must not reappear.
+
+### `auto_up_condition` is an effect gate, `auto_down_condition` stays an entry gate (#698, CCA 2026.09.06)
+
+Since #698 the opening condition no longer sits in the "Check for opening" entry or in the
+recovery's opening flip: the base transition to `'opn'` is state progress (Invariant 15), and
+the condition withholds the drives toward the open position at their point of use — the
+normal-opening `will_drive` (`up_condition_ok`), `recovery_up_condition_hold`, the shading-end
+open target, the window-closed open return and the three `target_condition_gate` sites (Bug
+Pattern AY). The closing condition is **deliberately not mirrored** — it still gates the whole
+"Check for closing cover" entry and the closing flip, and `TestClosedEntryStructure` pins the
+asymmetry. Do not "harmonize" it without doing all of the following:
+
+- A state-only `bas: 'cls'` written while `auto_down_condition` refuses would sit next to a
+  **true** `is_closing_scheduled` / `closing_target_owned` — a `!input` condition cannot join
+  those `trigger_variables` flags (Invariant 10), and the whole #673-mirror ownership layer
+  (window-closed return, partial-ventilation pull-down, shading-end `cls`, force-disable
+  return, force-pause resume, resident chains, `closing_ownership_hold`) is built on them. Every
+  one of those consumers would then perform the closing the user just refused: party mode on,
+  a window closed after ventilation → the cover closes during the party. The opening side has
+  no such layer to fight — its `opn` consumers are the short list above, all covered.
+- Each of those consumers would need the down condition evaluated at drive time (a YAML
+  condition position each), which is exactly the widening the reverted `is_closing_scheduled`
+  attempt in the #677 history warns about: two legitimate `'cls'` sources (schedule and
+  `privacy_active`) make the closing gate meaningfully harder than the opening one.
+- The accepted cost of not mirroring: a refused `auto_down_condition` still latches
+  `bas: 'opn'` overnight, so a hand-closed cover may be reopened by a night reconciliation
+  (the #677 class). That is the pre-#698 behavior, documented in the changelog — a user who
+  needs the closing side too should open an issue with the concrete configuration so the
+  ownership layer can be extended deliberately.

@@ -25,7 +25,7 @@ This condition allows you to control the execution of the <ins>entire</ins> auto
 
 > 🧩 Input: `auto_up_condition`
 
-This condition can be used to dynamically control the <ins>opening</ins> of the cover. You can use this, for example, if the covers normally don't open, but you really want to do it on vacation. <br /><br /> If the result of this condition is <ins>true</ins>, the automation will continue.<br /> The result of the conditions must be <ins>false</ins>, for the automation to stop in this sequence.
+This condition can be used to dynamically control the <ins>opening</ins> of the cover. You can use this, for example, if the covers normally don't open, but you really want to do it on vacation. <br /><br /> If the result of this condition is <ins>true</ins>, the automation will continue.<br /> If it is <ins>false</ins>, CCA does not send the opening movement — neither at the opening time nor as a later return to the open position (e.g. when sun shading ends, a window closes or after a restart). The internal day state still advances at the opening time, so a cover you open by hand is treated as open for the rest of the day instead of being closed again by the next automatic event. Sun shading and ventilation keep their own conditions and are not affected.
 
 ---
 

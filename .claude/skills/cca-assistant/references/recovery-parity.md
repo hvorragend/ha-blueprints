@@ -55,7 +55,8 @@ by every live consumer. Never copy either kind inline.
 |---|---|---|
 | `base_gates.{opening,closing}.{override_ok,once_ok,schedule_ok}` | "Check for opening"/"Check for closing" entries | the flip conditions (compositions below) |
 | `closing_position_hold` | "Only status change if cover is shaded…" | part of `caught_up_closing_hold` |
-| `&auto_up_condition_check` / `&auto_down_condition_check` | branch entries (alias) | flip conditions (anchor) |
+| `&auto_down_condition_check` | "Check for closing" entry (alias) | closing flip condition (anchor) |
+| `&auto_up_condition_check` | normal-opening drive gate (`up_condition_ok`), shading-end open target, window-closed open return, `target_condition_gate` (alias) | evaluated once before the flip into `recovered_up_ok` → `recovery_up_condition_hold` (anchor); the opening flip carries no `!input` condition (#698) |
 | `&auto_ventilate_condition_check` | live ventilation/lockout leaves (closing C-B, opening lockout, shading-end vent, contact full/tilt, resident lockout/tilt paths, force-disable vent) | captures `recovered_vent_ok` for the caught-up closing fallback and the lockout drive hold |
 | `environment_allows_opening/closing` | inside `schedule_ok` | same instance |
 | `state_targets` / `state_labels` | every drive branch | recovery drive |
@@ -143,8 +144,9 @@ shading active/pending, prevent options, force, pause, resident privacy.
 
 | Situation | Live | Recovery | Status |
 |---|---|---|---|
-| entry gates | `base_gates.opening.*` + anchored condition | same + compositions | shared |
+| entry gates | `base_gates.opening.*` only (no anchored condition since #698) | same + compositions | shared |
 | `is_up_enabled` (Morning Opening unchecked) | NOT an entry condition — the base flip is state progress (#673); only the "Normal opening" `will_drive` carries the feature gate | `recovered_base` flips on `is_daytime_phase` alone; `caught_up_opening_hold` withholds exactly the `recovered_state == 'opn'` drive (`live_force == 'non'`), overlay targets and force-open keep their authority | shared (state-only sync in both paths) |
+| `auto_up_condition` refused | NOT an entry condition (#698) — the branch enters, the base flips, the state-only sub-branches run; "Normal opening" evaluates the node into `up_condition_ok` and withholds its drive. Shading-detected and lockout drives keep their own ownership | the node is evaluated before the flip (`recovered_up_ok`); `recovery_up_condition_hold` withholds **every** `recovered_state == 'opn'` drive — flip and reposition (a restart at noon must not open the cover the condition kept closed); `live_force == 'non'` keeps a force-open's authority | shared (state-only sync in both paths); the reposition hold is a drive-time evaluation with no live event to compare, same class as `recovery_vent_condition_hold` |
 | manual override, ignore option active | base transition persists, drive is suppressed and `man` remains | flip persists the same transition; drive gate consumes `override_ok` | shared |
 | manual override, no ignore option | O-E permits a drive; central dispatch clears `man` only if position/tilt differs and ownership is still live | same | shared |
 | shading warranted (O-A) / pending (O-D) | arm/defer | `recovered_pending` re-evaluates; `defer_to_shading` | re-evaluation semantic (R5) |
@@ -185,7 +187,10 @@ opening that lands in shading.
 
 1. Put the predicate into `base_gates.<direction>` (or a new named projection);
    a `!input` condition becomes an anchored node defined at the recovery and
-   aliased live.
+   aliased live. Decide first whether it gates the *transition* (closing
+   condition: entry + flip) or the *drive* (opening condition since #698:
+   evaluated once per path into a flag, consumed by every drive toward that
+   target) — Invariant 15 says a blocker on a movement is the latter.
 2. Decide its recovery composition: verbatim, composed with a repair term, or a
    genuine R-row (then: rationale + a test that asserts the deviation).
 3. `TestClosedEntryStructure` WILL fail on any inline addition — extend its

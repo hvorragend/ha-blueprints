@@ -408,11 +408,12 @@ class TestShadingEndProspectiveCascade:
             )
         )
 
-        def verdict(state, allowed):
+        def verdict(state, allowed, up_allowed=True):
             variables = {
                 "shading_end_state": state,
                 "_input_verdicts": {
                     "auto_ventilate_condition": allowed,
+                    "auto_up_condition": up_allowed,
                 },
             }
             alias = _first_matching_alias(_env(), gate_step["choose"], variables)
@@ -430,6 +431,13 @@ class TestShadingEndProspectiveCascade:
         assert verdict("vnt", True) is True
         assert verdict("lock", True) is True
         assert verdict("opn", False) is True
+        # #698: the open target honours the user's opening condition - a shading
+        # end must not perform an opening the condition currently refuses. The
+        # other targets are not the opening condition's business.
+        assert verdict("opn", True, up_allowed=False) is False
+        assert verdict("opn", False, up_allowed=True) is True
+        for target in ("cls", "shd"):
+            assert verdict(target, False, up_allowed=False) is True
 
     def test_non_open_shading_end_leaves_preserve_schedule_base_and_open_stamp(self):
         blueprint = _load_blueprint_yaml()

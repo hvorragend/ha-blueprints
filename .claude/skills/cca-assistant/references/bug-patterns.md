@@ -1034,3 +1034,62 @@ condition that must classify a movement needs a movement-scoped signal (motion s
 `d` window), not a per-event delta. Tests: `tests/test_manual_detection_movement.py`.
 
 ---
+### Bug Pattern AY: The opening condition gated the whole opening event — a refused `auto_up_condition` latched the evening `cls` all day (Issue #698)
+
+**Symptom:** Morning Opening enabled plus an **Additional Condition For Opening** that is
+false on most days (the FAQ's vacation pattern: only open while `input_boolean.vacation_mode`
+is `on`). On a normal day the user opens the cover by hand; every later reconciliation that
+reads `bas` — a sun-shading end, an opted-in Manual Override reset, a force disable, a
+restart catch-up — drives the cover **back to the close position**. The exact #673 (Bug
+Pattern AV) failure shape, reached through the condition instead of the feature switch.
+
+**Cause:** `&auto_up_condition_check` sat in the top-level `conditions:` of "Check for
+opening" (and, since V6, in the recovery's opening flip), so a refused condition blocked
+**every** sub-branch — including "Already in open position - only update base state" and
+the shading-pending arming — although the branch's own comment already declared the base
+flip as state progress that must not depend on the opening drive, and the FAQ had promised
+since 2026.08.22 that "the per-action conditions only suppress that one movement — the
+background state tracking stays intact". `bas: 'cls'` therefore had no writer back to
+`'opn'` while the condition was false: Invariant 15 (blockers suppress effects, never state
+progress) was violated for exactly this blocker.
+
+**Fix:** `auto_up_condition` is an **effect gate on the open target**, the same class as
+`is_up_enabled` (AV) — but evaluated *at drive time* wherever the open position is the
+destination, because unlike the feature switch it cannot join `is_opening_scheduled` (a
+`!input` condition is not expressible in `trigger_variables`, Invariant 10):
+
+- Live opening: the node leaves the entry conditions; "Normal opening" evaluates it once
+  (`up_condition_ok`, an `if:` at the top of the sub-branch) and its `will_drive` consumes
+  it next to `is_up_enabled`. The shading-detected drive and the full-window lockout
+  reconciliation keep their own ownership, exactly as in AV.
+- Recovery: the anchored node is evaluated once **before** the flip (`recovered_up_ok`);
+  the opening flip carries no `!input` condition any more; `recovery_up_condition_hold`
+  (`recovered_state == 'opn' and not recovered_up_ok and live_force == 'non'`) withholds
+  every `opn` drive — flip **and** reposition. The V6 real-world report ("blocked all
+  morning, a restart flipped `bas` and the cover opened") is covered by the hold, not by
+  refusing the flip: a restart at noon with the condition still refused keeps the cover
+  where it is, and a live force-open keeps its authority.
+- Reconciliations toward `opn` outside the opening branch: the shading-end move gains an
+  "opening target allowed" branch in its target-condition `choose`; the window-closed
+  return gains `return_condition_ok`. Manual Override reset, force disable and force pause
+  already evaluated the condition through `target_condition_gate`.
+- The closing side is deliberately **not** mirrored — see design-decisions.md
+  ("`auto_up_condition` is an effect gate, `auto_down_condition` stays an entry gate").
+
+**Accepted consequence** (changelog): with the condition refused and the cover left closed,
+the day state reads `'opn'`, so a sun-shading start raises the closed cover to the shading
+position (shading-owned, gated by `auto_shading_start_condition`) and the shading end then
+leaves it there because the open drive is held. Previously the shading was only stored for
+the future. "No movement at all during vacation" is `auto_shading_start_condition` on the
+same entity, or Force Close.
+
+**Rule:** A per-action additional condition is the user's veto on *that movement*. It
+gates the drive at its point of use — and every reconciliation whose destination is that
+movement's target — never the state transition, and never the entry of the branch that
+carries the transition. Tests: `TestIssue698OpeningConditionRefused` (paired
+live/recovery) and `TestClosedEntryStructure` in `tests/test_recovery_live_parity.py`,
+`test_the_opening_condition_is_evaluated_before_the_flip_and_holds_the_drive` in
+`tests/test_restart_recovery.py`, the shading-end verdict test in
+`tests/test_shading_end_priority.py`.
+
+---
