@@ -572,7 +572,7 @@ when weather is highly unstable (rapidly changing clouds).
 
 > 🧩 Input: `shading_waitingtime_end` · Default: `300`
 
-To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended. Shading ends if one of the conditions is not fulfilled for the entire waiting time. This waiting time is also used for the periodic condition checks within the retry loop.
+To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended. Shading ends if one of the conditions is not fulfilled for the entire waiting time. If a condition becomes valid again during the waiting time (e.g. the sun comes back and the brightness rises to the end value or above), the waiting time is canceled and starts over the next time the condition fails. This waiting time is also used for the periodic condition checks within the retry loop.
 
 ---
 

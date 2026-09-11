@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.25 V2
+    **Version**: 2026.09.11
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -1695,6 +1695,8 @@ blueprint:
           description: >-
             To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended.
             Shading ends if one of the conditions is not fulfilled for the entire waiting time.
+            If a condition becomes valid again during the waiting time (e.g. the sun comes back and the brightness
+            rises to the end value or above), the waiting time is canceled and starts over the next time the condition fails.
             This waiting time is also used for the periodic condition checks within the retry loop.
           default: 300
           selector:
@@ -2697,7 +2699,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.25 V2"
+  version: "2026.09.11"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3920,6 +3922,62 @@ triggers:
     enabled: "{{ is_shading_enabled and shading_custom_sensor != [] }}"
     id: "t_shading_end_pending_8"
 
+  ########################################
+  # Triggers that cancel an armed shading end (#696)
+  #   Mirror of the end-pending triggers: fire when the condition that can end
+  #   the shading is valid again (back at/above the nominal threshold, sun back
+  #   in range). Only relevant while pnd == 'end' (global gate); the end handler
+  #   then clears the pending, so the next drop starts a fresh waiting time.
+  ########################################
+
+  - trigger: template
+    value_template: "{{ states(shading_temperatur_sensor1) not in invalid_states and states(shading_temperatur_sensor1) | float(default=-999) >= shading_min_temperatur1 }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
+    id: "t_shading_end_cancel_1"
+
+  - trigger: template
+    value_template: "{{ states(shading_temperatur_sensor2) not in invalid_states and states(shading_temperatur_sensor2) | float(default=-999) >= shading_min_temperatur2 }}"
+    enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
+    id: "t_shading_end_cancel_2"
+
+  - trigger: template
+    value_template: "{{ states(shading_brightness_sensor) not in invalid_states and states(shading_brightness_sensor) | float(default=-1) >= shading_sun_brightness_end }}"
+    enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
+    id: "t_shading_end_cancel_3"
+
+  - trigger: template
+    value_template: "{{ states(shading_forecast_sensor) not in invalid_states and states(shading_forecast_sensor) in shading_weather_conditions }}"
+    enabled: "{{ is_shading_enabled and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
+    id: "t_shading_end_cancel_4"
+
+  - trigger: template
+    value_template: >-
+      {{
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=-1) > shading_azimuth_start) and
+        (state_attr(default_sun_sensor, 'azimuth') | float(default=999) < shading_azimuth_end)
+      }}
+    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
+    id: "t_shading_end_cancel_5"
+
+  - trigger: template
+    value_template: "{{ states(shading_forecast_temp_sensor) not in invalid_states and states(shading_forecast_temp_sensor) | float(default=-999) >= shading_forecast_temp }}"
+    enabled: "{{ is_shading_enabled and shading_forecast_temp_sensor != [] and shading_forecast_temp != [] }}"
+    id: "t_shading_end_cancel_6"
+
+  - trigger: template
+    value_template: >-
+      {{
+        (state_attr(default_sun_sensor, 'elevation') | float(default=-999) > shading_elevation_min) and
+        (state_attr(default_sun_sensor, 'elevation') | float(default=999) < shading_elevation_max)
+      }}
+    enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
+    id: "t_shading_end_cancel_7"
+
+  - trigger: template
+    value_template: "{{ states(shading_custom_sensor) not in invalid_states and states(shading_custom_sensor) in ['on', 'true'] }}"
+    enabled: "{{ is_shading_enabled and shading_custom_sensor != [] }}"
+    id: "t_shading_end_cancel_8"
+
   - trigger: template
     value_template: >-
       {% set helper_state = states(cover_status_helper) %}
@@ -4323,6 +4381,8 @@ conditions:
         {{ not is_shaded or is_end_pending }}
       {% elif trigger.id is match('^t_shading_end_pending_[1-8]$') %}
         {{ cover_status_helper != [] and states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
+      {% elif trigger.id is match('^t_shading_end_cancel_[1-8]$') %}
+        {{ cover_status_helper != [] and states(cover_status_helper) not in invalid_states and states(cover_status_helper) | regex_search('"pnd"\s*:\s*"end"') }}
       {% else %}
         true
       {% endif %}
@@ -7397,20 +7457,44 @@ actions:
             # triggers are blocked by helper_state_pending_end — cover gets stuck on
             # the shading position.
             else:
-              - if:
-                  - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
-                  - "{{ helper_state_pending_end }}"
-                then:
-                  - variables:
-                      log_extra: "stale pending cleared (end conditions recovered); elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s"
-                      update_values:
-                        shd: 1
-                        pnd: 'non'
-                        ts:
-                          due: 0
-                          arm: 0 # Clear retry anchor (sequence ended)
-                  - *apply_transition
-                  - stop: "Shading End: cleared stale pending (conditions no longer met)"
+              - choose:
+                  #####################################################################
+                  # An end condition recovered while the end-pending is armed (#696):
+                  # the end conditions have not held for the entire waiting time, so
+                  # the pending is canceled. The next drop re-fires the end-pending
+                  # trigger and starts a fresh waiting time.
+                  #####################################################################
+                  - alias: "Shading end conditions recovered. Cancel pending shading end"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_cancel)') }}"
+                      - "{{ helper_state_pending_end }}"
+                    sequence:
+                      - variables:
+                          log_extra: "shading end pending canceled (end conditions recovered before the waiting time elapsed); elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s"
+                          update_values:
+                            shd: 1
+                            pnd: 'non'
+                            ts:
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
+                      - *apply_transition
+                      - stop: "Shading End Pending: Canceled (end conditions recovered)"
+
+                  - alias: "Shading end execution: clear stale pending"
+                    conditions:
+                      - "{{ trigger.id | regex_match('^(t_shading_end_execution)') }}"
+                      - "{{ helper_state_pending_end }}"
+                    sequence:
+                      - variables:
+                          log_extra: "stale pending cleared (end conditions recovered); elapsed={{ (as_timestamp(now()) - helper_ts_pending_arm) | int }}s"
+                          update_values:
+                            shd: 1
+                            pnd: 'non'
+                            ts:
+                              due: 0
+                              arm: 0 # Clear retry anchor (sequence ended)
+                      - *apply_transition
+                      - stop: "Shading End: cleared stale pending (conditions no longer met)"
 
       ############################################################
       # BRANCH (5): CONTACT SENSOR HANDLING
