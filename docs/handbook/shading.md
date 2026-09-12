@@ -327,7 +327,11 @@ Minimum temperature for sensor 1 above which shading should occur.
 
 > 🧩 Input: `shading_temperature_hysteresis1` · Default: `0.2`
 
-Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles. See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
+Prevents frequent open/close cycles near the minimum value. The hysteresis applies on both sides:
+- Shading starts: temperature > (minimum + hysteresis)
+- Shading ends: temperature < (minimum - hysteresis)
+
+Example: minimum 22 °C and hysteresis 1 °C → shading starts above 23 °C and ends below 21 °C. See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
 
 ---
 
@@ -357,7 +361,11 @@ Minimum temperature for sensor 2 above which shading should occur.
 
 > 🧩 Input: `shading_temperature_hysteresis2` · Default: `0.2`
 
-Shading will end only when temperature drops below (minimum - hysteresis value) to prevent frequent open/close cycles. See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
+Prevents frequent open/close cycles near the minimum value. The hysteresis applies on both sides:
+- Shading starts: temperature > (minimum + hysteresis)
+- Shading ends: temperature < (minimum - hysteresis)
+
+Example: minimum 22 °C and hysteresis 1 °C → shading starts above 23 °C and ends below 21 °C. See: [FAQ: How does hysteresis work?](https://hvorragend.github.io/ha-blueprints/FAQ#q-how-does-hysteresis-work)
 
 ---
 
