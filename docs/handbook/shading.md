@@ -572,7 +572,7 @@ when weather is highly unstable (rapidly changing clouds).
 
 > 🧩 Input: `shading_waitingtime_end` · Default: `300`
 
-To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended. Shading ends if one of the conditions is not fulfilled for the entire waiting time. This waiting time is also used for the periodic condition checks within the retry loop.
+To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended. Shading ends if one of the conditions is not fulfilled for the entire waiting time <strong>without interruption</strong>: if a sensor value (brightness, temperature, forecast, weather, custom sensor) recovers in between, the waiting time starts over. For the sun position (azimuth/elevation) the waiting time starts once the sun has left the configured range. This waiting time is also used for the periodic condition checks within the retry loop.
 
 ---
 

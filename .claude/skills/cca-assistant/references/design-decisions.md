@@ -321,3 +321,50 @@ precise about what it does and doesn't cover:
   meaningfully harder to get right than the single-source `is_opening_scheduled` case. Do not
   re-attempt it casually "for consistency" — if you do, both sources must be covered and the
   #677 regression must not reappear.
+
+
+### The sensor-based shading-end triggers hold the waiting time themselves via `for:` (#696, CCA 2026.09.13)
+
+**Problem.** `shading_waitingtime_end` promises that shading ends only if an end condition is
+not fulfilled *for the entire waiting time*. The implementation *sampled* the end conditions:
+once when `t_shading_end_pending_*` armed the pending and once when `t_shading_end_execution`
+fired (then again on every retry of the max-duration loop). The #554 cancel branch sits in the
+*start* handler and needs `shading_start_conditions_met` — brightness above the *start* value
+— so brightness bouncing between the end and the start value (changeable weather) never
+canceled anything, and on a day with broken clouds the shading ended as soon as one sample
+landed on a cloud.
+
+**Decision.** The six sensor-based end triggers (1 temp1, 2 temp2, 3 brightness, 4 weather,
+6 forecast-temp sensor, 8 custom sensor) carry `for: seconds: !input shading_waitingtime_end`
+— the same pattern `t_open_4` uses with `brightness_time_duration`. A template trigger's `for:`
+timer is canceled when the template falls back to false and restarted on the next false→true
+edge (verified against `homeassistant/components/template/trigger.py`), so the trigger fires
+only after the condition held for the whole waiting time without interruption. The arm branch
+("Shading end detected") therefore sets `local_waitingtime_end = 0` for these triggers:
+`ts.due = now`, the execution trigger fires on the arm write and re-checks
+`shading_end_conditions_met` live — the drive logic, the retry loop, the #395 stale clear and
+the recovery stay untouched. `pnd: 'end'` is still written (Invariants 2/8: every path goes
+through the helper; the execution path owns the drive).
+
+**The sun-position triggers (5 azimuth, 7 elevation) deliberately keep the pending wait.** The
+sun never comes back into a range it just left, so `for:` would buy nothing there — and
+`shading_end_immediate_by_sun_position` (20 s) lives in the arm branch, which stays the single
+place that decides the sun wait. Do not "harmonize" by adding `for:` to 5/7.
+
+**Why not mirrored cancel triggers.** A first version added eight `t_shading_end_cancel_*`
+triggers (inverse thresholds), a gate clause and a cancel branch. It was exact even for AND
+groups mixing sun and sensors, but tripled the surface for one behavior. With `for:` the AND
+case is still exact when the last condition to fail is a sensor (its trigger fires after the
+full wait and the arm requires all others to be invalid at that moment); only an AND group
+whose *last* failing member is the sun position samples the sensor members at the end of the
+sun wait.
+
+**The price.** A `for:` timer lives in HA's memory: a restart, a reload or a UI save during a
+running sensor wait discards it, and the trigger only re-fires after the value recovers and
+fails again (the edge is consumed — orphan-audit row `t_shading_*_pending_*`). A pending
+armed in the helper survived a restart. The recovery still arms an end pending with the full
+wait when the end conditions hold at start-up (`recovered_pending`, opt-in), and the
+sun-position end or the closing time resolve the rest. Also new: a sensor reporting
+`unavailable` for a moment restarts the wait (the template goes false).
+
+Pinned by `tests/test_shading_end_wait_in_trigger.py`.

@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.08.25 V2
+    **Version**: 2026.09.13
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -1694,7 +1694,9 @@ blueprint:
           name: "🥵 Sun Shading - End Waiting Time"
           description: >-
             To avoid excessive load on the motor, a waiting time can be defined here before the shading is ended.
-            Shading ends if one of the conditions is not fulfilled for the entire waiting time.
+            Shading ends if one of the conditions is not fulfilled for the entire waiting time <strong>without interruption</strong>:
+            if a sensor value (brightness, temperature, forecast, weather, custom sensor) recovers in between, the waiting time starts over.
+            For the sun position (azimuth/elevation) the waiting time starts once the sun has left the configured range.
             This waiting time is also used for the periodic condition checks within the retry loop.
           default: 300
           selector:
@@ -2697,7 +2699,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.08.25 V2"
+  version: "2026.09.13"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3870,25 +3872,36 @@ triggers:
 
   ########################################
   # Triggers for shading end
+  #   Sensor conditions carry `for: shading_waitingtime_end` (#696): the
+  #   condition must stay invalid for the whole waiting time, a recovery in
+  #   between restarts it. The sun-position triggers wait in the pending.
   ########################################
 
   - trigger: template
     value_template: "{{ states(shading_temperatur_sensor1) not in invalid_states and states(shading_temperatur_sensor1) | float(default=shading_min_temperatur1) < (shading_min_temperatur1 - shading_temperature_hysteresis1) }}"
+    for:
+      seconds: !input shading_waitingtime_end
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor1 != [] }}"
     id: "t_shading_end_pending_1"
 
   - trigger: template
     value_template: "{{ states(shading_temperatur_sensor2) not in invalid_states and states(shading_temperatur_sensor2) | float(default=shading_min_temperatur2) < (shading_min_temperatur2 - shading_temperature_hysteresis2) }}"
+    for:
+      seconds: !input shading_waitingtime_end
     enabled: "{{ is_shading_enabled and shading_temperatur_sensor2 != [] }}"
     id: "t_shading_end_pending_2"
 
   - trigger: template
     value_template: "{{ states(shading_brightness_sensor) not in invalid_states and states(shading_brightness_sensor) | float(default=shading_sun_brightness_end) < (shading_sun_brightness_end - shading_sun_brightness_hysteresis) }}"
+    for:
+      seconds: !input shading_waitingtime_end
     enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
     id: "t_shading_end_pending_3"
 
   - trigger: template
     value_template: "{{ states(shading_forecast_sensor) not in shading_weather_conditions }}"
+    for:
+      seconds: !input shading_waitingtime_end
     enabled: "{{ is_shading_enabled and shading_weather_conditions != [] and shading_forecast_sensor != [] }}"
     id: "t_shading_end_pending_4"
 
@@ -3912,11 +3925,15 @@ triggers:
 
   - trigger: template
     value_template: "{{ states(shading_forecast_temp_sensor) not in invalid_states and states(shading_forecast_temp_sensor) | float(default=shading_forecast_temp) < (shading_forecast_temp - shading_forecast_temp_hysteresis) }}"
+    for:
+      seconds: !input shading_waitingtime_end
     enabled: "{{ is_shading_enabled and shading_forecast_temp_sensor != [] and shading_forecast_temp != [] }}"
     id: "t_shading_end_pending_6"
 
   - trigger: template
     value_template: "{{ states(shading_custom_sensor) not in invalid_states and states(shading_custom_sensor) in ['off', 'false'] }}"
+    for:
+      seconds: !input shading_waitingtime_end
     enabled: "{{ is_shading_enabled and shading_custom_sensor != [] }}"
     id: "t_shading_end_pending_8"
 
@@ -7142,13 +7159,15 @@ actions:
                       - "{{ not helper_state_pending_start }}" # Mutual-exclusivity guard against misconfigured conditions
                     sequence:
                       - variables:
+                          # Sun-position triggers wait here (20 s with the immediate option);
+                          # the sensor triggers already held the waiting time via `for:` (#696)
                           local_waitingtime_end: >
-                            {% set local_waitingtime_end = shading_waitingtime_end | int %}
-                            {% if (is_shading_end_immediate_by_sun_position | default(false)) | bool and trigger.id in ['t_shading_end_pending_5', 't_shading_end_pending_7'] %}
-                            {% set local_waitingtime_end = 20 %}
+                            {% if trigger.id in ['t_shading_end_pending_5', 't_shading_end_pending_7'] %}
+                              {{ 20 if (is_shading_end_immediate_by_sun_position | default(false)) | bool else shading_waitingtime_end | int }}
+                            {% else %}
+                              0
                             {% endif %}
-                            {{ local_waitingtime_end }}
-                          log_extra: "shading end pending armed; wait={{ local_waitingtime_end | int }}s; immediate_by_sun={{ (is_shading_end_immediate_by_sun_position | default(false)) | bool }}"
+                          log_extra: "shading end pending armed; wait={{ local_waitingtime_end | int }}s{{ ' (waiting time already held by the trigger)' if local_waitingtime_end | int == 0 else '' }}; immediate_by_sun={{ (is_shading_end_immediate_by_sun_position | default(false)) | bool }}"
                           update_values:
                             # Set shading end pending timestamp
                             shd: 1

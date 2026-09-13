@@ -667,6 +667,7 @@ Result: Sun in range + at least one other condition
 - End conditions detected
 - Waiting for stable readings (waiting time)
 - Ensures changes aren't temporary
+- Sensor-based end conditions (brightness, temperature, forecast, weather, custom sensor) measure the waiting time inside the trigger: the value must stay invalid without interruption, a recovery in between restarts the wait — the pending then executes immediately
 - Will execute when conditions remain invalid
 
 **Why pending?**
@@ -2316,7 +2317,7 @@ Disables default cover commands for custom integrations
 | `t_shading_start_pending_1` - `_7` | Shading Pending | Checks azimuth/elevation, brightness, temp1/2, weather, forecast |
 | `t_shading_start_execution` | Shading Executed | Pending time elapsed, conditions met |
 | `t_shading_tilt_1` - `_4` | Shading Tilt | Elevation-based tilt adjustment |
-| `t_shading_end_pending_1` - `_6` | Shading End Pending | End conditions detected |
+| `t_shading_end_pending_1` - `_8` | Shading End Pending | End conditions detected (sensor triggers only fire after the end waiting time has held without interruption) |
 | `t_shading_end_execution` | Shading End Executed | End pending time elapsed |
 | `t_shading_reset` | Shading Reset | Midnight reset of shading status |
 | `t_manual_position` | Manual Position Detection | Position changed manually |
