@@ -1,6 +1,6 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
-# CCA 2026.09.06
+# CCA 2026.09.15
 
 - 🔧 **Improvement:** The [Trace Analyzer](https://hvorragend.github.io/ha-blueprints/trace-analyzer/) now points out the configuration state behind most *"the cover opens before the configured time"* reports ([#661](https://github.com/hvorragend/ha-blueprints/issues/661), [#595](https://github.com/hvorragend/ha-blueprints/issues/595)): when a trace shows **⏲️ Time Control unchecked** while **Brightness / Sun Elevation** triggers are active, the run summary carries a warning that the Early/Late times are ignored and the cover moves at the sensor threshold (typically around sunrise) — including the one-time re-save that configurations from before ~2026.05 need since the 2026.07.12 breaking change. Nothing in such a run is technically wrong (`is_opening_phase: false` next to `should_be_open_now: true` is exactly what "no time window" looks like), which is why no branch or condition panel could ever explain it. The built-in **Configuration Check** (manual run with *"✔️ Check Configuration"* enabled) logs the same warning, mirroring the online validator
 
