@@ -1,8 +1,12 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
-# CCA 2026.08.30
+# CCA 2026.09.15
 
 - 🐛 **Fix:** Switching off the ⏸️ **Force Pause** no longer opens a cover for which **no opening automation is configured** ([#695](https://github.com/hvorragend/ha-blueprints/issues/695)). Internally the stored day state can read "open" even when nothing would ever drive an opening — it is the initial default on instances without an opening automation, and since `2026.08.23` the opening time also advances it as a pure status update when 🔼 Morning Opening is unchecked (the setup for everyone who opens by hand). The resume after a Force Pause faithfully drove to that "open" target, so briefly toggling the pause pulled a closed cover all the way up. The resume now checks **who owns the open target** — mirroring the ownership rule the close target already had: without an opening automation the cover simply stays where it is when the pause ends, while an active ☝️ Force Open keeps its own authority and setups with any opening automation (time, brightness, sun, calendar or resident-based) behave exactly as before. The same ownership check now also guards the optional return-to-target after switching off a ☝️ Force function and the opted-in Manual Override reset's safety-net path; the restore-to-open of a sun shading that ended during a force keeps its authority. The cover's logbook line for a resume that holds the position now says the cover stays where it is instead of implying a movement
+
+# CCA 2026.09.12
+
+- 🔧 **Improvement:** The descriptions of *"Temperature Sensor 1/2 Hysteresis Value"* now state how the hysteresis actually works ([#700](https://github.com/hvorragend/ha-blueprints/issues/700)). The old text only mentioned the shading **end** ("ends when the temperature drops below minimum − hysteresis"), so a reading just above the minimum looked like it should start the shading. In fact the hysteresis has always applied to both sides — exactly like the brightness and forecast hysteresis and as described in the FAQ: shading **starts** only above (minimum + hysteresis) and **ends** only below (minimum − hysteresis). With a minimum of 22 °C and a hysteresis of 1 °C, 22.9 °C is therefore not yet a start condition; the cover shades from 23.1 °C on. No behavior change — if you want the shading to start right at the minimum value, set the hysteresis to 0
 
 # CCA 2026.08.25 V2
 
