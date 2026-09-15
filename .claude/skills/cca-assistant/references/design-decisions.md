@@ -323,7 +323,7 @@ precise about what it does and doesn't cover:
   #677 regression must not reappear.
 
 
-### The sensor-based shading-end triggers hold the waiting time themselves via `for:` (#696, CCA 2026.09.13)
+### The sensor-based shading-end triggers hold the waiting time themselves via `for:` (#696, CCA 2026.09.15)
 
 **Problem.** `shading_waitingtime_end` promises that shading ends only if an end condition is
 not fulfilled *for the entire waiting time*. The implementation *sampled* the end conditions:
