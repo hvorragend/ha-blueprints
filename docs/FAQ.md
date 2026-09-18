@@ -1605,9 +1605,10 @@ Sharing breaks functionality completely
 - Invalid JSON breaks automation
 - Inconsistent state causes unpredictable behavior
 - CCA may overwrite immediately
+- An edit is not an event: clearing `man` by hand does not move the cover. CCA only reconciles the current target on its own reset events (timeout, fixed time, reset position — with *Return to Target State After Manual Override Reset* enabled), so a sun shading that was blocked by the override stays recorded as active without a repeated start
 
 **Better alternatives:**
-- Use reset manual override function
+- Use reset manual override function (enable *Return to Target State After Manual Override Reset* if the cover should move right away)
 - Wait for midnight reset
 - Restart automation
 
