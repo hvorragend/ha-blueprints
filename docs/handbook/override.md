@@ -36,7 +36,7 @@ Some configured events explicitly hand control back to CCA instead of consuming 
 
 For contact ventilation, **Block automatic ventilation** controls both the reaction to a tilted window and the return to the current background target when the window closes. A fully opened window is the safety exception described below.
 
-A selected sun-shading option blocks every shading-related movement while Manual Override remains active; it does not discard the shading state. If shading starts and ends entirely during the override, no obsolete shading movement is replayed afterwards. If shading is still required when the override resets, CCA can move directly to the shading target.
+A selected sun-shading option blocks every shading-related movement while Manual Override remains active; it does not discard the shading state. The status helper therefore shows the shading as active (`shd: 1`) even though the cover has not moved — that is the recorded intent, not a lost movement. If shading starts and ends entirely during the override, no obsolete shading movement is replayed afterwards. If shading is still required when the override resets, CCA moves directly to the shading target — provided [🔙 Return to Target State After Manual Override Reset](#auto_recover_after_manual_reset) is enabled. With that option at its default (disabled), the reset only clears the override and the cover stays put until the next regular event, e.g. the end of the shading; the shading start itself is not repeated, because it already happened in the background. Clearing the override by editing the status helper yourself has the same effect: it is not a reset event, so nothing moves.
 
 The full-window lockout remains the safety exception that may overrule Manual Override when its ventilation condition permits the proactive movement. If that condition is false, CCA still records the open window and prevents later closing or sun-shading movement; it merely does not raise the cover at the moment the window opens. Enabling a Force position is also an explicit higher-priority command; Force Pause can still suppress it.
 
@@ -117,8 +117,10 @@ that is valid then?
 
 - **Disabled (default):** the reset only clears the override status. The cover stays where it
   is until the next regular automatic event (opening/closing, sun shading, ventilation)
-  naturally moves it. This matches CCA's behavior from before the reset itself started driving
-  the cover.
+  naturally moves it. "Next" means an event that happens *after* the reset: a sun shading
+  that already started in the background while the override blocked its movement is not
+  repeated — the cover keeps the manual position until that shading ends or the schedule
+  moves on. Enable this option if a blocked shading should be caught up at the reset.
 - **Enabled:** the reset re-derives the currently correct target from your schedule — the same
   gates restart/outage recovery uses — and drives there immediately, even if that differs a lot
   from the manually set position. For example, closing a cover manually and enabling this with a
