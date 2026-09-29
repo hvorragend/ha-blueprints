@@ -117,6 +117,19 @@ Tolerance to be applied when comparing the current tilt position with the to be 
 
 ---
 
+<a id="tilt-tracking"></a>
+
+### How elevation-based tilt tracking works
+
+The four "Sun Shading Tilt" stages below are re-applied automatically whenever the sun elevation crosses one of the configured thresholds. This tracking runs **only while the sun shading is active** (the status helper shows `"shd":1`) and stops as soon as the shading ends. With the behavior option *"☀️ Stay shaded: Don't open cover when sun shading ends"*, the cover keeps its position at the shading end and only the slats move to the *"🔼 Open Tilt Position"*.
+
+**The slats keep closing in the evening although the sun has left the azimuth range?** Then the shading has not ended yet — typically because "Sun Azimuth" is not part of your END conditions, or it sits in the END **AND** group together with a temperature or brightness condition that is still valid. As long as the shading stays active, the tilt keeps following the (now decreasing) sun elevation. Two ways to stop this:
+
+- **Recommended:** Put "Sun Azimuth" into the *"🌥️ Shading END - Optional Conditions (OR)"* group. The shading then ends when the sun leaves the range; combined with *"Stay shaded"*, the cover stays down and the slats open.
+- **Freeze the slats instead:** Use *"🥵 Additional Condition For Sun Shading Tilt"* with a template condition that checks the sun azimuth against your range. The tilt stages are then skipped while the condition is false and the slats keep their last angle. Note that the shading remains logically active, so a recovery run (e.g. after a Home Assistant restart) re-applies the tilt calculated for the current elevation.
+
+---
+
 <a id="shading_tilt_position_0"></a>
 
 ## 🥵 Sun Shading Tilt Position
