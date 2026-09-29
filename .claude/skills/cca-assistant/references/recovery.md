@@ -497,7 +497,7 @@ against *which trigger actually fires it*.
 **Not repairable, by design:** `auto_global_condition` (the user's own global condition). If it is false when the recovery run fires, the run is dropped and nothing re-triggers when it later becomes true — CCA cannot watch an arbitrary user condition. This is pre-existing behavior for every trigger, not new.
 
 **The direction-specific additional conditions and a caught-up base flip (CCA 2026.07.13 V6,
-revised for #698 in CCA 2026.09.06).**
+revised for #698 in CCA 2026.09.29 V2).**
 `recovered_base` re-derives the base state from the schedule/calendar alone. The
 user-supplied `auto_down_condition` gates **every** closing trigger in the normal flow, so a
 scheduled closing it suppressed was never "missed" — but the recovery used to replay it
@@ -505,7 +505,7 @@ anyway. V6 therefore let both direction conditions gate the flip (real-world rep
 time: opening blocked by an additional condition all morning; a restart flipped `bas` to
 `opn` and the cover opened after the end-pending).
 
-Since #698 (Bug Pattern AY) the **opening** condition is no longer a flip gate: the live
+Since #698 (Bug Pattern AZ) the **opening** condition is no longer a flip gate: the live
 "Check for opening" entry does not carry it either (the base transition is state progress,
 Invariant 15, exactly like the `is_up_enabled` case of #673), so the recovery mirrors the
 live branch — the flip happens on the schedule alone and the condition holds the *drive*:

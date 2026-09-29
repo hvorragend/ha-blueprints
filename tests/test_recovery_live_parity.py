@@ -574,6 +574,43 @@ class TestManualOverrideParity:
         assert reset["final"]["man"] == 0
         assert reset["moves"] is False
 
+    def test_live_reset_catches_up_a_shading_start_the_override_blocked(self):
+        """#703: with 'Block automatic sun shading' selected, a matured shading
+        start commits shd: 1 while the drive is suppressed (Invariant 15). The
+        cover therefore rests at the manual position with the helper marked
+        shaded. Return-to-target enabled: the reset is the reconciliation edge
+        and drives to the shading position. Default (disabled): the reset only
+        clears man - the shading stays recorded, nothing moves, and no new
+        shading start will fire because the state already advanced."""
+        blocked = dict(
+            brightness="5000",
+            is_opening_phase=False,
+            is_daytime_phase=True,
+            is_closing_phase=False,
+            is_evening_phase=False,
+            is_time_up_late=True,
+            helper={"bas": "opn", "shd": 1, "man": 1},
+            current_position=100,
+            override_expired=True,
+            manual_reset_event=True,
+            override_flags={"opening": False, "closing": False,
+                            "ventilation": False, "shading": True},
+        )
+        enabled = run_recovery(scenario(**blocked, is_manual_reset_recovery_enabled=True),
+                               trigger_id="t_reset_timeout")
+        assert enabled["state"] == "shd"
+        assert enabled["moves"] is True
+        assert enabled["target"] == POSITIONS["shading_position"]
+        assert enabled["action_set"] == "shading_start"
+        assert enabled["final"]["shd"] == 1
+        assert enabled["final"]["man"] == 0
+
+        default = run_recovery(scenario(**blocked), trigger_id="t_reset_timeout")
+        assert default["state"] == "shd"
+        assert default["moves"] is False
+        assert default["final"]["shd"] == 1
+        assert default["final"]["man"] == 0
+
     def test_live_reset_enabled_still_wont_open_without_an_opening_schedule(self):
         """Issue #553 class: even with the new switch enabled, a reset must never
         MOVE a cover for which neither an opening nor a closing automation exists.
@@ -1320,6 +1357,21 @@ class TestClosedEntryStructure:
                                      {"condition": "auto_up_condition"}]
         other = next(b for b in gate["choose"] if "non-ventilation" in b["alias"])
         assert "'opn'" in other["conditions"][0]
+
+        # the abort of a shading start that held the opening back (Bug Pattern
+        # AY) reconciles to open behind the same gates - the user's opening
+        # condition included
+        abort = next(s for s in _walk_steps(BP["actions"])
+                     if "Shading start abort" in str(s.get("alias", "")))
+        assert abort["if"] == [{"condition": "auto_up_condition"}]
+        assert abort["then"][0]["variables"]["abort_up_condition_ok"] is True
+        assert abort["else"][0]["variables"]["abort_up_condition_ok"] is False
+        abort_leaf = next(
+            s for s in _walk_steps(BP["actions"])
+            if "variables" in s
+            and "abort_up_condition_ok" in str(s["variables"].get("will_drive", "")))
+        assert "is_up_enabled and abort_up_condition_ok" in abort_leaf["variables"]["will_drive"]
+        assert abort_leaf["variables"]["drive_plan"]["target"] == "{{ state_targets.opn.target | int }}"
 
 
 # ════════════════════════════════════════════════════════════════════════════

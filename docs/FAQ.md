@@ -1031,7 +1031,7 @@ Block automatic sun shading during Manual Override
 - ☑ "Block automatic opening" → The scheduled opening does not move it while Manual Override is active
 - ☐ "Block automatic sun shading" → Sun shading may still move it if the shading conditions become valid
 
-CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately; an intent that already ended is not replayed.
+CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately — provided **Return to Target State After Manual Override Reset** is enabled (default: disabled, the reset then only clears the override and the cover keeps its position until the next event after the reset). An intent that already ended is not replayed.
 
 ---
 
@@ -1244,7 +1244,7 @@ The inverse also works: a condition on `state: 'on'` for the **closing** side
 lets a cover close during vacation that normally stays open. Unlike the global
 condition, the per-action conditions only suppress that one movement — the
 background state tracking stays intact (for the opening condition since
-`2026.09.06`, [#698](https://github.com/hvorragend/ha-blueprints/issues/698)).
+`2026.09.29 V2`, [#698](https://github.com/hvorragend/ha-blueprints/issues/698)).
 
 Note for covers with **sun shading** configured: the opening condition only
 withholds movements *toward the open position*. Because the internal day state
@@ -1614,9 +1614,10 @@ Sharing breaks functionality completely
 - Invalid JSON breaks automation
 - Inconsistent state causes unpredictable behavior
 - CCA may overwrite immediately
+- An edit is not an event: clearing `man` by hand does not move the cover. CCA only reconciles the current target on its own reset events (timeout, fixed time, reset position — with *Return to Target State After Manual Override Reset* enabled), so a sun shading that was blocked by the override stays recorded as active without a repeated start
 
 **Better alternatives:**
-- Use reset manual override function
+- Use reset manual override function (enable *Return to Target State After Manual Override Reset* if the cover should move right away)
 - Wait for midnight reset
 - Restart automation
 

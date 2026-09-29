@@ -44,6 +44,8 @@ When the closing trigger fires while a shading-start pending is active, the clos
 
 This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it. Do not remove the `shading_start_warranted` gate from the opening "skip" branch — that reintroduces #514.
 
+**User condition (Bug Pattern AY):** "mirrors the execution gate" is only true together with the user's `auto_shading_start_condition`, which a template variable cannot evaluate. Both handoff branches (defer and the #555 arm) therefore also carry the shared `*auto_shading_start_condition_check` YAML condition; with the condition false the opening is not handed over at all and falls through to "Normal opening". The abort `default:` of the shared retry routine additionally reconciles an `opn` target behind the normal-opening gates, so no abort reason can leave a held-back opening closed. Do not gate the handoff on the warranted variable alone again, and do not turn the abort back into a pure pending clear.
+
 **Branch order (#651):** The re-arm branch "Opening: Shading warranted, arm pending" (#555) sits **before** the "Already in open position" shortcut. Invariant 15 now preserves pending through manual detection, but other legitimate no-pending states still need this handoff; with the shortcut first, an already-open cover can consume the run before warranted shading is armed (Bug Pattern AR). Do not move the shortcut back in front of the arm branch.
 
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving
@@ -322,14 +324,14 @@ precise about what it does and doesn't cover:
   re-attempt it casually "for consistency" — if you do, both sources must be covered and the
   #677 regression must not reappear.
 
-### `auto_up_condition` is an effect gate, `auto_down_condition` stays an entry gate (#698, CCA 2026.09.06)
+### `auto_up_condition` is an effect gate, `auto_down_condition` stays an entry gate (#698, CCA 2026.09.29 V2)
 
 Since #698 the opening condition no longer sits in the "Check for opening" entry or in the
 recovery's opening flip: the base transition to `'opn'` is state progress (Invariant 15), and
 the condition withholds the drives toward the open position at their point of use — the
 normal-opening `will_drive` (`up_condition_ok`), `recovery_up_condition_hold`, the shading-end
 open target, the window-closed open return and the three `target_condition_gate` sites (Bug
-Pattern AY). The closing condition is **deliberately not mirrored** — it still gates the whole
+Pattern AZ). The closing condition is **deliberately not mirrored** — it still gates the whole
 "Check for closing cover" entry and the closing flip, and `TestClosedEntryStructure` pins the
 asymmetry. Do not "harmonize" it without doing all of the following:
 
