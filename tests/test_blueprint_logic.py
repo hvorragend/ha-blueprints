@@ -2429,13 +2429,23 @@ class TestOpeningOwnershipGates:
     def test_the_displacer_owned_opn_restores_stay_ungated(self):
         """The shading-end 'opn' restore is owned by the shading itself (the
         automation that displaced the cover), not by the opening schedule —
-        gating it would strand shading-only setups at the shading position."""
+        gating it on is_opening_scheduled would strand shading-only setups at
+        the shading position. The #698 user-condition gate ('opening target
+        allowed') is an effect gate on top and does not change this."""
         blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
         handler = _find_branch_by_alias(
-            blueprint, "Shading end reconciliation: non-ventilation target")
+            blueprint, "Shading end reconciliation: opening target allowed")
         assert handler is not None, (
             "shading-end reconciliation shape changed - re-audit Bug Pattern "
-            "AY's consumer classification before adapting this test"
+            "BA's consumer classification before adapting this test"
+        )
+        move = _find_branch_by_alias(
+            blueprint, "Move cover after shading end - conditions still valid")
+        assert move is not None
+        will_drive = str(_find_variable_definition(move, "will_drive"))
+        assert "is_opening_scheduled" not in will_drive, (
+            "the shading-end restore must stay ownership-ungated "
+            "(displacer-owned, Bug Pattern BA)"
         )
 
 
