@@ -16,6 +16,7 @@ This comprehensive FAQ covers the most common questions about Cover Control Auto
 6. [Cover Types (Blinds vs. Awnings)](#cover-types-blinds-vs-awnings)
    - [How do I retract my awning in the evening based on sun elevation?](#q-how-do-i-retract-my-awning-in-the-evening-based-on-sun-elevation)
 7. [Sun Shading & Sun Protection](#sun-shading--sun-protection)
+   - [Why do the slats keep closing in the evening after the sun has left the azimuth range?](#q-why-do-the-slats-keep-closing-in-the-evening-after-the-sun-has-left-the-azimuth-range)
 8. [Ventilation & Contact Sensors](#ventilation--contact-sensors)
    - [Which window sensor has higher priority — opened or tilted?](#q-which-window-sensor-has-higher-priority--opened-or-tilted)
 9. [Manual Override & Detection](#manual-override--detection)
@@ -806,6 +807,29 @@ Forecast Temperature Value: 30°C
 - Can check weather conditions
 - More integration options
 - Standard method
+
+---
+
+### Q: Why do the slats keep closing in the evening after the sun has left the azimuth range?
+
+**A:** Because the sun shading is still active. The elevation-based tilt stages (*"🥵 Sun Shading Tilt Position 1–3"*) are re-applied only while the status helper shows `"shd":1`. When the sun leaves the azimuth range but the shading does not end, the tilt keeps following the decreasing sun elevation towards sunset — so the slats close more and more.
+
+The shading does not end in this situation when:
+- "Sun Azimuth" is **not** part of your END conditions, or
+- "Sun Azimuth" sits in the END **AND** group together with a condition that is still valid (e.g. temperature or brightness).
+
+**Solution:** Put "Sun Azimuth" into the *"🌥️ Shading END - Optional Conditions (OR)"* group. The shading then ends as soon as the sun leaves the range and the tilt tracking stops with it. With *"☀️ Stay shaded: Don't open cover when sun shading ends"* enabled, the cover keeps its position and only the slats move to the *"🔼 Open Tilt Position"* — heat protection stays, the view outside is back.
+
+**Alternative (freeze the slats):** Add a template condition to *"🥵 Additional Condition For Sun Shading Tilt"* that checks the azimuth against your range, e.g.:
+
+```yaml
+condition: template
+value_template: >-
+  {{ state_attr('sun.sun', 'azimuth') | float(0) > 120 and
+     state_attr('sun.sun', 'azimuth') | float(0) < 250 }}
+```
+
+The tilt stages are skipped while the condition is false, so the slats keep their last angle. The shading remains logically active, so a recovery run (e.g. after a Home Assistant restart) re-applies the tilt calculated for the current elevation. Prefer the END-condition solution unless you explicitly want the slats to stay where they are.
 
 ---
 
