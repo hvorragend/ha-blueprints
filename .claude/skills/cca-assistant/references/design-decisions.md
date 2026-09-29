@@ -44,6 +44,8 @@ When the closing trigger fires while a shading-start pending is active, the clos
 
 This asymmetry is intentional. Do not "harmonize" the closing handler to preserve pending — it must discard it. Do not remove the `shading_start_warranted` gate from the opening "skip" branch — that reintroduces #514.
 
+**User condition (Bug Pattern AY):** "mirrors the execution gate" is only true together with the user's `auto_shading_start_condition`, which a template variable cannot evaluate. Both handoff branches (defer and the #555 arm) therefore also carry the shared `*auto_shading_start_condition_check` YAML condition; with the condition false the opening is not handed over at all and falls through to "Normal opening". The abort `default:` of the shared retry routine additionally reconciles an `opn` target behind the normal-opening gates, so no abort reason can leave a held-back opening closed. Do not gate the handoff on the warranted variable alone again, and do not turn the abort back into a pure pending clear.
+
 **Branch order (#651):** The re-arm branch "Opening: Shading warranted, arm pending" (#555) sits **before** the "Already in open position" shortcut. Invariant 15 now preserves pending through manual detection, but other legitimate no-pending states still need this handoff; with the shortcut first, an already-open cover can consume the run before warranted shading is armed (Bug Pattern AR). Do not move the shortcut back in front of the arm branch.
 
 ### Midnight reset (BRANCH 11) sets `man: 0` without driving

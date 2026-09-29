@@ -138,7 +138,7 @@ midnight reset, and recovery of an expired override) remain explicit updates.
 - `pnd: 'non'` always implies `ts.due == 0` and `ts.arm == 0`. Terminal branches must set all three together.
 - Retry-continuation branches must set `pnd: 'beg'` (or `'end'`) and the new `ts.due`, but **not** `ts.arm` — `helper_update` preserves the existing value automatically when a key is omitted.
 - Terminal branches that clear pending:
-  - Start: Drive, Lockout-skip, Save-for-future, no-drive default of the drive choose, Abort (shared retry routine)
+  - Start: Drive, Lockout-skip, Save-for-future, no-drive default of the drive choose, Abort (shared retry routine; reconciles an `opn` target behind the normal-opening gates — Bug Pattern AY)
   - End: Tilt-only, Lockout, Ventilation, Move-cover (then/else and the opening-prevented else), Stop retry, stale-pending cleanup (#395)
   - Midnight reset (BRANCH 11, "Reset shading status")
 - A force/manual enable, disable, detection or release must **not** clear these
