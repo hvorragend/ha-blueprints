@@ -201,6 +201,10 @@ Combined with the required (AND) list using **OR**: shading ends when any one of
 
 ---
 
+**Tilt covers (venetian blinds):** The elevation-based tilt stages keep following the sun as long as the shading is active. If the slats should stop tracking once the sun has left the azimuth range, "Sun Azimuth" must end the shading — put it into the OR group. See [How elevation-based tilt tracking works](tilt#tilt-tracking).
+
+---
+
 <a id="shading_custom_sensor"></a>
 
 ## 🧩 Sun Shading - Custom Condition Sensor
