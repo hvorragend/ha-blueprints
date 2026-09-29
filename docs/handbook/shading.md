@@ -69,6 +69,8 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Conditions that MUST ALL be met to START shading**
 
+The two START lists are combined with **AND**: every condition selected here must be met, **and** at least one condition from the optional (OR) list. Conditions without a configured sensor are skipped automatically.
+
 ### How START conditions work
 
 **Required (AND) conditions for START:**
@@ -105,6 +107,8 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Conditions where AT LEAST ONE must be met to START shading**
 
+Combined with the required (AND) list using **AND**: all required conditions must be met **and** at least one of the conditions selected here. An empty list is ignored.
+
 ### When to use OR conditions
 
 **Optional (OR) conditions for START:**
@@ -131,12 +135,20 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 
 **Conditions that MUST ALL become invalid to END shading**
 
+⚠️ Unlike START, the two END lists are combined with **OR**: shading ends as soon as **every** condition selected here has become invalid — **or** as soon as **any single** condition from the optional (OR) list has. A condition placed here on its own is therefore a complete end condition by itself, not an extra requirement for the OR list. To require several conditions together, put them all in this list and leave the OR list empty.
+
 ### How END conditions work
 
 **Required (AND) conditions for END:**
 - ALL selected conditions must become invalid
-- Shading continues if ANY is still valid
+- Shading continues if ANY of *this list* is still valid — but an OR condition becoming invalid still ends the shading
 - Use for stable shading (avoid flickering)
+
+**Pitfall - A single condition in the AND list:**
+- AND: Forecast Temperature
+- OR: Azimuth, Elevation, Brightness
+- Intention: "keep shading while the forecast is hot, otherwise end by sun position/brightness"
+- Actual result: on a cool day the AND group is fully invalid all day long, so the **first** end trigger of any kind ends the shading, and a shading re-detection cannot cancel it. On a hot day the sun/brightness conditions end it as usual — the forecast never *holds* the shading. Use *"Independent Shading: Keep shading active while the temperature threshold is exceeded"* ([Sun Shading - Configuration](#shading_config)) for a real hot-day hold instead
 
 **Example - Quick response:**
 - AND: (empty)
@@ -159,6 +171,8 @@ After the waiting time expires, the automation re-evaluates ALL configured condi
 > 🧩 Input: `shading_conditions_end_or` · Default: `['cond_azimuth', 'cond_elevation', 'cond_brightness', 'cond_temp1', 'cond_temp2', 'cond_forecast_temp', 'cond_forecast_weather']`
 
 **Conditions where AT LEAST ONE must become invalid to END shading**
+
+Combined with the required (AND) list using **OR**: shading ends when any one of the conditions selected here becomes invalid, **or** when all conditions of the AND list have. An empty list is ignored.
 
 ### Typical END configurations
 
