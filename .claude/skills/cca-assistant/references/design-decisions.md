@@ -325,6 +325,35 @@ precise about what it does and doesn't cover:
   #677 regression must not reappear.
 
 
+### Both direction conditions are effect gates, evaluated at every drive toward their target (#698, CCA 2026.09.29 V2)
+
+Since #698 neither `auto_up_condition` nor `auto_down_condition` sits in the opening/closing
+entry or in the recovery's flip: the base transitions are state progress (Invariant 15), and
+each condition withholds the drives toward *its* position at their point of use (Bug Pattern
+AZ). The closing side was first left asymmetric and then mirrored in the same release — the
+argument "the #673 ownership layer would execute the refused closing" only holds while the
+consumers are not gated, and gating them is exactly the #698 pattern. What a future change
+must keep in mind:
+
+- **The ownership layer and the condition compose, they do not replace each other.**
+  `closing_target_owned` / `is_closing_scheduled` (configuration ownership, `trigger_variables`
+  flags) and `down_condition_ok` (runtime veto, a `!input` node evaluated at drive time) are
+  orthogonal; every automatic `cls` drive needs both. A `!input` can never join the ownership
+  flags (Invariant 10), which is why the condition is evaluated per site — six sites on the
+  closing side, four on the opening side (`TestClosedEntryStructure` pins every one).
+- **The resident privacy close is gated by the closing condition** although its *ownership*
+  is live state (`closing_target_owned`'s second source). Reason: `arrive_target` already
+  gates on `is_down_enabled`, so the maintainer treats the privacy close as a closing
+  movement — the condition follows the feature switch. Party mode therefore also stops the
+  privacy close of a resident coming home; a user who wants privacy closing regardless of
+  the condition has Force Close.
+- **Accepted residue, symmetric to the opening side:** with a refused closing condition the
+  night state reads `'cls'`; with *"Lower cover to ventilation position when window tilts
+  and cover is above"* enabled, a tilted window lowers the open cover to the ventilation
+  position (ventilation-owned, same as the #673 mirror) and the window-closed return then
+  holds it there because the `cls` return is refused. Without that option nothing moves on a
+  refused-closing night. Documented in the changelog.
+
 ### The sensor-based shading-end triggers hold the waiting time themselves via `for:` (#696, CCA 2026.09.29 V3)
 
 **Problem.** `shading_waitingtime_end` promises that shading ends only if an end condition is
@@ -359,7 +388,7 @@ groups mixing sun and sensors, but tripled the surface for one behavior. With `f
 case is still exact when the last condition to fail is a sensor (its trigger fires after the
 full wait and the arm requires all others to be invalid at that moment); only an AND group
 whose *last* failing member is the sun position samples the sensor members at the end of the
-sun wait.
+sun wait. The #554 cancel branch ("Shading re-detected. Cancel pending shading end", Bug Pattern AA) is unchanged but now only matters for a sun-armed pending — a sensor-armed pending executes on its arm write.
 
 **The price.** A `for:` timer lives in HA's memory: a restart, a reload or a UI save during a
 running sensor wait discards it, and the trigger only re-fires after the value recovers and
@@ -369,33 +398,6 @@ wait when the end conditions hold at start-up (`recovered_pending`, opt-in), and
 sun-position end or the closing time resolve the rest. Also new: a sensor reporting
 `unavailable` for a moment restarts the wait (the template goes false).
 
+**Support cost, known from the 2024 `for:` era (CHANGELOG_OLD 2024.05.28): an interrupted wait leaves no trace.** A `for:` timer that is reset never fires, so the automation records nothing — "why did the shading not end?" is answered by the sensor's history, not by a trace. The 2024 problem itself (combined AND templates whose members reset each other's `for:`) does not return: every end trigger here references exactly one entity, and the AND/OR combination happens in the action after the last member's wait.
+
 Pinned by `tests/test_shading_end_wait_in_trigger.py`.
-
-### Both direction conditions are effect gates, evaluated at every drive toward their target (#698, CCA 2026.09.29 V2)
-
-Since #698 neither `auto_up_condition` nor `auto_down_condition` sits in the opening/closing
-entry or in the recovery's flip: the base transitions are state progress (Invariant 15), and
-each condition withholds the drives toward *its* position at their point of use (Bug Pattern
-AZ). The closing side was first left asymmetric and then mirrored in the same release — the
-argument "the #673 ownership layer would execute the refused closing" only holds while the
-consumers are not gated, and gating them is exactly the #698 pattern. What a future change
-must keep in mind:
-
-- **The ownership layer and the condition compose, they do not replace each other.**
-  `closing_target_owned` / `is_closing_scheduled` (configuration ownership, `trigger_variables`
-  flags) and `down_condition_ok` (runtime veto, a `!input` node evaluated at drive time) are
-  orthogonal; every automatic `cls` drive needs both. A `!input` can never join the ownership
-  flags (Invariant 10), which is why the condition is evaluated per site — six sites on the
-  closing side, four on the opening side (`TestClosedEntryStructure` pins every one).
-- **The resident privacy close is gated by the closing condition** although its *ownership*
-  is live state (`closing_target_owned`'s second source). Reason: `arrive_target` already
-  gates on `is_down_enabled`, so the maintainer treats the privacy close as a closing
-  movement — the condition follows the feature switch. Party mode therefore also stops the
-  privacy close of a resident coming home; a user who wants privacy closing regardless of
-  the condition has Force Close.
-- **Accepted residue, symmetric to the opening side:** with a refused closing condition the
-  night state reads `'cls'`; with *"Lower cover to ventilation position when window tilts
-  and cover is above"* enabled, a tilted window lowers the open cover to the ventilation
-  position (ventilation-owned, same as the #673 mirror) and the window-closed return then
-  holds it there because the `cls` return is refused. Without that option nothing moves on a
-  refused-closing night. Documented in the changelog.
