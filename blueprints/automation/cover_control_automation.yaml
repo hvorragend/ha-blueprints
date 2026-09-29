@@ -2075,7 +2075,11 @@ blueprint:
             You can use this, for example, at Christmas time or if you want the covers to behave differently while on vacation.
             <br /><br />
             If the result of this condition is <ins>true</ins>, the automation will continue.<br />
-            The result of the conditions must be <ins>false</ins>, for the automation to stop in this sequence.
+            If it is <ins>false</ins>, CCA does not send the closing movement — neither at the closing time nor as
+            a later return to the closed position (e.g. when sun shading ends, a window closes, a resident arrives
+            or after a restart). The internal night state still advances at the closing time, so a cover you close
+            by hand is treated as closed for the night instead of being reopened by the next automatic event.
+            Sun shading and ventilation keep their own conditions and are not affected.
           default: []
           selector:
             condition: {}
@@ -6078,6 +6082,19 @@ actions:
           - variables:
               recovered_up_ok: false
 
+      # The closing mirror (#698): the closing condition withholds every drive
+      # toward the close position, never the base transition to 'cls'
+      - alias: "Recovery: the user's closing condition decides the closing drive"
+        if:
+          - &auto_down_condition_check
+            condition: !input auto_down_condition
+        then:
+          - variables:
+              recovered_down_ok: true
+        else:
+          - variables:
+              recovered_down_ok: false
+
       - alias: "Recovery: the user's ventilation condition decides the ventilation floor"
         choose:
           - alias: "Recovery: ventilation floor allowed"
@@ -6220,6 +6237,12 @@ actions:
                               recovery_up_condition_hold: >-
                                 {{ recovered_state == 'opn' and not recovered_up_ok and
                                    live_force == 'non' }}
+                              # Closing mirror: a refused closing condition withholds
+                              # every drive toward the close position; a live
+                              # force-close keeps its own authority
+                              recovery_down_condition_hold: >-
+                                {{ recovered_state == 'cls' and not recovered_down_ok and
+                                   live_force == 'non' }}
                               recovery_allowed: >-
                                 {{ not defer_to_shading and
                                    not defer_to_shading_end and
@@ -6231,13 +6254,14 @@ actions:
                               # Third clause: mirrors the live tilted-ventilation
                               # will_drive - the vnt floor of a caught-up closing is
                               # closing-owned and stays with the feature when Evening
-                              # Closing is unchecked (#673 mirror); a live force keeps
+                              # Closing is unchecked (#673 mirror) or the closing
+                              # condition refuses (#698 mirror); a live force keeps
                               # its own authority
                               caught_up_closing_hold: >-
                                 {{ caught_up_closing and (
                                      (recovered_state == 'cls' and closing_position_hold) or
                                      (is_ventilation_enabled and lockout_tilted_when_closing and recovered_window == 'tlt') or
-                                     (recovered_state == 'vnt' and not is_down_enabled and live_force == 'non')) }}
+                                     (recovered_state == 'vnt' and not (is_down_enabled and recovered_down_ok) and live_force == 'non')) }}
                               # Mirrors the live normal-opening will_drive: with Morning
                               # Opening unchecked the caught-up flip persists as state-only
                               # and the opening drive stays with the feature; overlay
@@ -6284,7 +6308,7 @@ actions:
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (opening condition)' if recovery_up_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (opening condition)' if recovery_up_condition_hold else '' }}{{ ', drive withheld (closing condition)' if recovery_down_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one
@@ -6293,7 +6317,7 @@ actions:
                                    not caught_up_closing_hold and not caught_up_opening_hold and
                                    not closing_ownership_hold and transition_manual_allows and
                                    not recovery_vent_condition_hold and not recovery_up_condition_hold and
-                                   not manual_reset_recovery_hold }}
+                                   not recovery_down_condition_hold and not manual_reset_recovery_hold }}
                           - variables:
                               drive_plan:
                                 run: "{{ will_drive }}"
@@ -6337,8 +6361,6 @@ actions:
                       - "{{ recovery_catch_up and recovered_base == 'cls' and helper_state_base != 'cls' }}"
                       - "{{ not is_evening_phase or base_gates.closing.schedule_ok }}"
                       - "{{ base_gates.closing.once_ok }}"
-                      - &auto_down_condition_check
-                        condition: !input auto_down_condition
                     sequence:
                       - variables:
                           new_base: "cls"
@@ -6593,23 +6615,34 @@ actions:
       #   Note: Always updates base state, movement only if conditions allow
       ############################################################
 
-      # Deliberately NOT gated on is_down_enabled - the mirror of the opening
-      # entry above (#673): the closing-time triggers exist whenever any schedule
-      # source is configured, and the base transition to 'cls' is state progress
-      # that must survive an unchecked Evening Closing - otherwise a morning
+      # Deliberately NOT gated on is_down_enabled or the user's closing condition
+      # - the mirror of the opening entry above (#673, #698): the closing-time
+      # triggers exist whenever any schedule source is configured, and the base
+      # transition to 'cls' is state progress that must survive an unchecked
+      # Evening Closing or a refused additional condition - otherwise a morning
       # 'opn' has no writer that ever expires it and every night reconciliation
       # replays the stale open state (reopening a hand-closed cover). Only the
-      # closing-owned DRIVES are feature-gated: the tilted-ventilation and
+      # closing-owned DRIVES are gated: the tilted-ventilation and
       # normal-closing will_drive below, and every other automatic drive toward
-      # the close position via closing_target_owned.
+      # the close position via closing_target_owned and the closing condition.
       - alias: "Check for closing cover"
         conditions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id | regex_match('^(t_close|t_calendar_event)') }}"
-          - *auto_down_condition_check
           - "{{ base_gates.closing.once_ok }}"
           - "{{ base_gates.closing.schedule_ok }}"
         sequence:
+          # The user's closing condition gates the closing-owned movements only
+          # (#698 mirror) - the same node the recovery evaluates before its flip
+          - alias: "Closing: evaluate the user's closing condition"
+            if:
+              - *auto_down_condition_check
+            then:
+              - variables:
+                  down_condition_ok: true
+            else:
+              - variables:
+                  down_condition_ok: false
           - choose:
               #################################
               # Lockout protection when closing
@@ -6651,7 +6684,7 @@ actions:
                       # projects the physical target to the ventilation floor -
                       # and with Evening Closing unchecked its drive stays with
                       # the feature while the transition persists (#673 mirror).
-                      will_drive: "{{ is_down_enabled and base_gates.closing.override_ok and state_gates.vnt }}"
+                      will_drive: "{{ is_down_enabled and down_condition_ok and base_gates.closing.override_ok and state_gates.vnt }}"
                       log_user: "the window is tilted, going to the ventilation position instead of closing"
                       drive_plan:
                         run: "{{ will_drive }}"
@@ -6723,10 +6756,11 @@ actions:
             ###################################
             default:
               - variables:
-                  # is_down_enabled: with Evening Closing unchecked the branch
-                  # runs as a pure base-state sync - the transition persists,
-                  # the closing movement stays with the feature (#673 mirror)
-                  will_drive: "{{ not is_paused and is_down_enabled and base_gates.closing.override_ok and force_allows_close }}"
+                  # is_down_enabled / down_condition_ok: with Evening Closing
+                  # unchecked (#673 mirror) or the closing condition refused
+                  # (#698 mirror) the branch runs as a pure base-state sync -
+                  # the transition persists, the closing movement is withheld
+                  will_drive: "{{ not is_paused and is_down_enabled and down_condition_ok and base_gates.closing.override_ok and force_allows_close }}"
                   log_user: "{{ 'closing as scheduled' if will_drive else 'closing time reached' }}"
                   drive_plan:
                     run: "{{ will_drive }}"
@@ -7389,16 +7423,25 @@ actions:
                             sequence:
                               - variables:
                                   shading_end_target_condition_ok: true
-                          - alias: "Shading end reconciliation: non-ventilation target"
+                          # Closing mirror (#698): the close target honours the
+                          # user's closing condition the same way
+                          - alias: "Shading end reconciliation: closing target allowed"
                             conditions:
-                              - "{{ shading_end_state not in ['lock', 'vnt', 'opn'] }}"
+                              - "{{ shading_end_state == 'cls' }}"
+                              - *auto_down_condition_check
+                            sequence:
+                              - variables:
+                                  shading_end_target_condition_ok: true
+                          - alias: "Shading end reconciliation: shading target"
+                            conditions:
+                              - "{{ shading_end_state not in ['lock', 'vnt', 'opn', 'cls'] }}"
                             sequence:
                               - variables:
                                   shading_end_target_condition_ok: true
                         default:
                           - variables:
-                              # Only lock/vnt/opn can reach this default: their
-                              # configured ventilation/opening condition refused.
+                              # Only lock/vnt/opn/cls can reach this default: their
+                              # configured ventilation/opening/closing condition refused.
                               shading_end_target_condition_ok: false
                       - variables:
                           # The 'cls' destination is closing-owned (#673 mirror): a
@@ -7670,11 +7713,13 @@ actions:
                       # Cover is above ventilate position but system is in privacy-close mode (resident present)
                       # or heading for an owned scheduled closing: drive down to ventilate position instead of
                       # continuing to close fully. An unowned schedule-sync 'cls' (Evening Closing unchecked,
-                      # #673 mirror) must not pull a deliberately open cover down.
+                      # #673 mirror) or a closing the user's condition currently refuses (#698 mirror) must
+                      # not pull a deliberately open cover down.
                       - and:
                           - "{{ position_comparisons.current_above_ventilate }}"
                           - "{{ effective_state == 'cls' }}"
                           - "{{ closing_target_owned }}"
+                          - *auto_down_condition_check
 
                 sequence:
                   - if:
@@ -7743,10 +7788,11 @@ actions:
                   - "{{ was_ventilating }}"
                   - condition: !input auto_ventilate_end_condition
                 sequence:
-                  # The open return honours the user's opening condition (#698):
-                  # a refused condition leaves the cover at the ventilation
-                  # position instead of performing the opening it withholds
-                  - alias: "Window closed: evaluate the open target's condition"
+                  # The open and close returns honour the user's opening/closing
+                  # condition (#698 and its mirror): a refused condition leaves
+                  # the cover at the ventilation position instead of performing
+                  # the movement it withholds
+                  - alias: "Window closed: evaluate the return target's condition"
                     choose:
                       - alias: "Return condition: opening target allowed"
                         conditions:
@@ -7755,9 +7801,16 @@ actions:
                         sequence:
                           - variables:
                               return_condition_ok: true
-                      - alias: "Return condition: non-opening target"
+                      - alias: "Return condition: closing target allowed"
                         conditions:
-                          - "{{ return_target != 'opn' }}"
+                          - "{{ return_target == 'cls' }}"
+                          - *auto_down_condition_check
+                        sequence:
+                          - variables:
+                              return_condition_ok: true
+                      - alias: "Return condition: shading target"
+                        conditions:
+                          - "{{ return_target not in ['opn', 'cls'] }}"
                         sequence:
                           - variables:
                               return_condition_ok: true
@@ -7778,7 +7831,7 @@ actions:
                                    (is_closing_scheduled or resident_blocks_open or
                                     in_ventilate_position)}[return_target] }}
                       drive_plan: "{{ dict(state_targets[return_target], run=will_drive, delay_s=drive_delay_standard if ventilation_flags.delay_enabled else 0) }}"
-                      log_user: "{{ 'the window was closed again, back to: ' ~ state_labels[return_target] if return_condition_ok else 'the window was closed again, but the opening condition refused movement' }}"
+                      log_user: "{{ 'the window was closed again, back to: ' ~ state_labels[return_target] if return_condition_ok else 'the window was closed again, but the ' ~ ('opening' if return_target == 'opn' else 'closing') ~ ' condition refused movement' }}"
                       log_extra: "window closed; return_target={{ return_target }}"
                       update_values: >-
                         {% set base = {'win': 'cls'} %}
@@ -7860,7 +7913,35 @@ actions:
                             {% elif helper_state_base == 'opn' and resident_flags.opening_trigger and is_up_enabled %}opn
                             {% elif helper_state_base == 'cls' and is_down_enabled %}cls
                             {% else %}non{% endif %}
-                          will_drive: "{{ leave_target != 'non' and state_gates[leave_target] }}"
+                      # The open/close targets honour the user's opening/closing
+                      # condition (#698 and its mirror); the state still advances
+                      - alias: "Resident leaving: evaluate the target's condition"
+                        choose:
+                          - alias: "Leave condition: opening target allowed"
+                            conditions:
+                              - "{{ leave_target == 'opn' }}"
+                              - *auto_up_condition_check
+                            sequence:
+                              - variables:
+                                  leave_condition_ok: true
+                          - alias: "Leave condition: closing target allowed"
+                            conditions:
+                              - "{{ leave_target == 'cls' }}"
+                              - *auto_down_condition_check
+                            sequence:
+                              - variables:
+                                  leave_condition_ok: true
+                          - alias: "Leave condition: shading target or none"
+                            conditions:
+                              - "{{ leave_target not in ['opn', 'cls'] }}"
+                            sequence:
+                              - variables:
+                                  leave_condition_ok: true
+                        default:
+                          - variables:
+                              leave_condition_ok: false
+                      - variables:
+                          will_drive: "{{ leave_target != 'non' and leave_condition_ok and state_gates[leave_target] }}"
                           drive_plan: "{{ dict(state_targets[leave_target], run=will_drive, delay_s=drive_delay_standard) if leave_target != 'non' else {'run': false} }}"
                           log_user: "the resident is no longer present, target: {{ state_labels[leave_target] }}"
                           log_extra: "resident leaving; target={{ leave_target }}"
@@ -7905,7 +7986,29 @@ actions:
                           arrive_target: >-
                             {% if not (is_ventilation_enabled and window_opened_now) and is_down_enabled and resident_flags.closing_trigger %}cls
                             {% else %}non{% endif %}
-                          will_drive: "{{ arrive_target == 'cls' and state_gates.cls }}"
+                      # The privacy close is a closing movement: it honours the
+                      # user's closing condition (#698 mirror), like its feature
+                      # switch is_down_enabled above
+                      - alias: "Resident arriving: evaluate the closing condition"
+                        choose:
+                          - alias: "Arrive condition: closing target allowed"
+                            conditions:
+                              - "{{ arrive_target == 'cls' }}"
+                              - *auto_down_condition_check
+                            sequence:
+                              - variables:
+                                  arrive_condition_ok: true
+                          - alias: "Arrive condition: no target"
+                            conditions:
+                              - "{{ arrive_target != 'cls' }}"
+                            sequence:
+                              - variables:
+                                  arrive_condition_ok: true
+                        default:
+                          - variables:
+                              arrive_condition_ok: false
+                      - variables:
+                          will_drive: "{{ arrive_target == 'cls' and arrive_condition_ok and state_gates.cls }}"
                           drive_plan: "{{ dict(state_targets.cls, run=will_drive, delay_s=drive_delay_standard) if arrive_target == 'cls' else {'run': false} }}"
                           log_user: "{{ 'the resident is present, closing for privacy' if arrive_target == 'cls' else 'the resident is present, nothing to change' }}"
                           log_extra: "resident arriving; target={{ arrive_target }}"

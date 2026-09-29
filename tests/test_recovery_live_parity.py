@@ -1211,13 +1211,14 @@ class TestClosedEntryStructure:
         ]
 
     def test_the_live_closing_entry_is_exactly_the_known_shape(self):
-        """The closing condition deliberately stays an entry gate (see
-        design-decisions.md: the closing side is not mirrored)."""
+        """#698 mirror: the closing entry carries no !input condition either -
+        the user's closing condition is an effect gate evaluated inside the
+        branch (down_condition_ok), so the state-only sub-branches run
+        regardless."""
         conds = _branch("Check for closing")["conditions"]
         assert conds[0] == "{{ trigger.id is defined }}"
         assert "trigger.id | regex_match" in conds[1]
-        assert conds[2] == {"condition": "auto_down_condition"}
-        assert conds[3:] == [
+        assert conds[2:] == [
             "{{ base_gates.closing.once_ok }}",
             "{{ base_gates.closing.schedule_ok }}",
         ]
@@ -1225,20 +1226,26 @@ class TestClosedEntryStructure:
     def test_the_closing_drives_are_feature_gated(self):
         """Counterpart of the flagless closing entry: both closing-owned drives
         (the normal closing and the tilted-window ventilation floor of the
-        closing event) must keep the is_down_enabled gate (#673 mirror)."""
+        closing event) must keep the is_down_enabled gate (#673 mirror) and
+        the user's closing condition (#698 mirror), evaluated once at the top
+        of the branch."""
         closing = _branch("Check for closing")
+        gate = closing["sequence"][0]
+        assert gate["if"] == [{"condition": "auto_down_condition"}]
+        assert gate["then"][0]["variables"]["down_condition_ok"] is True
+        assert gate["else"][0]["variables"]["down_condition_ok"] is False
         dispatch = next(s for s in closing["sequence"]
                         if isinstance(s, dict) and "choose" in s)
         normal_will_drive = next(s for s in dispatch["default"]
                                  if isinstance(s, dict) and "variables" in s
                                  )["variables"]["will_drive"]
-        assert "is_down_enabled" in normal_will_drive
+        assert "is_down_enabled and down_condition_ok" in normal_will_drive
         tilted = next(b for b in dispatch["choose"]
                       if "Move to ventilation position" in str(b.get("alias", "")))
         tilted_will_drive = next(s for s in tilted["sequence"]
                                  if isinstance(s, dict) and "variables" in s
                                  )["variables"]["will_drive"]
-        assert "is_down_enabled" in tilted_will_drive
+        assert "is_down_enabled and down_condition_ok" in tilted_will_drive
 
     def test_the_unowned_cls_drives_are_ownership_gated(self):
         """Every automatic drive that can target the close position outside the
@@ -1284,21 +1291,28 @@ class TestClosedEntryStructure:
         ]
 
     def test_the_closing_flip_is_exactly_the_known_shape(self):
+        """#698 mirror: no !input condition on the closing flip - the base
+        state advances, recovery_down_condition_hold withholds the drive."""
         conds = self._flip("closing")["conditions"]
         assert conds == [
             "{{ recovery_catch_up and recovered_base == 'cls' and helper_state_base != 'cls' }}",
             "{{ not is_evening_phase or base_gates.closing.schedule_ok }}",
             "{{ base_gates.closing.once_ok }}",
-            {"condition": "auto_down_condition"},
         ]
 
-    def test_the_closing_input_condition_is_the_same_yaml_node(self):
-        live_node = next(c for c in _branch("Check for closing")["conditions"]
-                         if isinstance(c, dict) and "condition" in c)
-        flip_node = next(c for c in self._flip("closing")["conditions"]
-                         if isinstance(c, dict) and "condition" in c)
-        assert live_node["condition"] == "auto_down_condition"
-        assert live_node is flip_node
+    def test_the_closing_condition_is_the_same_yaml_node_everywhere(self):
+        """#698 mirror: the recovery anchors auto_down_condition before its
+        flip; the live closing drives, the shading-end close target, the
+        window-closed close return, the resident chains, the partial-ventilation
+        pull-down and the reconciliation gate all alias that one node."""
+        found = self._input_nodes("auto_down_condition")
+        assert len(found) >= 7            # the anchor + at least 6 aliased consumers
+        assert all(n is found[0] for n in found)
+        recovery_step = next(s for s in _walk_steps(_branch_body(RECOVERY))
+                             if "closing condition" in str(s.get("alias", "")))
+        assert recovery_step["if"][0] is found[0]
+        assert recovery_step["then"][0]["variables"]["recovered_down_ok"] is True
+        assert recovery_step["else"][0]["variables"]["recovered_down_ok"] is False
 
     @staticmethod
     def _input_nodes(input_name):
@@ -1355,8 +1369,46 @@ class TestClosedEntryStructure:
         opn = next(b for b in gate["choose"] if "opening target" in b["alias"])
         assert opn["conditions"] == ["{{ shading_end_state == 'opn' }}",
                                      {"condition": "auto_up_condition"}]
-        other = next(b for b in gate["choose"] if "non-ventilation" in b["alias"])
-        assert "'opn'" in other["conditions"][0]
+        cls = next(b for b in gate["choose"] if "closing target" in b["alias"])
+        assert cls["conditions"] == ["{{ shading_end_state == 'cls' }}",
+                                     {"condition": "auto_down_condition"}]
+        other = next(b for b in gate["choose"] if "shading target" in b["alias"])
+        assert "'opn'" in other["conditions"][0] and "'cls'" in other["conditions"][0]
+
+        # closing mirror at the window-closed return and the resident chains
+        closed_gate = next(s for s in closed["sequence"]
+                           if isinstance(s, dict) and "choose" in s)
+        cls = next(b for b in closed_gate["choose"] if "closing target" in b["alias"])
+        assert cls["conditions"] == ["{{ return_target == 'cls' }}",
+                                     {"condition": "auto_down_condition"}]
+        leave = _nested_branch("Resident leaving (ON")
+        leave_gate = next(s for s in _walk_steps(leave["sequence"])
+                          if "Leave condition" in str(s.get("choose", [{}])[0].get("alias", "")))
+        assert [b["conditions"] for b in leave_gate["choose"]] == [
+            ["{{ leave_target == 'opn' }}", {"condition": "auto_up_condition"}],
+            ["{{ leave_target == 'cls' }}", {"condition": "auto_down_condition"}],
+            ["{{ leave_target not in ['opn', 'cls'] }}"],
+        ]
+        assert leave_gate["default"][0]["variables"]["leave_condition_ok"] is False
+        leave_will_drive = next(s["variables"]["will_drive"] for s in _walk_steps(leave["sequence"])
+                                if "will_drive" in s.get("variables", {})
+                                and "leave_target" in str(s["variables"]["will_drive"]))
+        assert "leave_condition_ok" in leave_will_drive
+        arrive = _nested_branch("Resident arriving (OFF")
+        arrive_gate = next(s for s in _walk_steps(arrive["sequence"])
+                           if "Arrive condition" in str(s.get("choose", [{}])[0].get("alias", "")))
+        assert arrive_gate["choose"][0]["conditions"] == [
+            "{{ arrive_target == 'cls' }}", {"condition": "auto_down_condition"}]
+        assert arrive_gate["default"][0]["variables"]["arrive_condition_ok"] is False
+        arrive_will_drive = next(s["variables"]["will_drive"] for s in _walk_steps(arrive["sequence"])
+                                 if "will_drive" in s.get("variables", {})
+                                 and "arrive_target" in str(s["variables"]["will_drive"]))
+        assert "arrive_condition_ok" in arrive_will_drive
+        # the partial-ventilation pull-down toward an owned closing
+        partial = _nested_branch("Window tilted - Partial ventilation")
+        pull_down = next(c for c in partial["conditions"][-1]["or"]
+                         if isinstance(c, dict) and "closing_target_owned" in str(c))
+        assert pull_down["and"][-1] == {"condition": "auto_down_condition"}
 
         # the abort of a shading start that held the opening back (Bug Pattern
         # AY) reconciles to open behind the same gates - the user's opening
@@ -1472,6 +1524,95 @@ class TestIssue698OpeningConditionRefused:
         assert live["moves"] and live["target"] == 100
         assert recovery["state"] == "lock"
         assert recovery["moves"] and recovery["target"] == 100
+
+
+class TestIssue698ClosingConditionRefused:
+    """#698 mirror: auto_down_condition used to gate the whole 'Check for
+    closing cover' branch and the recovery's closing flip, so with the
+    condition refused (party mode, Christmas lights) the day 'opn' had no
+    writer that ever expired it - a cover closed by hand at night was reopened
+    by the next reconciliation (the #677 shape). The condition now withholds
+    exactly the drives toward the close position, live and in recovery alike,
+    while the base state advances at the closing time."""
+
+    REFUSED = dict(DEFAULT_VERDICTS, auto_down_condition=False)
+
+    def _evening(self, **over):
+        base = dict(brightness="40", helper={"bas": "opn"}, current_position=100)
+        base.update(over)
+        return scenario(**base)
+
+    def test_the_night_start_expires_the_day_opn_without_a_movement(self):
+        live, recovery = assert_paired(self._evening(), "closing", self.REFUSED)
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["final"]["ts_cls"] == recovery["final"]["ts_cls"] == "now"
+        assert live["moves"] is False and recovery["moves"] is False
+        assert recovery["state"] == "cls"
+
+    def test_with_the_condition_allowed_the_same_evening_drives(self):
+        live, recovery = assert_paired(self._evening(), "closing")
+        assert live["moves"] and live["target"] == 0
+        assert recovery["moves"] and recovery["target"] == 0
+
+    def test_a_hand_closed_cover_is_treated_as_closed_for_the_night(self):
+        live, recovery = assert_paired(self._evening(current_position=0),
+                                       "closing", self.REFUSED)
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["moves"] is False and recovery["moves"] is False
+
+    def test_a_manual_override_survives_the_state_sync(self):
+        s = self._evening(helper={"bas": "opn", "man": 1})
+        live, recovery = assert_paired(s, "closing", self.REFUSED)
+        assert live["final"]["man"] == recovery["final"]["man"] == 1
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+
+    def test_a_bright_evening_still_refuses_the_flip(self):
+        s = self._evening(brightness="6780")
+        live, recovery = assert_paired(s, "closing", self.REFUSED)
+        assert live["entered"] is False
+        assert recovery["final"]["bas"] == "opn"
+        assert recovery["moves"] is False
+
+    def test_a_restart_reposition_never_closes_a_cover_the_condition_keeps_open(self):
+        """The base state is already 'cls' (synced at the closing time), the
+        cover rests open: a restart at night with the catch-up on must not close
+        it while the condition refuses - and must, once it allows again."""
+        s = self._evening(helper={"bas": "cls"})
+        held = run_recovery(s, self.REFUSED)
+        assert held["state"] == "cls"
+        assert held["moves"] is False
+        allowed = run_recovery(s)
+        assert allowed["moves"] and allowed["target"] == 0
+
+    def test_a_live_force_close_keeps_its_recovery_drive(self):
+        s = self._evening(live_force="cls", helper={"bas": "opn", "frc": "cls"})
+        live = run_live(s, "closing", self.REFUSED)
+        recovery = run_recovery(s, self.REFUSED)
+        assert live["entered"] and live["moves"] is False
+        assert recovery["state"] == "cls"
+        assert recovery["moves"] and recovery["target"] == 0
+
+    def test_a_tilted_window_holds_the_vent_floor_in_both_paths(self):
+        """The closing event's ventilation floor is closing-owned (#673 mirror):
+        live C-B refuses its drive with the condition refused, and the
+        caught_up_closing_hold vnt clause matches that decision."""
+        s = self._evening(window="tlt")
+        live, recovery = assert_paired(s, "closing", self.REFUSED)
+        assert live["entered"] is True
+        assert live["final"]["bas"] == recovery["final"]["bas"] == "cls"
+        assert live["moves"] is False and recovery["moves"] is False
+        assert recovery["state"] == "vnt"
+
+    def test_the_resident_privacy_close_honours_the_condition_too(self):
+        """The privacy close is a closing movement: with the condition refused
+        the recovery keeps the cover open, the state still says 'cls'."""
+        s = self._evening(state_resident=True,
+                          resident_config=["resident_closing_enabled"])
+        live, recovery = assert_paired(s, "closing", self.REFUSED)
+        assert live["moves"] is False and recovery["moves"] is False
+        assert recovery["state"] == "cls"
 
     def test_the_closing_position_hold_is_shared(self):
         closing = _branch("Check for closing")

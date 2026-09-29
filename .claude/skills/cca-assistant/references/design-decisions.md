@@ -324,31 +324,31 @@ precise about what it does and doesn't cover:
   re-attempt it casually "for consistency" — if you do, both sources must be covered and the
   #677 regression must not reappear.
 
-### `auto_up_condition` is an effect gate, `auto_down_condition` stays an entry gate (#698, CCA 2026.09.29 V2)
+### Both direction conditions are effect gates, evaluated at every drive toward their target (#698, CCA 2026.09.29 V2)
 
-Since #698 the opening condition no longer sits in the "Check for opening" entry or in the
-recovery's opening flip: the base transition to `'opn'` is state progress (Invariant 15), and
-the condition withholds the drives toward the open position at their point of use — the
-normal-opening `will_drive` (`up_condition_ok`), `recovery_up_condition_hold`, the shading-end
-open target, the window-closed open return and the three `target_condition_gate` sites (Bug
-Pattern AZ). The closing condition is **deliberately not mirrored** — it still gates the whole
-"Check for closing cover" entry and the closing flip, and `TestClosedEntryStructure` pins the
-asymmetry. Do not "harmonize" it without doing all of the following:
+Since #698 neither `auto_up_condition` nor `auto_down_condition` sits in the opening/closing
+entry or in the recovery's flip: the base transitions are state progress (Invariant 15), and
+each condition withholds the drives toward *its* position at their point of use (Bug Pattern
+AZ). The closing side was first left asymmetric and then mirrored in the same release — the
+argument "the #673 ownership layer would execute the refused closing" only holds while the
+consumers are not gated, and gating them is exactly the #698 pattern. What a future change
+must keep in mind:
 
-- A state-only `bas: 'cls'` written while `auto_down_condition` refuses would sit next to a
-  **true** `is_closing_scheduled` / `closing_target_owned` — a `!input` condition cannot join
-  those `trigger_variables` flags (Invariant 10), and the whole #673-mirror ownership layer
-  (window-closed return, partial-ventilation pull-down, shading-end `cls`, force-disable
-  return, force-pause resume, resident chains, `closing_ownership_hold`) is built on them. Every
-  one of those consumers would then perform the closing the user just refused: party mode on,
-  a window closed after ventilation → the cover closes during the party. The opening side has
-  no such layer to fight — its `opn` consumers are the short list above, all covered.
-- Each of those consumers would need the down condition evaluated at drive time (a YAML
-  condition position each), which is exactly the widening the reverted `is_closing_scheduled`
-  attempt in the #677 history warns about: two legitimate `'cls'` sources (schedule and
-  `privacy_active`) make the closing gate meaningfully harder than the opening one.
-- The accepted cost of not mirroring: a refused `auto_down_condition` still latches
-  `bas: 'opn'` overnight, so a hand-closed cover may be reopened by a night reconciliation
-  (the #677 class). That is the pre-#698 behavior, documented in the changelog — a user who
-  needs the closing side too should open an issue with the concrete configuration so the
-  ownership layer can be extended deliberately.
+- **The ownership layer and the condition compose, they do not replace each other.**
+  `closing_target_owned` / `is_closing_scheduled` (configuration ownership, `trigger_variables`
+  flags) and `down_condition_ok` (runtime veto, a `!input` node evaluated at drive time) are
+  orthogonal; every automatic `cls` drive needs both. A `!input` can never join the ownership
+  flags (Invariant 10), which is why the condition is evaluated per site — six sites on the
+  closing side, four on the opening side (`TestClosedEntryStructure` pins every one).
+- **The resident privacy close is gated by the closing condition** although its *ownership*
+  is live state (`closing_target_owned`'s second source). Reason: `arrive_target` already
+  gates on `is_down_enabled`, so the maintainer treats the privacy close as a closing
+  movement — the condition follows the feature switch. Party mode therefore also stops the
+  privacy close of a resident coming home; a user who wants privacy closing regardless of
+  the condition has Force Close.
+- **Accepted residue, symmetric to the opening side:** with a refused closing condition the
+  night state reads `'cls'`; with *"Lower cover to ventilation position when window tilts
+  and cover is above"* enabled, a tilted window lowers the open cover to the ventilation
+  position (ventilation-owned, same as the #673 mirror) and the window-closed return then
+  holds it there because the `cls` return is refused. Without that option nothing moves on a
+  refused-closing night. Documented in the changelog.

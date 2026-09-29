@@ -35,7 +35,7 @@ This condition can be used to dynamically control the <ins>opening</ins> of the 
 
 > 🧩 Input: `auto_down_condition`
 
-This condition can be used to dynamically control the <ins>closing</ins> of the cover. You can use this, for example, at Christmas time or if you want the covers to behave differently while on vacation. <br /><br /> If the result of this condition is <ins>true</ins>, the automation will continue.<br /> The result of the conditions must be <ins>false</ins>, for the automation to stop in this sequence.
+This condition can be used to dynamically control the <ins>closing</ins> of the cover. You can use this, for example, at Christmas time or if you want the covers to behave differently while on vacation. <br /><br /> If the result of this condition is <ins>true</ins>, the automation will continue.<br /> If it is <ins>false</ins>, CCA does not send the closing movement — neither at the closing time nor as a later return to the closed position (e.g. when sun shading ends, a window closes, a resident arrives or after a restart). The internal night state still advances at the closing time, so a cover you close by hand is treated as closed for the night instead of being reopened by the next automatic event. Sun shading and ventilation keep their own conditions and are not affected.
 
 ---
 

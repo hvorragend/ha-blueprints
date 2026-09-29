@@ -1133,8 +1133,14 @@ destination, because unlike the feature switch it cannot join `is_opening_schedu
   return gains `return_condition_ok`; the shading-start abort reconciliation (Bug Pattern AY)
   gains `abort_up_condition_ok`. Manual Override reset, force disable and force pause
   already evaluated the condition through `target_condition_gate`.
-- The closing side is deliberately **not** mirrored — see design-decisions.md
-  ("`auto_up_condition` is an effect gate, `auto_down_condition` stays an entry gate").
+- **Closing mirror (same release):** `auto_down_condition` gets the identical treatment —
+  out of the "Check for closing cover" entry and the closing flip, evaluated once per path
+  (`down_condition_ok` / `recovered_down_ok`), consumed by the two closing-owned drives, the
+  vnt clause of `caught_up_closing_hold`, `recovery_down_condition_hold`, the shading-end
+  close target, the window-closed close return, both resident chains (`leave_condition_ok`,
+  `arrive_condition_ok` — the privacy close is a closing movement, gated like its
+  `is_down_enabled` switch) and the partial-ventilation pull-down clause toward an owned
+  closing. Two more sites than the opening side, same pattern — see design-decisions.md.
 
 **Accepted consequence** (changelog): with the condition refused and the cover left closed,
 the day state reads `'opn'`, so a sun-shading start raises the closed cover to the shading

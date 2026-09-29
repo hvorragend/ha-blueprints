@@ -470,7 +470,7 @@ against *which trigger actually fires it*.
 
 | Trigger | Latches? | Cost of a dropped run | Repaired by | Opt-in? |
 |---|---|---|---|---|
-| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — **but a closing only when `auto_down_condition` still allows it** (V6; since #698 the opening condition no longer gates the flip — it holds the `opn` *drive* via `recovery_up_condition_hold`), **and, outside the ultimate late windows, only when the environment conditions allow it** (2026.07.30, #649), **and only past the once-a-day (`prevent_*_multiple_times`) transition gate** (2026.08.01, #656). Manual override is a drive-only gate: the base flip persists while its movement is suppressed (#655). A caught-up closing also clears `shd`/`pnd` and honors the closing prevent options, like every live closing sub-branch | **opt-in** |
+| `t_open_*` / `t_close_*` / `t_calendar_event_*` | no (window closes) | missed opening/closing | the recovery gate's `recovered_base` (re-derived from schedule/calendar), written via `new_base` — the direction conditions no longer gate the flip (V6 did; since #698 they hold the `opn`/`cls` *drive* via `recovery_up_condition_hold` / `recovery_down_condition_hold`), **but, outside the ultimate late windows, only when the environment conditions allow it** (2026.07.30, #649), **and only past the once-a-day (`prevent_*_multiple_times`) transition gate** (2026.08.01, #656). Manual override is a drive-only gate: the base flip persists while its movement is suppressed (#655). A caught-up closing also clears `shd`/`pnd` and honors the closing prevent options, like every live closing sub-branch | **opt-in** |
 | *(a gate source drops out mid-runtime and returns — no restart, no re-attach)* | — | the gate blocks every run of the outage, so **all the latching rows below happen at once**, and the `frc`/`win`/`res` the blocked runs would have written stay stale (a stale `frc` moves the cover wrongly on every later trigger, forever) | the **ungated `t_recovery` triggers of the five gate sources** (cover, helper, position sensor, both contacts) | always — nothing else fires; the run they start is hygiene-only with the catch-up off |
 | `t_shading_*_pending_*` (numeric/template) | **yes** (condition stays true) | shading never starts/ends that day | the recovery gate's `recovered_pending` (re-evaluates and re-arms) | **opt-in** |
 | `t_shading_*_execution` | **yes** (`now >= ts.due` stays true) | pending armed forever, opening handler defers into a dead flow | the recovery gate's `pending_is_stale` (clears it) | always |
@@ -512,13 +512,14 @@ live branch — the flip happens on the schedule alone and the condition holds t
 it is evaluated once before the flip (`recovered_up_ok`) and `recovery_up_condition_hold`
 (`recovered_state == 'opn' and not recovered_up_ok and live_force == 'non'`) withholds every
 `opn` drive, flip and reposition alike. The V6 report is still covered — by the hold, not
-by refusing the flip. The closing condition keeps gating the closing flip (and the live
-closing entry); the asymmetry is deliberate, see design-decisions.md.
+by refusing the flip. The closing condition is mirrored in the same release
+(`recovered_down_ok`, `recovery_down_condition_hold`, the vnt clause of
+`caught_up_closing_hold`); see design-decisions.md.
 
 The structure is dictated by `!input`: such conditions only evaluate at fixed YAML
-positions (`conditions:`/`if:`), so the flip *direction* — which decides whether the
-closing condition applies — is a `choose:` and every path enters one aliased
-reconciliation body. Home Assistant script variables assigned inside
+positions (`conditions:`/`if:`), so both conditions are evaluated once before the flip;
+the flip *direction* — which decides the base and the `recovered_shade` the shared body
+reconciles — stays a `choose:` and every path enters one aliased reconciliation body. Home Assistant script variables assigned inside
 `if`/`choose` normally update the enclosing run scope (the special local scope
 is used by constructs such as `repeat`); the shared-body shape is for YAML-node
 reuse and auditable condition identity, not because branch variables cannot
@@ -528,6 +529,9 @@ propagate.
 if: &auto_up_condition_check                    (anchored here; aliased by the normal-opening
   then  → recovered_up_ok: true                  drive gate, the shading-end open target, the
   else  → recovered_up_ok: false                 window-closed open return, target_condition_gate)
+if: &auto_down_condition_check                  (anchored here; aliased by the closing drives,
+  then  → recovered_down_ok: true                the shading-end/return close targets, the
+  else  → recovered_down_ok: false               resident chains, the pull-down clause, ...)
 
 choose: "ventilation floor allowed?"           (&auto_ventilate_condition_check —
   - condition ok  → recovered_vent_ok: true      the SAME node all 7 live vent leaves alias)
@@ -543,7 +547,7 @@ choose: "ventilation floor allowed?"           (&auto_ventilate_condition_check 
   - "catching up a closing"   → … + not is_evening_phase or base_gates.closing.schedule_ok
                                 + base_gates.closing.override_ok or override_expired
                                 + base_gates.closing.once_ok
-                                + &auto_down_condition_check            → new_base: 'cls'
+                                (no !input condition — #698 mirror)     → new_base: 'cls'
                                                                           + recovered_shade: false  → *recovery_apply
 default:                        no flip, or a gate said no              → new_base: helper → *recovery_apply
 
@@ -556,6 +560,8 @@ recovery_apply:
     → recovery_vent_condition_hold (the live contact-opened leaf refused too)
   recovered opn + opening condition refused + no live force
     → recovery_up_condition_hold (the live normal-opening will_drive refused too)
+  recovered cls + closing condition refused + no live force
+    → recovery_down_condition_hold (the live normal-closing will_drive refused too)
   caught-up opening/closing
     → direction-specific outcome hold before any drive
 ```
@@ -598,10 +604,9 @@ expired-override composition, the night clause, the any-`man` drive gate,
 the `vnt`/`auto_ventilate_condition` and lockout-target decisions) and the
 checklist for adding a new live gate live in
 [references/recovery-parity.md](recovery-parity.md) — read it before touching
-either side. The `auto_down_condition` `!input` node is anchored at the closing
-flip and aliased by the live closing entry; the `auto_up_condition` node is
-anchored at the pre-flip evaluation and aliased by every live drive toward the
-open position (object identity, pinned by `TestClosedEntryStructure`).
+either side. Both direction-condition `!input` nodes are anchored at the pre-flip
+evaluation and aliased by every live drive toward their position (object
+identity, pinned by `TestClosedEntryStructure`).
 
 **A caught-up closing emulates the whole closing write, not just `bas` (same
 commit).** Every sub-branch of the live closing writes `shd: 0` and `pnd: 'non'` —

@@ -55,7 +55,7 @@ by every live consumer. Never copy either kind inline.
 |---|---|---|
 | `base_gates.{opening,closing}.{override_ok,once_ok,schedule_ok}` | "Check for opening"/"Check for closing" entries | the flip conditions (compositions below) |
 | `closing_position_hold` | "Only status change if cover is shaded…" | part of `caught_up_closing_hold` |
-| `&auto_down_condition_check` | "Check for closing" entry (alias) | closing flip condition (anchor) |
+| `&auto_down_condition_check` | closing drive gate (`down_condition_ok`, both closing-owned drives), shading-end close target, window-closed close return, resident chains, partial-ventilation pull-down, `target_condition_gate` (alias) | evaluated once before the flip into `recovered_down_ok` → `recovery_down_condition_hold` + the vnt clause of `caught_up_closing_hold` (anchor); the closing flip carries no `!input` condition (#698 mirror) |
 | `&auto_up_condition_check` | normal-opening drive gate (`up_condition_ok`), shading-end open target, window-closed open return, `target_condition_gate` (alias) | evaluated once before the flip into `recovered_up_ok` → `recovery_up_condition_hold` (anchor); the opening flip carries no `!input` condition (#698) |
 | `&auto_ventilate_condition_check` | live ventilation/lockout leaves (closing C-B, opening lockout, shading-end vent, contact full/tilt, resident lockout/tilt paths, force-disable vent) | captures `recovered_vent_ok` for the caught-up closing fallback and the lockout drive hold |
 | `environment_allows_opening/closing` | inside `schedule_ok` | same instance |
@@ -128,7 +128,7 @@ shading active/pending, prevent options, force, pause, resident privacy.
 | Gate / situation | Live | Recovery | Status |
 |---|---|---|---|
 | `is_down_enabled` (Evening Closing unchecked) | NOT an entry condition — the base flip is state progress (#673 mirror); the normal-closing and tilted-ventilation `will_drive` carry the feature gate, every other close drive gates on `closing_target_owned` | `recovered_base` flips on the phases alone; `closing_ownership_hold` (all recovery drives) and the vnt clause of `caught_up_closing_hold` withhold exactly the closing-owned drives | shared (state-only sync in both paths) |
-| `auto_down_condition` | alias | anchor | same node |
+| `auto_down_condition` refused | NOT an entry condition (#698 mirror) — the branch enters, the base flips, the state-only sub-branches run; the normal closing and the tilted-ventilation leaf evaluate the node into `down_condition_ok` and withhold their drives | the node is evaluated before the flip (`recovered_down_ok`); `recovery_down_condition_hold` withholds every `recovered_state == 'cls'` drive, the vnt clause of `caught_up_closing_hold` the closing-owned floor; `live_force == 'non'` keeps a force-close's authority | shared (state-only sync in both paths) |
 | override / once / schedule | `base_gates.closing.*` | same (+`override_expired`, night clause) | shared |
 | window fully open, condition allowed | C-A: status only; cover normally reached lockout through the contact handler | `lock` → same target; no movement at the target | shared **system** outcome (see R3 for the away-from-target case) |
 | window fully open, condition refused | C-A: status only; the live contact-opened leaf also refuses its drive | `lock`, but `recovery_vent_condition_hold` suppresses the drive | shared drive decision |
@@ -187,10 +187,10 @@ opening that lands in shading.
 
 1. Put the predicate into `base_gates.<direction>` (or a new named projection);
    a `!input` condition becomes an anchored node defined at the recovery and
-   aliased live. Decide first whether it gates the *transition* (closing
-   condition: entry + flip) or the *drive* (opening condition since #698:
-   evaluated once per path into a flag, consumed by every drive toward that
-   target) — Invariant 15 says a blocker on a movement is the latter.
+   aliased live. Decide first whether it gates the *transition* or the *drive*
+   (both direction conditions since #698: evaluated once per path into a flag,
+   consumed by every drive toward that target) — Invariant 15 says a blocker on
+   a movement is the latter.
 2. Decide its recovery composition: verbatim, composed with a repair term, or a
    genuine R-row (then: rationale + a test that asserts the deviation).
 3. `TestClosedEntryStructure` WILL fail on any inline addition — extend its
