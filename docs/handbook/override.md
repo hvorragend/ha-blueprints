@@ -117,8 +117,10 @@ that is valid then?
 
 - **Disabled (default):** the reset only clears the override status. The cover stays where it
   is until the next regular automatic event (opening/closing, sun shading, ventilation)
-  naturally moves it. This matches CCA's behavior from before the reset itself started driving
-  the cover.
+  naturally moves it. "Next" means an event that happens *after* the reset: a sun shading
+  that already started in the background while the override blocked its movement is not
+  repeated — the cover keeps the manual position until that shading ends or the schedule
+  moves on. Enable this option if a blocked shading should be caught up at the reset.
 - **Enabled:** the reset re-derives the currently correct target from your schedule — the same
   gates restart/outage recovery uses — and drives there immediately, even if that differs a lot
   from the manually set position. For example, closing a cover manually and enabling this with a

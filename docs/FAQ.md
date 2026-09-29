@@ -1031,7 +1031,7 @@ Block automatic sun shading during Manual Override
 - ☑ "Block automatic opening" → The scheduled opening does not move it while Manual Override is active
 - ☐ "Block automatic sun shading" → Sun shading may still move it if the shading conditions become valid
 
-CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately; an intent that already ended is not replayed.
+CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately — provided **Return to Target State After Manual Override Reset** is enabled (default: disabled, the reset then only clears the override and the cover keeps its position until the next event after the reset). An intent that already ended is not replayed.
 
 ---
 
