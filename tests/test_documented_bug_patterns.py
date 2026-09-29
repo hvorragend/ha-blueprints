@@ -807,6 +807,7 @@ class TestPatternASBlockedEffectsKeepStateCurrent:
         closed_common = dict(
             is_paused=False,
             return_target="opn",
+            return_condition_ok=True,
             prevent_flags={"opening_after_ventilation_end": False},
             force_allows_shade=True,
             force_allows_open=True,
@@ -1855,9 +1856,18 @@ class TestPatternAYAbortReconcilesTheOpening:
 
     @pytest.fixture(scope="class")
     def abort_variables(self, abort_default):
-        variables = abort_default[0]["variables"]
+        # The user's opening condition is evaluated first (Bug Pattern AZ,
+        # #698); the reconciliation variables are the first variables step
+        variables = next(s["variables"] for s in abort_default
+                         if isinstance(s, dict) and "variables" in s)
         assert "will_drive" in variables and "drive_plan" in variables
         return variables
+
+    def test_the_opening_condition_is_evaluated_before_the_reconciliation(self, abort_default):
+        gate = abort_default[0]
+        assert gate["if"] == [{"condition": "auto_up_condition"}]
+        assert gate["then"][0]["variables"]["abort_up_condition_ok"] is True
+        assert gate["else"][0]["variables"]["abort_up_condition_ok"] is False
 
     def test_drive_plan_targets_the_open_position(self, abort_variables):
         # Reads the reconciler projection (state_targets.opn) like every other
@@ -1883,8 +1893,8 @@ class TestPatternAYAbortReconcilesTheOpening:
         ):
             assert token in gate, f"abort will_drive must gate on {token}"
 
-    def test_pending_terminates_without_touching_manual(self, abort_default):
-        uv = abort_default[0]["variables"]["update_values"]
+    def test_pending_terminates_without_touching_manual(self, abort_default, abort_variables):
+        uv = abort_variables["update_values"]
         assert uv.get("pnd") == "non" and uv.get("shd") == 0
         assert uv.get("ts", {}).get("due") == 0 and uv.get("ts", {}).get("arm") == 0
         assert "man" not in uv  # Invariant 7: the dispatch anchor owns man:0
@@ -1900,6 +1910,7 @@ class TestPatternAYAbortReconcilesTheOpening:
             "in_open_position": False,
             "is_paused": False,
             "is_up_enabled": True,
+            "abort_up_condition_ok": True,
             "base_gates": {
                 "opening": {"override_ok": True, "once_ok": True, "schedule_ok": True}
             },
@@ -1922,6 +1933,7 @@ class TestPatternAYAbortReconcilesTheOpening:
             {"effective_state": "shd"},
             {"effective_state": "lock"},
             {"is_up_enabled": False},
+            {"abort_up_condition_ok": False},   # Bug Pattern AZ (#698)
             {"is_paused": True},
             {"force_allows_open": False},
             {"resident_flags": {"allow_open": False}},

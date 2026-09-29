@@ -323,3 +323,32 @@ precise about what it does and doesn't cover:
   meaningfully harder to get right than the single-source `is_opening_scheduled` case. Do not
   re-attempt it casually "for consistency" — if you do, both sources must be covered and the
   #677 regression must not reappear.
+
+### Both direction conditions are effect gates, evaluated at every drive toward their target (#698, CCA 2026.09.29 V2)
+
+Since #698 neither `auto_up_condition` nor `auto_down_condition` sits in the opening/closing
+entry or in the recovery's flip: the base transitions are state progress (Invariant 15), and
+each condition withholds the drives toward *its* position at their point of use (Bug Pattern
+AZ). The closing side was first left asymmetric and then mirrored in the same release — the
+argument "the #673 ownership layer would execute the refused closing" only holds while the
+consumers are not gated, and gating them is exactly the #698 pattern. What a future change
+must keep in mind:
+
+- **The ownership layer and the condition compose, they do not replace each other.**
+  `closing_target_owned` / `is_closing_scheduled` (configuration ownership, `trigger_variables`
+  flags) and `down_condition_ok` (runtime veto, a `!input` node evaluated at drive time) are
+  orthogonal; every automatic `cls` drive needs both. A `!input` can never join the ownership
+  flags (Invariant 10), which is why the condition is evaluated per site — six sites on the
+  closing side, four on the opening side (`TestClosedEntryStructure` pins every one).
+- **The resident privacy close is gated by the closing condition** although its *ownership*
+  is live state (`closing_target_owned`'s second source). Reason: `arrive_target` already
+  gates on `is_down_enabled`, so the maintainer treats the privacy close as a closing
+  movement — the condition follows the feature switch. Party mode therefore also stops the
+  privacy close of a resident coming home; a user who wants privacy closing regardless of
+  the condition has Force Close.
+- **Accepted residue, symmetric to the opening side:** with a refused closing condition the
+  night state reads `'cls'`; with *"Lower cover to ventilation position when window tilts
+  and cover is above"* enabled, a tilted window lowers the open cover to the ventilation
+  position (ventilation-owned, same as the #673 mirror) and the window-closed return then
+  holds it there because the `cls` return is refused. Without that option nothing moves on a
+  refused-closing night. Documented in the changelog.
