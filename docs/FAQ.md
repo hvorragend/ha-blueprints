@@ -1031,7 +1031,7 @@ Block automatic sun shading during Manual Override
 - ☑ "Block automatic opening" → The scheduled opening does not move it while Manual Override is active
 - ☐ "Block automatic sun shading" → Sun shading may still move it if the shading conditions become valid
 
-CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately; an intent that already ended is not replayed.
+CCA still tracks both decisions internally. If the scheduled opening or sun shading remains the current target when Manual Override resets, CCA reconciles that target immediately — provided **Return to Target State After Manual Override Reset** is enabled (default: disabled, the reset then only clears the override and the cover keeps its position until the next event after the reset). An intent that already ended is not replayed.
 
 ---
 
@@ -1243,7 +1243,16 @@ Additional Condition For Opening The Cover:
 The inverse also works: a condition on `state: 'on'` for the **closing** side
 lets a cover close during vacation that normally stays open. Unlike the global
 condition, the per-action conditions only suppress that one movement — the
-background state tracking stays intact.
+background state tracking stays intact (since `2026.09.29 V2`,
+[#698](https://github.com/hvorragend/ha-blueprints/issues/698)).
+
+Note for covers with **sun shading** configured: the opening condition only
+withholds movements *toward the open position*. Because the internal day state
+still switches to "open" at the opening time, a sun shading that starts on a
+still-closed cover raises it to the shading position, and at the shading end
+the cover stays there (the opening is withheld). If such a cover must not move
+at all during vacation, put the same vacation condition into **🥵 Additional
+Condition When Activating Sun Shading** as well — or use Option 1 (Force Close).
 
 **Real-world example — selective vacation closing on a door cover:**
 
@@ -1605,9 +1614,10 @@ Sharing breaks functionality completely
 - Invalid JSON breaks automation
 - Inconsistent state causes unpredictable behavior
 - CCA may overwrite immediately
+- An edit is not an event: clearing `man` by hand does not move the cover. CCA only reconciles the current target on its own reset events (timeout, fixed time, reset position — with *Return to Target State After Manual Override Reset* enabled), so a sun shading that was blocked by the override stays recorded as active without a repeated start
 
 **Better alternatives:**
-- Use reset manual override function
+- Use reset manual override function (enable *Return to Target State After Manual Override Reset* if the cover should move right away)
 - Wait for midnight reset
 - Restart automation
 
@@ -2095,7 +2105,9 @@ Additional Condition For Opening:
   entity_id: input_boolean.vacation_mode
   state: 'off'
 
-Result: Covers stay closed during vacation
+Result: No automatic opening during vacation (the day state still advances,
+        so a cover opened by hand is treated as open; sun shading keeps its
+        own condition — see the vacation entry above)
 ```
 
 **Party Mode:**

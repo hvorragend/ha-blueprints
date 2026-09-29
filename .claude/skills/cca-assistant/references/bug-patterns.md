@@ -1034,8 +1034,133 @@ condition that must classify a movement needs a movement-scoped signal (motion s
 `d` window), not a per-event delta. Tests: `tests/test_manual_detection_movement.py`.
 
 ---
+### Bug Pattern AY: The opening handler hands the opening over to a shading execution the user has gated off (trace report, 2026-09-29)
 
-### Bug Pattern AY: Force-pause resume actuates the ownerless 'opn' resting state (Issue #695)
+**Symptom:** On the first warm forecast day after the user switched their seasonal
+shading off (`auto_shading_start_condition` = an `input_boolean` that is `off`), no cover
+in the house opened in the morning. Helper at 08:37: `bas=opn`, `shd=0`, `pnd=beg`,
+`ts.arm` = exactly the opening time, `ts.opn` re-stamped by every later opening trigger,
+cover at 0 %. The execution trigger logged `blocked by=auto_shading_start_condition;
+elapsed=4860s/7200s` every 300 s, and at `ts.arm + shading_start_max_duration` the retry
+routine aborted with a pending clear and **no movement**. No opening trigger fires again
+that day, so the cover stayed closed until the evening close.
+
+**Cause:** Two independently correct pieces. (1) `shading_start_warranted` deliberately
+includes the independent-temperature path — with forecast 26.9 °C ≥ threshold 26 °C the
+shading is "warranted" from dawn on regardless of azimuth (106°, window 245–360°) and
+brightness (2 600 lx vs. 45 000 lx). (2) The opening handler's two handoff branches
+("Opening: Shading warranted, arm pending" #555 and "Opening skipped: Shading start
+pending" #514) gate on `shading_start_warranted`, which claims to "mirror the execution
+gate" — but the execution gate is `condition: !input auto_shading_start_condition`
+**and** the warranted variable. The user condition can only be evaluated as a YAML
+condition, never inside a template variable, so the mirror silently left it out. The
+handoff therefore consumed the opening obligation and passed it to a flow whose only
+outcomes while the condition is false are retry and abort; the abort path (Bug Pattern S
+already documented that a condition false through the whole window ends there) cleared
+the pending without reconciling the cover. The handbook names exactly this use for the
+condition ("temporarily disable", "only in the summer season").
+
+**Fix (two layers, same commit):**
+1. Both handoff branches evaluate the user's condition through the shared
+   `*auto_shading_start_condition_check` anchor (definition moved to the arm branch, the
+   first consumer in document order; the execution uses the alias). With the condition
+   false the run falls through to "Normal opening", which drives the cover open and
+   clears `pnd`/`ts.due`/`ts.arm` — the same fall-through #514 uses for a stale pending.
+2. Safety net for every other abort (conditions no longer met, recovery-armed pending,
+   a condition that flips false mid-window): the abort `default:` of `&shading_start_retry`
+   reconciles the open target behind the normal-opening entry **and** drive gates
+   (`effective_state == 'opn'`, `not in_open_position`, `is_up_enabled`, `base_gates.opening.*`,
+   `resident_flags.allow_open`, `force_allows_open`, `not is_paused`). Invariant 15: a
+   pending is a blocker that may hold the opening back; releasing it reconciles the
+   current `effective_state`. Any other target (`vnt`, `shd`, `lock`, `cls`) stands down —
+   its owning flow positioned the cover.
+
+**Accepted trade:** a user who used the start condition as a *time-of-day* gate
+("shade only after 09:00") no longer gets the opening held back for that window — the
+cover opens, and the shading needs a later pending trigger. That was never the documented
+purpose of the condition, and a cover stuck closed all day is the worse failure. The
+recovery's `recovered_pending` still cannot read the user condition (template context);
+a restart with the condition off arms a pending that now ends in the reconciling abort
+after `shading_start_max_duration` instead of a permanently closed cover.
+
+**Rule:** a variable that claims to mirror a gate containing a user `!input` condition
+mirrors it only where the branch **also** evaluates that condition as a YAML condition.
+Every handoff that consumes an obligation (open, close, lockout) must be able to prove
+the receiving flow can deliver it under the same user conditions — otherwise it must not
+consume it (same shape as Bug Pattern AG, where the receiving flow was the lockout-store).
+Tests: `tests/test_documented_bug_patterns.py::TestPatternAYShadingGateOffMustNotHoldTheOpening`,
+`::TestPatternAYAbortReconcilesTheOpening`.
+
+---
+
+### Bug Pattern AZ: The opening condition gated the whole opening event — a refused `auto_up_condition` latched the evening `cls` all day (Issue #698)
+
+**Symptom:** Morning Opening enabled plus an **Additional Condition For Opening** that is
+false on most days (the FAQ's vacation pattern: only open while `input_boolean.vacation_mode`
+is `on`). On a normal day the user opens the cover by hand; every later reconciliation that
+reads `bas` — a sun-shading end, an opted-in Manual Override reset, a force disable, a
+restart catch-up — drives the cover **back to the close position**. The exact #673 (Bug
+Pattern AV) failure shape, reached through the condition instead of the feature switch.
+
+**Cause:** `&auto_up_condition_check` sat in the top-level `conditions:` of "Check for
+opening" (and, since V6, in the recovery's opening flip), so a refused condition blocked
+**every** sub-branch — including "Already in open position - only update base state" and
+the shading-pending arming — although the branch's own comment already declared the base
+flip as state progress that must not depend on the opening drive, and the FAQ had promised
+since 2026.08.22 that "the per-action conditions only suppress that one movement — the
+background state tracking stays intact". `bas: 'cls'` therefore had no writer back to
+`'opn'` while the condition was false: Invariant 15 (blockers suppress effects, never state
+progress) was violated for exactly this blocker.
+
+**Fix:** `auto_up_condition` is an **effect gate on the open target**, the same class as
+`is_up_enabled` (AV) — but evaluated *at drive time* wherever the open position is the
+destination, because unlike the feature switch it cannot join `is_opening_scheduled` (a
+`!input` condition is not expressible in `trigger_variables`, Invariant 10):
+
+- Live opening: the node leaves the entry conditions; "Normal opening" evaluates it once
+  (`up_condition_ok`, an `if:` at the top of the sub-branch) and its `will_drive` consumes
+  it next to `is_up_enabled`. The shading-detected drive and the full-window lockout
+  reconciliation keep their own ownership, exactly as in AV.
+- Recovery: the anchored node is evaluated once **before** the flip (`recovered_up_ok`);
+  the opening flip carries no `!input` condition any more; `recovery_up_condition_hold`
+  (`recovered_state == 'opn' and not recovered_up_ok and live_force == 'non'`) withholds
+  every `opn` drive — flip **and** reposition. The V6 real-world report ("blocked all
+  morning, a restart flipped `bas` and the cover opened") is covered by the hold, not by
+  refusing the flip: a restart at noon with the condition still refused keeps the cover
+  where it is, and a live force-open keeps its authority.
+- Reconciliations toward `opn` outside the opening branch: the shading-end move gains an
+  "opening target allowed" branch in its target-condition `choose`; the window-closed
+  return gains `return_condition_ok`; the shading-start abort reconciliation (Bug Pattern AY)
+  gains `abort_up_condition_ok`. Manual Override reset, force disable and force pause
+  already evaluated the condition through `target_condition_gate`.
+- **Closing mirror (same release):** `auto_down_condition` gets the identical treatment —
+  out of the "Check for closing cover" entry and the closing flip, evaluated once per path
+  (`down_condition_ok` / `recovered_down_ok`), consumed by the two closing-owned drives, the
+  vnt clause of `caught_up_closing_hold`, `recovery_down_condition_hold`, the shading-end
+  close target, the window-closed close return, both resident chains (`leave_condition_ok`,
+  `arrive_condition_ok` — the privacy close is a closing movement, gated like its
+  `is_down_enabled` switch) and the partial-ventilation pull-down clause toward an owned
+  closing. Two more sites than the opening side, same pattern — see design-decisions.md.
+
+**Accepted consequence** (changelog): with the condition refused and the cover left closed,
+the day state reads `'opn'`, so a sun-shading start raises the closed cover to the shading
+position (shading-owned, gated by `auto_shading_start_condition`) and the shading end then
+leaves it there because the open drive is held. Previously the shading was only stored for
+the future. "No movement at all during vacation" is `auto_shading_start_condition` on the
+same entity, or Force Close.
+
+**Rule:** A per-action additional condition is the user's veto on *that movement*. It
+gates the drive at its point of use — and every reconciliation whose destination is that
+movement's target — never the state transition, and never the entry of the branch that
+carries the transition. Tests: `TestIssue698OpeningConditionRefused` (paired
+live/recovery) and `TestClosedEntryStructure` in `tests/test_recovery_live_parity.py`,
+`test_the_opening_condition_is_evaluated_before_the_flip_and_holds_the_drive` in
+`tests/test_restart_recovery.py`, the shading-end verdict test in
+`tests/test_shading_end_priority.py`.
+
+---
+
+### Bug Pattern BA: Force-pause resume actuates the ownerless 'opn' resting state (Issue #695)
 
 **Symptom:** On an instance without an opening automation (Morning Opening unchecked —
 the "opens by hand" setup), toggling the Force Pause on and immediately off again pulls
