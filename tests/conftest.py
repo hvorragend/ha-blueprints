@@ -34,6 +34,11 @@ def eval_condition(env: jinja2.Environment, condition: str, variables: dict) -> 
     Evaluate a single Jinja2 condition string (without {{ }}) given variables.
     The condition must evaluate to a truthy/falsy value.
     """
+    # `condition: !input <name>` (a user-supplied condition list): the test
+    # loader resolves the tag to the input name; tests state the outcome via
+    # variables["input_conditions"][name], default True (an empty list passes).
+    if isinstance(condition, dict) and "condition" in condition:
+        return bool(variables.get("input_conditions", {}).get(condition["condition"], True))
     # Strip leading/trailing {{ }} if present (blueprint style)
     cond = condition.strip()
     if cond.startswith("{{") and cond.endswith("}}"):
