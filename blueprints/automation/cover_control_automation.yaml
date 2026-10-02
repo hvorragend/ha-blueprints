@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.09.29 V3
+    **Version**: 2026.10.02
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2740,7 +2740,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.09.29 V3"
+  version: "2026.10.02"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -6332,6 +6332,18 @@ actions:
                               closing_ownership_hold: >-
                                 {{ recovered_state == 'cls' and not closing_target_owned and
                                    live_force == 'non' }}
+                              # The opening-side mirror (#695/#713): an 'opn' target
+                              # actuates only when an opening automation owns it
+                              # (is_opening_scheduled) - the bas init default and the
+                              # #673 schedule-sync 'opn' have no owner, so a pure
+                              # reposition toward them (a condition sensor returning
+                              # from an outage, a restart) must stay state-only. A live
+                              # force-open keeps its own authority. The shading-end
+                              # restore is not affected: the recovery defers an armed
+                              # end pending to the shading-end execution.
+                              opening_ownership_hold: >-
+                                {{ recovered_state == 'opn' and not is_opening_scheduled and
+                                   live_force == 'non' }}
                               # A reset trigger firing while the override has not expired by the
                               # strict rule (manual change inside the reset's own tolerance window)
                               # runs hygiene-only: man stays set, so the line must not claim a reset.
@@ -6342,14 +6354,15 @@ actions:
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (opening condition)' if recovery_up_condition_hold else '' }}{{ ', drive withheld (closing condition)' if recovery_down_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if manual_reset_event and is_manual_reset_recovery_enabled and recovered_state == 'opn' and not is_opening_scheduled else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (opening condition)' if recovery_up_condition_hold else '' }}{{ ', drive withheld (closing condition)' if recovery_down_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if opening_ownership_hold else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one
                               will_drive: >-
                                 {{ recovery_catch_up and not is_paused and recovery_allowed and
                                    not caught_up_closing_hold and not caught_up_opening_hold and
-                                   not closing_ownership_hold and transition_manual_allows and
+                                   not closing_ownership_hold and not opening_ownership_hold and
+                                   transition_manual_allows and
                                    not recovery_vent_condition_hold and not recovery_up_condition_hold and
                                    not recovery_down_condition_hold and not manual_reset_recovery_hold }}
                           - variables:

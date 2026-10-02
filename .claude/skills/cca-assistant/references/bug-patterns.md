@@ -1199,3 +1199,55 @@ classify each as schedule-owned (gate) or displacer-owned (leave). Tests:
 `TestOpeningOwnershipGates` in `tests/test_blueprint_logic.py`.
 
 ---
+
+### Bug Pattern BB: The recovery reposition actuates the ownerless 'opn' resting state (Issue #713)
+
+**Symptom:** On an instance without an opening automation (Morning Opening unchecked, or
+no opening source at all — the "opens by hand" setup) with the catch-up enabled
+(`enable_recovery` = `outage` / `always`), a cover closed by hand the evening before is
+pulled fully open at dawn, immediately and without any shading waiting time. Reported
+with a PV-driven **custom shading condition sensor** that is `unavailable` every night by
+design: its return (`unavailable → off`) fires the sensor's `t_recovery` trigger, the
+recovery gate claims the run and finds `bas == 'opn'` (the #673 schedule-sync writer,
+or the init default) with the cover at 0 % — and "repairs" it to the open position.
+`man` had been cleared by the 23:55 reset, so `manual_holds_reposition` did not apply.
+
+**Cause:** BA's audit stopped one site short. The recovery reducer had opening-side
+ownership gates for the **caught-up flip** (`caught_up_opening_hold`, on
+`is_up_enabled`) and for the **opted-in manual reset** (`manual_reset_recovery_hold`, on
+`is_opening_scheduled`) — but a plain **reposition** without a base transition and
+without a reset event consumed `recovered_state == 'opn'` ungated. The closing side had
+closed exactly this hole with `closing_ownership_hold` ("covering flips, repositions and
+opted-in manual resets", AV); the opening side only got the two special cases.
+`TestCaughtUpOpeningHold::test_only_a_caught_up_opening_is_gated` even pinned the
+reposition as intended ("schedule-less setups reconcile to the open position regardless
+of the Morning Opening checkbox") — written before BA established that an ownerless
+`'opn'` must never be actuated by a reconciliation.
+
+**Fix:** `opening_ownership_hold` (`recovered_state == 'opn' and not is_opening_scheduled
+and live_force == 'non'`) in the shared `recovery_apply` body, consumed by `will_drive`
+and the `log_extra` dump — the exact mirror of `closing_ownership_hold`. Flip, reposition
+and manual reset are all covered by the one gate (`caught_up_opening_hold` and the
+`manual_reset_recovery_hold` clause stay as the feature/opt-in mirrors they are). Overlay
+targets (`lock`/`vnt`/`shd`/`cls`) and a live force-open keep their authority; the
+shading-end restore-to-open is unaffected because the recovery defers an armed end
+pending to the shading-end execution (`defer_to_shading_end`), which stays
+displacer-owned and ungated. State progress is untouched (Invariant 15).
+
+**Not changed, noted for the record:** a condition-only (Tier-3) source that is
+`unavailable` every night by design turns the "outage" catch-up into a daily dawn event.
+The recovery is idempotent *by assumption* ("the drive is a no-op via the tolerance
+guard") — that assumption only holds while every ownerless state has a hold. If another
+ownerless resting state ever appears, the first place it will surface is a nightly
+`unavailable` sensor with `enable_recovery` on.
+
+**Rule:** When BA's rule is applied to a reducer, list the reducer's drive *paths*
+(flip, reposition, explicit release) and not just its named holds — a hold scoped to one
+path leaves the others as consumers. The ownership gate belongs on the target value
+(`recovered_state == 'opn'`), not on the event that produced the run. Tests:
+`TestOpeningOwnershipHold` in `tests/test_restart_recovery.py`,
+`TestIssue713UnownedOpnReposition` (paired-suite scenarios) in
+`tests/test_recovery_live_parity.py`,
+`TestOpeningOwnershipGates::test_the_recovery_reposition_gates_the_unowned_opn`.
+
+---

@@ -128,7 +128,9 @@ _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "adopt_flags": {"opening": False, "closing": False},
                  # #673 mirror baseline: an owned closing target, no hold
                  "closing_ownership_hold": False,
-                 "closing_target_owned": True}
+                 "closing_target_owned": True,
+                 # #695/#713 opening-side baseline: an owned 'opn' target, no hold
+                 "opening_ownership_hold": False}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
@@ -1034,6 +1036,7 @@ class TestCaughtUpClosingHold:
         assert "caught_up_closing_hold" in will_drive
         assert "caught_up_opening_hold" in will_drive
         assert "closing_ownership_hold" in will_drive
+        assert "opening_ownership_hold" in will_drive
         assert "transition_manual_allows" in will_drive
         assert "recovery_vent_condition_hold" in will_drive
         assert "recovery_up_condition_hold" in will_drive
@@ -1119,10 +1122,62 @@ class TestCaughtUpOpeningHold:
         assert self._hold(live_force="opn") is False
 
     def test_only_a_caught_up_opening_is_gated(self):
-        """A plain re-position to an unchanged bas == 'opn' keeps today's semantics
-        (schedule-less setups reconcile to the open position regardless of the
-        Morning Opening checkbox)."""
+        """This hold is the feature mirror of the live normal-opening drive and
+        belongs to the caught-up flip alone. A plain re-position to an unchanged
+        bas == 'opn' is the business of opening_ownership_hold (#713): with an
+        opening automation it still reconciles to the open position regardless
+        of the Morning Opening checkbox."""
         assert self._hold(caught_up_opening=False) is False
+
+
+class TestOpeningOwnershipHold:
+    """#713 (Bug Pattern BB, the recovery recurrence of BA/#695): the bas init
+    default and the #673 schedule-sync 'opn' exist without an owning opening
+    automation. Every recovery drive toward such an 'opn' - flip, reposition and
+    opted-in manual reset alike - stays state-only, exactly like the closing
+    side's closing_ownership_hold. The visible case: a condition-only sensor
+    (a PV-driven custom shading sensor that is unavailable every night) returns
+    at dawn, fires t_recovery, and the reducer pulls a hand-closed cover up
+    although nothing would ever open it automatically."""
+
+    HOLD = staticmethod(lambda: _branch_var(RECOVERY, "opening_ownership_hold"))
+
+    def _hold(self, **over):
+        base = dict(recovered_state="opn", is_opening_scheduled=False,
+                    live_force="non")
+        base.update(over)
+        return _render_bool(self.HOLD(), {}, **base)
+
+    def test_an_unowned_opn_target_is_held(self):
+        assert self._hold() is True
+
+    def test_an_owned_opn_target_drives(self):
+        assert self._hold(is_opening_scheduled=True) is False
+
+    def test_overlay_and_closing_targets_keep_their_own_authority(self):
+        for state in ("lock", "vnt", "shd", "cls"):
+            assert self._hold(recovered_state=state) is False
+
+    def test_a_live_force_open_still_drives(self):
+        """recovered_state mirrors live_force first: an 'opn' from a live
+        Force-Open has an owner and is not the ownerless resting default."""
+        assert self._hold(live_force="opn") is False
+
+    def test_it_is_a_pure_ownership_gate(self):
+        """Unlike caught_up_opening_hold it must not depend on the flip - the
+        reposition without a base transition is exactly the gap it closes."""
+        assert "caught_up_opening" not in self.HOLD()
+        assert "is_up_enabled" not in self.HOLD()
+
+    def test_the_drive_gate_and_the_log_consume_it(self):
+        assert "not opening_ownership_hold" in _branch_var(RECOVERY, "will_drive")
+        assert "if opening_ownership_hold" in _branch_var(RECOVERY, "log_extra")
+
+    def test_it_mirrors_the_closing_side_shape(self):
+        closing = _branch_var(RECOVERY, "closing_ownership_hold")
+        assert "live_force == 'non'" in closing and "live_force == 'non'" in self.HOLD()
+        assert "not closing_target_owned" in closing
+        assert "not is_opening_scheduled" in self.HOLD()
 
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -1030,6 +1030,74 @@ class TestIssue673MorningOpeningUnchecked:
         assert recovery["moves"] and recovery["target"] == 50
 
 
+class TestIssue713UnownedOpnReposition:
+    """#713 (Bug Pattern BB): a recovery run WITHOUT a base flip reconciles the
+    current cascade target. When that target is an 'opn' that no opening
+    automation owns (Morning Opening unchecked, or no opening source at all -
+    the "opens by hand" setup), the reposition must stay state-only, mirroring
+    the closing side's closing_ownership_hold and the #695 reconcilers. The
+    reported shape: a PV-driven custom shading sensor is unavailable every
+    night and returns at dawn; its t_recovery run found bas 'opn' (the #673
+    sync writer, or the init default) with the cover closed by hand the evening
+    before (man cleared by the 23:55 reset) and pulled it up."""
+
+    def _dawn(self, **over):
+        base = dict(brightness="5000", is_opening_phase=True, is_daytime_phase=True,
+                    is_closing_phase=False, is_evening_phase=False,
+                    is_up_enabled=False, is_opening_scheduled=False,
+                    helper={"bas": "opn"}, current_position=0)
+        base.update(over)
+        return scenario(**base)
+
+    def test_a_condition_sensor_returning_at_dawn_does_not_open_the_hand_closed_cover(self):
+        recovery = run_recovery(self._dawn())
+        assert recovery["new_base"] == "opn" and recovery["state"] == "opn"
+        assert recovery["moves"] is False
+        assert recovery["final"]["bas"] == "opn"
+
+    def test_a_schedule_less_instance_is_held_the_same_way(self):
+        """Time control off: bas rests on its init default 'opn' forever and a
+        restart with the catch-up on 'always' used to open the cover."""
+        s = self._dawn(is_time_control_disabled=True, is_time_field_enabled=False,
+                       is_daytime_phase=True, is_opening_phase=False)
+        recovery = run_recovery(s)
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] is False
+
+    def test_with_an_opening_automation_the_same_reposition_drives(self):
+        """The hold is about ownership, not about repositions: an owned 'opn'
+        keeps today's reconciliation semantics."""
+        s = self._dawn(is_up_enabled=True, is_opening_scheduled=True)
+        recovery = run_recovery(s)
+        assert recovery["moves"] and recovery["target"] == 100
+        assert recovery["action_set"] == "up"
+
+    def test_a_live_force_open_keeps_its_drive(self):
+        s = self._dawn(live_force="opn", helper={"bas": "opn", "frc": "opn"})
+        recovery = run_recovery(s)
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] and recovery["target"] == 100
+
+    def test_overlay_targets_are_not_held(self):
+        """The VENT floor of a tilted window stays contact-owned (R3, #553):
+        without an opening automation the floor is exactly what applies."""
+        s = self._dawn(window="tlt", current_position=0)
+        recovery = run_recovery(s)
+        assert recovery["state"] == "vnt"
+        assert recovery["moves"] and recovery["target"] == 50
+
+    def test_the_closing_side_was_already_covered(self):
+        """Mirror check: the same reposition toward an unowned 'cls' is held by
+        closing_ownership_hold - the two sides must behave alike."""
+        s = self._dawn(is_down_enabled=False, is_closing_scheduled=False,
+                       is_opening_phase=False, is_daytime_phase=False,
+                       is_closing_phase=True, is_evening_phase=True,
+                       helper={"bas": "cls"}, current_position=100)
+        recovery = run_recovery(s)
+        assert recovery["state"] == "cls"
+        assert recovery["moves"] is False
+
+
 class TestIssue673EveningClosingUnchecked:
     """#673 mirror: with an opening automation configured but Evening Closing
     unchecked, the day 'opn' had no writer that ever expired it - after a

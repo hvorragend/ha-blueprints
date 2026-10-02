@@ -2426,6 +2426,23 @@ class TestOpeningOwnershipGates:
         assert self._OPN_CLAUSE in will_drive
         assert "helper_state_force == 'opn'" in will_drive
 
+    def test_the_recovery_reposition_gates_the_unowned_opn(self):
+        """#713 (Bug Pattern BB): the reducer's own ownership gates covered the
+        caught-up flip (caught_up_opening_hold) and the opted-in manual reset
+        (manual_reset_recovery_hold) - a pure reposition toward an unowned 'opn'
+        (a condition sensor returning from its nightly outage, a restart with
+        the catch-up on) drove. The generic opening_ownership_hold mirrors
+        closing_ownership_hold for every recovery drive."""
+        blueprint = _load_blueprint_yaml(BLUEPRINT_PATH)
+        handler = self._handler(blueprint, "Recovery after restart or outage - restore target state")
+        hold = str(_find_variable_definition(handler, "opening_ownership_hold"))
+        assert "recovered_state == 'opn'" in hold
+        assert "not is_opening_scheduled" in hold
+        assert "live_force == 'non'" in hold
+        will_drive = str(_find_variable_definition(handler, "will_drive"))
+        assert "not opening_ownership_hold" in will_drive
+        assert "not closing_ownership_hold" in will_drive
+
     def test_the_displacer_owned_opn_restores_stay_ungated(self):
         """The shading-end 'opn' restore is owned by the shading itself (the
         automation that displaced the cover), not by the opening schedule —

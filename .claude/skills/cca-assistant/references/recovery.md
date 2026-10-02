@@ -50,6 +50,15 @@ either way; only the physical movement is withheld with the opt-in off, mirrorin
 `auto_recover_after_force` gates Force disable's return-to-target and leaving `recovery_mode`
 exclusively about restart/outage catch-up, not about explicit releases.
 
+**The same ownership rule covers every recovery drive toward `'opn'`, not just the
+reset** (CCA 2026.10.02, #713, Bug Pattern BB). `opening_ownership_hold`
+(`recovered_state == 'opn' and not is_opening_scheduled and live_force == 'non'`) is the
+opening-side mirror of `closing_ownership_hold`: an `'opn'` that no opening automation
+owns (the `bas` init default, the #673 schedule-sync write) is state-only in every
+recovery path — caught-up flip, pure reposition and opted-in manual reset alike. The
+visible failure was a condition-only sensor returning from its nightly `unavailable`:
+its `t_recovery` run found `bas 'opn'` with a hand-closed cover and pulled it up.
+
 **The numbered "Reset manual detection" branch (BRANCH 10) is now unreachable dead code.**
 Every run with `helper_state_manual` true is already claimed by `manual_reset_event`'s
 pre-dispatch path above, which always ends in `stop:`. BRANCH 10 itself now also requires
