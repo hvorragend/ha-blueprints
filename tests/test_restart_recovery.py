@@ -1171,7 +1171,7 @@ class TestOpeningOwnershipHold:
 
     def test_the_drive_gate_and_the_log_consume_it(self):
         assert "not opening_ownership_hold" in _branch_var(RECOVERY, "will_drive")
-        assert "if opening_ownership_hold" in _branch_var(RECOVERY, "log_extra")
+        assert "opening_ownership_hold" in _branch_var(RECOVERY, "log_extra")
 
     def test_it_mirrors_the_closing_side_shape(self):
         closing = _branch_var(RECOVERY, "closing_ownership_hold")
