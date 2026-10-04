@@ -401,3 +401,32 @@ sun-position end or the closing time resolve the rest. Also new: a sensor report
 **Support cost, known from the 2024 `for:` era (CHANGELOG_OLD 2024.05.28): an interrupted wait leaves no trace.** A `for:` timer that is reset never fires, so the automation records nothing — "why did the shading not end?" is answered by the sensor's history, not by a trace. The 2024 problem itself (combined AND templates whose members reset each other's `for:`) does not return: every end trigger here references exactly one entity, and the AND/OR combination happens in the action after the last member's wait.
 
 Pinned by `tests/test_shading_end_wait_in_trigger.py`.
+
+### The brightness shading-start trigger holds the waiting time via `for:` too — only that one (#696 follow-up, CCA 2026.10.04)
+
+**Decision.** `t_shading_start_pending_2` carries `for: seconds: !input shading_waitingtime_start`; the
+arm branch ("Shading detected") sets `shading_start_wait = 0` for that trigger so `shading_start_due`
+does not wait a second time (the pre-window deferral via `max()` with the window start stays — Bug
+Patterns L/S). Timing-neutral for the user: edge + pending wait before, trigger wait + immediate
+execution now. The reporter asked for the brightness trigger only, and that is also the only start
+source that flickers: temperatures, the forecast and the weather move slowly, the sun position has no
+edge back. Do not extend `for:` to start triggers 3/4/6/8 "for symmetry" with the end side.
+
+**What this does not promise.** The start side stays a retry loop (Bug Pattern AA, "deliberate
+asymmetry"): a pending armed by the sun position (1), the 1-hour pre-opening check (7), the
+`t_open_1` hand-over or the temperature/forecast/custom triggers re-checks the brightness by sampling
+at execution and on every retry. The `for:` only guarantees "brightness stable for the whole wait" when
+the brightness is the **last** start condition to become valid — in the common "azimuth + brightness"
+setup usually the case, because the sun reaches the azimuth range before the cloud gap. Documented
+in the changelog in those words.
+
+**Side effects checked.** The #554 cancel of a sun-armed end pending now arrives one start wait later
+on the brightness path; harmless, the end execution decides by live re-check anyway (a sensor-armed
+end pending executes on its arm write and cannot be canceled at all). The global gate for start
+triggers (`not is_shaded or is_end_pending`) is evaluated when the trigger fires, after the wait —
+unchanged. The recovery's `recovered_due` for `beg` keeps the full wait in the helper. Same costs as
+the end side: in-memory timer (restart/reload/save discards it), no trace for an interrupted wait,
+`unavailable` restarts it.
+
+Pinned by `tests/test_shading_start_wait_in_trigger.py`; the end-side file pins that the other start
+triggers stay without `for:`.

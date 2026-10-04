@@ -99,10 +99,14 @@ class TestSensorEndTriggersHoldTheWaitingTime:
         # "immediately when out of range" 20 s) stays in the arm branch.
         assert "for" not in _trigger(blueprint, trigger_id)
 
-    def test_start_triggers_are_untouched(self, blueprint):
+    def test_other_start_triggers_are_untouched(self, blueprint):
+        # Only the brightness start trigger holds its wait via for: (#696
+        # follow-up, tests/test_shading_start_wait_in_trigger.py); the start
+        # side stays a retry loop otherwise (Bug Pattern AA).
         for trig in blueprint["triggers"]:
-            if str(trig.get("id", "")).startswith("t_shading_start_pending"):
-                assert "for" not in trig, f"{trig['id']} must not carry a for:"
+            trigger_id = str(trig.get("id", ""))
+            if trigger_id.startswith("t_shading_start_pending") and trigger_id != "t_shading_start_pending_2":
+                assert "for" not in trig, f"{trigger_id} must not carry a for:"
 
 
 class TestArmBranchDoesNotWaitTwice:
