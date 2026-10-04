@@ -128,7 +128,9 @@ _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
                  "adopt_flags": {"opening": False, "closing": False},
                  # #673 mirror baseline: an owned closing target, no hold
                  "closing_ownership_hold": False,
-                 "closing_target_owned": True}
+                 "closing_target_owned": True,
+                 # #713 baseline: an owned opening target, no hold
+                 "opening_ownership_hold": False}
 
 
 def _render(template_str: str, entity_states: dict | None = None, last_changed: dict | None = None,
@@ -1034,6 +1036,7 @@ class TestCaughtUpClosingHold:
         assert "caught_up_closing_hold" in will_drive
         assert "caught_up_opening_hold" in will_drive
         assert "closing_ownership_hold" in will_drive
+        assert "opening_ownership_hold" in will_drive
         assert "transition_manual_allows" in will_drive
         assert "recovery_vent_condition_hold" in will_drive
         assert "recovery_up_condition_hold" in will_drive
@@ -1119,10 +1122,69 @@ class TestCaughtUpOpeningHold:
         assert self._hold(live_force="opn") is False
 
     def test_only_a_caught_up_opening_is_gated(self):
-        """A plain re-position to an unchanged bas == 'opn' keeps today's semantics
-        (schedule-less setups reconcile to the open position regardless of the
-        Morning Opening checkbox)."""
+        """The flip hold is flip-scoped by design. A plain re-position to an
+        unchanged bas == 'opn' is governed by opening_ownership_hold instead
+        (#713): held while no opening automation owns the target, driven when
+        one does - the Morning Opening checkbox alone is not the criterion."""
         assert self._hold(caught_up_opening=False) is False
+
+
+class TestOpeningOwnershipHold:
+    """#713 (Bug Pattern BB), the recovery-gate recurrence of #695: an 'opn' that
+    only exists as the bas init default or the #673 state-only schedule sync has
+    no owning automation. caught_up_opening_hold covered the flip and
+    manual_reset_recovery_hold the opted-in reset - but a plain re-position to an
+    unchanged bas == 'opn' (any t_recovery reaching a closed cover of a
+    shading-only or opens-by-hand instance after the opening time) drove the
+    cover open. Mirror of closing_ownership_hold: every recovery drive toward the
+    open position needs is_opening_scheduled, or a live force-open that owns it."""
+
+    HOLD = staticmethod(lambda: _branch_var(RECOVERY, "opening_ownership_hold"))
+
+    def _hold(self, **over):
+        base = dict(recovered_state="opn", is_opening_scheduled=False, live_force="non")
+        base.update(over)
+        return _render_bool(self.HOLD(), {}, **base)
+
+    def test_an_unowned_open_target_is_held(self):
+        assert self._hold() is True
+
+    def test_an_opening_automation_owns_the_target(self):
+        assert self._hold(is_opening_scheduled=True) is False
+
+    def test_a_live_force_open_keeps_its_authority(self):
+        """recovered_state mirrors live_force first: an 'opn' from an active
+        Force-Open target has a live owner and is not the #553 resting default."""
+        assert self._hold(live_force="opn") is False
+
+    def test_other_targets_are_not_its_business(self):
+        for state in ("lock", "vnt", "shd", "cls"):
+            assert self._hold(recovered_state=state) is False, state
+
+    def test_it_is_not_scoped_to_a_flip(self):
+        """Unlike caught_up_opening_hold: the re-position IS the case it exists for."""
+        assert "caught_up_opening" not in self.HOLD()
+
+    def test_it_mirrors_the_closing_side(self):
+        closing = _branch_var(RECOVERY, "closing_ownership_hold")
+        assert "recovered_state == 'cls' and not closing_target_owned" in closing
+        assert "recovered_state == 'opn' and not is_opening_scheduled" in self.HOLD()
+        for hold in (closing, self.HOLD()):
+            assert "live_force == 'non'" in hold
+
+    def test_the_drive_gate_consumes_it(self):
+        will_drive = _branch_var(RECOVERY, "will_drive")
+        assert "not opening_ownership_hold" in will_drive
+        base = dict(recovery_catch_up=True, is_paused=False, recovery_allowed=True,
+                    caught_up_closing_hold=False, caught_up_opening_hold=False,
+                    transition_manual_allows=True, recovery_vent_condition_hold=False,
+                    recovery_up_condition_hold=False, recovery_down_condition_hold=False)
+        assert _render_bool(will_drive, {}, **base, opening_ownership_hold=False) is True
+        assert _render_bool(will_drive, {}, **base, opening_ownership_hold=True) is False
+
+    def test_the_diagnostic_line_names_the_hold(self):
+        log_extra = _branch_var(RECOVERY, "log_extra")
+        assert "(no opening automation configured)' if opening_ownership_hold" in log_extra
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2358,8 +2420,14 @@ class TestRecoveryTriggers:
 
     # Never blocks a run: their outage strands nothing, their return is pure catch-up.
     CATCH_UP_ONLY = ["resident_sensor", "default_brightness_sensor", "default_sun_sensor",
-                     "shading_forecast_sensor", "shading_custom_sensor", "calendar_entity",
+                     "shading_forecast_sensor", "calendar_entity",
                      "workday_sensor", "workday_sensor_tomorrow", "force_pause"]
+
+    # Pure shading-condition sensors: never block a run, and their own start/end
+    # triggers carry the invalid-state guard, so the return edge IS the re-evaluation.
+    SHADING_CONDITION_ONLY = ["shading_brightness_sensor", "shading_temperatur_sensor1",
+                              "shading_temperatur_sensor2", "shading_forecast_temp_sensor",
+                              "shading_custom_sensor"]
 
     def _ungated(self) -> list[dict]:
         return [self._resume_trigger()] + [
@@ -2375,6 +2443,39 @@ class TestRecoveryTriggers:
             assert "is_recovery_enabled" in t.get("enabled", ""), entity_input
         section = BP["blueprint"]["input"]["feature_section"]["input"]
         assert section["enable_recovery"]["default"] == "never"
+
+    @pytest.mark.parametrize("entity_input", SHADING_CONDITION_ONLY)
+    def test_a_pure_shading_condition_sensor_has_no_recovery_trigger(self, entity_input):
+        """#713 (Bug Pattern BB): a template / PV-based custom condition sensor is
+        unavailable every night BY DESIGN. Its t_recovery turned every sunrise into an
+        outage catch-up - a full base re-derivation with a drive - although the sensor
+        never blocks a run (nothing was swallowed) and both of its own shading triggers
+        already fire on the very same return edge, with the end waiting time. The
+        sibling shading sensors never had one; the custom sensor now matches them."""
+        assert not any(t.get("entity_id") == entity_input for t in self._recovery()), entity_input
+
+    def _trigger(self, trigger_id: str) -> dict:
+        return next(t for t in BP["triggers"] if t.get("id") == trigger_id)
+
+    def test_the_custom_sensor_re_evaluates_on_its_own_return_edge(self):
+        """The precondition for dropping its recovery trigger: both _8 templates read
+        false while the sensor is unavailable and true once it is back in the matching
+        state - a false -> true edge HA fires on. The end edge additionally holds the
+        configured waiting time (#696), which the recovery run used to skip."""
+        start = self._trigger("t_shading_start_pending_8")
+        end = self._trigger("t_shading_end_pending_8")
+        for t in (start, end):
+            assert "states(shading_custom_sensor) not in invalid_states" in t["value_template"]
+        ctx = dict(shading_custom_sensor="binary_sensor.pv_shade", invalid_states=INVALID_STATES)
+        for state, fires_start, fires_end in (("unavailable", False, False),
+                                               ("unknown", False, False),
+                                               ("on", True, False),
+                                               ("off", False, True)):
+            entities = {"binary_sensor.pv_shade": state}
+            assert _render_bool(start["value_template"], entities, **ctx) is fires_start, state
+            assert _render_bool(end["value_template"], entities, **ctx) is fires_end, state
+        assert end["for"] == {"seconds": "shading_waitingtime_end"}
+        assert "for" not in start
 
     def test_a_restart_is_only_caught_up_in_the_always_mode(self):
         """The whole point of the three-way split: a Home Assistant restart and a Zigbee

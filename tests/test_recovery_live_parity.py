@@ -1030,6 +1030,78 @@ class TestIssue673MorningOpeningUnchecked:
         assert recovery["moves"] and recovery["target"] == 50
 
 
+class TestIssue713OwnerlessOpenReposition:
+    """#713 (Bug Pattern BB): a t_recovery reaching a shading-only or opens-by-hand
+    instance (no opening automation) found bas == 'opn' - the init default, or the
+    #673 state-only sync of the opening time - on a cover still closed from the
+    evening, and drove it open. Live has no counterpart: nothing ever drives that
+    target. opening_ownership_hold mirrors closing_ownership_hold and the #695
+    reconcilers: the state stays, the movement is withheld."""
+
+    def _daytime(self, **over):
+        base = dict(brightness="5000", is_opening_phase=True, is_daytime_phase=True,
+                    is_closing_phase=False, is_evening_phase=False,
+                    is_up_enabled=False, is_opening_scheduled=False,
+                    helper={"bas": "opn"}, current_position=0)
+        base.update(over)
+        return scenario(**base)
+
+    def test_the_unowned_open_target_is_state_only(self):
+        recovery = run_recovery(self._daytime())
+        assert recovery["new_base"] == "opn" and recovery["state"] == "opn"
+        assert recovery["moves"] is False
+        assert recovery["final"]["bas"] == "opn"
+        # ... and live agrees: the opening-time run of the same morning only syncs
+        live = run_live(self._daytime(), "opening")
+        assert live["entered"] and live["moves"] is False
+
+    def test_the_time_control_disabled_resting_default(self):
+        """The #553 class proper: no time axis, bas never left its init value."""
+        s = self._daytime(is_time_control_disabled=True, is_time_field_enabled=False,
+                          is_opening_phase=False)
+        recovery = run_recovery(s)
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] is False
+
+    def test_an_opening_automation_owns_the_same_reposition(self):
+        s = self._daytime(is_up_enabled=True, is_opening_scheduled=True)
+        recovery = run_recovery(s)
+        assert recovery["moves"] and recovery["target"] == 100
+        assert recovery["action_set"] == "up"
+
+    def test_a_live_force_open_keeps_its_authority(self):
+        s = self._daytime(live_force="opn", helper={"bas": "opn", "frc": "opn"})
+        recovery = run_recovery(s)
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] and recovery["target"] == 100
+
+    def test_the_vent_floor_keeps_its_authority(self):
+        """Without an opening automation the VENT floor is in charge (#553): the
+        hold is scoped to the 'opn' target, overlay targets still reconcile."""
+        recovery = run_recovery(self._daytime(window="tlt"))
+        assert recovery["state"] == "vnt"
+        assert recovery["moves"] and recovery["target"] == 50
+
+    def test_the_hygiene_still_runs(self):
+        """The hold withholds the movement only: a stale shading is still dropped
+        and the helper is still written (Invariant 15)."""
+        s = self._daytime(stale_day=True, helper={"bas": "opn", "shd": 1})
+        recovery = run_recovery(s)
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] is False
+        assert recovery["final"]["shd"] == 0
+
+    def test_the_manual_reset_is_held_by_the_same_rule(self):
+        """The opted-in reset used to be the only re-position with this guard
+        (manual_reset_recovery_hold); it keeps its outcome under the shared hold."""
+        s = self._daytime(helper={"bas": "opn", "man": 1}, override_expired=True,
+                          manual_reset_event=True, is_manual_reset_recovery_enabled=True)
+        recovery = run_recovery(s, trigger_id="t_reset_timeout")
+        assert recovery["state"] == "opn"
+        assert recovery["moves"] is False
+        assert recovery["final"]["man"] == 0
+
+
 class TestIssue673EveningClosingUnchecked:
     """#673 mirror: with an opening automation configured but Evening Closing
     unchecked, the day 'opn' had no writer that ever expired it - after a

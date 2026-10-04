@@ -96,7 +96,7 @@ can only *prevent* a wrong one. That single rule places all three pieces:
   carries `enabled: "{{ is_recovery_enabled and ... }}"` — filter at the trigger,
   same rationale as #550: no run, no trace, no drive. That is every source that
   **never blocks a run**, so its outage strands nothing: resident, brightness, sun,
-  forecast, custom shading sensor, calendar, workday — **and the force pause**
+  forecast, calendar, workday — **and the force pause**
   (`is_paused` is read live and nothing about it is stored, so its return leaves no
   stale claim; the only thing to do would be to drive back into the force the pause
   suspended). Inside the gate, `will_drive`
@@ -106,6 +106,23 @@ can only *prevent* a wrong one. That single rule places all three pieces:
   and `recovered_pending` refuses to arm a shading pending (it would drive later too).
   Note `recovered_base` itself stays **unconditional** — only the *write* (`new_base`)
   is gated.
+- **No trigger at all: the pure shading-condition sensors** (shading brightness,
+  temperature 1/2, the forecast-temperature sensor — and since CCA 2026.10.04 the
+  custom condition sensor, #713 / Bug Pattern BB). They never block a run, so their
+  outage strands nothing — and unlike the opt-in sources above there is nothing to
+  catch up *either*: every one of their own start/end triggers carries the
+  `not in invalid_states` guard, so `unavailable → on/off` is a false→true edge that
+  fires the shading evaluation itself (the end edge with the waiting time on its
+  `for:`, #696). A `t_recovery` on top adds exactly one thing — a base catch-up with
+  a drive for events that were never missed — and adds it on *every* return. Harmless
+  for a sensor that drops out once a year; a wrong movement every morning for one that
+  is `unavailable` every night *by design* (the #713 report: a template sensor built
+  on PV production, back at sunrise, ran the catch-up on a cover still closed from the
+  evening). Condition-only inputs that users build from arbitrary entities must be
+  assumed to behave like that. The forecast *weather* entity keeps its trigger: its
+  end trigger (`_4`) has no invalid-state guard, so its return edge cannot end a
+  shading on its own — `recovered_pending` is what re-evaluates that end. Brightness
+  and sun keep theirs as environment sources of the schedule itself.
 - **Always active: the `t_recovery` triggers of the five gate sources** (cover, status
   helper, custom position sensor, both window contacts — CCA 2026.07.13 V6). Third
   application of the rule, and the one that was missed twice. These are exactly the
@@ -387,9 +404,9 @@ Keeping the recovery out of the choose leaves the branch indices `0..13` untouch
 
 A blocked automation **silently loses** every event of the outage: time/calendar triggers of that period never fire again, and template/numeric triggers fire only on a `false → true` transition — which is consumed while the run is blocked. Nothing replays them.
 
-**Trigger set:** `homeassistant: start`, the resume trigger above, plus one state trigger per source (`from: [unavailable, unknown]`, `not_to: [unavailable, unknown]`, `for: 30s`), all sharing the id `t_recovery`. **Every entity CCA reads gets one** — that is the rule, and the reason is that the three tiers of the gate say nothing about *replay*. A Tier-3 source never blocks a run but its return is what makes a missed shading start re-evaluable; a Tier-2 source falls back to the helper but the fallback must eventually be *corrected*. So: cover, status helper, position sensor, both window contacts, resident, brightness, sun, forecast, the custom shading-condition sensor, calendar, both workday sensors, the four force entities and the force pause.
+**Trigger set:** `homeassistant: start`, the resume trigger above, plus one state trigger per source (`from: [unavailable, unknown]`, `not_to: [unavailable, unknown]`, `for: 30s`), all sharing the id `t_recovery`. **Every entity CCA reads gets one — except the pure shading-condition sensors** (shading brightness, temperature 1/2, forecast-temperature sensor, custom condition sensor: their own triggers fire on the return edge, see the opt-in bullet above and Bug Pattern BB) — that is the rule, and the reason is that the three tiers of the gate say nothing about *replay*. A Tier-3 source never blocks a run but its return is what makes a missed shading start re-evaluable *when its own triggers cannot* (the forecast weather end); a Tier-2 source falls back to the helper but the fallback must eventually be *corrected*. So: cover, status helper, position sensor, both window contacts, resident, brightness, sun, forecast, calendar, both workday sensors, the four force entities and the force pause.
 
-**The last source to return performs the recalculation.** A source returning early fires `t_recovery`, but while any *critical* entity is still missing, the gate stops that run — so the run that survives is the one after the last critical entity is back. Runs triggered by a later-returning *condition-only* source are not suppressed either: they re-run the recovery gate with fresh data (idempotent — the drive is a no-op via the `cover_move_action` tolerance guard, and an already-armed pending is preserved rather than re-armed). `max:` is 25 because a restart can queue one run per recovering source (19) plus normal traffic, and dropping one would drop exactly the run that had the data.
+**The last source to return performs the recalculation.** A source returning early fires `t_recovery`, but while any *critical* entity is still missing, the gate stops that run — so the run that survives is the one after the last critical entity is back. Runs triggered by a later-returning *condition-only* source are not suppressed either: they re-run the recovery gate with fresh data (idempotent — the drive is a no-op via the `cover_move_action` tolerance guard, and an already-armed pending is preserved rather than re-armed). `max:` is 25 because a restart can queue one run per recovering source (18) plus normal traffic, and dropping one would drop exactly the run that had the data.
 
 **What the recovery gate restores:**
 
@@ -562,6 +579,9 @@ recovery_apply:
     → recovery_up_condition_hold (the live normal-opening will_drive refused too)
   recovered cls + closing condition refused + no live force
     → recovery_down_condition_hold (the live normal-closing will_drive refused too)
+  recovered opn + no opening automation + no live force
+    → opening_ownership_hold (#713: the ownerless 'opn' resting state — the mirror
+      of closing_ownership_hold, for every recovery drive: flip, re-position, reset)
   caught-up opening/closing
     → direction-specific outcome hold before any drive
 ```

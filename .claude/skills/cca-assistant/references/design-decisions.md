@@ -298,7 +298,10 @@ structural safety net rather than removed in the same change.
 drive to `'opn'` when `not is_opening_scheduled and live_force == 'non'` — the Issue #553
 resting-state class (a schedule-less instance's permanent `bas` init default, which requires no
 write at all: `bas` starts at `'opn'`). `manual_reset_recovery_hold` checks this unconditionally
-inside the opt-in branch; it is not itself a separate setting. The `live_force == 'non'` term
+inside the opt-in branch; it is not itself a separate setting. Since CCA 2026.10.04 (#713, Bug
+Pattern BB) `opening_ownership_hold` applies the same rule to *every* recovery drive — flip,
+plain re-position and opted-in reset alike, the exact mirror of `closing_ownership_hold` — so the
+reset clause is now one instance of the general rule and stays for its own log line. The `live_force == 'non'` term
 (CCA 2026.08.23 review finding) matters because `recovered_state` mirrors `live_force` first
 (architecture.md): an `'opn'` produced by an active Force-Open target has a live owner and is
 not the ownerless #553 default, so the guard must not hold it back — without this term, an

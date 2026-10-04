@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AU, with cause and fix)
+# CCA Known Bug Patterns (A–BB, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -1197,5 +1197,72 @@ gate — auditing only the sites the original issue mentioned leaves the mirror 
 recur one by one. When adding such a gate, list every consumer of the target value and
 classify each as schedule-owned (gate) or displacer-owned (leave). Tests:
 `TestOpeningOwnershipGates` in `tests/test_blueprint_logic.py`.
+
+**Follow-up (BB, #713):** the recovery reducer itself was the fourth consumer — its
+ownership gates covered the flip and the reset, not the plain re-position to an unchanged
+`bas == 'opn'`. `opening_ownership_hold` now guards every recovery drive.
+
+---
+
+### Bug Pattern BB: A condition-only shading sensor's nightly `unavailable → off` runs an outage catch-up every sunrise (Issue #713)
+
+**Symptom:** A 🧩 Custom Condition Sensor built on PV production is `unavailable` all
+night and reports `off` once production starts. Every morning, ~30 s after that change,
+the covers that are still closed from the evening open — no sun shading was active, and
+the configured end waiting time plays no part. Several instances sharing the sensor move
+at once. (No trace was available; the report gave the sensor, the timing and the
+movement.)
+
+**Cause (two halves):**
+
+1. The custom condition sensor carried a `t_recovery` trigger like the other condition-only
+   sources ("every entity CCA reads gets one"). But it is a *pure shading-condition* source:
+   it never blocks a run, so nothing was swallowed while it was unavailable — and both of
+   its own triggers (`t_shading_start_pending_8`, `t_shading_end_pending_8`) carry the
+   `not in invalid_states` guard, so the return edge itself re-evaluates the shading (the
+   end edge after `for: shading_waitingtime_end`, #696, and behind the global `shd == 1`
+   gate). The recovery run that started 30 s later added only what it always adds:
+   `recovered_base` from the schedule, the flip gates, a drive to `recovered_state`. The
+   sibling shading sensors (shading brightness, temperature 1/2, forecast-temperature
+   sensor) never had the trigger. A sensor that is `unavailable` *by design* every night
+   turns "an outage ended" into a daily event — so every live/recovery deviation (the `for:`
+   windows, an opening condition that flipped since the opening time, R1–R5) and every
+   ownerless target in the helper surfaces every morning, on every instance sharing it.
+2. The movement itself was the #553/#695 class through a door #695 did not list: the
+   recovery reducer's own plain re-position. `caught_up_opening_hold` is scoped to a *flip*
+   (`caught_up_opening and not is_up_enabled`), `manual_reset_recovery_hold` to a *reset*; a
+   `t_recovery` reaching an instance with `bas == 'opn'` — the init default of a shading-only
+   instance, or the #673 state-only sync after the opening time with Morning Opening
+   unchecked (the "opens by hand" setup) — and a cover still closed computed
+   `recovered_state == 'opn'` and drove it to the open position.
+   `closing_ownership_hold` had covered exactly this on the closing side since the #673
+   mirror; `test_only_a_caught_up_opening_is_gated` even pinned the re-position as "today's
+   semantics" before BA stated the rule.
+
+**Fix:** (1) No `t_recovery` for the custom condition sensor — the comment in the trigger
+list names the class, recovery.md the reason. Its return now does what every other change
+of the sensor does: `on` fires the start evaluation, `off` runs the end waiting time, and
+nothing else. (2) `opening_ownership_hold` = `recovered_state == 'opn' and not
+is_opening_scheduled and live_force == 'non'` in the shared `recovery_apply` body, consumed
+by `will_drive` and named in `log_extra` — the mirror of `closing_ownership_hold` for every
+recovery drive (flip, re-position, opted-in reset). State progress is untouched: `bas` is
+still written, only the movement is withheld (Invariant 15); a live force-open and the
+overlay targets (`lock`/`vnt`/`shd`/`cls`) keep their own authority.
+
+**Rule:** (1) A `t_recovery` trigger needs a *reason*: the source can block a run (gate
+source), or its outage can strand an event no own trigger replays (calendar, resident,
+workday, the forecast weather end `_4`), or its state is persisted and would otherwise go
+stale (force entities). A sensor whose own triggers already fire on `unavailable → valid`
+gets none — and a condition-only input that users point at arbitrary entities must be
+assumed to be `unavailable` for hours *by design*. (2) BA's rule, third recurrence: list
+EVERY drive consumer of a value that can exist without its owning automation — "the
+recovery reducer has ownership gates" was true for two of its three `'opn'` drive paths.
+
+Tests: `TestRecoveryTriggers::test_a_pure_shading_condition_sensor_has_no_recovery_trigger`,
+`TestRecoveryTriggers::test_the_custom_sensor_re_evaluates_on_its_own_return_edge`,
+`TestOpeningOwnershipHold` (`tests/test_restart_recovery.py`),
+`TestIssue713OwnerlessOpenReposition` (`tests/test_recovery_live_parity.py`),
+`TestOpeningOwnershipGates::test_the_recovery_gate_gates_the_unowned_opn`
+(`tests/test_blueprint_logic.py`).
 
 ---
