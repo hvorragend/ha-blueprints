@@ -10,7 +10,7 @@ Settings if the feature '🥵 - Sun Protection / Shading — Partially close whe
 ### How the shading process works (two phases)
 
 **Phase 1 — Pending (trigger):**
-When ANY configured shading trigger fires (sun azimuth, elevation, brightness, temperature, forecast), the automation arms a "pending" timer. This sets the status to <em>t_shading_start_pending</em> and starts the waiting time.
+When ANY configured shading trigger fires (sun azimuth, elevation, brightness, temperature, forecast), the automation arms a "pending" timer. This sets the status to <em>t_shading_start_pending</em> and starts the waiting time. Exception: the <strong>brightness</strong> trigger measures the waiting time itself — it only fires once the brightness has stayed above the start threshold for the whole waiting time without interruption, and its pending then executes immediately.
 
 **Phase 2 — Execution (after waiting time):**
 After the waiting time expires, the automation re-evaluates ALL configured conditions. Only if they are <strong>still valid</strong> at this point, the cover actually moves to the shading position.
@@ -569,7 +569,7 @@ Temperature threshold used exclusively by the <em>"Independent Shading via Tempe
 
 > 🧩 Input: `shading_waitingtime_start` · Default: `300`
 
-Waiting time between the initial shading trigger and the actual cover movement. After this time expires, <ins>all</ins> configured start conditions (AND + OR) are re-checked. The cover only moves if conditions are <strong>still valid</strong> at execution time. This waiting time is also used for the periodic condition checks within the retry loop. <br /><br /> <strong>If shading stays at "pending" and never executes:</strong> The conditions were no longer met after the waiting time expired. Check the automation trace for <em>t_shading_start_execution</em>.
+Waiting time between the initial shading trigger and the actual cover movement. After this time expires, <ins>all</ins> configured start conditions (AND + OR) are re-checked. The cover only moves if conditions are <strong>still valid</strong> at execution time. This waiting time is also used for the periodic condition checks within the retry loop. <br /><br /> For the <strong>brightness</strong> start condition the waiting time runs inside the trigger: the brightness has to stay above the start threshold for the whole waiting time <strong>without interruption</strong> (a dip in between restarts it), and the cover then moves right away. Shading starts armed by the sun position, the temperatures, the forecast or the 1-hour pre-opening check keep the waiting time in the pending and re-check the brightness when it expires. <br /><br /> <strong>If shading stays at "pending" and never executes:</strong> The conditions were no longer met after the waiting time expired. Check the automation trace for <em>t_shading_start_execution</em>.
 
 ---
 
