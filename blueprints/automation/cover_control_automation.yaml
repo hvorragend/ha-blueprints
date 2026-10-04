@@ -6336,17 +6336,65 @@ actions:
                               opening_ownership_hold: >-
                                 {{ recovered_state == 'opn' and not is_opening_scheduled and
                                    live_force == 'non' }}
-                              # A reset trigger firing while the override has not expired by the
-                              # strict rule (manual change inside the reset's own tolerance window)
-                              # runs hygiene-only: man stays set, so the line must not claim a reset.
-                              log_user: "{{ ('manual override reset, control returned to automation' if manual_reset_recovery_hold else 'manual override reset, back to: ' ~ state_labels[recovered_state]) if manual_reset_event and override_expired else 'manual override kept, it has not expired yet' if manual_reset_event else ('this automation took charge of the cover' if instance_activated else 'catching up after a restart or an outage') ~ ', target: ' ~ state_labels[recovered_state] }}"
+                              # The cover logbook verdict. A reset trigger firing while the override
+                              # has not expired by the strict rule (manual change inside the reset's
+                              # own tolerance window) runs hygiene-only: man stays set, so the line
+                              # must not claim a reset.
+                              recovery_verdict: >-
+                                {%- set target = state_labels[recovered_state] -%}
+                                {%- if manual_reset_event and not override_expired -%}
+                                  manual override kept, it has not expired yet
+                                {%- elif manual_reset_event and manual_reset_recovery_hold -%}
+                                  manual override reset, control returned to automation
+                                {%- elif manual_reset_event -%}
+                                  manual override reset, back to: {{ target }}
+                                {%- elif instance_activated -%}
+                                  this automation took charge of the cover, target: {{ target }}
+                                {%- else -%}
+                                  catching up after a restart or an outage, target: {{ target }}
+                                {%- endif -%}
+                              log_user: "{{ recovery_verdict }}"
+                              # Diagnostic dump: run classification, the state transitions,
+                              # then one note per hold that withheld the drive (flag, text)
                               log_extra: >-
-                                {{ 'Manual override reset reconciliation' if manual_reset_event else 'Recovery' }}{{ ' (hygiene only, no catch-up)' if not recovery_catch_up else '' }}{{ ' (instance activated)' if instance_activated else '' }}{{ ' (automation resumed)' if automation_resumed else '' }}{{ ' (restart)' if is_restart_run else '' }}{{ ' (new day)' if stale_day else '' }}{{ ' (missed midnight reset)' if midnight_reset_missed else '' }}:
-                                base {{ helper_state_base }}->{{ new_base }}{{ ' (schedule says ' ~ recovered_base ~ ', a live opening/closing gate refused the flip)' if recovery_catch_up and recovered_base != new_base else '' }},
+                                {%- set ns = namespace(tags=[], notes=[]) -%}
+                                {%- for flag, tag in [
+                                      (not recovery_catch_up, 'hygiene only, no catch-up'),
+                                      (instance_activated, 'instance activated'),
+                                      (automation_resumed, 'automation resumed'),
+                                      (is_restart_run, 'restart'),
+                                      (stale_day, 'new day'),
+                                      (midnight_reset_missed, 'missed midnight reset'),
+                                    ] if flag -%}
+                                  {%- set ns.tags = ns.tags + [tag] -%}
+                                {%- endfor -%}
+                                {%- for flag, note in [
+                                      (override_expired, 'expired manual override cleared'),
+                                      (defer_to_shading, 'opening deferred to shading'),
+                                      (defer_to_shading_end, 'shading drive withheld (end pending armed)'),
+                                      (caught_up_closing_hold, 'drive withheld (closing hold)'),
+                                      (caught_up_opening_hold, 'drive withheld (morning opening disabled)'),
+                                      (not transition_manual_allows, 'drive withheld (manual override)'),
+                                      (recovery_vent_condition_hold, 'drive withheld (ventilation condition)'),
+                                      (recovery_up_condition_hold, 'drive withheld (opening condition)'),
+                                      (recovery_down_condition_hold, 'drive withheld (closing condition)'),
+                                      (manual_reset_event and not is_manual_reset_recovery_enabled,
+                                       'drive withheld (manual reset return-to-target disabled)'),
+                                      (opening_ownership_hold, 'drive withheld (no opening automation configured)'),
+                                      (closing_ownership_hold, 'drive withheld (no closing automation configured)'),
+                                    ] if flag -%}
+                                  {%- set ns.notes = ns.notes + [note] -%}
+                                {%- endfor -%}
+                                {%- set flip_note = ' (schedule says ' ~ recovered_base ~ ', a live opening/closing gate refused the flip)'
+                                      if recovery_catch_up and recovered_base != new_base else '' -%}
+                                {%- set hold_notes = (', ' ~ ns.notes | join(', ')) if ns.notes else '' -%}
+                                {{ 'Manual override reset reconciliation' if manual_reset_event else 'Recovery' }}
+                                {%- for tag in ns.tags %} ({{ tag }}){% endfor %}:
+                                base {{ helper_state_base }}->{{ new_base }}{{ flip_note }},
                                 frc {{ helper_state_force }}->{{ live_force }},
                                 shd {{ 1 if helper_state_shade else 0 }}->{{ 1 if recovered_shade else 0 }},
                                 pnd {{ helper_state_pending }}->{{ new_pending }}{{ ' (stale cleared)' if pending_is_stale else '' }},
-                                state {{ recovered_state }}, target {{ target_position }}{{ ', expired manual override cleared' if override_expired else '' }}{{ ', opening deferred to shading' if defer_to_shading else '' }}{{ ', shading drive withheld (end pending armed)' if defer_to_shading_end else '' }}{{ ', drive withheld (closing hold)' if caught_up_closing_hold else '' }}{{ ', drive withheld (morning opening disabled)' if caught_up_opening_hold else '' }}{{ ', drive withheld (manual override)' if not transition_manual_allows else '' }}{{ ', drive withheld (ventilation condition)' if recovery_vent_condition_hold else '' }}{{ ', drive withheld (opening condition)' if recovery_up_condition_hold else '' }}{{ ', drive withheld (closing condition)' if recovery_down_condition_hold else '' }}{{ ', drive withheld (manual reset return-to-target disabled)' if manual_reset_event and not is_manual_reset_recovery_enabled else '' }}{{ ', drive withheld (no opening automation configured)' if opening_ownership_hold else '' }}{{ ', drive withheld (no closing automation configured)' if closing_ownership_hold else '' }}
+                                state {{ recovered_state }}, target {{ target_position }}{{ hold_notes }}
                           - variables:
                               # THE catch-up gate. Everything above is hygiene (it only prevents a wrong
                               # movement); driving the cover is the only part that causes one

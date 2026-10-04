@@ -674,7 +674,8 @@ class TestManualOverrideParity:
     def test_log_user_names_the_withheld_reset_instead_of_implying_a_move(self):
         """When the reset's drive is withheld, the cover-facing logbook line must
         not read as if a movement happened ('back to: open')."""
-        template = _branch_var("Recovery after restart", "log_user")
+        template = _branch_var("Recovery after restart", "recovery_verdict")
+        assert _branch_var("Recovery after restart", "log_user") == "{{ recovery_verdict }}"
         labels = _action_var("state_labels")
         assert _render(
             template, {},
@@ -693,7 +694,8 @@ class TestManualOverrideParity:
         """A reset trigger firing while the override has not expired by the strict
         rule (a manual change inside the reset's own tolerance window) runs
         hygiene-only and keeps man set: the line must not claim a reset happened."""
-        template = _branch_var("Recovery after restart", "log_user")
+        template = _branch_var("Recovery after restart", "recovery_verdict")
+        assert _branch_var("Recovery after restart", "log_user") == "{{ recovery_verdict }}"
         labels = _action_var("state_labels")
         assert _render(
             template, {},

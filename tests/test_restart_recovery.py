@@ -1184,7 +1184,68 @@ class TestOpeningOwnershipHold:
 
     def test_the_diagnostic_line_names_the_hold(self):
         log_extra = _branch_var(RECOVERY, "log_extra")
-        assert "(no opening automation configured)' if opening_ownership_hold" in log_extra
+        held = _render(log_extra, {}, **_recovery_log_context(opening_ownership_hold=True))
+        assert held.endswith("state opn, target 100, drive withheld (no opening automation configured)")
+        free = _render(log_extra, {}, **_recovery_log_context())
+        assert free.endswith("state opn, target 100")
+        assert "withheld" not in free
+
+
+def _recovery_log_context(**over) -> dict:
+    """Every variable the recovery's diagnostic dump reads, in the quiet case."""
+    ctx = dict(
+        manual_reset_event=False, recovery_catch_up=True, instance_activated=False,
+        automation_resumed=False, is_restart_run=False, stale_day=False,
+        midnight_reset_missed=False, override_expired=False, defer_to_shading=False,
+        defer_to_shading_end=False, caught_up_closing_hold=False,
+        caught_up_opening_hold=False, transition_manual_allows=True,
+        recovery_vent_condition_hold=False, recovery_up_condition_hold=False,
+        recovery_down_condition_hold=False, is_manual_reset_recovery_enabled=False,
+        opening_ownership_hold=False, closing_ownership_hold=False,
+        helper_state_base="opn", new_base="opn", recovered_base="opn",
+        helper_state_force="non", live_force="non", helper_state_shade=False,
+        recovered_shade=False, helper_state_pending="non", new_pending="non",
+        pending_is_stale=False, recovered_state="opn", target_position=100,
+    )
+    ctx.update(over)
+    return ctx
+
+
+class TestRecoveryDiagnosticLine:
+    """log_extra is the support artifact of every recovery run: one run classification,
+    the four state transitions, then one plain note per hold that withheld the drive.
+    Rendered, not pattern-matched, so the template structure can change freely."""
+
+    def _line(self, **over) -> str:
+        return _render(_branch_var(RECOVERY, "log_extra"), {}, **_recovery_log_context(**over))
+
+    def test_the_quiet_run_reads_as_one_line(self):
+        assert self._line() == (
+            "Recovery: base opn->opn, frc non->non, shd 0->0, pnd non->non, "
+            "state opn, target 100")
+
+    def test_the_run_classification_tags_stack(self):
+        line = self._line(recovery_catch_up=False, is_restart_run=True, stale_day=True)
+        assert line.startswith("Recovery (hygiene only, no catch-up) (restart) (new day): ")
+
+    def test_a_manual_reset_is_named_as_such(self):
+        line = self._line(manual_reset_event=True, override_expired=True,
+                          is_manual_reset_recovery_enabled=True)
+        assert line.startswith("Manual override reset reconciliation: ")
+        assert line.endswith("state opn, target 100, expired manual override cleared")
+
+    def test_every_hold_contributes_exactly_one_note(self):
+        line = self._line(caught_up_closing_hold=True, transition_manual_allows=False,
+                          recovery_up_condition_hold=True, closing_ownership_hold=True)
+        assert line.endswith(
+            "target 100, drive withheld (closing hold), drive withheld (manual override), "
+            "drive withheld (opening condition), drive withheld (no closing automation configured)")
+
+    def test_a_refused_flip_and_a_stale_pending_are_annotated(self):
+        line = self._line(helper_state_base="cls", new_base="cls", recovered_base="opn",
+                          helper_state_pending="beg", pending_is_stale=True)
+        assert "base cls->cls (schedule says opn, a live opening/closing gate refused the flip)," in line
+        assert "pnd beg->non (stale cleared)," in line
 
 
 # ════════════════════════════════════════════════════════════════════════════
