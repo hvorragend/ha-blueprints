@@ -1,9 +1,13 @@
 **Note:** Previous changes are archived here: [CHANGELOG_OLD.md](https://hvorragend.github.io/ha-blueprints/CHANGELOG_OLD).
 
-# CCA 2026.10.02
+# CCA 2026.10.05
 
 - 🐛 **Fix:** A **catch-up run** (🔄 *Catch up on what a restart or an outage swallowed* set to *outage* or *always*) no longer **opens a cover for which no morning opening is configured** ([#713](https://github.com/hvorragend/ha-blueprints/issues/713)). Reported with a **🧩 Custom Condition Sensor** fed by PV production: the sensor is *unavailable* every night and comes back *off* at dawn, which counts as the end of an outage and starts a catch-up. That run found the stored day state "open" — a value CCA keeps even when you open the cover by hand — while the cover was still closed from the evening before, and "corrected" it to the open position: immediately, without any shading waiting time, and without the sun shading being involved at all. The closing side already had this protection (a closing without a configured evening closing is never performed by a catch-up); the opening side now has the same rule for **every** catch-up movement: without a configured morning opening, a catch-up never pulls the cover up. A live ⬆️ Force Open, the ventilation and lockout positions and the sun shading keep their own authority, and the stored state is still corrected. The sensor-based *end* of a sun shading is not affected by this — it still honours the end waiting time and only runs while a shading is actually active
 - 🔧 **Improvement:** The handbook section on the catch-up now says that a catch-up only performs movements that one of your automations owns
+
+# CCA 2026.10.04
+
+- 🐛 **Fix:** The brightness-based sun-shading **start** now mirrors the shading end from `2026.09.29 V3` ([#696](https://github.com/hvorragend/ha-blueprints/issues/696), follow-up): the brightness has to stay above the start threshold for the whole *"Sun Shading - Start Waiting Time"* **without interruption** before the shading starts — a dip in between restarts the wait, so a single sun peek between clouds no longer starts the shading as soon as the next check happens to land on sunshine. The waiting time runs inside the trigger and the start is executed right after it (with the usual re-check of all start conditions), so the total time from the first sunshine to the movement is unchanged. Only the brightness trigger changes: shading starts armed by the sun position, the temperatures, the forecast or the 1-hour pre-opening check keep their waiting time in the pending and re-check the brightness when it expires — in those cases a sun peek at the moment of the check can still start the shading, as before. The same notes as for the shading end apply: a restart, reload or save of the automation during a running brightness wait discards it, and an interrupted wait leaves no automation trace
 
 # CCA 2026.09.29 V3
 

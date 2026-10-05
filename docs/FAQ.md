@@ -661,6 +661,7 @@ Result: Sun in range + at least one other condition
 **Shading Start Pending:**
 - Initial conditions met
 - Waiting for stable readings (waiting time)
+- The brightness start condition measures the waiting time inside the trigger: the value must stay above the start threshold without interruption, a dip in between restarts the wait — the pending then executes immediately
 - Periodic re-checking if configured
 - Will execute when conditions remain stable
 
