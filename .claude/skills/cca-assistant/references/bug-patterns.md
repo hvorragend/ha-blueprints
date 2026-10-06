@@ -581,7 +581,7 @@ Gating `is_time_field_enabled`/`is_calendar_enabled` on the checkbox is essentia
 - The shading-start drive choose (lockout / start shading / save-for-future) had **no default**. A non-tilt cover resting exactly at the shading position (neither `current_above_shading` nor `current_below_shading`), or a cover held at the ventilation floor (`effective_state == 'vnt'`, third OR-alternative requires `'opn'`), matched no branch → fall-through without helper write.
 - "Move cover after shading end" wrapped its whole body in `if not prevent_flags.opening_after_shading_end` with **no else**, followed by `stop:`. With the prevent option set and tilt not possible (the tilt-only branch requires tilt), the sequence stopped without a helper write.
 
-**Fix:** Give every drive choose inside the execution handlers a `default:` that records the state and clears the pending, and give every `if:` before a `stop:` an `else:` that clears the pending. See the "Every execution path must be terminal" rule in Invariant 8.
+**Fix:** Give every drive choose inside the execution handlers a `default:` that records the state and clears the pending, and give every `if:` that produces a transition an `else:` that clears the pending. Since #717 the leaves no longer carry the helper write themselves: they fall through to the single `*apply_transition` epilogue after the dispatch choose, so the pattern now reads "a path that `stop:`s after producing `update_values` discards the write" (`TestSingleTransitionEpilogue` pins it). See the "Every execution path must be terminal" rule in Invariant 8.
 
 ---
 

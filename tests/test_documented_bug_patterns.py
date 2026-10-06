@@ -1898,8 +1898,10 @@ class TestPatternAYAbortReconcilesTheOpening:
         assert uv.get("pnd") == "non" and uv.get("shd") == 0
         assert uv.get("ts", {}).get("due") == 0 and uv.get("ts", {}).get("arm") == 0
         assert "man" not in uv  # Invariant 7: the dispatch anchor owns man:0
-        assert "input_text.set_value" in str(abort_default)
-        assert "stop" in abort_default[-1]
+        # The leaf commits the transition and falls through to the shared
+        # epilogue (#717): no stop: may end the path, run_result names it
+        assert "'stop'" not in str(abort_default)
+        assert "run_result" in abort_default[-1].get("variables", {})
 
     @staticmethod
     def _render_will_drive(abort_variables, **overrides) -> bool:

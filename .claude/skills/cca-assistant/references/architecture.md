@@ -74,7 +74,8 @@ important local-scope exception. This outer-scope behavior requires Home
 Assistant 2025.4, which is why the blueprint declares `min_version: "2025.4.0"`;
 lowering it silently breaks the transition anchors and recovery decisions.
 
-**Every leaf branch computes exactly two things, then calls one shared anchor:**
+**Every leaf branch computes exactly two things, then falls through to one
+shared epilogue:**
 
 ```yaml
 sequence:
@@ -90,9 +91,30 @@ sequence:
         delay_s: "{{ drive_delay_standard }}" # pre-drive delay (0 = none)
       update_values:                          # state transition (reducer output)
         bas: "opn"
-  - *apply_transition
-  - stop: "..."
+  - variables:
+      run_result: "Opening executed"          # the former stop: message
+# ...no stop: - the run continues to the epilogue after the dispatch choose:
+# - *apply_transition                        # ONE expansion for every leaf
+# - the user's manual / override-reset action, when post_action says so
 ```
+
+The epilogue is the single `*apply_transition` alias right after the dispatch
+`choose:` (plus one small step that runs the user's manual action or override
+reset action when the leaf set `post_action`). It exists once, not once per
+leaf: a YAML alias is expanded into a full copy of the anchor body before Home
+Assistant validates the action tree, and with 56 leaf copies the schema
+validation of a single CCA automation took ~7 s on an HA Green (#717). One copy
+cut the validated action tree from ~27,000 to ~4,000 nodes. The leaf-side
+contract is therefore "produce the transition and fall through": a `stop:`
+after `update_values` would discard the transition, so the only `stop:` steps
+inside the dispatch are the three exits that deliberately leave the helper
+untouched (`TestSingleTransitionEpilogue` pins both). The recovery gate runs
+*before* the dispatch and ends in `stop:`, so it keeps the only other
+`*apply_transition` expansion; its flip choose only decides `new_base` /
+`recovered_shade` and the reconciliation body follows the choose once (same
+global-scope property). `run_result` replaces the per-leaf stop message: the
+trace tools read it from the trace's `changed_variables`, the HA trace UI shows
+it on the leaf's last `variables:` step.
 
 A branch may additionally set `log_user: "<short English phrase>"` — the reason
 line for the cover logbook (`enable_logbook_cover`, Invariant 12). Leave it

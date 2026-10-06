@@ -1149,6 +1149,53 @@
             return def ? { number: null, alias, ...def } : null;
         }
 
+        // Which branch of the main dispatch choose ran - from the trace entries, not
+        // from last_step (#717: the run ends in the shared epilogue after the choose).
+        // The executed branch is the one whose sequence left trace entries; HA also
+        // records the choice on the choose step itself. Same helper as the analyzer.
+        function resolveDispatch(innerTrace, lastStep) {
+            const keys = Object.keys(innerTrace || {});
+            let mainAction = null;
+            for (const key of keys) {
+                const m = key.match(/^action\/(\d+)\/choose\//);
+                if (m) { mainAction = parseInt(m[1]); break; }
+            }
+            if (mainAction === null && lastStep) {
+                const m = lastStep.match(/^action\/(\d+)\/choose\//);
+                if (m) mainAction = parseInt(m[1]);
+            }
+            if (mainAction === null) return { mainAction: null, branchNum: null, isDefault: false };
+
+            let branchNum = null;
+            const seqRe = new RegExp(`^action/${mainAction}/choose/(\\d+)/sequence`);
+            for (const key of keys) {
+                const m = key.match(seqRe);
+                if (m) { branchNum = parseInt(m[1]); break; }
+            }
+            if (branchNum === null) {
+                for (const key of [`action/${mainAction}/choose`, `action/${mainAction}`]) {
+                    const entry = innerTrace[key] && innerTrace[key][0];
+                    const choice = entry && entry.result && entry.result.choice;
+                    if (typeof choice === 'number') { branchNum = choice; break; }
+                }
+            }
+            const isDefault = branchNum === null && keys.some(k => k.startsWith(`action/${mainAction}/default/`));
+            return { mainAction, branchNum, isDefault };
+        }
+
+        // The leaf's one-line result: the run_result variable a leaf sets before it
+        // falls through to the shared epilogue (#717). The last assignment wins.
+        function findRunResult(innerTrace) {
+            let result = null;
+            for (const key of Object.keys(innerTrace || {})) {
+                for (const step of innerTrace[key]) {
+                    const vars = step.changed_variables;
+                    if (vars && typeof vars.run_result === 'string') result = vars.run_result;
+                }
+            }
+            return result;
+        }
+
         // Trigger explanations
         const TRIGGER_EXPLANATIONS = {
             't_open_1': 'Time-based opening (early)', 't_open_2': 'Time-based opening (late)',
@@ -1553,10 +1600,16 @@
             const lastStep = tInfo.last_step || 'N/A';
             const state = tInfo.state || 'unknown';
 
-            // Extract branch
+            // Extract branch. Resolved from the trace entries, not from last_step:
+            // since CCA 2026.10.06 (#717) every leaf falls through to one shared
+            // transition epilogue after the dispatch choose, so last_step of a
+            // normal run points at that epilogue and no longer at choose/M.
             let branch = null;
+            const dispatch = resolveDispatch(innerTrace, lastStep);
             const branchMatch = lastStep.match(/choose\/(\d+)/);
-            if (branchMatch) {
+            if (dispatch.branchNum !== null) {
+                branch = resolveBranch(dispatch.branchNum, trace.config);
+            } else if (branchMatch) {
                 branch = resolveBranch(parseInt(branchMatch[1]), trace.config);
             } else {
                 // A run that ended before the dispatch (recovery, calendar relevance)
@@ -1589,6 +1642,12 @@
                         stopReason = condResult?.message || `Condition not met`;
                     }
                 }
+            }
+            // The leaf's run_result (#717): the former stop: message of the branch,
+            // now a variable the leaf sets before it falls through to the epilogue.
+            if (!stopReason) {
+                const runResult = findRunResult(innerTrace);
+                if (runResult) stopReason = runResult;
             }
 
             // Extract all variables (Deep Merge)

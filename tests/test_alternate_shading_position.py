@@ -463,8 +463,12 @@ class TestReDriveBranch:
                 break
         else:
             raise AssertionError("variables step not found")
-        seq = str(branch["sequence"])
-        assert "set_cover_tilt_position" in seq
+        # The leaf plans a full drive (position + tilt); the tilt service itself
+        # lives in the shared epilogue after the dispatch choose (#717), so the
+        # plan must not downgrade to a tilt-only or position-only move.
+        assert plan.get("move", "full") == "full"
+        anchor = _load_blueprint_yaml()["actions"][0]["variables"]["apply_transition"]
+        assert "set_cover_tilt_position" in str(anchor)
 
     def test_man_reset_gated_on_actual_drive(self, branch):
         """Invariant 7: man may only be cleared when the cover actually moves.

@@ -42,13 +42,11 @@ def _nested_branch(alias_part: str) -> dict:
 # ════════════════════════════════════════════════════════════════════════════
 
 def _apply_transition_node():
-    """The shared apply-transition anchor, identified by object identity: the step
-    right after the variables block in the closing branch's default leaf."""
-    closing = _branch("Check for closing")
-    dispatch = next(s for s in closing["sequence"] if isinstance(s, dict) and "choose" in s)
-    default_leaf = dispatch["default"]
-    return next(s for s in default_leaf
-                if isinstance(s, dict) and "variables" not in s and "stop" not in s)
+    """The shared apply-transition anchor, identified by object identity (PyYAML
+    resolves every alias to the one anchor object). The live leaves no longer
+    carry it - the single epilogue after the dispatch choose does (#717) - but
+    the recovery body still aliases it before its own stop."""
+    return BP["actions"][0]["variables"]["apply_transition"]
 
 
 APPLY_TRANSITION = _apply_transition_node()

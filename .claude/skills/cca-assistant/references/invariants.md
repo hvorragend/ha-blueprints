@@ -31,7 +31,9 @@ Read the relevant invariant here before changing any branch it governs.
           run: "{{ will_drive }}"
           ...
         update_values: ...
-    - *apply_transition  # Helper is ALWAYS updated
+    - variables:
+        run_result: "..."  # then fall through: the shared epilogue after the
+                           # dispatch choose ALWAYS writes the helper (#717)
 ```
 
 **Why:** When the position check is in the branch conditions, the branch is not selected if the cover is already at the target position. This causes the logic to fall through to the next branch (e.g. shading), breaking the priority cascade.
@@ -40,7 +42,20 @@ Read the relevant invariant here before changing any branch it governs.
 
 ### ⚠️ Invariant 2: Always update the helper
 
-`*apply_transition` must be at the end of **every** branch sequence — even when no cover drive occurs (its helper write is unconditional). This is the only way to correctly persist the `res` status (and other fields). Classification-style handlers (Manual, Reset) set `update_values` inside their choose branches and call `*apply_transition` once in the shared tail. Never call `*helper_update` or `*drive_with_actions` directly from a branch.
+Every dispatch leaf **falls through** to the single `*apply_transition` epilogue
+right after the dispatch `choose:` — even when no cover drive occurs (its helper
+write is unconditional). This is the only way to correctly persist the `res`
+status (and other fields). A leaf therefore never ends in `stop:` once it has
+produced `update_values` / `drive_plan`: that stop would discard the transition
+(pinned by `TestSingleTransitionEpilogue`). The former per-leaf stop message
+lives on as the `run_result` variable (the trace tools read it from
+`changed_variables`); the only `stop:` steps left inside the dispatch are the
+three exits that deliberately leave the helper untouched. Never call
+`*helper_update` or `*drive_with_actions` directly from a branch, and never
+alias `*apply_transition` inside a leaf again: every alias is a full copy of the
+anchor body in the tree HA validates at reload, and 56 copies cost seconds per
+automation on small hardware (#717). The recovery gate (pre-dispatch, ends in
+`stop:`) keeps the only other expansion.
 
 ### ⚠️ Invariant 3: Realtime sensor vs. helper state
 
@@ -144,7 +159,7 @@ midnight reset, and recovery of an expired override) remain explicit updates.
 - A force/manual enable, disable, detection or release must **not** clear these
   keys merely as hygiene. Pending is autonomous background state and survives
   actuation blockers.
-- **Every execution path must be terminal** (Bug Pattern AK): any path reachable from `t_shading_start_execution` / `t_shading_end_execution` must end in a helper write that either re-arms (`pnd` + new `ts.due`) or clears (`pnd: 'non'`, `ts.due/arm: 0`). The execution templates compare `now() >= ts.due`; once due is in the past they stay true forever and never re-fire — a path that stops without a helper write leaves the pending armed until the midnight reset. Drive chooses inside the execution handlers therefore need a default, and `if:` steps before a `stop:` need an else.
+- **Every execution path must be terminal** (Bug Pattern AK): any path reachable from `t_shading_start_execution` / `t_shading_end_execution` must end in a helper write that either re-arms (`pnd` + new `ts.due`) or clears (`pnd: 'non'`, `ts.due/arm: 0`). The execution templates compare `now() >= ts.due`; once due is in the past they stay true forever and never re-fire — a path that stops without a helper write leaves the pending armed until the midnight reset. Drive chooses inside the execution handlers therefore need a default, and an `if:` that produces a transition needs an else that produces one too — and no path may `stop:` after producing `update_values`, because the write happens in the shared epilogue after the dispatch choose (#717).
 - **Contact handler branches must NOT reset `pnd`/`ts.due`/`ts.arm`.** Window open/close events are orthogonal to shading pending state. Omit these keys from `update_values` so `helper_update` preserves the existing values (#484).
 
 **t / d (write and drive timestamps, both top-level):**

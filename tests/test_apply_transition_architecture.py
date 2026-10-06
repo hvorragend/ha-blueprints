@@ -131,12 +131,116 @@ class TestNoBypassOfApplyTransition:
             "raw *tilt_move_action"
         )
 
-    def test_apply_transition_is_used_pervasively(self):
+    def test_apply_transition_is_expanded_exactly_twice(self):
+        """#717: every YAML alias is expanded into a full copy of the anchor body
+        before Home Assistant validates the action tree, and the shared transition
+        anchor is by far the largest body. One expansion per leaf (56 copies)
+        made the schema validation of a single CCA automation take seconds on
+        small hardware. The leaves therefore only compute the transition and
+        fall through to ONE epilogue after the dispatch choose; the recovery gate
+        (pre-dispatch, ends in stop:) keeps the only other expansion."""
         text = BLUEPRINT_PATH.read_text(encoding="utf-8")
-        assert text.count("- *apply_transition") >= 40, (
-            "expected the leaf branches of the action tree to call "
-            "*apply_transition"
+        assert text.count("- *apply_transition") == 2, (
+            "apply_transition must be expanded exactly twice: once in the recovery "
+            "gate and once as the transition epilogue after the dispatch choose - "
+            "a leaf branch must not alias it (the epilogue persists for every leaf)"
         )
+
+
+def _dispatch_choose(actions: list) -> tuple[int, dict]:
+    for idx, step in enumerate(actions):
+        if isinstance(step, dict) and isinstance(step.get("choose"), list) and len(step["choose"]) > 5:
+            return idx, step
+    raise AssertionError("main dispatch choose not found")
+
+
+def _stops_after_a_transition(seq: list, transition_pending: bool) -> list[str]:
+    """Walk every path of a dispatch branch. A stop: that follows a step which
+    already produced update_values / drive_plan on the same path discards that
+    transition - the epilogue after the choose would never run."""
+    found: list[str] = []
+    pending = transition_pending
+    for step in seq:
+        if not isinstance(step, dict):
+            continue
+        variables = step.get("variables")
+        if isinstance(variables, dict) and ("update_values" in variables or "drive_plan" in variables):
+            pending = True
+        if "stop" in step and pending:
+            found.append(str(step["stop"]))
+        for key in ("sequence", "then", "else", "default"):
+            if isinstance(step.get(key), list):
+                found += _stops_after_a_transition(step[key], pending)
+        for branch in step.get("choose") or []:
+            if isinstance(branch, dict) and isinstance(branch.get("sequence"), list):
+                found += _stops_after_a_transition(branch["sequence"], pending)
+    return found
+
+
+class TestSingleTransitionEpilogue:
+    """#717: the dispatch leaves fall through to one shared *apply_transition
+    after the choose. Two things keep that sound: the epilogue really is the
+    next top-level step, and no leaf path stop:s after it has produced a
+    transition (that stop would silently drop the helper write)."""
+
+    def test_the_epilogue_follows_the_dispatch_choose(self):
+        blueprint = _load_blueprint_yaml()
+        actions = blueprint["actions"]
+        idx, _ = _dispatch_choose(actions)
+        epilogue = actions[idx + 1]
+        assert epilogue is blueprint["actions"][0]["variables"]["apply_transition"], (
+            "the step right after the dispatch choose must be the *apply_transition "
+            "alias (the single transition epilogue)"
+        )
+
+    def test_no_leaf_stops_after_producing_a_transition(self):
+        blueprint = _load_blueprint_yaml()
+        _, dispatch = _dispatch_choose(blueprint["actions"])
+        lost = []
+        for branch in dispatch["choose"]:
+            lost += _stops_after_a_transition(branch.get("sequence", []), False)
+        lost += _stops_after_a_transition(dispatch.get("default", []), False)
+        assert lost == [], (
+            "a stop: after update_values/drive_plan discards the transition - "
+            f"replace it with a run_result variable and fall through: {lost}"
+        )
+
+    def test_the_exits_without_a_transition_are_the_known_three(self):
+        """The stops that remain inside the dispatch are the paths that
+        deliberately leave the helper untouched. Adding one is a design decision
+        (recovery.md: a new gate that can end a run needs the orphan audit)."""
+        blueprint = _load_blueprint_yaml()
+        _, dispatch = _dispatch_choose(blueprint["actions"])
+        stops = [str(s["stop"]) for s in _walk(dispatch) if isinstance(s, dict) and "stop" in s]
+        assert len(stops) == 3, stops
+        assert any(s.startswith("Shading start skipped: Pending trigger fired") for s in stops)
+        assert any(s.startswith("Disabled force (") for s in stops)
+        assert any(s.startswith("No operational branch matched") for s in stops)
+
+    def test_every_leaf_names_its_result(self):
+        """run_result replaces the former per-leaf stop: message - the trace
+        tools read it from the trace's changed_variables, so a leaf without one
+        shows up as an anonymous 'entered' run."""
+        blueprint = _load_blueprint_yaml()
+        _, dispatch = _dispatch_choose(blueprint["actions"])
+        # Keyed by object identity: an aliased sub-tree (*shading_start_retry)
+        # is one definition expanded twice, not a duplicate message.
+        results = {id(s): s["variables"]["run_result"] for s in _walk(dispatch)
+                   if isinstance(s, dict) and isinstance(s.get("variables"), dict)
+                   and "run_result" in s["variables"]}
+        assert len(results) >= 45, len(results)
+        messages = list(results.values())
+        assert len(messages) == len(set(messages)), "run_result messages must be unique"
+
+
+def _walk(node):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk(item)
 
 
 class TestApplyTransitionAnchorShape:

@@ -2478,11 +2478,20 @@ class TestRecoveryTriggers:
                            for c in branch["conditions"]), branch["alias"]
         assert "'opn'" in next(c for c in opening["conditions"] if isinstance(c, str))
         assert "'cls'" in next(c for c in closing["conditions"] if isinstance(c, str))
-        # Both flip branches and the default run the SAME body (the anchor), so refusing a
-        # flip never costs the hygiene - it only keeps the base state.
-        bodies = [b["sequence"][-1]["default"] for b in branches]
-        bodies.append(self._direction_gate()["default"][-1]["default"])
-        assert all(body is bodies[0] for body in bodies), "the shared body is not one anchor"
+        # Both flip branches and the default only decide new_base (and the
+        # closing flip's recovered_shade); the ONE shared body runs right after
+        # the choose (#717: script variables are global since HA 2025.4, so the
+        # reconciliation no longer has to be aliased into every branch). Refusing
+        # a flip therefore never costs the hygiene - it only keeps the base state.
+        gate = self._direction_gate()
+        for seq in [b["sequence"] for b in branches] + [gate["default"]]:
+            assert all("variables" in step for step in seq), seq
+            assert all("new_base" in step["variables"] for step in seq), seq
+        body = _branch_body(RECOVERY)
+        reconcile = body[body.index(gate) + 1]
+        assert reconcile.get("alias") == "Recovery: reconcile the cascade and drive"
+        assert "recovered_state" in str(reconcile)
+        assert "input_text.set_value" in str(reconcile)
 
     def test_the_opening_condition_is_evaluated_before_the_flip_and_holds_the_drive(self):
         """#698: the opening condition is evaluated once, before the flip, into

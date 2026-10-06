@@ -77,9 +77,11 @@ the projection reduces to the direction's late-or-environment gate.
 
 **The ventilation condition.** The cascade cannot evaluate `!input`, so the
 recovery evaluates the anchored node **once, before the flip** (a `choose:`
-whose two branches share the flip step as the `&recovery_flip` anchor). HA
-script variables normally propagate through `if`/`choose`; the alias is used
-to keep one reconciliation body and one auditable condition node.
+whose two branches only record `recovered_vent_ok`; the flip choose and the one
+reconciliation body follow as sibling steps, relying on HA 2025.4's global
+script variables — the former `&recovery_flip` / `&recovery_apply` aliases
+expanded the drive anchors six times, #717). One auditable condition node,
+one reconciliation body.
 The verdict is branch-specific, not a cascade property:
 
 - only a **caught-up closing** may map a tilted `recovered_window` to `'cls'`

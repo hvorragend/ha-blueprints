@@ -205,9 +205,13 @@ Full rationale in [references/invariants.md](references/invariants.md) and
 [references/architecture.md](references/architecture.md); the one-line index of
 all 15 invariants is in `.claude/CLAUDE.md`. The ones that bite most often:
 
-- Every leaf branch computes `will_drive` + `drive_plan` + `update_values`, then
-  calls `*apply_transition` — never `*helper_update` / `*drive_with_actions` /
-  `*tilt_move_action` directly (enforced by `tests/test_apply_transition_architecture.py`).
+- Every leaf branch computes `will_drive` + `drive_plan` + `update_values`
+  (+ `run_result`, the former stop message), then **falls through** to the one
+  `*apply_transition` epilogue after the dispatch choose — never a `stop:` after
+  the transition, never an `*apply_transition` alias inside the leaf (one alias =
+  one full copy in the tree HA validates at reload, #717), never `*helper_update`
+  / `*drive_with_actions` / `*tilt_move_action` directly (enforced by
+  `tests/test_apply_transition_architecture.py`).
 - Position checks belong in the `will_drive` gate, never in branch conditions.
 - `trigger_variables:` is a limited template context — no `states()` there.
 - `ts_now` is always set at the point of use, never globally.

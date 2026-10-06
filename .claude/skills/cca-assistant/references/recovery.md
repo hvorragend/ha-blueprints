@@ -39,7 +39,7 @@ opt-in — `auto_recover_after_manual_reset` (default: disabled), independent of
 `recovery_mode`.** CCA 2026.08.22 (issues #668/#677): a live reset used to drive
 unconditionally once `manual_reset_event` was introduced, which resurfaced the resting-state
 class from Issue #553 (an `'opn'` cascade fallback with no opening automation ever configured)
-as a surprise movement. `manual_reset_recovery_hold` in the shared `recovery_apply` body now
+as a surprise movement. `manual_reset_recovery_hold` in the shared reconciliation body ("Recovery: reconcile the cascade and drive") now
 gates the reset's contribution to `will_drive` on two things: the opt-in itself, and — even
 when it is on — refusing to drive when `recovered_state == 'opn' and not is_opening_scheduled
 and live_force == 'non'`. The `live_force == 'non'` term matters because `recovered_state`
@@ -377,11 +377,11 @@ prompt on a reload instead of waiting for the next regular trigger.
 
 It sits **before** the main `choose:`, as a plain `if/then` step next to the helper init, the v5 migration, the forecast load and the calendar-relevance check — not as a branch inside the dispatch. It has to run before everything else (on a resumed run it claims every trigger, piece 2 above), and inside the choose that would mean inserting a branch at index 0.
 
-**Adding, removing or reordering a branch of the dispatch `choose:` means touching the trace tools.** `docs/trace-analyzer` and `docs/trace-compare` parse the HA trace path `action/N/choose/M` and resolve `M` against the branch **aliases** — primarily those in the trace's own config, and against the static `BRANCH_ORDER` list when the trace was pasted truncated and carries no config. `BRANCH_ORDER` must therefore mirror the `choose:` order exactly, and `BRANCH_DEFINITIONS` (keyed by alias) must have an entry for every branch. `tests/test_trace_tools_branch_map.py` fails when either drifts.
+**Adding, removing or reordering a branch of the dispatch `choose:` means touching the trace tools.** `docs/trace-analyzer` and `docs/trace-compare` find the executed branch in the trace entries (`action/N/choose/M/sequence/...` — since #717 a normal run ends in the shared epilogue after the choose, so `last_step` no longer names the branch; `resolveDispatch` in both tools) and resolve `M` against the branch **aliases** — primarily those in the trace's own config, and against the static `BRANCH_ORDER` list when the trace was pasted truncated and carries no config. `BRANCH_ORDER` must therefore mirror the `choose:` order exactly, and `BRANCH_DEFINITIONS` (keyed by alias) must have an entry for every branch. `tests/test_trace_tools_branch_map.py` fails when either drifts.
 
 Because the recovery is *not* a branch, it carries no `choose/M` and would read as "No branch executed". Both tools therefore resolve a run that ended in a pre-dispatch step through the step's own `alias:` (`PRE_DISPATCH_DEFINITIONS`) — same mechanism for the calendar-relevance check. A new pre-dispatch step that can `stop:` a run needs an entry there, or its traces become anonymous.
 
-Keeping the recovery out of the choose leaves the branch indices `0..13` untouched. `stop:` behaves identically in both places, so the control flow is unchanged. `TestResumedRunClaimsEveryTrigger.test_the_recovery_gate_runs_before_the_dispatch` pins the placement and asserts the gate is not *also* inside the choose.
+Keeping the recovery out of the choose leaves the branch indices `0..13` untouched. The recovery still ends in its own `stop:` (it runs before the dispatch, so it cannot use the dispatch epilogue) and therefore carries the only `*apply_transition` expansion besides that epilogue (#717); its flip choose only decides `new_base` / `recovered_shade`, the reconciliation body runs once after the choose. `TestResumedRunClaimsEveryTrigger.test_the_recovery_gate_runs_before_the_dispatch` pins the placement and asserts the gate is not *also* inside the choose.
 
 #### Half 2 — the recovery (`t_recovery` → the recovery gate)
 
@@ -535,23 +535,25 @@ if: &auto_down_condition_check                  (anchored here; aliased by the c
 
 choose: "ventilation floor allowed?"           (&auto_ventilate_condition_check —
   - condition ok  → recovered_vent_ok: true      the SAME node all 7 live vent leaves alias)
-                    → &recovery_flip
-  default         → recovered_vent_ok: false   → *recovery_flip
+  default         → recovered_vent_ok: false
 
-&recovery_flip = choose:
+choose: "apply the additional condition to a caught-up base flip"
   - "catching up an opening"  → recovery_catch_up and recovered_base == 'opn' and helper base != 'opn'
                                 + base_gates.opening.schedule_ok
                                 + base_gates.opening.override_ok or override_expired
                                 + base_gates.opening.once_ok
-                                (no !input condition — #698)            → new_base: 'opn'  → *recovery_apply
+                                (no !input condition — #698)            → new_base: 'opn'
   - "catching up a closing"   → … + not is_evening_phase or base_gates.closing.schedule_ok
                                 + base_gates.closing.override_ok or override_expired
                                 + base_gates.closing.once_ok
                                 (no !input condition — #698 mirror)     → new_base: 'cls'
-                                                                          + recovered_shade: false  → *recovery_apply
-default:                        no flip, or a gate said no              → new_base: helper → *recovery_apply
+                                                                          + recovered_shade: false
+default:                        no flip, or a gate said no              → new_base: helper
 
-recovery_apply:
+"Recovery: reconcile the cascade and drive"    (ONE body after both chooses — script
+                                                variables are global since HA 2025.4; the
+                                                former &recovery_flip / &recovery_apply
+                                                aliases expanded the drive anchors 6x, #717)
   caught-up closing + tilted + condition refused
     → recovered_cascade_window='cls' (C-B falls through to C-E)
   every other path

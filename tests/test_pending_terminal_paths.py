@@ -61,10 +61,12 @@ def _find_branch_by_alias(blueprint: dict, alias: str) -> dict | None:
 
 
 def _steps_write_helper(steps: list) -> bool:
-    """True when the step list contains a helper_update block (choose+default
-    wrapping input_text.set_value) — i.e. the resolved *helper_update anchor."""
+    """True when the step list commits a transition that the shared epilogue
+    persists: it defines update_values and no stop: ends the path before the
+    *apply_transition after the dispatch choose (#717 - the leaves no longer
+    carry the persist themselves)."""
     flat = str(steps)
-    return "input_text.set_value" in flat
+    return "update_values" in flat and "'stop'" not in flat
 
 
 def _find_variable_definition(node, name):
@@ -118,10 +120,12 @@ class TestShadingStartExecutionInnerDefault:
         uv = inner_choose["default"][0]["variables"]["update_values"]
         assert "man" not in uv
 
-    def test_default_writes_helper_and_stops(self, inner_choose):
+    def test_default_writes_helper_and_names_its_result(self, inner_choose):
         steps = inner_choose["default"]
         assert _steps_write_helper(steps)
-        assert "stop" in steps[-1]
+        # The leaf falls through to the shared epilogue; run_result replaces the
+        # former stop: message in the trace (#717)
+        assert "run_result" in steps[-1].get("variables", {})
 
 
 class TestShadingStartEntryLetsExecutionThrough:

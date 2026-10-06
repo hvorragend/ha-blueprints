@@ -85,7 +85,7 @@ One line each; full rationale, examples and edge cases in
 `references/invariants.md`. Violating any of these is a bug even if tests pass.
 
 1. **Never put position checks in branch conditions** — they belong in the branch's `will_drive` gate. A priority branch must always be consumed.
-2. **Every branch ends in `*apply_transition`** — its helper write is unconditional. Never call `*helper_update` / `*drive_with_actions` / `*tilt_move_action` directly from a branch (structurally enforced by `tests/test_apply_transition_architecture.py`).
+2. **Every branch falls through to the one `*apply_transition` epilogue after the dispatch `choose:`** — its helper write is unconditional. A leaf sets `update_values` (+ `run_result`, the former stop message) and never `stop:`s afterwards; never alias `*apply_transition` inside a leaf (every alias is a full copy in the tree HA validates at reload, #717), never call `*helper_update` / `*drive_with_actions` / `*tilt_move_action` directly from a branch (structurally enforced by `tests/test_apply_transition_architecture.py`).
 3. **Realtime vs. helper state** — `states(sensor)` is live; `helper_json.*` is stale until the write. `effective_state` reads live contacts only while `is_ventilation_enabled`. In resident handlers always read the live sensors.
 4. **`resident_flags.*` reads the live sensor** — no stale-state problem; don't add workarounds.
 5. **`opened` beats `tilted`** — every tilted branch must check that the opened contact is not active.

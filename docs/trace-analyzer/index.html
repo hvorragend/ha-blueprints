@@ -2492,13 +2492,60 @@
         // Those setup steps shift over blueprint versions, so the choose is not at
         // a fixed action index — derive it from the trace instead of hardcoding it.
         function getMainChooseAction(innerTrace, lastStep) {
-            const fromLast = lastStep && lastStep.match(/^action\/(\d+)\/choose\//);
-            if (fromLast) return parseInt(fromLast[1]);
-            for (const key of Object.keys(innerTrace || {})) {
+            const dispatch = resolveDispatch(innerTrace, lastStep);
+            return dispatch.mainAction !== null ? dispatch.mainAction : 6; // legacy fallback
+        }
+
+        // Which branch of the main dispatch choose ran - resolved from the trace
+        // entries, NOT from last_step. Since CCA 2026.10.06 (#717) every leaf falls
+        // through to one shared transition epilogue after the choose, so last_step
+        // of a normal run points at that epilogue ("action/15/sequence/...") and no
+        // longer at "action/N/choose/M/...". The executed branch is the one whose
+        // sequence left trace entries; HA also records the choice on the choose
+        // step itself. Older traces (leaf ends in stop:) resolve the same way.
+        function resolveDispatch(innerTrace, lastStep) {
+            const keys = Object.keys(innerTrace || {});
+            let mainAction = null;
+            for (const key of keys) {
                 const m = key.match(/^action\/(\d+)\/choose\//);
-                if (m) return parseInt(m[1]);
+                if (m) { mainAction = parseInt(m[1]); break; }
             }
-            return 6; // legacy fallback
+            if (mainAction === null && lastStep) {
+                const m = lastStep.match(/^action\/(\d+)\/choose\//);
+                if (m) mainAction = parseInt(m[1]);
+            }
+            if (mainAction === null) return { mainAction: null, branchNum: null, isDefault: false };
+
+            let branchNum = null;
+            const seqRe = new RegExp(`^action/${mainAction}/choose/(\\d+)/sequence`);
+            for (const key of keys) {
+                const m = key.match(seqRe);
+                if (m) { branchNum = parseInt(m[1]); break; }
+            }
+            if (branchNum === null) {
+                for (const key of [`action/${mainAction}/choose`, `action/${mainAction}`]) {
+                    const entry = innerTrace[key] && innerTrace[key][0];
+                    const choice = entry && entry.result && entry.result.choice;
+                    if (typeof choice === 'number') { branchNum = choice; break; }
+                }
+            }
+            const isDefault = branchNum === null && keys.some(k => k.startsWith(`action/${mainAction}/default/`));
+            return { mainAction, branchNum, isDefault };
+        }
+
+        // The leaf's one-line result. Until CCA 2026.10.04 every leaf ended in a
+        // stop: whose message named the outcome; since #717 the leaf sets the
+        // run_result variable instead and falls through to the shared epilogue.
+        // The last assignment wins (a retry path may set it after an earlier leaf).
+        function findRunResult(innerTrace) {
+            let result = null;
+            for (const key of Object.keys(innerTrace || {})) {
+                for (const step of innerTrace[key]) {
+                    const vars = step.changed_variables;
+                    if (vars && typeof vars.run_result === 'string') result = vars.run_result;
+                }
+            }
+            return result;
         }
 
         // OPT #2: Branch Decision Tree Visualization
@@ -2506,6 +2553,7 @@
             try {
                 let html = '<div class="branch-tree">';
 
+                const dispatch = resolveDispatch(innerTrace, lastStep);
                 const mainAction = getMainChooseAction(innerTrace, lastStep);
 
                 // Analyze all branches to understand which were evaluated
@@ -2534,10 +2582,11 @@
                         }
                     }
 
-                    // Check if this branch was executed
-                    if (lastStep.includes(`choose/${i}/sequence`) || lastStep.includes(`choose/${i}/default`)) {
+                    // Check if this branch was executed (resolved from the trace entries,
+                    // not from last_step - the run ends in the shared epilogue, #717)
+                    if (dispatch.branchNum === i) {
                         // Distinguish a real execution from a branch that was entered and
-                        // then skipped/aborted via a stop (no cover action) — issue #523.
+                        // then skipped/aborted (no cover action) — issue #523.
                         if (branchInfo && branchInfo.number === i && branchInfo.outcome === 'skipped') {
                             status = 'skipped';
                             reason = branchInfo.stopMsg
@@ -2545,7 +2594,9 @@
                                 : 'Branch entered, then skipped (no cover action)';
                         } else {
                             status = 'executed';
-                            reason = 'Branch executed';
+                            reason = branchInfo && branchInfo.stopMsg
+                                ? `Branch executed: "${branchInfo.stopMsg}"`
+                                : 'Branch executed';
                         }
                     }
 
@@ -2580,9 +2631,9 @@
                     `;
                 }
 
-                if (lastStep.includes('default/')) {
+                if (dispatch.isDefault || lastStep.includes('default/')) {
                     // Only highlight as the path if it's the TOP LEVEL default action (not nested)
-                    const isMainDefault = lastStep.includes(`action/${mainAction}/default`);
+                    const isMainDefault = dispatch.isDefault || lastStep.includes(`action/${mainAction}/default`);
                     html += `
                         <div class="branch-item ${isMainDefault ? 'executed' : ''}" style="${isMainDefault ? 'border-left-color: var(--accent-green); background: rgba(0, 255, 136, 0.05);' : 'border-left-color: var(--border-color); background: var(--bg-tertiary); opacity: 0.8;'}">
                             <div class="branch-icon">⚙️</div>
@@ -2704,7 +2755,12 @@
             if (lastStep.includes('condition/')) {
                 return lastStep;
             }
-            // If we stopped in a choose block, analyze which condition failed
+            // A dispatch branch ran: analyze its entry conditions. Resolved from the
+            // trace entries - last_step points at the shared epilogue (#717).
+            const dispatch = resolveDispatch(innerTrace, lastStep);
+            if (dispatch.branchNum !== null) {
+                return `action/${dispatch.mainAction}/choose/${dispatch.branchNum}/conditions`;
+            }
             const chooseMatch = lastStep.match(/choose\/(\d+)\/sequence/);
             if (chooseMatch) {
                 return lastStep.replace('/sequence', '/conditions');
@@ -2808,11 +2864,20 @@
                 }
             }
 
+            // The leaf's result line: a stop: message (the exits that leave the helper
+            // untouched, and every leaf before #717) or the run_result variable a leaf
+            // sets before it falls through to the shared epilogue.
             let stopMsg = null;
+            let resultSource = null;
             const sd = innerTrace[lastStep];
             if (sd && sd[0]) {
                 if (sd[0].stop) stopMsg = sd[0].stop;
                 else if (sd[0].result && sd[0].result.stop) stopMsg = sd[0].result.stop;
+                if (stopMsg) resultSource = 'stop';
+            }
+            if (!stopMsg) {
+                stopMsg = findRunResult(innerTrace);
+                if (stopMsg) resultSource = 'run_result';
             }
             const isSkipMsg = stopMsg ? /skip|abort|waiting|pending|continue/i.test(stopMsg) : false;
 
@@ -2828,16 +2893,18 @@
             } else {
                 outcome = stopMsg ? 'skipped' : 'entered';
             }
-            return { outcome, stopMsg, droveCover, wroteHelper, isSkipMsg };
+            return { outcome, stopMsg, resultSource, droveCover, wroteHelper, isSkipMsg };
         }
 
         function extractBranchInfo(lastStep, innerTrace) {
-            // Parse branch from path like "action/9/choose/1/sequence/..."
-            // The first action/N/choose/M is the main dispatch; M is the branch number.
+            // The main dispatch branch is resolved from the trace entries (#717: the
+            // run ends in the shared epilogue, so last_step no longer carries
+            // "action/N/choose/M"); the last_step regex stays as the fallback.
             const exec = analyzeExecutionOutcome(innerTrace, lastStep);
+            const dispatch = resolveDispatch(innerTrace, lastStep);
             const match = lastStep.match(/action\/\d+\/choose\/(\d+)/);
-            if (match) {
-                const branchNum = parseInt(match[1]);
+            if (dispatch.branchNum !== null || match) {
+                const branchNum = dispatch.branchNum !== null ? dispatch.branchNum : parseInt(match[1]);
                 const branchDef = branchDefFor(branchNum);
                 return {
                     number: branchNum,
@@ -2847,6 +2914,7 @@
                     matched: true,
                     outcome: exec.outcome,
                     stopMsg: exec.stopMsg,
+                    resultSource: exec.resultSource,
                     droveCover: exec.droveCover,
                     wroteHelper: exec.wroteHelper
                 };
@@ -3127,12 +3195,20 @@
                     <p><strong>Branch ${branchInfo.number} (${branchInfo.name})</strong> was successfully entered and executed.</p>
                 `;
 
-                if (lastStep.includes('default')) {
+                // Only read these hints from a last_step inside the branch itself: since
+                // #717 a normal run ends in the shared epilogue after the choose, whose
+                // own default/then steps say nothing about the branch.
+                const insideBranch = branchInfo.number !== null && lastStep.includes(`/choose/${branchInfo.number}/`);
+                if (insideBranch && lastStep.includes('default')) {
                     interpretation += `<p>The automation reached the <strong>default action</strong> within the branch, meaning the main path was taken.</p>`;
                 }
 
-                if (lastStep.includes('then/0')) {
+                if (insideBranch && lastStep.includes('then/0')) {
                     interpretation += `<p>A conditional block's <strong>then</strong> section was executed (condition was true).</p>`;
+                }
+
+                if (!insideBranch && lastStep.includes('action') && branchInfo.wroteHelper) {
+                    interpretation += `<p>The branch handed its transition to the shared <strong>epilogue</strong> after the dispatch (one delay/drive/persist step for every branch), which wrote the Cover Status Helper.</p>`;
                 }
 
                 // Check if it was a cover movement or helper update
@@ -3194,6 +3270,17 @@
                         <p style="font-size: 1.1rem; color: var(--accent-purple); font-weight: 500;">"${stopMsg}"</p>
                     `;
                 }
+            }
+            // The leaf's run_result (#717): the former stop: message of the branch,
+            // now a variable set before the leaf falls through to the shared epilogue.
+            const runResult = findRunResult(innerTrace);
+            if (runResult) {
+                interpretation += `
+                    <div class="stop-badge" style="display:inline-block; background:rgba(139, 92, 246, 0.2); color:var(--accent-purple); padding:0.2rem 0.6rem; border-radius:4px; font-weight:600; margin-bottom:1rem; margin-top: 1rem;">
+                        🏁 Run result
+                    </div>
+                    <p style="font-size: 1.1rem; color: var(--accent-purple); font-weight: 500;">"${runResult}"</p>
+                `;
             }
 
             document.getElementById('lastStepContent').innerHTML = `
@@ -3971,7 +4058,7 @@ BRANCH
 Number: ${branchInfo.number !== null ? branchInfo.number : 'None'}
 Name: ${branchInfo.name}
 Description: ${branchInfo.description}
-Outcome: ${branchInfo.outcome === 'skipped' ? 'ENTERED, THEN SKIPPED (no cover action)' : (branchInfo.outcome === 'executed' ? 'Executed' : (branchInfo.outcome || 'N/A'))}${branchInfo.stopMsg ? `\nStop message: "${branchInfo.stopMsg}"` : ''}
+Outcome: ${branchInfo.outcome === 'skipped' ? 'ENTERED, THEN SKIPPED (no cover action)' : (branchInfo.outcome === 'executed' ? 'Executed' : (branchInfo.outcome || 'N/A'))}${branchInfo.stopMsg ? `\n${branchInfo.resultSource === 'stop' ? 'Stop message' : 'Run result'}: "${branchInfo.stopMsg}"` : ''}
 
 LAST STEP
 ---------

@@ -173,7 +173,7 @@ class TestRecoveryMirror:
 
     def _recovered(self, *, option, shade=True, base="cls"):
         recovery = _find_branch_by_alias(
-            BP["actions"], "Recovery: apply the additional condition to a caught-up base flip"
+            BP["actions"], "Recovery: reconcile the cascade and drive"
         )
         template = _find_variable_definition(recovery, "recovered_state")
         assert template is not None
@@ -269,11 +269,13 @@ class TestContactHandler:
         # Invariant 8: a contact-handler branch must not touch the pending keys
         assert "pnd" not in update and "ts" not in update
 
-    def test_shading_first_branch_ends_in_apply_transition(self):
-        """Invariant 2 - also enforced structurally by test_apply_transition_architecture."""
+    def test_shading_first_branch_falls_through_to_the_epilogue(self):
+        """Invariant 2 - also enforced structurally by test_apply_transition_architecture.
+        Since #717 the leaf commits its transition and falls through to the single
+        *apply_transition after the dispatch choose: no stop: may end it."""
         branch = _find_branch_by_alias(BP["actions"], SHADING_FIRST_ALIAS)
-        assert any("apply_transition" in str(step) or "delay" in str(step)
-                   for step in branch["sequence"][1:])
+        assert "'stop'" not in str(branch["sequence"])
+        assert "run_result" in branch["sequence"][-1].get("variables", {})
 
 
 class TestShadingFollowUpBranches:
