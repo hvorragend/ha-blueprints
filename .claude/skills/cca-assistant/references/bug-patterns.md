@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–AU, with cause and fix)
+# CCA Known Bug Patterns (A–BB, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -482,7 +482,7 @@ The interval `(flip_from, flip_to + 60]` — previous on/off flip to current fli
 
 **Fix:** New branch "Shading start - hold ventilation floor (window tilted)" placed **before** "Start Shading" in the execution `choose`. It fires when the window is tilted (and not opened — Invariant 5), ventilation is enabled and force/resident-allowed, shading is resident-allowed, and `position_comparisons.shading_below_ventilate` holds. It drives to `ventilate_position` / `ventilate_tilt_position`, sets `shd: 1`, `win: 'tlt'`, clears pending (`pnd: 'non'`, `ts.due: 0`, `ts.arm: 0`), and sets `man: 0` only when it actually drives (`not in_ventilate_position`, Invariant 7). When the window later closes, the contact handler's "Window closed - Return to shading" lowers the cover to the real shading position.
 
-**Scope:** Only the common case `shading_position` below `ventilate_position` is floored (`position_comparisons.shading_below_ventilate`). When `shading_position` is at/above `ventilate_position` the floor does not bind and "Start Shading" drives to the shading position as before. The `lockout_tilted_shading_start` option still takes precedence (treats a tilted window like a fully-open one → cover stays open during shading). The latent `effective_state == 'vnt'` divergence for the rare `shading_position` *above* `ventilate_position` config is intentionally left untouched (out of scope, not the reported case).
+**Scope:** Only the common case `shading_position` below `ventilate_position` is floored (`position_comparisons.shading_below_ventilate`). When `shading_position` is at/above `ventilate_position` the floor does not bind and "Start Shading" drives to the shading position as before — on tilt covers with the **slat angle** floored at `ventilate_tilt_position` since #719 (Bug Pattern BB: `shading_tilt_target`). The `lockout_tilted_shading_start` option still takes precedence (treats a tilted window like a fully-open one → cover stays open during shading). The latent `effective_state == 'vnt'` divergence for the rare `shading_position` *above* `ventilate_position` config is intentionally left untouched (out of scope, not the reported case).
 
 ---
 
@@ -1197,5 +1197,63 @@ gate — auditing only the sites the original issue mentioned leaves the mirror 
 recur one by one. When adding such a gate, list every consumer of the target value and
 classify each as schedule-owned (gate) or displacer-owned (leave). Tests:
 `TestOpeningOwnershipGates` in `tests/test_blueprint_logic.py`.
+
+---
+
+### Bug Pattern BB: The ventilation floor binds by depth only — venetian setups shade below the ventilation angle while the window is tilted (Issue #719)
+
+**Symptom:** Venetian blind: open 100, closed/shading/ventilation all at cover position
+0, told apart by the slat angle only (ventilate tilt 30, shading stages 0/16/24/33 —
+the setup the `tilt_position_tolerance` description documents). Window tilted, sun
+shading starts at stage 2: the slats go to 24, below the ventilation angle, although the
+window is tilted. Same at a stage change: shading started at stage 3 (33), the sun sinks
+to stage 2 — the floor would allow 30, the slats either stayed at 33 or (pre-#397) went to
+24. The reporter's rule: *while the window is tilted, the ventilation angle is the minimum
+for the shading angle; when the window closes, the real shading angle returns.*
+
+**Cause:** Bug Pattern AE implemented "VENT is a floor" by cover **depth** only —
+`position_comparisons.shading_below_ventilate`. When shading and ventilation share a cover
+position the depth floor is `false` by construction, "Start Shading" fired (tilt cover at
+or above the shading depth) and applied `shading_tilt_position` verbatim. Branch 3 (the
+tilt-stage re-drive) was blocked while tilted (#397) — correct against going *below* the
+angle, but it could not bring slats parked *above* the floor down *to* it either.
+
+**Fix:** One action-scope projection, consumed at exactly the two sites that apply the
+shading angle while VENT is in charge:
+
+```yaml
+vent_tilt_floor_binds: is_ventilation_enabled and not shading_over_ventilation and
+                       window_tilted_now and not window_opened_now and
+                       force_allows_ventilate and resident_flags.allow_ventilate and
+                       is_cover_tilt_enabled_and_possible and
+                       shading_tilt_position < ventilate_tilt_position
+shading_tilt_target:   ventilate_tilt_position if vent_tilt_floor_binds else shading_tilt_position
+```
+
+- "Start Shading" drives `target_tilt: shading_tilt_target` — tilted first, then shading
+  starts: slats stop at the ventilation angle, `shd: 1` as before.
+- Branch 3's tilted-window block gains the alternative `or vent_tilt_floor_binds`, with
+  `target_tilt: shading_tilt_target`: while tilted the stage re-drive may move the slats
+  **to** the floor (33 → 30 when the stage drops to 24), never away from it. A stage at or
+  above the floor stays frozen while tilted, exactly as before (#397) — driving to 33 while
+  `effective_state == 'vnt'` would widen the documented AE divergence (the cascade's vnt
+  target carries the ventilation angle; `in_ventilate_position` is exact, #615).
+- `state_targets.shd` keeps the raw stage angle, so the window-closed return
+  (`return_target == 'shd'`) restores the real shading angle; `in_shading_position` is
+  unchanged (the held cover reads as `vnt`, consistent with the cascade).
+
+**Unchanged by design:** `shading_over_ventilation` keeps letting the shading angle win
+(the floor flag carries `not shading_over_ventilation`, like the AE branch); a fully open
+window is LOCKOUT (Invariant 5); the AE depth floor still handles a shading depth below the
+ventilation depth; branch 3b (alternate depth) stays blocked while tilted; the contact
+handler's tilt event still moves a shaded cover to the ventilation angle (that *is* the
+ventilation position the user configured — the AE semantics "floor, not target" apply to
+the shading angle, not to the ventilation event).
+
+**Rule:** "VENT is a floor" has two axes on tilt covers — depth **and** slat angle. A
+floor check that compares positions only is dead on every setup whose states differ by
+angle alone (the venetian case the tilt-tolerance input exists for). When adding a
+position-relation gate, ask what the same relation means on the tilt axis. Tests:
+`tests/test_vent_tilt_floor.py`.
 
 ---

@@ -47,6 +47,15 @@ and the `shd` arm of the force-disable `recovery_target` chain (`vent_blocks_sha
 The closing handler's tilted leaf is deliberately unchanged — it clears `shd` anyway, so
 the transition ends in a legitimate `vnt`.
 
+**The floor has a slat-angle axis (#719, Bug Pattern BB).** On tilt covers whose shading
+and ventilation share one cover position the depth floor never binds, so the action-scope
+projection `vent_tilt_floor_binds` / `shading_tilt_target` floors the *applied* shading
+angle at `ventilate_tilt_position` while the window is tilted (ventilation enabled and
+allowed, option off). Exactly two drive sites consume it — "Start Shading" and the
+branch-3 stage re-drive (which while tilted may move the slats *to* the floor, never away
+from it). `state_targets.shd` and `in_shading_position` keep the raw stage angle: the held
+cover reads as `vnt`, and the window-closed return restores the real shading angle.
+
 **LOCKOUT target (`effective_lockout_position`):** LOCKOUT drives to the optional
 `lockout_position` input ("Full Ventilation Position"), which falls back to
 `open_position` when unset — for setups where "open" is not "cover fully up" (e.g.
