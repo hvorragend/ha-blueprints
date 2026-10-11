@@ -533,3 +533,63 @@ class TestShadingEndProspectiveCascade:
         variables["ventilate_tilt_position"] = 70
         alias = _first_matching_alias(_env(entity_states), choose, variables)
         assert alias == "Ventilation after shading ends"
+
+
+class TestShadingEndWithheldByCondition:
+    """#716: a shading end whose drive the user's additional opening/closing/
+    ventilation condition refuses must name that condition - in the cover's
+    history and in the trace extra - instead of reading like any other hold."""
+
+    def _move_branch(self):
+        return _find_branch_by_alias(
+            _load_blueprint_yaml(),
+            "Move cover after shading end - conditions still valid",
+        )
+
+    def _render(self, name: str, **variables) -> str:
+        move = self._move_branch()
+        env = _env()
+        word = env.from_string(
+            _find_variable(move, "shading_end_condition_word")
+        ).render(**variables).strip()
+        template = _find_variable(move, name)
+        return env.from_string(template).render(
+            shading_end_condition_word=word,
+            state_labels={"opn": "open", "cls": "closed", "vnt": "ventilation",
+                          "lock": "open (window)", "shd": "sun shading"},
+            prevent_flags={"opening_after_shading_end": False},
+            **variables,
+        ).strip()
+
+    def test_log_user_names_the_refusing_condition_per_target(self):
+        for state, word in (("opn", "opening"), ("cls", "closing"),
+                            ("vnt", "ventilation"), ("lock", "ventilation")):
+            out = self._render("log_user", shading_end_state=state,
+                               will_drive=False,
+                               shading_end_target_condition_ok=False)
+            assert out == (
+                f"sun shading is over, but the additional {word} condition "
+                "holds the cover"
+            ), (state, out)
+
+    def test_log_user_keeps_the_generic_hold_and_the_drive_wording(self):
+        held = self._render("log_user", shading_end_state="opn",
+                            will_drive=False,
+                            shading_end_target_condition_ok=True)
+        assert held == "sun shading is over, but the cover stays where it is"
+        driven = self._render("log_user", shading_end_state="opn",
+                              will_drive=True,
+                              shading_end_target_condition_ok=True)
+        assert driven == "sun shading is over, back to: open"
+
+    def test_log_extra_carries_the_withheld_marker_only_when_refused(self):
+        refused = self._render("log_extra", shading_end_state="opn",
+                               will_drive=False,
+                               shading_end_target_condition_ok=False)
+        assert refused == (
+            "shading end; target=opn; drive withheld (opening condition)"
+        )
+        allowed = self._render("log_extra", shading_end_state="opn",
+                               will_drive=True,
+                               shading_end_target_condition_ok=True)
+        assert allowed == "shading end; target=opn"

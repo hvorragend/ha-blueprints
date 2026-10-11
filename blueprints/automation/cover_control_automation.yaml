@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.10.04
+    **Version**: 2026.10.11
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2745,7 +2745,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.10.04"
+  version: "2026.10.11"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -7504,9 +7504,12 @@ actions:
                                (shading_end_state == 'lock' or manual_allows_event.shd) and
                                (shading_end_state != 'cls' or closing_target_owned or
                                 helper_state_force == 'cls') }}
-                          log_user: "{{ 'sun shading is over, back to: ' ~ state_labels[shading_end_state] if will_drive else 'sun shading is over, but the cover stays where it is' }}"
+                          # The user's additional opening/closing/ventilation condition
+                          # is the one suppressor the central bracket cannot name (#716)
+                          shading_end_condition_word: "{{ 'opening' if shading_end_state == 'opn' else 'closing' if shading_end_state == 'cls' else 'ventilation' }}"
+                          log_user: "{{ 'sun shading is over, back to: ' ~ state_labels[shading_end_state] if will_drive else 'sun shading is over, but the additional ' ~ shading_end_condition_word ~ ' condition holds the cover' if not shading_end_target_condition_ok else 'sun shading is over, but the cover stays where it is' }}"
                           log_extra: >-
-                            shading end; target={{ shading_end_state }}{{ '; opening_after_shading_end prevented' if prevent_flags.opening_after_shading_end else '' }}
+                            shading end; target={{ shading_end_state }}{{ '; opening_after_shading_end prevented' if prevent_flags.opening_after_shading_end else '' }}{{ '; drive withheld (' ~ shading_end_condition_word ~ ' condition)' if not shading_end_target_condition_ok else '' }}
                           drive_plan: >-
                             {{ dict(state_targets[shading_end_state], run=will_drive,
                                     action_set='shading_end',
