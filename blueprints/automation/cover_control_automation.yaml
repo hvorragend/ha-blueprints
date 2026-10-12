@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.10.04
+    **Version**: 2026.10.12 V2
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -1694,6 +1694,11 @@ blueprint:
             The cover only moves if conditions are <strong>still valid</strong> at execution time.
             This waiting time is also used for the periodic condition checks within the retry loop.
             <br /><br />
+            For the <strong>brightness</strong> start condition the waiting time runs inside the trigger: the brightness has to stay
+            above the start threshold for the whole waiting time <strong>without interruption</strong> (a dip in between restarts it),
+            and the cover then moves right away. Shading starts armed by the sun position, the temperatures, the forecast or the
+            1-hour pre-opening check keep the waiting time in the pending and re-check the brightness when it expires.
+            <br /><br />
             <strong>If shading stays at "pending" and never executes:</strong> The conditions were no longer met after the waiting time expired. Check the automation trace for <em>t_shading_start_execution</em>.
           default: 300
           selector:
@@ -2740,7 +2745,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.10.04"
+  version: "2026.10.12 V2"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3778,8 +3783,13 @@ triggers:
     enabled: "{{ is_shading_enabled and default_sun_sensor != [] }}"
     id: "t_shading_start_pending_1"
 
+  # Brightness holds the start waiting time itself (#696): the value must stay
+  # above the start threshold for the whole waiting time, a dip restarts it.
+  # The other start triggers keep the wait in the pending (retry-loop design).
   - trigger: template
     value_template: "{{ states(shading_brightness_sensor) not in invalid_states and states(shading_brightness_sensor) | float(default=shading_sun_brightness_start) > (shading_sun_brightness_start + shading_sun_brightness_hysteresis) }}"
+    for:
+      seconds: !input shading_waitingtime_start
     enabled: "{{ is_shading_enabled and shading_brightness_sensor != [] }}"
     id: "t_shading_start_pending_2"
 
@@ -5058,6 +5068,23 @@ actions:
       window_opened_now: "{{ contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] }}"
       window_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
       window_any_now: "{{ window_opened_now or window_tilted_now }}"
+
+      # Ventilation floor on the slat angle (#719). While the window is tilted
+      # (ventilation enabled and allowed, shading not prioritised over it), a
+      # shading angle below the ventilation angle is held at the ventilation
+      # angle. Venetian setups share one cover position for shading and
+      # ventilation, so the floor binds by angle, not by depth - mirrors the
+      # depth floor of the shading-start vent-floor branch (Bug Pattern AE).
+      # Consumed only where the shading angle is applied while VENT is in
+      # charge: the shading start and the tilt-stage re-drive. The window
+      # closed return restores the real stage angle via state_targets.shd.
+      vent_tilt_floor_binds: >-
+        {{ is_ventilation_enabled and not shading_over_ventilation and
+           window_tilted_now and not window_opened_now and
+           force_allows_ventilate and resident_flags.allow_ventilate and
+           is_cover_tilt_enabled_and_possible and
+           shading_tilt_position | int < ventilate_tilt_position | int }}
+      shading_tilt_target: "{{ ventilate_tilt_position | int if vent_tilt_floor_binds else shading_tilt_position | int }}"
 
       # Lockout evaluation per context: a fully open window always locks out,
       # a tilted window only when the matching lockout option is enabled.
@@ -6938,8 +6965,10 @@ actions:
                       - "{{ not helper_state_shade }}" # Not if shading is already active or stored (t_shading_start_pending_7 bypasses the global shd-gate)
                     sequence:
                       - variables:
+                          # The brightness trigger already held the waiting time via `for:` (#696)
+                          shading_start_wait: "{{ 0 if trigger.id == 't_shading_start_pending_2' else shading_waitingtime_start | int }}"
                           shading_start_due: >-
-                            {% set wait_due = (as_timestamp(now()) + shading_waitingtime_start | int) | int %}
+                            {% set wait_due = (as_timestamp(now()) + shading_start_wait | int) | int %}
                             {% if is_time_control_disabled or is_shading_allowed_window %}
                               {{ wait_due }}
                             {% elif is_time_field_enabled %}
@@ -6960,7 +6989,7 @@ actions:
                             {% else %}
                               {{ ts }}
                             {% endif %}
-                          log_extra: "shading start pending armed; wait={{ shading_waitingtime_start | int }}s; due_in={{ (shading_start_due | int - as_timestamp(now()) | int) }}s; max_duration={{ shading_start_max_duration | int }}s; budget_from={{ shading_start_arm | int }}"
+                          log_extra: "shading start pending armed; wait={{ shading_start_wait | int }}s{{ ' (waiting time already held by the trigger)' if trigger.id == 't_shading_start_pending_2' else '' }}; due_in={{ (shading_start_due | int - as_timestamp(now()) | int) }}s; max_duration={{ shading_start_max_duration | int }}s; budget_from={{ shading_start_arm | int }}"
                           update_values:
                             # Set shade pending timestamp
                             shd: 0
@@ -7071,12 +7100,13 @@ actions:
                                       will_drive: >-
                                         {{ not is_paused and manual_allows_event.shd and
                                            force_allows_shade }}
-                                      log_user: "sun shading started"
+                                      log_user: "{{ 'sun shading started, the tilted window keeps the slats at the ventilation angle' if vent_tilt_floor_binds else 'sun shading started' }}"
                                       drive_plan:
                                         run: "{{ will_drive }}"
                                         action_set: "shading_start"
                                         target: "{{ effective_shading_position | int }}"
-                                        target_tilt: "{{ shading_tilt_position | int }}"
+                                        # Slat angle floored at the ventilation angle while tilted (#719)
+                                        target_tilt: "{{ shading_tilt_target | int }}"
                                         delay_s: "{{ drive_delay_standard }}"
                                       update_values:
                                         # Activate shading
@@ -7239,18 +7269,21 @@ actions:
           - condition: !input auto_shading_tilt_condition
         sequence:
           - variables:
+              # A tilted window blocks the stage re-drive unless shading is
+              # prioritised - or the new stage angle drops below the
+              # ventilation angle: then the slats move to the floor (#719)
               will_drive: >-
                 {{ not is_paused and manual_allows_event.shd and force_allows_shade and
                    resident_flags.allow_shade and
                    not (is_ventilation_enabled and window_opened_now) and
-                   (not (is_ventilation_enabled and window_tilted_now) or shading_over_ventilation) and
+                   (not (is_ventilation_enabled and window_tilted_now) or shading_over_ventilation or vent_tilt_floor_binds) and
                    cover_status_helper != [] and
                    states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
-              log_user: "sun shading: slat angle re-checked"
+              log_user: "{{ 'sun shading: slat angle re-checked, the tilted window keeps the slats at the ventilation angle' if vent_tilt_floor_binds else 'sun shading: slat angle re-checked' }}"
               drive_plan:
                 run: "{{ will_drive }}"
                 move: "tilt"
-                target_tilt: "{{ shading_tilt_position | int }}"
+                target_tilt: "{{ shading_tilt_target | int }}"
                 tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
               update_values: {}
           - *apply_transition
@@ -7545,9 +7578,12 @@ actions:
                                (shading_end_state == 'lock' or manual_allows_event.shd) and
                                (shading_end_state != 'cls' or closing_target_owned or
                                 helper_state_force == 'cls') }}
-                          log_user: "{{ 'sun shading is over, back to: ' ~ state_labels[shading_end_state] if will_drive else 'sun shading is over, but the cover stays where it is' }}"
+                          # The user's additional opening/closing/ventilation condition
+                          # is the one suppressor the central bracket cannot name (#716)
+                          shading_end_condition_word: "{{ 'opening' if shading_end_state == 'opn' else 'closing' if shading_end_state == 'cls' else 'ventilation' }}"
+                          log_user: "{{ 'sun shading is over, back to: ' ~ state_labels[shading_end_state] if will_drive else 'sun shading is over, but the additional ' ~ shading_end_condition_word ~ ' condition holds the cover' if not shading_end_target_condition_ok else 'sun shading is over, but the cover stays where it is' }}"
                           log_extra: >-
-                            shading end; target={{ shading_end_state }}{{ '; opening_after_shading_end prevented' if prevent_flags.opening_after_shading_end else '' }}
+                            shading end; target={{ shading_end_state }}{{ '; opening_after_shading_end prevented' if prevent_flags.opening_after_shading_end else '' }}{{ '; drive withheld (' ~ shading_end_condition_word ~ ' condition)' if not shading_end_target_condition_ok else '' }}
                           drive_plan: >-
                             {{ dict(state_targets[shading_end_state], run=will_drive,
                                     action_set='shading_end',

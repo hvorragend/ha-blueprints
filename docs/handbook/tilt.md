@@ -105,6 +105,8 @@ To which tilt position should the cover be moved when closing?
 
 To which tilt position should the cover be moved for ventilation?
 
+While the window is tilted, this angle is also the **minimum slat angle for the sun shading**: a shading angle below it (including the elevation-based stages below) is held at the ventilation angle, and the real shading angle is applied as soon as the window is closed again. This matters for venetian setups where the closed, shading and ventilation states share one cover position and only differ by angle. The option *"🥵 Sun shading is more important than ventilation"* switches this off and lets the shading angle win.
+
 ---
 
 <a id="tilt_position_tolerance"></a>
@@ -121,7 +123,7 @@ Tolerance to be applied when comparing the current tilt position with the to be 
 
 ### How elevation-based tilt tracking works
 
-The four "Sun Shading Tilt" stages below are re-applied automatically whenever the sun elevation crosses one of the configured thresholds. This tracking runs **only while the sun shading is active** (the status helper shows `"shd":1`) and stops as soon as the shading ends. With the behavior option *"☀️ Stay shaded: Don't open cover when sun shading ends"*, the cover keeps its position at the shading end and only the slats move to the *"🔼 Open Tilt Position"*.
+The four "Sun Shading Tilt" stages below are re-applied automatically whenever the sun elevation crosses one of the configured thresholds. This tracking runs **only while the sun shading is active** (the status helper shows `"shd":1`) and stops as soon as the shading ends. While the window is **tilted**, the *"💨 Ventilate Tilt Position"* is the lower limit: a stage change that drops below it moves the slats down to the ventilation angle (not further), the slats are not opened further while the window stays tilted, and the real stage angle is applied once the window is closed again. With the behavior option *"☀️ Stay shaded: Don't open cover when sun shading ends"*, the cover keeps its position at the shading end and only the slats move to the *"🔼 Open Tilt Position"*.
 
 **The slats keep closing in the evening although the sun has left the azimuth range?** Then the shading has not ended yet — typically because "Sun Azimuth" is not part of your END conditions, or it sits in the END **AND** group together with a temperature or brightness condition that is still valid. As long as the shading stays active, the tilt keeps following the (now decreasing) sun elevation. Two ways to stop this:
 
