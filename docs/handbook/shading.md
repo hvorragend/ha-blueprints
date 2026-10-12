@@ -237,6 +237,8 @@ Optional binary sensor (or toggle helper) evaluated as an additional shading con
 
 **Note:** If the sensor reports "unavailable" or "unknown", the condition behaves like the other conditions: the START condition fails (shading does not start because of it) and the END condition does not fire (shading does not end because of it). The rest of the automation keeps working normally.
 
+**A sensor that has no state for part of the day is fine** — for example a template sensor built on PV production that is "unavailable" all night ([#713](https://github.com/hvorragend/ha-blueprints/issues/713)). When it comes back, CCA treats the new state like any other change of the sensor: `on` re-evaluates the shading start, `off` counts toward the end waiting time — and nothing else happens. In particular the return does **not** count as the end of a device outage for the [🔄 catch-up setting](features#enable_recovery), which used to recalculate the whole schedule on such a morning and could move a cover that was simply still closed from the evening.
+
 ---
 
 <a id="shading_azimuth_start"></a>

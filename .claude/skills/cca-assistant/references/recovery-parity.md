@@ -3,7 +3,8 @@
 Read this before touching: the live opening/closing branch entry conditions, the
 recovery's caught-up base flip, `base_gates`, `closing_position_hold`,
 `caught_up_closing_hold`, `caught_up_opening_hold`, `closing_ownership_hold`,
-`is_closing_scheduled` / `closing_target_owned`, `transition_manual_allows`,
+`opening_ownership_hold`, `is_closing_scheduled` / `closing_target_owned`,
+`is_opening_scheduled`, `transition_manual_allows`,
 `manual_holds_reposition`, `recovered_vent_ok` /
 `recovered_cascade_window` — or before adding ANY new gate to the live opening
 or closing branch (the checklist at the end tells you where it must also land).
@@ -146,6 +147,7 @@ shading active/pending, prevent options, force, pause, resident privacy.
 |---|---|---|---|
 | entry gates | `base_gates.opening.*` only (no anchored condition since #698) | same + compositions | shared |
 | `is_up_enabled` (Morning Opening unchecked) | NOT an entry condition — the base flip is state progress (#673); only the "Normal opening" `will_drive` carries the feature gate | `recovered_base` flips on `is_daytime_phase` alone; `caught_up_opening_hold` withholds exactly the `recovered_state == 'opn'` drive (`live_force == 'non'`), overlay targets and force-open keep their authority | shared (state-only sync in both paths) |
+| no opening automation owns the open target (`is_opening_scheduled` false: Morning Opening unchecked, or no opening source) | nothing ever drives toward the open position — the day `'opn'` is a pure status | `opening_ownership_hold` (every recovery drive — flip, plain re-position, opted-in reset; #713) withholds the `'opn'` movement, a live force-open keeps its authority; the mirror of `closing_ownership_hold` | shared (no movement in either path) |
 | `auto_up_condition` refused | NOT an entry condition (#698) — the branch enters, the base flips, the state-only sub-branches run; "Normal opening" evaluates the node into `up_condition_ok` and withholds its drive. Shading-detected and lockout drives keep their own ownership | the node is evaluated before the flip (`recovered_up_ok`); `recovery_up_condition_hold` withholds **every** `recovered_state == 'opn'` drive — flip and reposition (a restart at noon must not open the cover the condition kept closed); `live_force == 'non'` keeps a force-open's authority | shared (state-only sync in both paths); the reposition hold is a drive-time evaluation with no live event to compare, same class as `recovery_vent_condition_hold` |
 | manual override, ignore option active | base transition persists, drive is suppressed and `man` remains | flip persists the same transition; drive gate consumes `override_ok` | shared |
 | manual override, no ignore option | O-E permits a drive; central dispatch clears `man` only if position/tilt differs and ownership is still live | same | shared |
