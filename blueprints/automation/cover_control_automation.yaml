@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.10.11
+    **Version**: 2026.10.12
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2745,7 +2745,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.10.11"
+  version: "2026.10.12"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5073,6 +5073,23 @@ actions:
       window_tilted_now: "{{ contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] }}"
       window_any_now: "{{ window_opened_now or window_tilted_now }}"
 
+      # Ventilation floor on the slat angle (#719). While the window is tilted
+      # (ventilation enabled and allowed, shading not prioritised over it), a
+      # shading angle below the ventilation angle is held at the ventilation
+      # angle. Venetian setups share one cover position for shading and
+      # ventilation, so the floor binds by angle, not by depth - mirrors the
+      # depth floor of the shading-start vent-floor branch (Bug Pattern AE).
+      # Consumed only where the shading angle is applied while VENT is in
+      # charge: the shading start and the tilt-stage re-drive. The window
+      # closed return restores the real stage angle via state_targets.shd.
+      vent_tilt_floor_binds: >-
+        {{ is_ventilation_enabled and not shading_over_ventilation and
+           window_tilted_now and not window_opened_now and
+           force_allows_ventilate and resident_flags.allow_ventilate and
+           is_cover_tilt_enabled_and_possible and
+           shading_tilt_position | int < ventilate_tilt_position | int }}
+      shading_tilt_target: "{{ ventilate_tilt_position | int if vent_tilt_floor_binds else shading_tilt_position | int }}"
+
       # Lockout evaluation per context: a fully open window always locks out,
       # a tilted window only when the matching lockout option is enabled.
       lockout_now:
@@ -7030,12 +7047,13 @@ actions:
                                       will_drive: >-
                                         {{ not is_paused and manual_allows_event.shd and
                                            force_allows_shade }}
-                                      log_user: "sun shading started"
+                                      log_user: "{{ 'sun shading started, the tilted window keeps the slats at the ventilation angle' if vent_tilt_floor_binds else 'sun shading started' }}"
                                       drive_plan:
                                         run: "{{ will_drive }}"
                                         action_set: "shading_start"
                                         target: "{{ effective_shading_position | int }}"
-                                        target_tilt: "{{ shading_tilt_position | int }}"
+                                        # Slat angle floored at the ventilation angle while tilted (#719)
+                                        target_tilt: "{{ shading_tilt_target | int }}"
                                         delay_s: "{{ drive_delay_standard }}"
                                       update_values:
                                         # Activate shading
@@ -7198,18 +7216,21 @@ actions:
           - condition: !input auto_shading_tilt_condition
         sequence:
           - variables:
+              # A tilted window blocks the stage re-drive unless shading is
+              # prioritised - or the new stage angle drops below the
+              # ventilation angle: then the slats move to the floor (#719)
               will_drive: >-
                 {{ not is_paused and manual_allows_event.shd and force_allows_shade and
                    resident_flags.allow_shade and
                    not (is_ventilation_enabled and window_opened_now) and
-                   (not (is_ventilation_enabled and window_tilted_now) or shading_over_ventilation) and
+                   (not (is_ventilation_enabled and window_tilted_now) or shading_over_ventilation or vent_tilt_floor_binds) and
                    cover_status_helper != [] and
                    states(cover_status_helper) | regex_search('"shd"\s*:\s*1\s*[,}]') }}
-              log_user: "sun shading: slat angle re-checked"
+              log_user: "{{ 'sun shading: slat angle re-checked, the tilted window keeps the slats at the ventilation angle' if vent_tilt_floor_binds else 'sun shading: slat angle re-checked' }}"
               drive_plan:
                 run: "{{ will_drive }}"
                 move: "tilt"
-                target_tilt: "{{ shading_tilt_position | int }}"
+                target_tilt: "{{ shading_tilt_target | int }}"
                 tilt_first: "{{ is_cover_tilt_reposition_enabled | bool }}" # tilt the cover to close position before
               update_values: {}
           - *apply_transition
