@@ -254,7 +254,8 @@ class TestForcePauseIsPartOfEveryDriveGate:
             # will_drive defined in an earlier step of the same branch (checked above,
             # e.g. the recovery gate), carries the pause itself, sits under an
             # is_paused-checking if (run: true), or does not drive at all.
-            if ("will_drive" in plan or "is_paused" in plan or guarded
+            state_only = isinstance(drive_plan, dict) and drive_plan.get("run") is False
+            if ("will_drive" in plan or "is_paused" in plan or guarded or state_only
                     or "run" not in plan):
                 continue
             violations.append(plan[:120])
@@ -299,14 +300,15 @@ class TestForcePauseIsPartOfEveryDriveGate:
 
 
 def _actuation_gate(anchor: dict) -> str:
-    """The live pause/hand-over condition template of a move/drive anchor."""
+    """The unconditional live pause/hand-over gate (not the optional KNX guard)."""
     def walk(node):
         if isinstance(node, str):
-            return node if "force_pause" in node else None
+            return node if "force_pause" in node and "is_knx_ventilation" not in node else None
         if isinstance(node, dict):
             for key in ("value_template", "if", "conditions"):
                 value = node.get(key)
-                if isinstance(value, str) and "force_pause" in value:
+                if (isinstance(value, str) and "force_pause" in value
+                        and "is_knx_ventilation" not in value):
                     return str(value)
             for value in node.values():
                 found = walk(value)
@@ -429,13 +431,39 @@ class TestActuationPointLiveGates:
             )
             dispatch_index = next(
                 i for i, step in enumerate(sequence)
-                if step.get("variables", {}).get("drive_dispatched") is True
+                if step.get("if") == "{{ not is_knx_ventilation }}"
             )
+            assert sequence[dispatch_index]["then"] == [
+                {"variables": {"drive_dispatched": True}}
+            ]
             service_index = next(
                 i for i, step in enumerate(sequence)
                 if "repeat" in step
             )
             assert gate_index < dispatch_index < service_index, name
+
+    def test_each_builtin_command_rechecks_native_guard_before_claiming_dispatch(self):
+        """No alignment, per-cover or post-wait tilt command bypasses native safety."""
+        guard = self._anchor("knx_drive_guard")
+        checked = 0
+
+        def walk(node):
+            nonlocal checked
+            if isinstance(node, list):
+                for index, step in enumerate(node):
+                    if isinstance(step, dict) and str(step.get("action", "")).startswith("cover."):
+                        assert index >= 2
+                        assert node[index - 2] == guard
+                        assert node[index - 1] == {"variables": {"drive_dispatched": True}}
+                        checked += 1
+                    walk(step)
+            elif isinstance(node, dict):
+                for value in node.values():
+                    walk(value)
+
+        for name in self.ANCHORS:
+            walk(self._anchor(name))
+        assert checked >= 8
 
     def test_full_drive_rechecks_after_before_action_before_any_stage(self):
         sequence = self._anchor("drive_with_actions")["sequence"]
@@ -468,6 +496,9 @@ class TestActuationPointLiveGates:
         )
         custom = sequence[custom_index]
         assert custom["if"] == "{{ prevent_flags.default_cover_actions }}"
-        assert custom["then"] == [{"variables": {"drive_dispatched": True}}]
+        assert custom["then"] == [
+            self._anchor("knx_drive_guard"),
+            {"variables": {"drive_dispatched": True}},
+        ]
         assert custom_index == len(sequence) - 2
         assert sequence[-1].get("if") == "{{ drive_dispatched | default(false) }}"

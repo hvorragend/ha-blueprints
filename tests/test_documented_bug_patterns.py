@@ -1836,13 +1836,15 @@ class TestPatternAYShadingGateOffMustNotHoldTheOpening:
 
     def test_anchor_is_defined_before_its_first_alias_use(self):
         # YAML resolves anchors in document order: the definition must sit in
-        # the opening handler (first consumer), the execution uses the alias.
+        # the first consumer; KNX resume precedes the opening/execution handlers.
         text = _blueprint_text()
         definition = text.index("&auto_shading_start_condition_check")
         first_alias = text.index("*auto_shading_start_condition_check")
         assert definition < first_alias
         assert text.count("&auto_shading_start_condition_check") == 1
-        assert text.index(AG_ARM_ALIAS) < definition < text.index(AG_DEFER_ALIAS)
+        knx_resume = "KNX ventilation: resume current automatic target after native restoration settles"
+        assert text.index(knx_resume) < definition < text.index(AG_ARM_ALIAS)
+        assert text.index(AG_ARM_ALIAS) < text.index(AG_DEFER_ALIAS)
 
 
 class TestPatternAYAbortReconcilesTheOpening:
