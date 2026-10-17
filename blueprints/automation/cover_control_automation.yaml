@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.10.12 V2
+    **Version**: 2026.10.17
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -15,7 +15,6 @@ blueprint:
     💬 **Get Help**: [Forum Thread](https://community.home-assistant.io/t/cover-control-automation-cca-a-comprehensive-and-highly-configurable-roller-blind-blueprint/680539) | [GitHub Issues](https://github.com/hvorragend/ha-blueprints/issues) | [Source Code](https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml)
     ❤️ **Enjoying my work?** [Buy me a Coffee](https://buymeacoffee.com/herr.vorragend) or tip via [PayPal](https://www.paypal.com/donate/?hosted_button_id=NQE5MFJXAA8BQ). Thank you! 🙌
     <sub>License: Open-source. Attribution and original repo link required for modifications. "Take Control" copies are unsupported.</sub>
-
   source_url: https://github.com/hvorragend/ha-blueprints/blob/main/blueprints/automation/cover_control_automation.yaml
   domain: automation
   homeassistant:
@@ -1097,6 +1096,17 @@ blueprint:
             Various different ventilation options.
 
             📖 More details in the [CCA Handbook](https://hvorragend.github.io/ha-blueprints/handbook/contacts#auto_ventilate_options).
+
+            **Ventilation controlled by KNX:** The KNX actuator handles opening,
+            local window safety, and restoration of the previous position. CCA
+            keeps tracking its schedule, shading, and presence without sending
+            movement commands during the ventilation cycle. After all configured
+            contacts close, CCA waits for Window Close Restore Delay and at least
+            10 seconds of stable feedback before applying the current automatic
+            target. Manual movements outside the cycle retain normal handling.
+            Requires Ventilation Mode, at least one of the existing window
+            contacts, and a status helper with a capacity of at least 255
+            characters. Leave unchecked to retain standard CCA ventilation behavior.
           default: []
           selector:
             select:
@@ -1113,6 +1123,8 @@ blueprint:
                   value: "ventilation_keep_open_on_full_to_tilt"
                 - label: "🥵 Sun shading is more important than ventilation: shade even while the window is tilted"
                   value: "shading_over_ventilation"
+                - label: "💨 Ventilation controlled by KNX"
+                  value: "ventilation_knx_controlled"
               multiple: true
               sort: false
               custom_value: false
@@ -1158,6 +1170,24 @@ blueprint:
               max: 10.0
               unit_of_measurement: seconds
               step: 0.1
+              mode: slider
+
+        ventilation_knx_restore_delay:
+          name: "🕛 Window Close Restore Delay"
+          description: >-
+            Minimum wait for the KNX actuator to restore its previous position
+            after all configured window contacts close. Position and movement
+            feedback must also remain unchanged for at least 10 seconds.
+            Only applies when Ventilation controlled by KNX is checked.
+            Choose a value longer than the actual KNX restoration time,
+            including any start delay.
+          default: 60
+          selector:
+            number:
+              min: 10
+              max: 600
+              unit_of_measurement: seconds
+              step: 1
               mode: slider
 
     shading_section:
@@ -1985,7 +2015,7 @@ blueprint:
               min: 0
               max: 1440
               unit_of_measurement: minutes
-        
+
         reset_override_position:
           name: "🗑️ Position for reset manual override"
           description: "At which position (+- tolerance) should it be reset? Typically, these are 'open' or 'closed' positions."
@@ -2662,6 +2692,9 @@ trigger_variables:
 
   # Ventilation and tilt are only available for blinds, not awnings
   is_ventilation_enabled: "{{ not is_awning and 'auto_ventilate_enabled' in auto_options }}"
+  ventilation_knx_controlled: "{{ 'ventilation_knx_controlled' in auto_ventilate_options }}"
+  ventilation_knx_restore_delay: !input ventilation_knx_restore_delay
+  is_knx_ventilation: "{{ is_ventilation_enabled and ventilation_knx_controlled }}"
 
   # Recovery after restart/outage - three modes: never | outage | always.
   # "outage" catches up only what the dropout of a single source swallowed, not what a
@@ -2700,7 +2733,7 @@ trigger_variables:
   auto_ventilate_force: !input auto_ventilate_force
   auto_shading_start_force: !input auto_shading_start_force
 
-  # Force pause
+  # Force pause and native ventilation hold
   force_pause: !input force_pause
 
   # Cover status helper configuration
@@ -2745,10 +2778,29 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.10.12 V2"
+  version: "2026.10.17"
 
   # Force pause
-  is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
+  knx_ventilation_hold: |-
+    {% if is_knx_ventilation %}
+    {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+    {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+    {% for entity in contacts %}
+      {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+        {% set c.valid = false %}
+      {% else %}
+        {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+        {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+      {% endif %}
+    {% endfor %}
+
+    {% set h = (states(cover_status_helper) if cover_status_helper != [] else '') | from_json(default={}) %}
+    {% set pending = h is mapping and h.win | default('cls') == 'knx' %}
+    {% endif %}
+    {{ is_knx_ventilation and (
+    not c.valid or c.active or pending
+    ) }}
+  is_paused: '{{ (force_pause != [] and states(force_pause) in [''on'', ''true'']) or knx_ventilation_hold }}'
 
   # Blind
   blind_entities: "{{ expand(blind) | map(attribute='entity_id') | list }}"
@@ -3550,6 +3602,71 @@ max_exceeded: warning
 triggers:
 
   ########################################
+  # Triggers for native KNX ventilation
+  ########################################
+
+  - trigger: state
+    entity_id: !input 'contact_window_opened'
+    enabled: '{{ is_knx_ventilation and contact_window_opened != [] }}'
+    id: t_knx_contact
+  - trigger: state
+    entity_id: !input 'contact_window_tilted'
+    enabled: '{{ is_knx_ventilation and contact_window_tilted != [] }}'
+    id: t_knx_contact
+  - trigger: state
+    entity_id: !input 'blind'
+    enabled: '{{ is_knx_ventilation }}'
+    id: t_knx_feedback
+  - trigger: state
+    entity_id: !input 'custom_position_sensor'
+    enabled: '{{ is_knx_ventilation and position_source == ''custom_sensor'' and custom_position_sensor
+      != [] }}'
+    id: t_knx_feedback
+  - trigger: state
+    entity_id: !input 'cover_status_helper'
+    enabled: '{{ is_knx_ventilation and cover_status_helper != [] }}'
+    for:
+      seconds: |2-
+
+        {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+        {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+        {% for entity in contacts %}
+          {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+            {% set c.valid = false %}
+          {% else %}
+            {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+            {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+          {% endif %}
+        {% endfor %}
+
+        {% set h = (states(cover_status_helper) if cover_status_helper != [] else '') | from_json(default={}) %}
+        {% set pending = h is mapping and h.win | default('cls') == 'knx' %}
+
+        {% set cover = states[blind] %}
+        {% set sensor = states[custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else none %}
+        {% set raw = (states(custom_position_sensor) if custom_position_sensor != [] else none) if position_source == 'custom_sensor' else
+           state_attr(blind, 'position' if position_source == 'position_attr' else 'current_position') %}
+        {% set position_valid = is_number(raw) and 0 <= raw | float(-1) <= 100 %}
+        {% set cover_valid = cover is not none and cover.state not in invalid_states %}
+        {% set feedback_at = [as_timestamp(cover.last_updated, 0) if cover is not none else 0,
+           as_timestamp(sensor.last_updated, 0) if sensor is not none else 0] | max %}
+        {% set due =
+        [c.closed_at + ventilation_knx_restore_delay | float(60), feedback_at + 10,
+         -(h.k | default(0) | float(0)) + ventilation_knx_restore_delay | float(60)
+           if h.k | default(0) | float(0) < 0 else 0] | max %}
+        {{ [0.1, due - as_timestamp(now())] | max
+           if pending and c.valid and not c.active and cover_valid and position_valid else 0.1 }}
+    id: t_knx_settle
+  - trigger: homeassistant
+    event: start
+    enabled: '{{ is_knx_ventilation }}'
+    id: t_knx_rearm
+  - trigger: event
+    event_type: automation_reloaded
+    enabled: '{{ is_knx_ventilation }}'
+    id: t_knx_rearm
+
+  ########################################
   # Trigger for opening cover
   ########################################
 
@@ -3740,7 +3857,7 @@ triggers:
     not_to:
       - "unavailable"
       - "unknown"
-    enabled: "{{ is_ventilation_enabled and contact_window_tilted != [] }}"
+    enabled: '{{ is_ventilation_enabled and not is_knx_ventilation and contact_window_tilted != [] }}'
     id: "t_contact_tilted_changed"
     for:
       seconds: !input contact_delay_trigger
@@ -3750,7 +3867,7 @@ triggers:
     not_to:
       - "unavailable"
       - "unknown"
-    enabled: "{{ is_ventilation_enabled and contact_window_opened != [] }}"
+    enabled: '{{ is_ventilation_enabled and not is_knx_ventilation and contact_window_opened != [] }}'
     id: "t_contact_opened_changed"
     for:
       seconds: !input contact_delay_trigger
@@ -4356,28 +4473,29 @@ conditions:
   # the automation permanently and silently dead. It is let through to the mandatory entity
   # validation in the actions, which names it and stops the run (Bug Pattern AF family: an
   # upstream gate must not orphan the downstream diagnostics).
+      - '{{ is_knx_ventilation }}'
   - condition: template
-    value_template: >-
+    value_template: |-
       {% set ns = namespace(ready=true) %}
       {% for entity in critical_entities if states[entity] is not none %}
         {% if states(entity) in invalid_states %}{% set ns.ready = false %}{% endif %}
-      {% endfor %}
-      {{ ns.ready }}
+      {% endfor %} {{ is_knx_ventilation or (ns.ready) }}
   # Only an unavailable helper blocks (its stored value is intact, just not loaded yet).
   # An unknown/empty/corrupt helper must pass, so the init step can rewrite it.
   - condition: template
-    value_template: "{{ cover_status_helper == [] or states(cover_status_helper) != 'unavailable' }}"
+    value_template: '{{ is_knx_ventilation or (cover_status_helper == [] or states(cover_status_helper) != ''unavailable'')
+      }}'
   - condition: template # Stateless window contact: only blocks while its invalid read ("off") contradicts the last known window state
-    value_template: >-
+    value_template: |-
       {% set helper = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
       {% set last_window_closed = helper in invalid_states or helper | regex_search('"win"\s*:\s*"cls"') %}
       {% set last_window_open = helper not in invalid_states and helper | regex_search('"win"\s*:\s*"opn"') %}
       {% set contact_missing = is_ventilation_enabled and (
            (contact_window_opened != [] and states(contact_window_opened) in invalid_states and last_window_open) or
            (contact_window_tilted != [] and states(contact_window_tilted) in invalid_states)) %}
-      {{ last_window_closed or not contact_missing or
+      {{ is_knx_ventilation or (last_window_closed or not contact_missing or
          trigger.id | default('') in ['t_contact_opened_changed', 't_contact_tilted_changed',
-                                      't_manual_position', 't_manual_tilt'] }}
+                                      't_manual_position', 't_manual_tilt']) }}
   - condition: template
     value_template: >-
       {% if trigger.id is match('^t_shading_start_pending_([1-6]|8)$') %}
@@ -4399,8 +4517,66 @@ actions:
 
   # YAML Anchors ###############################################################
   - variables:
+      knx_helper_repair_guard: &knx_helper_repair_guard
+        condition: template
+        value_template: >-
+          {{ not is_knx_ventilation or
+             (cover_status_helper != [] and states[cover_status_helper] is not none and
+              states(cover_status_helper) != 'unavailable' and
+              state_attr(cover_status_helper, 'max') | int(0) >= 255) }}
+      knx_drive_guard: &knx_drive_guard
+        condition: template
+        value_template: |-
+          {% if is_knx_ventilation %}
+          {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+          {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+          {% for entity in contacts %}
+            {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+              {% set c.valid = false %}
+            {% else %}
+              {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+              {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+            {% endif %}
+          {% endfor %}
+
+          {% set h = (states(cover_status_helper) if cover_status_helper != [] else '') | from_json(default={}) %}
+          {% set pending = h is mapping and h.win | default('cls') == 'knx' %}
+
+          {% set cover = states[blind] %}
+          {% set sensor = states[custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else none %}
+          {% set raw = (states(custom_position_sensor) if custom_position_sensor != [] else none) if position_source == 'custom_sensor' else
+             state_attr(blind, 'position' if position_source == 'position_attr' else 'current_position') %}
+          {% set position_valid = is_number(raw) and 0 <= raw | float(-1) <= 100 %}
+          {% set cover_valid = cover is not none and cover.state not in invalid_states %}
+          {% set feedback_at = [as_timestamp(cover.last_updated, 0) if cover is not none else 0,
+             as_timestamp(sensor.last_updated, 0) if sensor is not none else 0] | max %}
+          {% endif %}
+          {{ not is_knx_ventilation or (
+          c.valid and not c.active and not pending and cover_valid and position_valid
+          and h is mapping and h.v | default(0) == 6
+          and states(cover_status_helper) not in invalid_states
+          and (state_attr(cover_status_helper, 'max') if cover_status_helper != [] else 0) | int(0) >= 255
+          and not (force_pause != [] and states(force_pause) in ['on', 'true'])
+          and (instance_active == [] or states[instance_active] is none or
+               states(instance_active) in instance_active_on_states)
+          ) }}
       cover_move_action: &cover_move_action
         sequence:
+          - if: '{{ is_knx_ventilation }}'
+            then:
+            - variables:
+                current_position: |-
+                  {% set source = position_source %} {% if source == 'current_position_attr' %}
+                    {{ state_attr(blind, 'current_position') | int(default=101) }}
+                  {% elif source == 'position_attr' %}
+                    {{ state_attr(blind, 'position') | int(default=101) }}
+                  {% elif source == 'custom_sensor' and custom_position_sensor != [] %}
+                    {{ states(custom_position_sensor) | int(default=101) }}
+                  {% else %}
+                    {{ 101 }}
+                  {% endif %}
+                current_tilt_position: '{{ state_attr(blind, ''current_tilt_position'') | int(default=101) }}'
+          - *knx_drive_guard
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - condition: template
@@ -4414,8 +4590,10 @@ actions:
               {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
                  (instance_active == [] or states[instance_active] is none or
                   states(instance_active) in instance_active_on_states) }}
-          - variables:
-              drive_dispatched: true
+          - if: "{{ not is_knx_ventilation }}"
+            then:
+              - variables:
+                  drive_dispatched: true
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
@@ -4431,6 +4609,9 @@ actions:
                             not is_cover_tilt_enabled_and_possible | default(false) or
                             target_tilt_position | default(101) | int in [0, 101]) }}
                       sequence:
+                        - *knx_drive_guard
+                        - variables:
+                            drive_dispatched: true
                         - action: cover.close_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
@@ -4442,6 +4623,9 @@ actions:
                             not is_cover_tilt_enabled_and_possible | default(false) or
                             target_tilt_position | default(101) | int in [100, 101]) }}
                       sequence:
+                        - *knx_drive_guard
+                        - variables:
+                            drive_dispatched: true
                         - action: cover.open_cover
                           target:
                             entity_id: "{{ repeat.item if repeat is defined else '' }}"
@@ -4449,6 +4633,9 @@ actions:
                     - alias: "Cover move: position command (0-100)"
                       conditions: "{{ 0 <= target_position | default(101) | int <= 100 }}"
                       sequence:
+                        - *knx_drive_guard
+                        - variables:
+                            drive_dispatched: true
                         - action: cover.set_cover_position
                           data:
                             position: "{{ target_position | default(101) | int }}"
@@ -4460,6 +4647,21 @@ actions:
 
       tilt_move_action: &tilt_move_action
         sequence:
+          - if: '{{ is_knx_ventilation }}'
+            then:
+            - variables:
+                current_position: |-
+                  {% set source = position_source %} {% if source == 'current_position_attr' %}
+                    {{ state_attr(blind, 'current_position') | int(default=101) }}
+                  {% elif source == 'position_attr' %}
+                    {{ state_attr(blind, 'position') | int(default=101) }}
+                  {% elif source == 'custom_sensor' and custom_position_sensor != [] %}
+                    {{ states(custom_position_sensor) | int(default=101) }}
+                  {% else %}
+                    {{ 101 }}
+                  {% endif %}
+                current_tilt_position: '{{ state_attr(blind, ''current_tilt_position'') | int(default=101) }}'
+          - *knx_drive_guard
           - condition: template
             value_template: >-
               {{ not prevent_flags.default_cover_actions and is_cover_tilt_enabled_and_possible }}
@@ -4470,8 +4672,10 @@ actions:
               {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
                  (instance_active == [] or states[instance_active] is none or
                   states(instance_active) in instance_active_on_states) }}
-          - variables:
-              drive_dispatched: true
+          - if: "{{ not is_knx_ventilation }}"
+            then:
+              - variables:
+                  drive_dispatched: true
           - repeat:
               for_each: "{{ blind_entities | list }}"
               sequence:
@@ -4480,6 +4684,9 @@ actions:
                     # Optional: Reset tilt to 0 (Reposition Mode)
                     - if: "{{ tilt_first | default(false) }}"
                       then:
+                        - *knx_drive_guard
+                        - variables:
+                            drive_dispatched: true
                         - action: cover.set_cover_tilt_position
                           data:
                             tilt_position: 0
@@ -4508,6 +4715,9 @@ actions:
                             seconds: !input tilt_delay
 
                     # Set target tilt position
+                    - *knx_drive_guard
+                    - variables:
+                        drive_dispatched: true
                     - action: cover.set_cover_tilt_position
                       data:
                         tilt_position: "{{ target_tilt_position | default(101) }}"
@@ -4529,6 +4739,21 @@ actions:
       # ═══════════════════════════════════════════════════════════════════════════
       drive_with_actions: &drive_with_actions
         sequence:
+          - if: '{{ is_knx_ventilation }}'
+            then:
+            - variables:
+                current_position: |-
+                  {% set source = position_source %} {% if source == 'current_position_attr' %}
+                    {{ state_attr(blind, 'current_position') | int(default=101) }}
+                  {% elif source == 'position_attr' %}
+                    {{ state_attr(blind, 'position') | int(default=101) }}
+                  {% elif source == 'custom_sensor' and custom_position_sensor != [] %}
+                    {{ states(custom_position_sensor) | int(default=101) }}
+                  {% else %}
+                    {{ 101 }}
+                  {% endif %}
+                current_tilt_position: '{{ state_attr(blind, ''current_tilt_position'') | int(default=101) }}'
+          - *knx_drive_guard
           - choose:
               - conditions: "{{ drive_action_set | default('') == 'up' }}"
                 sequence:
@@ -4554,6 +4779,7 @@ actions:
           # any alignment/service stage is allowed to claim the dispatch.
           # A false condition stops this grouped sequence; apply_transition
           # still persists the reducer state with drive_dispatched=false.
+          - *knx_drive_guard
           - condition: template
             value_template: >-
               {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
@@ -4576,8 +4802,10 @@ actions:
               # The outer if proves this stage will issue an alignment command
               # for the configured tilt-capable cover(s). Later stages re-check
               # ownership independently after the alignment waits.
-              - variables:
-                  drive_dispatched: true
+              - if: "{{ not is_knx_ventilation }}"
+                then:
+                  - variables:
+                      drive_dispatched: true
               - repeat:
                   for_each: "{{ blind_entities | list }}"
                   sequence:
@@ -4589,6 +4817,9 @@ actions:
                             - alias: "Tilt align: leave the fully-open endpoint"
                               conditions: "{{ align_position | default(101) | int >= 100 }}"
                               sequence:
+                                - *knx_drive_guard
+                                - variables:
+                                    drive_dispatched: true
                                 - action: cover.close_cover
                                   target:
                                     entity_id: "{{ repeat.item if repeat is defined else '' }}"
@@ -4597,6 +4828,9 @@ actions:
                             - alias: "Tilt align: close slats before moving down"
                               conditions: "{{ target_position | default(101) | int < align_position | default(101) | int }}"
                               sequence:
+                                - *knx_drive_guard
+                                - variables:
+                                    drive_dispatched: true
                                 - action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: 0
@@ -4607,6 +4841,9 @@ actions:
                             - alias: "Tilt align: open slats before moving up"
                               conditions: "{{ target_position | default(101) | int > align_position | default(101) | int }}"
                               sequence:
+                                - *knx_drive_guard
+                                - variables:
+                                    drive_dispatched: true
                                 - action: cover.set_cover_tilt_position
                                   data:
                                     tilt_position: 100
@@ -4621,6 +4858,7 @@ actions:
           - alias: "Custom actions only: claim the user action as dispatch"
             if: "{{ prevent_flags.default_cover_actions }}"
             then:
+              - *knx_drive_guard
               - variables:
                   drive_dispatched: true
           # Suppress the after-action if ownership was lost before dispatch.
@@ -4677,57 +4915,86 @@ actions:
           - action: input_text.set_value
             data:
               entity_id: !input cover_status_helper
-              value: |-
-                  {% set live_helper_state = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
-                  {% set live_helper_raw = live_helper_state | from_json(default={}) if live_helper_state not in invalid_states and live_helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
-                  {% set current = live_helper_raw if live_helper_raw.bas is defined and live_helper_raw.v is defined and live_helper_raw.v == 6 else helper_json %}
-                  {% set updates = update_values | default({}) %}
-                  {% set ts_now = as_timestamp(now()) | round(0) %}
+              value: |
+                {% set live_helper_state = states(cover_status_helper) if cover_status_helper != [] else 'unavailable' %}
+                {% set live_helper_raw = live_helper_state | from_json(default={}) if live_helper_state not in invalid_states and live_helper_state | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") else {} %}
+                {% set current = live_helper_raw if live_helper_raw.bas is defined and live_helper_raw.v is defined and live_helper_raw.v == 6 else helper_json %}
+                {% set updates = update_values | default({}) %}
+                {% set ts_now = as_timestamp(now()) | round(0) %}
 
-                  {% set new_bas = updates.bas | default(current.bas | default('opn')) %}
-                  {% set new_shd = updates.shd | default(current.shd | default(0)) | int %}
-                  {% set new_pnd = updates.pnd | default(current.pnd | default('non')) %}
-                  {% set new_win = updates.win | default(current.win | default('cls')) %}
-                  {% set new_frc = updates.frc | default(current.frc | default('non')) %}
-                  {% set new_res = updates.res | default(current.res | default(0)) | int %}
-                  {% set run_drove = drive_dispatched | default(false) %}
-                  {% set new_man = updates.man | default(0 if run_drove else current.man | default(0)) | int %}
-                  {% set current_ts = current.ts | default({}) %}
+                {% set new_bas = updates.bas | default(current.bas | default('opn')) %}
+                {% set new_shd = updates.shd | default(current.shd | default(0)) | int %}
+                {% set new_pnd = updates.pnd | default(current.pnd | default('non')) %}
+                {% set new_win = updates.win | default(current.win | default('cls')) %}
+                {% if is_knx_ventilation %}
 
-                  {% set merged_ts = namespace(data={}) %}
-                  {% for key in ['opn', 'cls', 'shd', 'due', 'arm', 'man'] %}
-                    {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
+                {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+                {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+                {% for entity in contacts %}
+                  {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+                    {% set c.valid = false %}
+                  {% else %}
+                    {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+                    {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+                  {% endif %}
+                {% endfor %}
+
+                  {% if c.active or
+                        (current.win | default('cls') == 'knx' and
+                         (not c.valid or not knx_releasing | default(false))) %}
+                    {% set new_win = 'knx' %}
+                  {% endif %}
+                {% endif %}
+
+                {% set new_frc = updates.frc | default(current.frc | default('non')) %}
+                {% set new_res = updates.res | default(current.res | default(0)) | int %}
+                {% set run_drove = drive_dispatched | default(false) %}
+                {% set new_man = updates.man | default(0 if run_drove else current.man | default(0)) | int %}
+                {% set current_ts = current.ts | default({}) %}
+
+                {% set merged_ts = namespace(data={}) %}
+                {% for key in ['opn', 'cls', 'shd', 'due', 'arm', 'man'] %}
+                  {% set merged_ts.data = dict(merged_ts.data, **{key: current_ts[key] | default(0) | int}) %}
+                {% endfor %}
+                {% if 'ts' in updates %}
+                  {% for key, value in updates.ts.items() %}
+                    {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
                   {% endfor %}
-                  {% if 'ts' in updates %}
-                    {% for key, value in updates.ts.items() %}
-                      {% set merged_ts.data = dict(merged_ts.data, **{key: (ts_now if value == 'now' else value) | int}) %}
-                    {% endfor %}
-                  {% endif %}
-                  {% if new_shd == (current.shd | default(0) | int) and 'ts' in updates and 'shd' in updates.ts %}
-                    {% set merged_ts.data = dict(merged_ts.data, **{'shd': current_ts.shd | default(0) | int}) %}
-                  {% endif %}
+                {% endif %}
+                {% if new_shd == (current.shd | default(0) | int) and 'ts' in updates and 'shd' in updates.ts %}
+                  {% set merged_ts.data = dict(merged_ts.data, **{'shd': current_ts.shd | default(0) | int}) %}
+                {% endif %}
 
-                  {% set dict_new = {
-                    'bas': new_bas,
-                    'shd': new_shd | int,
-                    'pnd': new_pnd,
-                    'win': new_win,
-                    'frc': new_frc,
-                    'res': new_res | int,
-                    'man': new_man | int,
-                    'ts': {
-                      'opn': merged_ts.data.opn | default(0) | int,
-                      'cls': merged_ts.data.cls | default(0) | int,
-                      'shd': merged_ts.data.shd | default(0) | int,
-                      'due': merged_ts.data.due | default(0) | int,
-                      'arm': merged_ts.data.arm | default(0) | int,
-                      'man': merged_ts.data.man | default(0) | int
-                    },
-                    'v': 6,
-                    't': ts_now | int,
-                    'd': (ts_now if run_drove else current.d | default(0)) | int
-                  } %}
-                  {{ dict_new | to_json }}
+                {% set dict_new = {
+                  'bas': new_bas,
+                  'shd': new_shd | int,
+                  'pnd': new_pnd,
+                  'win': new_win,
+                  'frc': new_frc,
+                  'res': new_res | int,
+                  'man': new_man | int,
+                  'ts': {
+                    'opn': merged_ts.data.opn | default(0) | int,
+                    'cls': merged_ts.data.cls | default(0) | int,
+                    'shd': merged_ts.data.shd | default(0) | int,
+                    'due': merged_ts.data.due | default(0) | int,
+                    'arm': merged_ts.data.arm | default(0) | int,
+                    'man': merged_ts.data.man | default(0) | int
+                  },
+                  'v': 6,
+                  't': ts_now | int,
+                  'd': (ts_now if run_drove else current.d | default(0)) | int
+                } %}
+
+                {% if is_knx_ventilation %}
+                  {% set new_k = updates.k | default(current.k | default(0)) %}
+                  {% if knx_releasing | default(false) and (not c.valid or c.active) %}
+                    {% set new_k = current.k | default(0) %}
+                  {% endif %}
+                  {% set dict_new = dict(dict_new, k=new_k,
+                       t=as_timestamp(now()) if new_win == 'knx' else dict_new.t) %}
+                {% endif %}
+                {{ dict_new | to_json }}
           - if: "{{ enable_logbook }}"
             then:
               - action: logbook.log
@@ -4780,6 +5047,27 @@ actions:
       apply_transition: &apply_transition
         sequence:
           - variables:
+              current_position: |-
+                {% if is_knx_ventilation %}
+                {% set source = position_source %}
+                {% if source == 'current_position_attr' %}
+                  {{ state_attr(blind, 'current_position') | int(default=101) }}
+                {% elif source == 'position_attr' %}
+                  {{ state_attr(blind, 'position') | int(default=101) }}
+                {% elif source == 'custom_sensor' and custom_position_sensor != [] %}
+                  {{ states(custom_position_sensor) | int(default=101) }}
+                {% else %}
+                  {{ 101 }}
+                {% endif %}
+                {% else %}
+                {{ current_position }}
+                {% endif %}
+              current_tilt_position: |-
+                {% if is_knx_ventilation %}
+                {{ state_attr(blind, 'current_tilt_position') | int(default=101) }}
+                {% else %}
+                {{ current_tilt_position }}
+                {% endif %}
               target_position: "{{ (drive_plan | default({})).target | default(101) | int }}"
               target_tilt_position: "{{ (drive_plan | default({})).target_tilt | default(101) | int }}"
               tilt_first: "{{ (drive_plan | default({})).tilt_first | default(false) }}"
@@ -4871,6 +5159,7 @@ actions:
   # ════════════════════════════════════════════════════════════════════════════
   - if:
       - "{{ cover_status_helper != [] }}"
+      - *knx_helper_repair_guard
       - or:
           - "{{ states(cover_status_helper) in invalid_states }}"
           - '{{ not states(cover_status_helper) | regex_match("((\[[^\}]+)?\{\s*[^\}\{]{3,}?:.*\}([^\{]+\])?)") }}'
@@ -4938,6 +5227,7 @@ actions:
   # is reset afterwards so it cannot bleed into a later branch's entry).
   - if:
       - "{{ helper_repair != 'non' }}"
+      - *knx_helper_repair_guard
     then:
       - variables:
           update_values: {}
@@ -4967,6 +5257,159 @@ actions:
                     domain: cover
                     entity_id: "{{ repeat.item if repeat is defined else '' }}"
                     message: "{{ repair_message }}"
+
+  # Native preflight follows helper hygiene, so fresh and legacy helpers can recover.
+  - alias: 'KNX ventilation: persist cycle, validate feedback and re-arm nonblocking settle timer'
+    if: '{{ is_knx_ventilation }}'
+    then:
+    - variables:
+        knx_live_helper: '{{ (states(cover_status_helper) if cover_status_helper != [] else '''') | from_json(default={})
+          }}'
+        knx_contacts_active: |2-
+
+          {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+          {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+          {% for entity in contacts %}
+            {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+              {% set c.valid = false %}
+            {% else %}
+              {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+              {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ c.active }}
+        knx_contacts_closed: |2-
+
+          {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+          {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+          {% for entity in contacts %}
+            {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+              {% set c.valid = false %}
+            {% else %}
+              {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+              {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ c.valid and not c.active }}
+        knx_health_ok: |2-
+
+          {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+          {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+          {% for entity in contacts %}
+            {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+              {% set c.valid = false %}
+            {% else %}
+              {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+              {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+            {% endif %}
+          {% endfor %}
+
+          {% set h = (states(cover_status_helper) if cover_status_helper != [] else '') | from_json(default={}) %}
+          {% set pending = h is mapping and h.win | default('cls') == 'knx' %}
+
+          {% set cover = states[blind] %}
+          {% set sensor = states[custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else none %}
+          {% set raw = (states(custom_position_sensor) if custom_position_sensor != [] else none) if position_source == 'custom_sensor' else
+             state_attr(blind, 'position' if position_source == 'position_attr' else 'current_position') %}
+          {% set position_valid = is_number(raw) and 0 <= raw | float(-1) <= 100 %}
+          {% set cover_valid = cover is not none and cover.state not in invalid_states %}
+          {% set feedback_at = [as_timestamp(cover.last_updated, 0) if cover is not none else 0,
+             as_timestamp(sensor.last_updated, 0) if sensor is not none else 0] | max %}
+          {{ c.valid and cover_valid and position_valid
+          and h is mapping and h.v | default(0) == 6 and h.bas | default('') in ['opn', 'cls']
+          and (state_attr(cover_status_helper, 'max') if cover_status_helper != [] else 0) | int(0) >= 255 }}
+        knx_ready: |2-
+
+          {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+          {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+          {% for entity in contacts %}
+            {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+              {% set c.valid = false %}
+            {% else %}
+              {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+              {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+            {% endif %}
+          {% endfor %}
+
+          {% set h = (states(cover_status_helper) if cover_status_helper != [] else '') | from_json(default={}) %}
+          {% set pending = h is mapping and h.win | default('cls') == 'knx' %}
+
+          {% set cover = states[blind] %}
+          {% set sensor = states[custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else none %}
+          {% set raw = (states(custom_position_sensor) if custom_position_sensor != [] else none) if position_source == 'custom_sensor' else
+             state_attr(blind, 'position' if position_source == 'position_attr' else 'current_position') %}
+          {% set position_valid = is_number(raw) and 0 <= raw | float(-1) <= 100 %}
+          {% set cover_valid = cover is not none and cover.state not in invalid_states %}
+          {% set feedback_at = [as_timestamp(cover.last_updated, 0) if cover is not none else 0,
+             as_timestamp(sensor.last_updated, 0) if sensor is not none else 0] | max %}
+          {{ c.valid and not c.active and cover_valid and position_valid
+          and cover.state not in ['opening', 'closing']
+          and as_timestamp(now()) >= c.closed_at + ventilation_knx_restore_delay | float(60)
+          and as_timestamp(now()) >= feedback_at + 10
+          and (h.k | default(0) | float(0) >= 0 or
+               as_timestamp(now()) >= -(h.k | float(0)) + ventilation_knx_restore_delay | float(60)) }}
+    - variables:
+        knx_live_pending: '{{ knx_live_helper is mapping and knx_live_helper.win | default(''cls'') == ''knx''
+          }}'
+        knx_contact_ended: |-
+          {{ trigger.id | default('') == 't_knx_contact'
+          and trigger.from_state is defined and trigger.from_state is not none
+          and trigger.to_state is defined and trigger.to_state is not none
+          and trigger.from_state.state in ['on', 'true']
+          and as_timestamp(trigger.to_state.last_updated, 0) > knx_live_helper.k | default(0) | float(0) }}
+    - if: '{{ not knx_health_ok }}'
+      then:
+      - if: |-
+          {{ knx_live_helper is mapping and knx_live_helper.v | default(0) == 6
+          and states(cover_status_helper) not in invalid_states
+          and (state_attr(cover_status_helper, 'max') if cover_status_helper != [] else 0) | int(0) >= 255 and not knx_live_pending
+          and (knx_contacts_active or knx_contact_ended) }}
+        then:
+        - variables:
+            update_values:
+              win: knx
+              k: |-
+                {{
+                knx_live_helper.k if knx_live_pending and knx_live_helper.k | default(0) | float(0) < 0
+                else -as_timestamp(now()) }}
+            drive_plan:
+              run: false
+        - *apply_transition
+      - action: system_log.write
+        data:
+          level: error
+          logger: blueprints.hvorragend.cca
+          message: 'KNX ventilation remains held: invalid/missing contact, cover, position or status helper
+            (minimum 255 characters). Cover={{ blind }}; contacts={{ [contact_window_opened, contact_window_tilted]
+            }}; cover_state={{ states(blind) }}; position={{ current_position }}; helper={{ cover_status_helper
+            }}. No CCA movement dispatched.'
+      - stop: 'KNX ventilation: invalid feedback, hold retained'
+    - if: '{{ trigger.id | default('''') == ''t_knx_settle'' and not knx_contacts_closed }}'
+      then:
+      - stop: 'KNX ventilation: contact remains active, wait for a contact event'
+    - if: |-
+        {{ trigger.id | default('') != 't_knx_settle'
+        and (knx_contacts_active or knx_live_pending or knx_contact_ended) }}
+      then:
+      - variables:
+          update_values:
+            win: knx
+            k: |-
+              {{
+              knx_live_helper.k if knx_live_pending and knx_live_helper.k | default(0) | float(0) < 0
+              else -as_timestamp(now()) }}
+          drive_plan:
+            run: false
+      - *apply_transition
+    - variables:
+        knx_resume_requested: '{{ trigger.id | default('''') == ''t_knx_settle'' and knx_live_pending and
+          knx_ready }}'
+    - if: '{{ trigger.id | default('''') in [''t_knx_contact'', ''t_knx_feedback'', ''t_knx_rearm''] }}'
+      then:
+      - stop: 'KNX ventilation: state synchronized, settle timer re-armed if pending'
+    - if: '{{ trigger.id | default('''') == ''t_knx_settle'' and not knx_resume_requested }}'
+      then:
+      - stop: 'KNX ventilation: no pending ready cycle'
 
   # ════════════════════════════════════════════════════════════════════════════
   # Load weather forecast data from service (only when needed)
@@ -6082,6 +6525,205 @@ actions:
     then:
       - stop: "Calendar trigger ignored: No configured open/close event starts or ends at this calendar state change"
 
+  # Native ventilation hands control back only after KNX restoration settles.
+  # Refresh the cascade here; the ordinary recovery reducer has different ownership.
+  - alias: 'KNX ventilation: resume current automatic target after native restoration settles'
+    if: '{{ is_knx_ventilation and knx_resume_requested | default(false) }}'
+    then:
+    - variables:
+        helper_json: '{{ states(cover_status_helper) | from_json(default={}) }}'
+        helper_state_force: '{{ helper_json.frc | default(''non'') }}'
+        helper_state_base: '{{ helper_json.bas | default(''opn'') }}'
+        helper_state_window: '{{ helper_json.win | default(''cls'') }}'
+        helper_state_shade: '{{ helper_json.shd | default(0) | int == 1 }}'
+        helper_state_manual: '{{ helper_json.man | default(0) | int == 1 }}'
+        state_resident: |-
+          {{ (helper_json.res | default(0) | int == 1)
+             if (resident_sensor != [] and states(resident_sensor) in invalid_states)
+             else (resident_sensor != [] and states(resident_sensor) in ['on', 'true']) }}
+        resident_flags:
+          opening_trigger: '{{ ''resident_opening_enabled'' in resident_config }}'
+          closing_trigger: '{{ ''resident_closing_enabled'' in resident_config }}'
+          allow_open: '{{ ''resident_allow_opening'' in resident_config or not state_resident }}'
+          allow_shade: '{{ ''resident_allow_shading'' in resident_config or not state_resident }}'
+          allow_ventilate: '{{ ''resident_allow_ventilation'' in resident_config or not state_resident }}'
+        is_forced_open: '{{ auto_up_force != [] and states(auto_up_force) in [''on'', ''true''] }}'
+        is_forced_close: '{{ auto_down_force != [] and states(auto_down_force) in [''on'', ''true''] }}'
+        is_forced_shade: '{{ auto_shading_start_force != [] and states(auto_shading_start_force) in [''on'',
+          ''true''] }}'
+        is_forced_vent: '{{ auto_ventilate_force != [] and states(auto_ventilate_force) in [''on'', ''true'']
+          }}'
+        force_helper_unreadable: |-
+          {{ (helper_state_force == 'opn' and auto_up_force != [] and states[auto_up_force] is not none and states(auto_up_force) in invalid_states) or
+             (helper_state_force == 'cls' and auto_down_force != [] and states[auto_down_force] is not none and states(auto_down_force) in invalid_states) or
+             (helper_state_force == 'shd' and auto_shading_start_force != [] and states[auto_shading_start_force] is not none and states(auto_shading_start_force) in invalid_states) or
+             (helper_state_force == 'vnt' and auto_ventilate_force != [] and states[auto_ventilate_force] is not none and states(auto_ventilate_force) in invalid_states) }}
+        live_force: |-
+          {% set candidates = namespace(best='non', best_ts=-1) %} {% if is_forced_open %}
+            {% set t = as_timestamp(states[auto_up_force].last_changed) | float(0) %}
+            {% if t > candidates.best_ts %}{% set candidates.best = 'opn' %}{% set candidates.best_ts = t %}{% endif %}
+          {% endif %} {% if is_forced_close %}
+            {% set t = as_timestamp(states[auto_down_force].last_changed) | float(0) %}
+            {% if t > candidates.best_ts %}{% set candidates.best = 'cls' %}{% set candidates.best_ts = t %}{% endif %}
+          {% endif %} {% if is_forced_shade %}
+            {% set t = as_timestamp(states[auto_shading_start_force].last_changed) | float(0) %}
+            {% if t > candidates.best_ts %}{% set candidates.best = 'shd' %}{% set candidates.best_ts = t %}{% endif %}
+          {% endif %} {% if is_forced_vent %}
+            {% set t = as_timestamp(states[auto_ventilate_force].last_changed) | float(0) %}
+            {% if t > candidates.best_ts %}{% set candidates.best = 'vnt' %}{% set candidates.best_ts = t %}{% endif %}
+          {% endif %} {{ helper_state_force if candidates.best == 'non' and force_helper_unreadable else candidates.best }}
+        force_allows_open: '{{ not (is_forced_close or is_forced_shade or is_forced_vent) }}'
+        force_allows_close: '{{ not (is_forced_open or is_forced_shade or is_forced_vent) }}'
+        force_allows_shade: '{{ not (is_forced_open or is_forced_close or is_forced_vent) }}'
+        force_allows_ventilate: '{{ not (is_forced_open or is_forced_close or is_forced_shade) }}'
+        effective_shading_position: |-
+          {{ shading_position_alt
+             if (shading_position_alt != [] and shading_position_alt_entity != []
+                 and states(shading_position_alt_entity) == 'on')
+             else shading_position }}
+    - variables:
+        helper_json: '{{ dict(helper_json, frc=live_force, win=''cls'') }}'
+    - variables:
+        effective_state: |-
+          {% set h = helper_json %} {% set resident_present = state_resident %} {% set allow_vent = 'resident_allow_ventilation' in resident_config or not resident_present %} {% set allow_shade = 'resident_allow_shading' in resident_config or not resident_present %} {% set allow_open = 'resident_allow_opening' in resident_config or not resident_present %} {% set privacy_active = resident_present and 'resident_closing_enabled' in resident_config %} {% set s_opn = is_ventilation_enabled and contact_window_opened != [] and states(contact_window_opened) in ['true', 'on'] %} {% set s_tlt = is_ventilation_enabled and contact_window_tilted != [] and states(contact_window_tilted) in ['true', 'on'] %} {% set w = 'opn' if s_opn else 'tlt' if s_tlt else h.win if (contact_window_opened == [] and contact_window_tilted == []) else 'cls' %} {% if h.frc != 'non' %}
+            {{ h.frc }}
+          {% elif w == 'opn' %}
+            lock
+          {% else %}
+            {% if privacy_active %}
+              {% set base_target = 'cls' %}
+            {% elif h.shd | int == 1 and allow_shade %}
+              {% set base_target = 'shd' %}
+            {% elif h.bas == 'opn' and not allow_open %}
+              {% set base_target = 'cls' %}
+            {% else %}
+              {% set base_target = h.bas %}
+            {% endif %}
+            {% set base_open_scheduled = base_target == 'opn' and is_opening_scheduled %}
+            {% set shading_wins = base_target == 'shd' and shading_over_ventilation %}
+            {% if w == 'tlt' and allow_vent and not base_open_scheduled and not shading_wins %}
+              vnt
+            {% else %}
+              {{ base_target }}
+            {% endif %}
+          {% endif %}
+        state_targets:
+          lock:
+            target: '{{ effective_lockout_position | int }}'
+            target_tilt: '{{ open_tilt_position | int }}'
+            action_set: ventilate
+          opn:
+            target: '{{ open_position | int }}'
+            target_tilt: '{{ open_tilt_position | int }}'
+            action_set: up
+          vnt:
+            target: '{{ ventilate_position | int }}'
+            target_tilt: '{{ ventilate_tilt_position | int }}'
+            action_set: ventilate
+          shd:
+            target: '{{ effective_shading_position | int }}'
+            target_tilt: '{{ shading_tilt_position | int }}'
+            action_set: shading_start
+          cls:
+            target: '{{ close_position | int }}'
+            target_tilt: '{{ close_tilt_position | int }}'
+            action_set: down
+        closing_target_owned: |-
+          {{ is_closing_scheduled or
+             (state_resident and (resident_flags.closing_trigger or
+                                  'resident_allow_opening' not in resident_config)) }}
+    - variables:
+        knx_resume_state: '{{ effective_state }}'
+        knx_target_condition_ok: false
+        knx_still_ready: |2-
+
+          {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+          {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+          {% for entity in contacts %}
+            {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+              {% set c.valid = false %}
+            {% else %}
+              {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+              {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+            {% endif %}
+          {% endfor %}
+
+          {% set h = (states(cover_status_helper) if cover_status_helper != [] else '') | from_json(default={}) %}
+          {% set pending = h is mapping and h.win | default('cls') == 'knx' %}
+
+          {% set cover = states[blind] %}
+          {% set sensor = states[custom_position_sensor] if position_source == 'custom_sensor' and custom_position_sensor != [] else none %}
+          {% set raw = (states(custom_position_sensor) if custom_position_sensor != [] else none) if position_source == 'custom_sensor' else
+             state_attr(blind, 'position' if position_source == 'position_attr' else 'current_position') %}
+          {% set position_valid = is_number(raw) and 0 <= raw | float(-1) <= 100 %}
+          {% set cover_valid = cover is not none and cover.state not in invalid_states %}
+          {% set feedback_at = [as_timestamp(cover.last_updated, 0) if cover is not none else 0,
+             as_timestamp(sensor.last_updated, 0) if sensor is not none else 0] | max %}
+          {{ c.valid and not c.active and cover_valid and position_valid
+          and cover.state not in ['opening', 'closing']
+          and as_timestamp(now()) >= c.closed_at + ventilation_knx_restore_delay | float(60)
+          and as_timestamp(now()) >= feedback_at + 10
+          and (h.k | default(0) | float(0) >= 0 or
+               as_timestamp(now()) >= -(h.k | float(0)) + ventilation_knx_restore_delay | float(60)) }}
+    - condition: template
+      value_template: '{{ knx_still_ready }}'
+    - choose:
+      - conditions:
+        - '{{ knx_resume_state in [''lock'', ''vnt''] }}'
+        - &auto_ventilate_condition_check
+          condition: !input auto_ventilate_condition
+        sequence:
+        - variables:
+            knx_target_condition_ok: true
+        alias: 'KNX resume: ventilation target condition'
+      - conditions:
+        - '{{ knx_resume_state in [''opn''] }}'
+        - &auto_up_condition_check
+          condition: !input auto_up_condition
+        sequence:
+        - variables:
+            knx_target_condition_ok: true
+        alias: 'KNX resume: opening target condition'
+      - conditions:
+        - '{{ knx_resume_state in [''cls''] }}'
+        - &auto_down_condition_check
+          condition: !input auto_down_condition
+        sequence:
+        - variables:
+            knx_target_condition_ok: true
+        alias: 'KNX resume: closing target condition'
+      - conditions:
+        - '{{ knx_resume_state in [''shd''] }}'
+        - &auto_shading_start_condition_check
+          condition: !input auto_shading_start_condition
+        sequence:
+        - variables:
+            knx_target_condition_ok: true
+        alias: 'KNX resume: shading target condition'
+    - variables:
+        knx_releasing: true
+        update_values:
+          win: cls
+          k: '{{ as_timestamp(now()) }}'
+          frc: '{{ live_force }}'
+        drive_plan:
+          run: false
+    - *apply_transition
+    - variables:
+        knx_releasing: false
+        is_paused: '{{ force_pause != [] and states(force_pause) in [''on'', ''true''] }}'
+        knx_will_drive: |-
+          {{ knx_target_condition_ok and not is_paused
+          and (knx_resume_state != 'opn' or is_opening_scheduled or live_force == 'opn')
+          and (knx_resume_state != 'cls' or closing_target_owned or live_force == 'cls') }}
+    - variables:
+        drive_plan: '{{ dict(state_targets[knx_resume_state], run=knx_will_drive) }}'
+        update_values: {}
+        log_user: 'KNX ventilation is over; current automatic target: {{ state_labels[knx_resume_state]
+          }}'
+    - *apply_transition
+    - stop: 'KNX ventilation: settled cycle reconciled'
+
   # ══════════════════════════════════════════════════════════════════════════
   # RECOVERY GATE (pre-dispatch) - restore the target state after an outage
   #   Trigger: Home Assistant start, a source that became usable again, or the
@@ -6130,8 +6772,7 @@ actions:
       # transition. Evaluated once here; every live consumer aliases the node.
       - alias: "Recovery: the user's opening condition decides the opening drive"
         if:
-          - &auto_up_condition_check
-            condition: !input auto_up_condition
+          - *auto_up_condition_check
         then:
           - variables:
               recovered_up_ok: true
@@ -6143,8 +6784,7 @@ actions:
       # toward the close position, never the base transition to 'cls'
       - alias: "Recovery: the user's closing condition decides the closing drive"
         if:
-          - &auto_down_condition_check
-            condition: !input auto_down_condition
+          - *auto_down_condition_check
         then:
           - variables:
               recovered_down_ok: true
@@ -6156,8 +6796,7 @@ actions:
         choose:
           - alias: "Recovery: ventilation floor allowed"
             conditions:
-              - &auto_ventilate_condition_check
-                condition: !input auto_ventilate_condition
+              - *auto_ventilate_condition_check
             sequence:
               - variables:
                   recovered_vent_ok: true
@@ -6542,8 +7181,7 @@ actions:
                   # The user's shading-start condition gates the execution this handoff
                   # relies on; while it is false the execution can only retry and abort,
                   # never open - fall through to normal opening instead (Bug Pattern AY)
-                  - &auto_shading_start_condition_check
-                    condition: !input auto_shading_start_condition
+                  - *auto_shading_start_condition_check
                   - "{{ is_shading_allowed_window }}"
                   # Lockout window: the shading execution only stores the intent and stops without
                   # any movement, so arming would leave the cover unopened - fall through to normal
@@ -8430,6 +9068,28 @@ actions:
           - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"
+          - condition: template
+            value_template: |-
+              {% if is_knx_ventilation %}
+              {% set contacts = [contact_window_opened, contact_window_tilted] | reject('equalto', []) | list %}
+              {% set c = namespace(valid=contacts | count > 0, active=false, closed_at=0.0) %}
+              {% for entity in contacts %}
+                {% if states(entity) not in ['on', 'true', 'off', 'false'] %}
+                  {% set c.valid = false %}
+                {% else %}
+                  {% set c.closed_at = [c.closed_at, as_timestamp(states[entity].last_changed, 0)] | max %}
+                  {% if states(entity) in ['on', 'true'] %}{% set c.active = true %}{% endif %}
+                {% endif %}
+              {% endfor %}
+
+              {% set h = (states(cover_status_helper) if cover_status_helper != [] else '') | from_json(default={}) %}
+              {% set pending = h is mapping and h.win | default('cls') == 'knx' %}
+              {% endif %}
+              {{ not is_knx_ventilation or (
+              not (c.active or pending or
+                (h.k | default(0) | float(0) > 0 and
+                 as_timestamp(trigger.to_state.last_updated, 0) <= h.k | float(0)))
+              ) }}
           - or:
               # Position change via custom sensor (state-based)
               - and:

@@ -193,6 +193,7 @@ class TestStateLabels:
             "force_kind", "next_active_force", "resume_state", "reset_state",
             "helper_state_force",
             "shading_end_state",
+            "knx_resume_state",
         }
         assert lookups <= known_chains, (
             f"unknown target variable in a state_labels lookup: {lookups - known_chains}"
