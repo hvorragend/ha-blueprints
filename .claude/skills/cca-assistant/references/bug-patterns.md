@@ -1,4 +1,4 @@
-# CCA Known Bug Patterns (A–BB, with cause and fix)
+# CCA Known Bug Patterns (A–BD, with cause and fix)
 
 The regression catalog. Most patterns are pinned by tests, but the *rules*
 derived from them apply to new code. Read the matching pattern before changing
@@ -1356,5 +1356,63 @@ it. When you add a dependency to an existing variable, check that the dependency
 declared earlier — if not, move the *consumer* down, never the dependency up (its own
 dependencies are already satisfied where it is). The HA warning is the only runtime
 symptom; a boolean that reads an undefined name simply renders as `False`.
+
+### Bug Pattern BD: The actuation layer trusted a position the cover no longer held — a Force Close fired during the opening travel found "nothing to do" (Issue #726)
+
+**Symptom:** Force Close bound to a rain sensor. Logbook (local time): 08:12:58 sensor
+`dry` (force off), 08:21:55 the scheduled opening starts the travel from 12 %, 08:22:19 the
+sensor turns `wet` — 24 s into the travel — 08:22:25 the cover reports `open`. The
+`t_force_enabled_close` run writes `frc: cls` but moves nothing: helper says "force
+closed", cover stands at 100 % until the user closes it by hand.
+
+**Cause:** `drive_required` compared the plan's target (12) against `current_position`, a
+top-level variable rendered at trigger time — while the cover was still travelling and
+still *reported* the closed position (many motors publish their position only when they
+stop). Target 12 vs. reported 12 → "nothing to do" → no drive, no `d`, state written. The
+`cover_move_action` tolerance guard and the tilt-alignment guard carry the same
+comparison and would have refused the stage as well. Same class as Bug Pattern AQ (act on
+live truth at the actuation point), reaching the drive projection instead of the helper
+merge — and with the twist that even a live read is stale while the cover moves.
+
+A second, narrower gap sat next to it: the post-delay re-check in `apply_transition` only
+re-read the two *ownership* blockers (force pause, instance hand-over — the 2026.07.13 V6
+live-reads decision). A force that flipped during a long random drive delay (up to
+10 min) was invisible to it, so the stale plan drove first and the force's own run, queued
+behind, hit exactly the stale-position case above. Not the reported timeline, but the
+same hole one step earlier.
+
+**Fix:** All in the shared `apply_transition` anchor / the stages it calls, so every leaf
+branch gets them:
+
+- The anchor's first `variables:` step sets `cover_in_motion` (`states(blind) in
+  ['opening', 'closing']`) and re-reads `current_position` / `current_tilt_position` live
+  (templates mirror the top-level ones, pinned by a parity test). `drive_required`, the
+  `cover_move_action` tolerance guard and the tilt-alignment guard treat a travelling
+  cover as away from every position target (`cover_in_motion | default(false) or …`,
+  Invariant 14 guard); the cover logbook's "nothing would move" check follows. Tilt-only
+  plans are unaffected. Branch *conditions* (dispatch layer) keep the trigger-time
+  snapshot — `in_open_position` & co. are unchanged.
+- A second condition next to the post-delay pause/hand-over gate compares the four force
+  entities live against the planning snapshot (`(states(x) in ['on','true']) ==
+  is_forced_*`, AF-guarded on `x != []`). Any change withholds the drive — the force's own
+  run owns the new target; the delayed run still persists its state transition (Invariant
+  15, same shape as a pause). An unreadable live state counts as unchanged (a dropout is
+  not a switch-off — mirror of `force_helper_unreadable`). The cover logbook line names it:
+  `no movement [force switched] · …`.
+
+**Not changed, deliberately:** a later run driving over CCA's own in-flight movement is
+not "fighting its own drive" (the manual-detection rule of the 2026.07.25 `d` decision) —
+it is a newer decision superseding an older one. A run that wants the same target merely
+re-sends the command.
+
+**Rule:** The dispatch layer may decide on the trigger-time view; the actuation layer must
+not *act* on it. Every quantity that decides whether and what to drive at the actuation
+point — ownership (pause, hand-over), the force picture, the cover's position — is read
+live there, and a cover in motion has no usable position at all. A new blocker that can
+flip during an in-run wait belongs in the post-delay gate, not only in `will_drive`.
+Tests: `tests/test_apply_transition_architecture.py::TestPostDelayLiveForceGate`,
+`::TestApplyTransitionReReadsThePositionLive`,
+`tests/test_cover_logbook.py::TestMessageRendering::test_a_force_switched_during_the_delay_is_named`,
+`::TestNothingWouldHaveMoved::test_a_travelling_cover_is_never_already_there`.
 
 ---

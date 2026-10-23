@@ -4406,7 +4406,7 @@ actions:
           - condition: template
             value_template: "{{ not prevent_flags.default_cover_actions }}"
           - condition: template
-            value_template: "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
+            value_template: "{{ cover_in_motion | default(false) or not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
           - condition: template
             value_template: "{{ 0 <= target_position | default(101) | int <= 100 }}"
           # A preliminary tilt alignment may have waited since the grouped
@@ -4573,7 +4573,7 @@ actions:
                 {{ is_tilt_before_position_mode | default(false) and
                    is_cover_tilt_enabled_and_possible | default(false) and
                    not prevent_flags.default_cover_actions }}
-              - "{{ not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
+              - "{{ cover_in_motion | default(false) or not (target_position | default(101) >= current_position | default(101) - position_tolerance | default(0) and target_position | default(101) <= current_position | default(101) + position_tolerance | default(0)) }}"
             then:
               # The outer if proves this stage will issue an alignment command
               # for the configured tilt-capable cover(s). Later stages re-check
@@ -4782,6 +4782,26 @@ actions:
       apply_transition: &apply_transition
         sequence:
           - variables:
+              # Live re-read of the cover position for the actuation layer. A
+              # run that executes after another one moved the cover must not
+              # project its drive from the trigger-time snapshot, and a cover
+              # that is still travelling reports a position nothing can be
+              # decided on - it counts as away from every target (Bug Pattern
+              # BD / #726). Branch conditions keep the snapshot. The position
+              # templates mirror the top-level ones.
+              cover_in_motion: "{{ states(blind) in ['opening', 'closing'] }}"
+              current_position: >-
+                {% set source = position_source %}
+                {% if source == 'current_position_attr' %}
+                  {{ state_attr(blind, 'current_position') | int(default=101) }}
+                {% elif source == 'position_attr' %}
+                  {{ state_attr(blind, 'position') | int(default=101) }}
+                {% elif source == 'custom_sensor' and custom_position_sensor != [] %}
+                  {{ states(custom_position_sensor) | int(default=101) }}
+                {% else %}
+                  {{ 101 }}
+                {% endif %}
+              current_tilt_position: "{{ state_attr(blind, 'current_tilt_position') | int(default=101) }}"
               target_position: "{{ (drive_plan | default({})).target | default(101) | int }}"
               target_tilt_position: "{{ (drive_plan | default({})).target_tilt | default(101) | int }}"
               tilt_first: "{{ (drive_plan | default({})).tilt_first | default(false) }}"
@@ -4794,7 +4814,8 @@ actions:
                 {%- set position_relevant = move != 'tilt' and target != 101 -%}
                 {%- set tilt_relevant = is_cover_tilt_enabled_and_possible and target_tilt != 101 -%}
                 {%- set position_required = position_relevant and
-                      (target - current_position) | abs > position_tolerance | int -%}
+                      (cover_in_motion | default(false) or
+                       (target - current_position) | abs > position_tolerance | int) -%}
                 {%- set tilt_required = tilt_relevant and
                       (target_tilt - current_tilt_position) | abs > tilt_position_tolerance | int -%}
                 {{ plan.run | default(false) and
@@ -4809,11 +4830,24 @@ actions:
               # Re-read the two ownership blockers after the delay. A queued
               # run may have lost the cover or been paused since it planned the
               # drive; in that case neither user actions nor cover services run.
+              # A force entity that flipped during the delay has its own run
+              # queued behind this one, which owns the new target - the stale
+              # plan must not drive first (Bug Pattern BD / #726). An unreadable
+              # force entity counts as unchanged (a dropout is not a switch-off).
               - if:
                   - >-
                     {{ not (force_pause != [] and states(force_pause) in ['on', 'true']) and
                        (instance_active == [] or states[instance_active] is none or
                         states(instance_active) in instance_active_on_states) }}
+                  - >-
+                    {{ (auto_up_force == [] or states(auto_up_force) in invalid_states or
+                        (states(auto_up_force) in ['on', 'true']) == is_forced_open) and
+                       (auto_down_force == [] or states(auto_down_force) in invalid_states or
+                        (states(auto_down_force) in ['on', 'true']) == is_forced_close) and
+                       (auto_shading_start_force == [] or states(auto_shading_start_force) in invalid_states or
+                        (states(auto_shading_start_force) in ['on', 'true']) == is_forced_shade) and
+                       (auto_ventilate_force == [] or states(auto_ventilate_force) in invalid_states or
+                        (states(auto_ventilate_force) in ['on', 'true']) == is_forced_vent) }}
                 then:
                   - choose:
                       - conditions: "{{ (drive_plan | default({})).move | default('full') == 'tilt' }}"
@@ -4829,7 +4863,8 @@ actions:
               {%- set tilt_relevant = is_cover_tilt_enabled_and_possible and target_tilt != 101 -%}
               {%- set at_position = target == 101 or (target - current_position) | abs <= position_tolerance | int -%}
               {%- set at_tilt = (not tilt_relevant) or (current_tilt_position - target_tilt) | abs <= tilt_position_tolerance | int -%}
-              {%- set nothing_would_move = (target != 101 or tilt_relevant) and at_position and at_tilt -%}
+              {%- set nothing_would_move = (target != 101 or tilt_relevant) and at_position and at_tilt
+                                           and not cover_in_motion | default(false) -%}
               {{ enable_logbook_cover
                  and (log_user is defined or
                       drive_required | default(plan.run | default(false)))
@@ -4851,9 +4886,14 @@ actions:
                                               'shading_end': 'sun shading is over'} -%}
                           {%- set why = log_user | default(fallback.get(drive_action_set | default(''), 'status update')) -%}
                           {%- set force_word = (state_labels | default({})).get(helper_state_force, helper_state_force) -%}
+                          {%- set force_switched = (auto_up_force != [] and states(auto_up_force) not in invalid_states and (states(auto_up_force) in ['on', 'true']) != is_forced_open) or
+                                                   (auto_down_force != [] and states(auto_down_force) not in invalid_states and (states(auto_down_force) in ['on', 'true']) != is_forced_close) or
+                                                   (auto_shading_start_force != [] and states(auto_shading_start_force) not in invalid_states and (states(auto_shading_start_force) in ['on', 'true']) != is_forced_shade) or
+                                                   (auto_ventilate_force != [] and states(auto_ventilate_force) not in invalid_states and (states(auto_ventilate_force) in ['on', 'true']) != is_forced_vent) -%}
                           {%- set blocked = ' [force pause]' if is_paused
                                             else ' [manual override]' if helper_state_manual
                                             else ' [force: ' ~ force_word ~ ']' if helper_state_force != 'non'
+                                            else ' [force switched]' if force_switched
                                             else '' -%}
                           {%- set target = plan.target | default(101) | int -%}
                           {%- set target_tilt = plan.target_tilt | default(101) | int -%}
