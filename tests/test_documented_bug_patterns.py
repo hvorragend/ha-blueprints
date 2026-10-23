@@ -10,6 +10,8 @@ Covered here:
                       and "was ventilating before" must not gate on in_open_position
   - Pattern V:        shade-once-per-day guard is calendar-based (no helper_ts_man
                       short-circuit)
+  - Pattern BC (#727): top-level variables are declared before they are read
+                      (HA renders the block top to bottom)
 
 Run with: pytest tests/ -v
 """
@@ -1944,3 +1946,82 @@ class TestPatternAYAbortReconcilesTheOpening:
     )
     def test_blockers_and_foreign_targets_stand_down(self, abort_variables, overrides):
         assert self._render_will_drive(abort_variables, **overrides) is False
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Pattern BC (#727): HA renders a `variables:` mapping top to bottom. A name
+# read before its own declaration is undefined (falsy) at render time; HA only
+# logs "Template variable warning: '…' is undefined" and carries on.
+# ════════════════════════════════════════════════════════════════════════════
+_JINJA_STRING_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"")
+_JINJA_IDENTIFIER = re.compile(r"(?<![\w.])([A-Za-z_]\w*)(?!\s*\()")
+
+
+def _referenced_names(template) -> set[str]:
+    """Bare identifiers a template reads (string literals, attribute tails and
+    call names stripped). A plain value (incl. a `!input` the test loader
+    resolves to the input's name) reads nothing."""
+    text = str(template)
+    if "{{" not in text and "{%" not in text:
+        return set()
+    return set(_JINJA_IDENTIFIER.findall(_JINJA_STRING_LITERAL.sub("''", text)))
+
+
+def _forward_references(variables: dict) -> dict[str, list[str]]:
+    """{name: [siblings it reads that are declared only further down]}."""
+    names = list(variables)
+    declared: set[str] = set()
+    forward: dict[str, list[str]] = {}
+    for name in names:
+        later = sorted(
+            n for n in _referenced_names(variables[name])
+            if n in names and n != name and n not in declared
+        )
+        if later:
+            forward[name] = later
+        declared.add(name)
+    return forward
+
+
+class TestPatternBCVariablesAreDeclaredBeforeUse:
+    """#727: `recovery_catch_up` read `override_expired`, declared further down
+    the same `variables:` block. HA renders the block in order, so the name was
+    undefined on every run that reached it: the manual-reset term
+    `(manual_reset_event and override_expired)` could never be true, every live
+    Manual Override reset ran hygiene-only (no schedule re-derivation, no
+    opted-in return drive), and HA logged a template variable warning each time.
+    The per-variable tests never saw it: they pass every name explicitly."""
+
+    @pytest.fixture(scope="class")
+    def blueprint(self):
+        return _load_blueprint_yaml()
+
+    def test_override_expired_is_declared_before_recovery_catch_up(self, blueprint):
+        names = list(blueprint["variables"])
+        assert names.index("override_expired") < names.index("recovery_catch_up")
+
+    def test_no_top_level_variable_reads_a_later_sibling(self, blueprint):
+        assert _forward_references(blueprint["variables"]) == {}
+
+    def test_no_trigger_variable_reads_a_later_sibling(self, blueprint):
+        assert _forward_references(blueprint["trigger_variables"]) == {}
+
+    def test_recovery_catch_up_sees_override_expired_when_rendered_in_order(self, blueprint):
+        """Render the gate the way HA does: with only its predecessors in scope.
+        A live reset of an expired override must open the catch-up."""
+        names = list(blueprint["variables"])
+        predecessors = names[: names.index("recovery_catch_up")]
+        scope = {n: False for n in predecessors}
+        scope.update(
+            manual_reset_event=True,
+            override_expired=True,
+            recovery_mode="never",
+            instance_activated=False,
+            is_restart_run=True,
+        )
+        scope = {n: v for n, v in scope.items() if n in predecessors}
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        rendered = env.from_string(
+            str(blueprint["variables"]["recovery_catch_up"])
+        ).render(scope)
+        assert rendered.strip() == "True"
