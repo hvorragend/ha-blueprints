@@ -1983,6 +1983,22 @@ def _forward_references(variables: dict) -> dict[str, list[str]]:
     return forward
 
 
+def _nested_variables_mappings(node, path="actions") -> list[tuple[str, dict]]:
+    """Every `variables:` mapping below node (action steps, choose/if/repeat
+    bodies, anchor expansions), with a readable path for the assertion."""
+    found: list[tuple[str, dict]] = []
+    if isinstance(node, dict):
+        variables = node.get("variables")
+        if isinstance(variables, dict):
+            found.append((f"{path} ({node.get('alias', '-')})", variables))
+        for key, child in node.items():
+            found.extend(_nested_variables_mappings(child, f"{path}/{key}"))
+    elif isinstance(node, list):
+        for index, child in enumerate(node):
+            found.extend(_nested_variables_mappings(child, f"{path}[{index}]"))
+    return found
+
+
 class TestPatternBCVariablesAreDeclaredBeforeUse:
     """#727: `recovery_catch_up` read `override_expired`, declared further down
     the same `variables:` block. HA renders the block in order, so the name was
@@ -2005,6 +2021,20 @@ class TestPatternBCVariablesAreDeclaredBeforeUse:
 
     def test_no_trigger_variable_reads_a_later_sibling(self, blueprint):
         assert _forward_references(blueprint["trigger_variables"]) == {}
+
+    def test_no_action_scope_variable_reads_a_later_sibling(self, blueprint):
+        """Same rule inside every `variables:` step of the action tree: HA
+        renders one mapping top to bottom, so a sibling declared further down
+        is undefined there too. Names from earlier steps and outer scopes are
+        fine and are not siblings, so they are not flagged."""
+        mappings = _nested_variables_mappings(blueprint["actions"])
+        assert len(mappings) > 100  # the walk reaches the anchor expansions
+        offenders = {
+            path: forward
+            for path, variables in mappings
+            if (forward := _forward_references(variables))
+        }
+        assert offenders == {}
 
     def test_recovery_catch_up_sees_override_expired_when_rendered_in_order(self, blueprint):
         """Render the gate the way HA does: with only its predecessors in scope.
