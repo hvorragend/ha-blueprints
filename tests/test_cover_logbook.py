@@ -199,6 +199,22 @@ class TestStateLabels:
         )
 
 
+# The live force comparison in the message's suffix (Bug Pattern BD / #726):
+# blueprint-level inputs/flags plus the states() read of the four entities.
+_FORCE_CONTEXT = dict(
+    auto_up_force="input_boolean.f_open",
+    auto_down_force="input_boolean.f_close",
+    auto_shading_start_force=[],
+    auto_ventilate_force=[],
+    is_forced_open=False,
+    is_forced_close=False,
+    is_forced_shade=False,
+    is_forced_vent=False,
+    invalid_states=["", "unavailable", "unknown", "none", "None", "null", "query failed", []],
+    states=lambda entity: "off",
+)
+
+
 class TestMessageRendering:
     def _render(self, **context) -> str:
         env = jinja2.Environment(undefined=jinja2.StrictUndefined)
@@ -209,6 +225,7 @@ class TestMessageRendering:
             is_cover_tilt_enabled_and_possible=False,
             drive_action_set="",
             # Blueprint-level variables - always defined, even at pre-render time.
+            **_FORCE_CONTEXT,
             current_position=100,
             current_tilt_position=101,
             position_tolerance=0,
@@ -261,6 +278,23 @@ class TestMessageRendering:
         out = self._render(drive_plan={"run": False}, log_user="shading noted for later")
         assert out == "no movement · shading noted for later"
 
+    def test_a_force_switched_during_the_delay_is_named(self):
+        # Bug Pattern BD (#726): the plan was made without a force, Force Close
+        # turned on during the pre-drive delay, the live gate withheld the drive.
+        out = self._render(
+            drive_plan={"run": True, "target": 100}, drive_dispatched=False,
+            current_position=12, log_user="opening as scheduled",
+            states=lambda entity: "on" if entity == "input_boolean.f_close" else "off",
+        )
+        assert out == "no movement [force switched] · opening as scheduled"
+        # An unreadable force entity is not a switch (dropout != switch-off).
+        plain = self._render(
+            drive_plan={"run": True, "target": 100}, drive_dispatched=False,
+            current_position=12, log_user="opening as scheduled",
+            states=lambda entity: "unavailable" if entity == "input_boolean.f_close" else "off",
+        )
+        assert plain == "no movement · opening as scheduled"
+
     def test_it_survives_a_missing_drive_plan_and_missing_labels(self):
         # Invariant 14: the anchor body is pre-rendered before the action-scope
         # variables exist - with a force active, an unguarded state_labels
@@ -274,7 +308,10 @@ class TestMessageRendering:
         for name in ("current_position", "current_tilt_position",
                      "position_tolerance", "tilt_position_tolerance",
                      "is_cover_tilt_enabled_and_possible", "is_paused",
-                     "helper_state_manual", "helper_state_force"):
+                     "helper_state_manual", "helper_state_force",
+                     "auto_up_force", "auto_down_force", "auto_shading_start_force",
+                     "auto_ventilate_force", "is_forced_open", "is_forced_close",
+                     "is_forced_shade", "is_forced_vent", "invalid_states"):
             assert name in pre_action, (
                 f"{name} is set inside the action tree - the anchor is "
                 f"pre-rendered before that and may not use it unguarded"
@@ -283,7 +320,7 @@ class TestMessageRendering:
             is_paused=False, helper_state_manual=False, helper_state_force="cls",
             is_cover_tilt_enabled_and_possible=False, current_position=50,
             current_tilt_position=101, position_tolerance=0,
-            tilt_position_tolerance=0,
+            tilt_position_tolerance=0, **_FORCE_CONTEXT,
         ).strip()
         assert out == "no movement [force: cls] · status update"
 
@@ -331,6 +368,12 @@ class TestNothingWouldHaveMoved:
     def test_a_suppressed_drive_that_would_have_moved_is_logged(self):
         assert self._fires(drive_plan={"run": False, "target": 0},
                            log_user="closing time reached")
+
+    def test_a_travelling_cover_is_never_already_there(self):
+        # Bug Pattern BD (#726): the reported position of a cover in motion is
+        # stale by definition - the drive is planned, so the line is written.
+        assert self._fires(drive_plan={"run": True, "target": 100},
+                           cover_in_motion=True)
 
     def test_matching_position_but_wrong_slats_still_counts_as_movement(self):
         assert self._fires(drive_plan={"run": True, "target": 100, "target_tilt": 50},

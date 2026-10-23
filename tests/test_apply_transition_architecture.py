@@ -471,3 +471,227 @@ class TestActuationPointLiveGates:
         assert custom["then"] == [{"variables": {"drive_dispatched": True}}]
         assert custom_index == len(sequence) - 2
         assert sequence[-1].get("if") == "{{ drive_dispatched | default(false) }}"
+
+
+def _force_gate(anchor: dict) -> str:
+    """The live force re-check that sits next to the pause gate after the
+    pre-drive delay (Bug Pattern BD / #726)."""
+    def walk(node):
+        if isinstance(node, str):
+            return node if "is_forced_close" in node else None
+        if isinstance(node, dict):
+            for value in node.values():
+                found = walk(value)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    found = walk(anchor.get("sequence", []))
+    if found is not None:
+        return found
+    raise AssertionError("anchor has no live force gate")
+
+
+class TestPostDelayLiveForceGate:
+    """Bug Pattern BD (#726): the pre-drive delay can last minutes. A force
+    entity that flips meanwhile fires its own run, queued behind this one -
+    the plan made before the flip must not drive first (the opening drove to
+    100% after a 114 s delay although Force Close had turned on during it).
+    apply_transition therefore compares the four force entities live against
+    the planning snapshot after the delay; a changed force withholds the
+    drive, the state write still happens (Invariant 15)."""
+
+    FORCES = {
+        "auto_up_force": ("input_boolean.f_open", "is_forced_open"),
+        "auto_down_force": ("input_boolean.f_close", "is_forced_close"),
+        "auto_shading_start_force": ("input_boolean.f_shade", "is_forced_shade"),
+        "auto_ventilate_force": ("input_boolean.f_vent", "is_forced_vent"),
+    }
+
+    def _anchor(self) -> dict:
+        return _load_blueprint_yaml()["actions"][0]["variables"]["apply_transition"]
+
+    def test_the_force_gate_is_a_sibling_of_the_pause_gate_after_the_delay(self):
+        seq = self._anchor()["sequence"]
+        drive_step = next(s for s in seq if isinstance(s, dict) and "if" in s)
+        then = drive_step["then"]
+        delay_index = next(i for i, s in enumerate(then) if "delay" in str(s))
+        gate_step = next(s for s in then if isinstance(s, dict) and "is_forced_close" in str(s.get("if", "")))
+        gate_index = then.index(gate_step)
+        assert delay_index < gate_index
+        conditions = gate_step["if"]
+        assert isinstance(conditions, list) and len(conditions) == 2
+        assert "states(force_pause)" in conditions[0]
+        gate = conditions[1]
+        for input_name, (_, planned) in self.FORCES.items():
+            assert f"{input_name} == []" in gate, input_name  # Bug Pattern AF
+            assert f"states({input_name}) in invalid_states" in gate, input_name
+            assert planned in gate, planned
+
+    def _render(self, *, planned: dict, live: dict, configured=None) -> str:
+        import jinja2
+
+        configured = set(self.FORCES) if configured is None else set(configured)
+
+        def states(entity):
+            value = live.get(entity)
+            return "unknown" if value is None else value
+
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        context = {
+            "states": states,
+            "invalid_states": ["", "unavailable", "unknown", "none", "None", "null", "query failed", []],
+        }
+        for input_name, (entity, planned_name) in self.FORCES.items():
+            context[input_name] = entity if input_name in configured else []
+            context[planned_name] = planned.get(planned_name, False)
+        return env.from_string(_force_gate(self._anchor())).render(**context).strip()
+
+    def test_an_unchanged_force_picture_lets_the_drive_through(self):
+        assert self._render(planned={}, live={}) == "True"
+        assert self._render(
+            planned={"is_forced_close": True}, live={"input_boolean.f_close": "on"}
+        ) == "True"
+
+    def test_a_force_enabled_during_the_delay_withholds_the_drive(self):
+        # The #726 shape: Force Close (rain) turned on during the opening's delay.
+        assert self._render(
+            planned={}, live={"input_boolean.f_close": "on"}
+        ) == "False"
+        for entity in ("input_boolean.f_open", "input_boolean.f_shade", "input_boolean.f_vent"):
+            assert self._render(planned={}, live={entity: "on"}) == "False", entity
+
+    def test_a_force_disabled_during_the_delay_withholds_the_drive(self):
+        # Its force-disable run (queued behind) owns the recovery.
+        assert self._render(
+            planned={"is_forced_open": True}, live={"input_boolean.f_open": "off"}
+        ) == "False"
+
+    def test_an_unreadable_force_entity_counts_as_unchanged(self):
+        # A dropout is not a switch-off (mirror of force_helper_unreadable).
+        assert self._render(
+            planned={"is_forced_close": True}, live={"input_boolean.f_close": "unavailable"}
+        ) == "True"
+        assert self._render(planned={}, live={"input_boolean.f_close": "unknown"}) == "True"
+
+    def test_unconfigured_force_inputs_are_transparent(self):
+        assert self._render(planned={}, live={}, configured=[]) == "True"
+        # Only the configured entity is compared.
+        assert self._render(
+            planned={}, live={"input_boolean.f_open": "on"}, configured=["auto_down_force"]
+        ) == "True"
+
+
+class TestApplyTransitionReReadsThePositionLive:
+    """Bug Pattern BD (#726): the drive projection compared the target against
+    a position the cover no longer holds. In the report the Force Close run
+    fired 24 s after the opening had started its travel; the cover still
+    reported the closed position (12 %), the projection found "nothing to do"
+    and wrote frc: cls while the cover ended at 100 %. The actuation layer now
+    re-reads position and tilt live at anchor entry (a run executing after
+    another one moved the cover) and treats a travelling cover as away from
+    every target. Branch conditions keep the snapshot (dispatch layer)."""
+
+    def _anchor(self) -> dict:
+        return _load_blueprint_yaml()["actions"][0]["variables"]["apply_transition"]
+
+    @staticmethod
+    def _top_var(name: str) -> str:
+        return _load_blueprint_yaml()["variables"][name]
+
+    @staticmethod
+    def _norm(template: str) -> str:
+        return " ".join(str(template).split())
+
+    def test_the_live_re_read_precedes_the_drive_projection(self):
+        variables = self._anchor()["sequence"][0]["variables"]
+        keys = list(variables)
+        assert keys.index("current_position") < keys.index("drive_required")
+        assert keys.index("current_tilt_position") < keys.index("drive_required")
+        assert keys.index("cover_in_motion") < keys.index("drive_required")
+        assert variables["cover_in_motion"] == "{{ states(blind) in ['opening', 'closing'] }}"
+
+    def _projection(self, **context) -> str:
+        import jinja2
+
+        variables = self._anchor()["sequence"][0]["variables"]
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        base = dict(
+            drive_plan={"run": True, "action_set": "down", "target": 12, "target_tilt": 101},
+            current_position=12,
+            current_tilt_position=101,
+            position_tolerance=2,
+            tilt_position_tolerance=5,
+            is_cover_tilt_enabled_and_possible=False,
+        )
+        base.update(context)
+        return env.from_string(variables["drive_required"]).render(**base).strip()
+
+    def test_a_travelling_cover_is_away_from_every_target(self):
+        # The #726 timeline: Force Close fires while the opening travel is
+        # under way and the cover still reports the closed position.
+        assert self._projection(cover_in_motion=False) == "False"
+        assert self._projection(cover_in_motion=True) == "True"
+        # Pre-render safety (Invariant 14): the flag is default-guarded.
+        assert self._projection() == "False"
+
+    def test_a_tilt_only_plan_ignores_the_motion_flag(self):
+        assert self._projection(
+            drive_plan={"run": True, "move": "tilt", "target_tilt": 50},
+            current_tilt_position=50, is_cover_tilt_enabled_and_possible=True,
+            cover_in_motion=True,
+        ) == "False"
+
+    def test_the_movement_stages_follow_the_motion_flag(self):
+        """cover_move_action and the tilt alignment carry the same tolerance
+        guard; a travelling cover must pass it too, or the projection would
+        plan a drive the stage then refuses."""
+        import jinja2
+
+        blueprint = _load_blueprint_yaml()
+        anchors = blueprint["actions"][0]["variables"]
+        move_guard = anchors["cover_move_action"]["sequence"][1]["value_template"]
+        align = next(
+            step for step in anchors["drive_with_actions"]["sequence"]
+            if isinstance(step, dict) and step.get("alias") == "Preliminary tilt alignment (tilt before position mode)"
+        )
+        align_guard = align["if"][1]
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        for guard in (move_guard, align_guard):
+            assert guard.startswith("{{ cover_in_motion | default(false) or not (")
+            at_target = dict(target_position=12, current_position=12, position_tolerance=2)
+            assert env.from_string(guard).render(**at_target).strip() == "False"
+            assert env.from_string(guard).render(cover_in_motion=True, **at_target).strip() == "True"
+
+    def test_the_live_re_read_mirrors_the_top_level_templates(self):
+        variables = self._anchor()["sequence"][0]["variables"]
+        for name in ("current_position", "current_tilt_position"):
+            assert self._norm(variables[name]) == self._norm(self._top_var(name)), name
+
+    def test_a_queued_force_close_still_drives_a_cover_opened_meanwhile(self):
+        import jinja2
+
+        variables = self._anchor()["sequence"][0]["variables"]
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        live_position = env.from_string(variables["current_position"]).render(
+            position_source="current_position_attr",
+            blind="cover.living_room",
+            custom_position_sensor=[],
+            state_attr=lambda entity, attr: {"current_position": 100}[attr],
+            states=lambda entity: "unknown",
+        ).strip()
+        assert live_position == "100"  # the snapshot said 12
+        drive_required = env.from_string(variables["drive_required"]).render(
+            drive_plan={"run": True, "action_set": "down", "target": 12, "target_tilt": 101},
+            current_position=int(live_position),
+            current_tilt_position=101,
+            position_tolerance=2,
+            tilt_position_tolerance=5,
+            is_cover_tilt_enabled_and_possible=False,
+        ).strip()
+        assert drive_required == "True"

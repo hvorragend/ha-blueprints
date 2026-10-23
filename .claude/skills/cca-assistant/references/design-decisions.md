@@ -62,10 +62,16 @@ The pause is therefore part of **every** drive gate: all five `state_gates`, eve
 
 Semantics: a paused run **records** its state transition (helper write, `bas`/`shd`/`win`/`frc` all updated — that is what makes the pause-resume instant) but does not drive, does not run drive actions, and does not touch `man`. When the pause ends, `t_force_pause_disabled` (or, after an outage of the pause entity, its `t_recovery` trigger) drives the cover to `effective_state` — that handler's own `will_drive` is `not is_paused`, guarding the queued-run race where the pause was re-enabled before the resume run executed.
 
-**The actuation-point checks are live reads.** `apply_transition` first projects
-whether position or relevant tilt differs outside tolerance. After any pre-drive
-delay it reads `states(force_pause)` and `instance_active` directly, before any
-user action runs. A full drive then runs the selected before-action and re-reads
+**The actuation-point checks are live reads.** `apply_transition` first re-reads
+the cover's position and tilt live and notes whether the cover is travelling — a run
+that executes after another one moved the cover must not project from its trigger-time
+snapshot, and a cover in motion reports a position nothing can be decided on, so it
+counts as away from every position target (Bug Pattern BD / #726). It then projects
+whether position or relevant tilt differs outside tolerance. After any pre-drive delay it reads
+`states(force_pause)` and `instance_active` directly, before any user action runs,
+and compares the four force entities against the planning snapshot: a force that
+switched during the delay withholds the drive (its own run, queued behind, owns the
+new target), an unreadable one counts as unchanged. A full drive then runs the selected before-action and re-reads
 both ownership gates once more in `drive_with_actions`. This closes the remaining
 race when a user before-action itself waits. The cover and tilt movement anchors
 re-read again before their respective service stages because tilt alignment and
@@ -83,7 +89,7 @@ same projection and live ownership checks, entering the custom-only pipeline
 counts as `drive_dispatched`. This preserves the documented custom-actions-only
 contract and keeps `d` / the automatic manual clear aligned with that contract.
 
-Enforced by `tests/test_apply_transition_architecture.py::TestForcePauseIsPartOfEveryDriveGate` — a new branch whose drive gate ignores the pause fails structurally. The live actuation gates are pinned by `TestActuationPointLiveGates` in the same file.
+Enforced by `tests/test_apply_transition_architecture.py::TestForcePauseIsPartOfEveryDriveGate` — a new branch whose drive gate ignores the pause fails structurally. The live actuation gates are pinned by `TestActuationPointLiveGates`, the post-delay force comparison by `TestPostDelayLiveForceGate` and the live position re-read by `TestApplyTransitionReReadsThePositionLive` in the same file.
 
 ### Triggers from/to an invalid sensor state are deliberately ignored
 
