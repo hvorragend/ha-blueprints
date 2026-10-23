@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.10.12 V2
+    **Version**: 2026.10.23
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -2745,7 +2745,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.10.12 V2"
+  version: "2026.10.23"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -3333,20 +3333,6 @@ variables:
     {{ helper_state_manual and trigger is defined and
        trigger.id | default('') in ['t_reset_fixedtime', 't_reset_timeout', 't_reset_position'] }}
 
-  # CATCH UP - Is this run allowed to replay what was missed (re-derive the base state, arm a
-  # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
-  # An activation or an explicit Manual reset reconciles regardless of the opt-in. The
-  # activation asymmetry is deliberate: the trigger (a real off -> on flank, impossible on a
-  # restart) is exempt from is_restart_run, the timestamp proxy (which reads true on every
-  # restart) is not. A manual reset additionally requires override_expired: a manual change
-  # inside the reset's own tolerance window has not actually expired yet, so it must not
-  # trigger a catch-up (hygiene-only sync still runs below).
-  recovery_catch_up: >-
-    {{ (manual_reset_event and override_expired) or
-       recovery_mode == 'always' or
-       (trigger is defined and trigger.id | default('') == 't_instance_activated') or
-       ((recovery_mode == 'outage' or instance_activated) and not is_restart_run) }}
-
   # STALE DAY - Was the helper last written on an earlier day?
   # The 23:55 midnight reset clears shd/pnd every night. If the automation was off, that
   # reset never ran, so a shading from days ago would still read as active.
@@ -3371,6 +3357,22 @@ variables:
            )
          )
        ) }}
+
+  # CATCH UP - Is this run allowed to replay what was missed (re-derive the base state, arm a
+  # shading pending, drive)? Everything else the recovery gate does is hygiene and runs anyway.
+  # An activation or an explicit Manual reset reconciles regardless of the opt-in. The
+  # activation asymmetry is deliberate: the trigger (a real off -> on flank, impossible on a
+  # restart) is exempt from is_restart_run, the timestamp proxy (which reads true on every
+  # restart) is not. A manual reset additionally requires override_expired: a manual change
+  # inside the reset's own tolerance window has not actually expired yet, so it must not
+  # trigger a catch-up (hygiene-only sync still runs below).
+  # Declared after override_expired: HA renders variables top to bottom, a forward
+  # reference is undefined (falsy) at render time (Bug Pattern BC, #727).
+  recovery_catch_up: >-
+    {{ (manual_reset_event and override_expired) or
+       recovery_mode == 'always' or
+       (trigger is defined and trigger.id | default('') == 't_instance_activated') or
+       ((recovery_mode == 'outage' or instance_activated) and not is_restart_run) }}
 
   # SHADED STATUS - Is cover currently shaded (not pending)?
   # True when shade == 1 AND no pending start armed

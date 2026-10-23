@@ -1324,3 +1324,37 @@ position-relation gate, ask what the same relation means on the tilt axis. Tests
 `tests/test_vent_tilt_floor.py`.
 
 ---
+
+### Bug Pattern BC: A top-level variable read a sibling declared further down — the manual-reset catch-up was dead for two months (Issue #727)
+
+**Symptom:** HA logs `Template variable warning: 'override_expired' is undefined when
+rendering '{{ (manual_reset_event and override_expired) or …'` on every live Manual
+Override reset (`t_reset_fixedtime` / `t_reset_timeout` / `t_reset_position`). Less
+visible but worse: since CCA 2026.08.23 every such reset ran **hygiene-only** — `man`
+was cleared (that hangs off `override_expired` directly, inside the action scope where
+it *is* defined), but the base was never re-derived through the recovery reducer (the
+exact Bug Pattern AU shape the `manual_reset_event` term exists to prevent) and the
+opted-in `auto_recover_after_manual_reset` drive never happened. The trace dump said so
+all along: `Manual override reset reconciliation (hygiene only, no catch-up)`.
+
+**Cause:** HA renders a `variables:` mapping **top to bottom**, each template seeing only
+the names rendered before it (plus the trigger variables and the trigger context). 637ee67
+added `and override_expired` to `recovery_catch_up`, which was declared ~20 lines *above*
+`override_expired`. Jinja's `and` short-circuits, so the warning only appeared when
+`manual_reset_event` was true — and then `override_expired` was undefined, i.e. falsy. No
+test caught it because every per-variable test passes the names it needs explicitly; none
+rendered the block in declaration order.
+
+**Fix:** `recovery_catch_up` is declared after `override_expired` (directly before
+`helper_state_is_shaded`); nothing in between depends on it. Tests
+(`TestPatternBCVariablesAreDeclaredBeforeUse`): a scan of the whole top-level
+`variables:` and `trigger_variables:` mappings for forward references, and a render of
+`recovery_catch_up` with `StrictUndefined` and only its predecessors in scope.
+
+**Rule:** Inside one `variables:` mapping a template may only read names declared **above**
+it. When you add a dependency to an existing variable, check that the dependency is
+declared earlier — if not, move the *consumer* down, never the dependency up (its own
+dependencies are already satisfied where it is). The HA warning is the only runtime
+symptom; a boolean that reads an undefined name simply renders as `False`.
+
+---
