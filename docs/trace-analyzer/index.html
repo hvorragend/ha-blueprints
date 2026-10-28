@@ -2543,6 +2543,9 @@
                             reason = branchInfo.stopMsg
                                 ? `Branch entered, then skipped (no cover action): "${branchInfo.stopMsg}"`
                                 : 'Branch entered, then skipped (no cover action)';
+                        } else if (branchInfo && branchInfo.number === i && branchInfo.outcome === 'state_only') {
+                            status = 'executed';
+                            reason = `Branch executed — state updated, movement withheld: ${branchInfo.drive.reason}`;
                         } else {
                             status = 'executed';
                             reason = 'Branch executed';
@@ -2792,10 +2795,91 @@
             return { id: 'unknown', idx: '?', platform: 'unknown', description: 'Trigger info not found' };
         }
 
+        // Last recorded value of a run variable, in execution order of the trace.
+        function latestVariable(innerTrace, name) {
+            let value;
+            for (const key of Object.keys(innerTrace)) {
+                for (const step of innerTrace[key]) {
+                    const cv = step.changed_variables;
+                    if (cv && Object.prototype.hasOwnProperty.call(cv, name)) value = cv[name];
+                }
+            }
+            return value;
+        }
+
+        // The four force functions: helper `frc` value -> label and the input that owns it.
+        // Keys mirror the blueprint's `state_labels` / `frc` enum (minus `non`).
+        const FORCE_LABELS = { opn: 'Force Open', cls: 'Force Close', shd: 'Force Shading', vnt: 'Force Ventilate' };
+        const FORCE_INPUTS = { opn: 'auto_up_force', cls: 'auto_down_force', shd: 'auto_shading_start_force', vnt: 'auto_ventilate_force' };
+
+        // Every branch ends in the shared apply_transition step: the branch plans a
+        // drive (`drive_plan`, `will_drive`), the step decides whether the cover has
+        // to move (`drive_required`) and whether it actually sent the command
+        // (`drive_dispatched`). A run that wrote the helper but never called a cover
+        // service is therefore either "nothing to do" or "movement withheld by a
+        // blocker" — the two cases a user reading "Branch Executed" cannot tell
+        // apart (issue #731: Force Close bound to a humidity sensor that stays on).
+        // The blocker order mirrors the cover-logbook line in the blueprint.
+        function analyzeDriveDecision(innerTrace, droveCover) {
+            const plan = latestVariable(innerTrace, 'drive_plan');
+            if (!plan || typeof plan !== 'object') return { planned: false, withheld: false };
+            const truthy = (v) => v === true || v === 'true' || v === 'True';
+            const run = truthy(plan.run) || truthy(latestVariable(innerTrace, 'will_drive'));
+            const required = latestVariable(innerTrace, 'drive_required');
+            const dispatched = latestVariable(innerTrace, 'drive_dispatched');
+            const paused = truthy(latestVariable(innerTrace, 'is_paused'));
+            const manual = truthy(latestVariable(innerTrace, 'helper_state_manual'));
+            const force = latestVariable(innerTrace, 'helper_state_force') || latestVariable(innerTrace, 'live_force') || 'non';
+            const entityOf = (input) => {
+                const v = latestVariable(innerTrace, input);
+                return (typeof v === 'string' && v) ? v : null;
+            };
+            const decision = { planned: true, run, required: truthy(required), dispatched: truthy(dispatched),
+                               withheld: false, kind: null, reason: '', detail: '', entity: null };
+            if (droveCover || truthy(dispatched)) return decision;
+
+            if (!run) {
+                decision.withheld = true;
+                if (paused) {
+                    decision.kind = 'pause';
+                    decision.reason = 'Force Pause is active';
+                    decision.entity = entityOf('force_pause');
+                    decision.detail = 'While the Force Pause entity is on, CCA keeps tracking the schedule but does not send any command to the cover. The stored state was updated so the cover can catch up when the pause ends.';
+                } else if (manual) {
+                    decision.kind = 'manual';
+                    decision.reason = 'Manual override is active (man: 1)';
+                    decision.detail = 'The cover was moved by hand and this action is listed under "Ignore after manual override". The stored state keeps following the schedule; the movement resumes after the configured override reset.';
+                } else if (force && force !== 'non' && FORCE_LABELS[force]) {
+                    decision.kind = 'force';
+                    decision.reason = `${FORCE_LABELS[force]} is active (frc: ${force})`;
+                    decision.entity = entityOf(FORCE_INPUTS[force]);
+                    decision.detail = `A force function owns the cover: as long as its entity is on, every scheduled movement is withheld. The stored state still follows the schedule, and with "Recover after force" enabled the cover moves to the schedule's target as soon as the entity switches off.`;
+                } else {
+                    decision.kind = 'gate';
+                    decision.reason = 'The branch decided that no movement is due';
+                    decision.detail = 'The drive gate of this branch evaluated to false — typically the cover already is at the target position, a per-action condition is not met, or a prevent flag applies. Only the stored state was updated.';
+                }
+            } else if (required === false || required === 'false') {
+                decision.withheld = true;
+                decision.kind = 'in_position';
+                const target = plan.target !== undefined ? plan.target : latestVariable(innerTrace, 'target_position');
+                const current = latestVariable(innerTrace, 'current_position');
+                decision.reason = 'Cover already at the target position';
+                decision.detail = `The movement was planned (target ${target}%), but the cover already reports ${current}% — within the position tolerance, so no command was sent.`;
+            } else {
+                decision.withheld = true;
+                decision.kind = 'post_delay';
+                decision.reason = 'Movement withheld after the drive delay';
+                decision.detail = 'The command was due, but the re-check after the drive delay found a Force Pause, a force entity that switched meanwhile, or an inactive instance. The owning run takes over the cover.';
+            }
+            return decision;
+        }
+
         // Determine what a matched branch actually DID, not just that its path was traversed.
         // A branch sequence can end in a real cover drive / helper write, or in a
         // skip/abort/waiting `stop:` that performs no cover action. Labeling the latter
-        // as "executed" is misleading (see issue #523).
+        // as "executed" is misleading (see issue #523). A helper write without a cover
+        // command is reported as 'state_only' with the blocker named (issue #731).
         function analyzeExecutionOutcome(innerTrace, lastStep) {
             let droveCover = false;
             let wroteHelper = false;
@@ -2807,6 +2891,7 @@
                     if (params.domain === 'input_text' && params.service === 'set_value') wroteHelper = true;
                 }
             }
+            const drive = analyzeDriveDecision(innerTrace, droveCover);
 
             let stopMsg = null;
             const sd = innerTrace[lastStep];
@@ -2821,6 +2906,8 @@
                 outcome = 'executed';            // cover was physically driven
             } else if (isSkipMsg) {
                 outcome = 'skipped';             // branch entered, then skipped/aborted/waiting — no cover action
+            } else if (wroteHelper && drive.withheld) {
+                outcome = 'state_only';          // state persisted, planned movement withheld — name the blocker
             } else if (wroteHelper) {
                 outcome = 'executed';            // no movement, but a real state change was persisted
             } else if (lastStep.match(/^condition\//)) {
@@ -2828,7 +2915,7 @@
             } else {
                 outcome = stopMsg ? 'skipped' : 'entered';
             }
-            return { outcome, stopMsg, droveCover, wroteHelper, isSkipMsg };
+            return { outcome, stopMsg, droveCover, wroteHelper, isSkipMsg, drive };
         }
 
         function extractBranchInfo(lastStep, innerTrace) {
@@ -2848,7 +2935,8 @@
                     outcome: exec.outcome,
                     stopMsg: exec.stopMsg,
                     droveCover: exec.droveCover,
-                    wroteHelper: exec.wroteHelper
+                    wroteHelper: exec.wroteHelper,
+                    drive: exec.drive
                 };
             }
 
@@ -2863,7 +2951,8 @@
                     outcome: exec.outcome,
                     stopMsg: exec.stopMsg,
                     droveCover: exec.droveCover,
-                    wroteHelper: exec.wroteHelper
+                    wroteHelper: exec.wroteHelper,
+                    drive: exec.drive
                 };
             }
 
@@ -2881,7 +2970,8 @@
                     outcome: exec.outcome,
                     stopMsg: exec.stopMsg,
                     droveCover: exec.droveCover,
-                    wroteHelper: exec.wroteHelper
+                    wroteHelper: exec.wroteHelper,
+                    drive: exec.drive
                 };
             }
 
@@ -2894,7 +2984,8 @@
                 outcome: exec.outcome,
                 stopMsg: exec.stopMsg,
                 droveCover: exec.droveCover,
-                wroteHelper: exec.wroteHelper
+                wroteHelper: exec.wroteHelper,
+                drive: exec.drive
             };
         }
 
@@ -3052,12 +3143,13 @@
                 </div>
 
                 <div class="summary-card branch-info">
-                    <div class="card-label">${branchInfo.outcome === 'skipped' ? 'Branch Entered (Skipped)' : 'Branch Executed'}</div>
+                    <div class="card-label">${branchInfo.outcome === 'skipped' ? 'Branch Entered (Skipped)' : (branchInfo.outcome === 'state_only' ? 'Branch Executed (No Movement)' : 'Branch Executed')}</div>
                     <div class="card-value">
                         ${branchInfo.icon} ${branchInfo.number !== null ? `(${branchInfo.number}) ` : ''}${branchInfo.name}
                     </div>
                     <div class="card-detail">${branchInfo.description}</div>
                     ${branchInfo.outcome === 'skipped' ? `<div class="card-detail" style="color: var(--accent-yellow); margin-top: 0.35rem;">↩️ Entered, then skipped — no cover action${branchInfo.stopMsg ? `: "${branchInfo.stopMsg}"` : ''}</div>` : ''}
+                    ${branchInfo.outcome === 'state_only' ? `<div class="card-detail" style="color: var(--accent-yellow); margin-top: 0.35rem;">⛔ State updated, movement withheld: ${branchInfo.drive.reason}${branchInfo.drive.entity ? ` (<code>${branchInfo.drive.entity}</code>)` : ''}</div>` : ''}
                 </div>
 
                 <div class="summary-card last-step-info">
@@ -3077,6 +3169,9 @@
                 const exec = analyzeExecutionOutcome(innerTrace, lastStep);
                 if (exec.outcome === 'skipped') {
                     return '↩️ Branch entered, then skipped (no cover action)';
+                }
+                if (exec.outcome === 'state_only') {
+                    return '⛔ State updated, movement withheld';
                 }
             }
 
@@ -3121,6 +3216,33 @@
                     'The cover did NOT move and the helper was NOT changed.',
                     'See the stop message below for the exact reason the branch skipped.'
                 ];
+
+            } else if (branchInfo.matched && branchInfo.outcome === 'state_only') {
+                // The branch ran to its end and wrote the helper, but the planned movement
+                // was withheld. Name the blocker instead of "successfully executed" (issue #731).
+                const d = branchInfo.drive;
+                interpretation = `
+                    <p><strong>Branch ${branchInfo.number} (${branchInfo.name})</strong> was entered and ran to its end — but the cover was <strong>not moved</strong>. Only the stored state (helper) was updated.</p>
+                    <div class="fail-badge" style="display:inline-block; background:rgba(234, 179, 8, 0.2); color:var(--accent-yellow); padding:0.2rem 0.6rem; border-radius:4px; font-weight:600; margin-bottom:1rem;">
+                        ⛔ Movement withheld: ${d.reason}${d.entity ? ` — <code>${d.entity}</code>` : ''}
+                    </div>
+                    <p>${d.detail}</p>
+                `;
+
+                suggestions = [];
+                if (d.kind === 'force') {
+                    suggestions.push(`Check the state of the force entity${d.entity ? ` <code>${d.entity}</code>` : ''}: it was <strong>on</strong> during this run. If that entity is not meant to hold the cover (e.g. a humidity sensor used as a rain sensor), bind the force function to a sensor that only reports the condition you want, or use a template binary sensor with a threshold.`);
+                    suggestions.push('The helper field <code>frc</code> shows the active force owner; the cover follows the schedule again as soon as the entity switches off (immediately with "Recover after force", otherwise at the next scheduled movement).');
+                } else if (d.kind === 'manual') {
+                    suggestions.push('The cover was moved by hand; check the "Ignore after manual override" options and the configured override reset (fixed time, timeout or position).');
+                } else if (d.kind === 'pause') {
+                    suggestions.push(`Switch off the Force Pause entity${d.entity ? ` <code>${d.entity}</code>` : ''} to let the cover catch up.`);
+                } else if (d.kind === 'in_position') {
+                    suggestions.push('Nothing to fix: the cover already reports the target position. If it is physically somewhere else, check the position reported by the cover entity.');
+                } else {
+                    suggestions.push('Compare <code>drive_plan</code>, <code>will_drive</code> and the position variables in the Variables section to see which gate held the movement back.');
+                }
+                suggestions.push('This is the designed behavior: blockers only suppress the movement, the stored state keeps following the schedule so the cover can catch up later.');
 
             } else if (branchInfo.matched) {
                 interpretation = `
@@ -3812,7 +3934,8 @@
                     'helper_ts_shade', 'helper_ts_pending_due', 'helper_ts_pending_arm'
                 ],
                 'Blocking & Force': [
-                    'is_cover_movement_blocked',
+                    'will_drive', 'drive_plan', 'drive_required', 'drive_dispatched',
+                    'is_forced', 'live_force', 'helper_state_force', 'helper_state_manual',
                     'auto_up_force', 'auto_down_force', 'auto_ventilate_force', 'auto_shading_start_force',
                     'force_pause', 'is_paused'
                 ],
@@ -3971,7 +4094,7 @@ BRANCH
 Number: ${branchInfo.number !== null ? branchInfo.number : 'None'}
 Name: ${branchInfo.name}
 Description: ${branchInfo.description}
-Outcome: ${branchInfo.outcome === 'skipped' ? 'ENTERED, THEN SKIPPED (no cover action)' : (branchInfo.outcome === 'executed' ? 'Executed' : (branchInfo.outcome || 'N/A'))}${branchInfo.stopMsg ? `\nStop message: "${branchInfo.stopMsg}"` : ''}
+Outcome: ${branchInfo.outcome === 'skipped' ? 'ENTERED, THEN SKIPPED (no cover action)' : (branchInfo.outcome === 'state_only' ? `EXECUTED WITHOUT MOVEMENT (state updated, movement withheld: ${branchInfo.drive.reason}${branchInfo.drive.entity ? ` — ${branchInfo.drive.entity}` : ''})` : (branchInfo.outcome === 'executed' ? 'Executed' : (branchInfo.outcome || 'N/A')))}${branchInfo.stopMsg ? `\nStop message: "${branchInfo.stopMsg}"` : ''}
 
 LAST STEP
 ---------
