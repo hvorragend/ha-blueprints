@@ -61,6 +61,7 @@ class CCAValidator {
             'contact_window_opened', 'contact_window_tilted',
             'lockout_tilted_options', 'auto_ventilate_options',
             'contact_delay_trigger', 'contact_delay_status',
+            'ventilation_knx_restore_delay',
 
             // Shading - Basic
             'shading_azimuth_start', 'shading_azimuth_end',

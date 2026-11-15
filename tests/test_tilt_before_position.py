@@ -247,8 +247,12 @@ class TestPrerenderGuards:
         env = jinja2.Environment(undefined=jinja2.StrictUndefined)
         env.globals["states"] = lambda e: "unknown"
         env.globals["state_attr"] = lambda e, a: None
+        env.filters["from_json"] = lambda *args, **kwargs: pytest.fail(
+            "disabled native ventilation must not decode helper state during prerender"
+        )
 
         globals_only = {
+            "is_knx_ventilation": False,
             "is_tilt_before_position_mode": False,
             "is_cover_tilt_enabled_and_possible": False,
             "prevent_flags": {"default_cover_actions": False},

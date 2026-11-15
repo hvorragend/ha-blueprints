@@ -9,7 +9,9 @@ Settings if the feature ‘💨 - Ventilation Mode — React to open/tilted wind
 
 When **Ventilation Mode is disabled**, configured opened/tilted contact entities are ignored throughout CCA. They neither trigger movements nor influence scheduled closing, sun-shading end, resident transitions or recovery. This makes disabling the feature a complete opt-out rather than merely disabling the contact triggers.
 
-**On this page:** [🚪 Contact Sensor For Open Window (Full Ventilation)](#contact_window_opened) · [💨 Contact Sensor For Tilted Window (Partial Ventilation)](#contact_window_tilted) · [💨 Lockout protection for window tilted](#lockout_tilted_options) · [💨 Ventilation Configuration](#auto_ventilate_options) · [🕛 Contact Trigger Delay](#contact_delay_trigger) · [🕛 Contact Sensor Status Delay](#contact_delay_status)
+The movement descriptions below apply to ordinary CCA ventilation. With **Ventilation controlled by KNX** selected, the actuator owns those movements instead; CCA withholds built-in commands throughout the window cycle, including force-target commands, and reconciles the current target after restoration.
+
+**On this page:** [🚪 Contact Sensor For Open Window (Full Ventilation)](#contact_window_opened) · [💨 Contact Sensor For Tilted Window (Partial Ventilation)](#contact_window_tilted) · [💨 Lockout protection for window tilted](#lockout_tilted_options) · [💨 Ventilation Configuration](#auto_ventilate_options) · [🕛 Contact Trigger Delay](#contact_delay_trigger) · [🕛 Contact Sensor Status Delay](#contact_delay_status) · [🕛 Window Close Restore Delay](#ventilation_knx_restore_delay)
 
 ---
 
@@ -122,6 +124,18 @@ Various different ventilation options.
   <ins>Why the default is the other way round:</ins> on a genuinely hot day the right move is to keep the windows <ins>shut</ins> — closed window plus shading beats anything else, and that is also why a cover parked at the ventilation position rarely bothered anyone. The case this option is for is the one where the tilted window is no longer a decision you can revise: you left the house with the window on tilt and the day turns out warmer than announced. Then keeping the sun out is what is left, and it still helps a lot — even with the window open, a shaded room heats up far more slowly than one the sun shines into.
   <br />
   A roller shutter in the shading position does not seal a tilted window; it only reduces the airflow. Whether that trade is right depends on the room: for a south-facing living room in summer it usually is, for a bathroom it usually is not.
+  <br /><br />
+- <ins>Ventilation controlled by KNX:</ins>
+  <br />
+  Enable this final checkbox when your KNX actuator already opens the cover for an open window and restores its previous position after the window closes. Keep **Ventilation Mode** enabled in the main settings and select the existing opened/tilted contact sensors above; no additional contact or pause helper is needed.
+  <br /><br />
+  KNX retains responsibility for ventilation movement and lockout safety. While a contact is active, or KNX is restoring the cover after closure, CCA withholds its built-in cover and tilt commands. Scheduled opening/closing, shading and presence bookkeeping continue in the background. After the [Window Close Restore Delay](#ventilation_knx_restore_delay) and stable actuator feedback, CCA reconciles the cover with its **current automatic target**, not the position saved before ventilation. For example, if morning opening became due while the window was open, a shutter restored closed by KNX is opened again by CCA after settling.
+  <br /><br />
+  Movement feedback belonging to that ventilation cycle is not treated as a manual override, even when the manual-detection trigger runs later. Manual movements outside the cycle retain the usual override behavior. A reconciliation that needs no movement does not clear an existing manual override. Force Pause, instance activation and the configured movement conditions still apply.
+  <br /><br />
+  The existing **Cover Status Helper must allow 255 characters**. CCA persists the pending cycle there so restart/reload recovery can resume it; unavailable contacts or cover feedback hold movement until valid feedback returns. A device outage alone does not create a ventilation cycle.
+  <br /><br />
+  **Custom actions are not sandboxed:** if your custom action hooks call cover services directly, remove or guard those calls yourself. This checkbox suppresses CCA's built-in movement pipeline; it cannot provide a safety interlock for arbitrary custom actions. Leave actuator-side safety enabled.
 
 ---
 
@@ -154,6 +168,18 @@ This delay is applied inside the contact sensor handling. After the delay, CCA r
 
 **⚠️ Race Condition: Window closed + Resident off in quick succession:**
 If `contact_window_opened` and the resident sensor are turned off within milliseconds of each other, CCA may still see the resident as present at trigger time and incorrectly close the cover. Setting this delay to **0.5–1 second** gives the resident sensor enough time to settle before CCA makes its routing decision.
+
+---
+
+<a id="ventilation_knx_restore_delay"></a>
+
+## 🕛 Window Close Restore Delay
+
+> 🧩 Input: `ventilation_knx_restore_delay` · Default: `60` seconds
+
+This seconds slider appears immediately after **Contact Sensor Status Delay** and only affects **Ventilation controlled by KNX**. It gives the actuator time to restore its saved position after all configured window contacts close.
+
+CCA waits at least this long after closure and also requires **10 seconds of quiet cover position/state feedback** before reconciling the current automatic target. Later feedback extends the wait; a reopening cancels the release until the next closure. Choose a value long enough for the actuator's complete restoration. The wait is nonblocking, so scheduled state changes continue to be recorded.
 
 ---
 

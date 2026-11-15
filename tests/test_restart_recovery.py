@@ -119,6 +119,8 @@ def _env(entity_states: dict | None = None, last_changed: dict | None = None,
 # []), which is the state every test that predates it assumes. Supplying it here keeps those
 # tests strict about every OTHER variable. test_instance_active.py passes them explicitly.
 _HANDOVER_OFF = {"instance_active": [], "instance_activated": False,
+                 # Existing recovery scenarios exercise standard CCA ventilation.
+                 "is_knx_ventilation": False,
                  "instance_active_value": "",
                  "instance_active_on_states": ["on", "true"],
                  "midnight_reset_missed": False,
@@ -2784,6 +2786,11 @@ class TestBranchDispatch:
     """
 
     EXPECTED_OVERLAPS = {"t_open_1", "t_calendar_event_start", "t_calendar_event_end"}
+    KNX_PRE_DISPATCH = {
+        "t_knx_contact", "t_knx_feedback", "t_knx_settle", "t_knx_rearm",
+    }
+    KNX_HOLD = "KNX ventilation: persist cycle, validate feedback and re-arm nonblocking settle timer"
+    KNX_RESUME = "KNX ventilation: resume current automatic target after native restoration settles"
 
     def _matching_branches(self, trigger_id: str) -> list[str]:
         trigger = types.SimpleNamespace(id=trigger_id)
@@ -2798,7 +2805,27 @@ class TestBranchDispatch:
         return hits
 
     def _trigger_ids(self) -> set[str]:
-        return {t["id"] for t in BP["triggers"] if t.get("id")}
+        return {t["id"] for t in BP["triggers"] if t.get("id")} - self.KNX_PRE_DISPATCH
+
+    def test_native_knx_triggers_are_consumed_before_the_standard_dispatch(self):
+        """KNX events use the early hold/settle pipeline, not a numbered branch."""
+        native = [t for t in BP["triggers"] if t.get("id") in self.KNX_PRE_DISPATCH]
+        assert {t["id"] for t in native} == self.KNX_PRE_DISPATCH
+        assert all("is_knx_ventilation" in t["enabled"] for t in native)
+        hold, resume = _branch(self.KNX_HOLD), _branch(self.KNX_RESUME)
+        assert _render_bool(hold["if"], is_knx_ventilation=True)
+        assert not _render_bool(hold["if"], is_knx_ventilation=False)
+        assert _render_bool(resume["if"], is_knx_ventilation=True, knx_resume_requested=True)
+        assert not _render_bool(resume["if"], is_knx_ventilation=True, knx_resume_requested=False)
+        actions = BP["actions"]
+        dispatcher = next(step for step in actions
+                          if isinstance(step, dict) and len(step.get("choose", [])) > 5)
+        assert actions.index(hold) < actions.index(resume) < actions.index(dispatcher)
+        requested = next(step["variables"]["knx_resume_requested"] for step in hold["then"]
+                         if "knx_resume_requested" in step.get("variables", {}))
+        assert "t_knx_settle" in requested
+        assert "knx_live_pending" in requested
+        assert not any(self._matching_branches(tid) for tid in self.KNX_PRE_DISPATCH)
 
     def test_every_trigger_reaches_exactly_one_branch_except_the_known_fallbacks(self):
         overlaps, orphans = set(), set()
