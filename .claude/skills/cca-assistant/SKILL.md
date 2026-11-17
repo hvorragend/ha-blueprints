@@ -195,6 +195,7 @@ helper_ts_pending_due   # helper_json.ts.due (fire time of armed pending)
 helper_ts_pending_arm   # helper_json.ts.arm (retry anchor)
 helper_ts_write         # helper_json.t (last write - automation_resumed etc.)
 helper_ts_drive         # helper_json.d (last driving write - manual-detection settle window)
+drive_contradicted      # counter-move / stop of CCA's own movement inside the settle window (Pattern BE)
 ```
 
 ---

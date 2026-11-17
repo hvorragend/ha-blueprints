@@ -1416,3 +1416,61 @@ Tests: `tests/test_apply_transition_architecture.py::TestPostDelayLiveForceGate`
 `::TestNothingWouldHaveMoved::test_a_travelling_cover_is_never_already_there`.
 
 ---
+
+### Bug Pattern BE: The drive settle window swallowed the user's counter-move — a cover raised by hand right after CCA closed it stayed unmanaged (KNX field report, 2026-11-17)
+
+**Symptom:** CCA closes a cover (`closing 100 → closed 0`). 17 s after arrival the user
+raises it by wall button (`open 1 → opening 2 → open 98`); on a second cover the user
+stops CCA's close at 10 % and raises it 12 s later (`opening 10 → open 100`). Neither is
+recorded: `man` stays `0`, and the next automatic event (window closed after
+ventilation) drives both covers straight back down.
+
+**Cause:** Branch 9's settle window `now > d + drive_time + 60` (Bug Pattern AP) drops
+*every* position change within ~150 s of a dispatch as CCA's own feedback. The trigger's
+`for: 60` fires the final report ~60 s after the user's action, i.e. still inside the
+window, and the stable position never re-fires (same loss mode as AP/AX).
+
+**Fix:** The window gate is `outside window or drive_contradicted`. The action-scope
+variable `drive_contradicted` (next to `state_targets`) is true only for
+`t_manual_position` when **all** of these hold:
+
+- the trigger's `to_state` was reported **after** the dispatch write
+  (`to_state.last_updated > d`) — keeps the #614 queued ordering: a manual event that
+  fired before a dispatch but runs after it stays suppressed;
+- **no state write since the drive** (`helper_ts_write <= helper_ts_drive`) — the
+  projected target `state_targets[effective_state].target` is then the one the drive went
+  to. A blocked transition after the drive (e.g. the closing condition refuses while the
+  cover is still arriving at the shading position) would otherwise make CCA's own arrival
+  look like a stop short of the new target;
+- and either a **counter-move** (`|to − target| − |from − target| > margin`) or a
+  **stop** (`from_state.state` is `opening`/`closing`, the live cover state is not, and
+  `|to − target| > margin`).
+
+`margin = max(position_tolerance, 2)`: a fixed 2 % floor so `position_tolerance: 0` with
+KNX end-position jitter (`closed 0 → open 1`) is never a counter-move. The source-group
+dead-band / mid-travel disjuncts (Q, AX) still apply after the gate.
+
+**Deliberate scope:**
+- Position only. Tilt keeps the plain window: CCA's own tilt stages move the slats away
+  from the final angle and back (tilt-before-position alignment, `tilt_first` reset), so a
+  counter-move rule on tilt would classify CCA's own slat travel as manual.
+- `custom_sensor` gets the counter-move rule only (a sensor has no motion state for the
+  stop rule, Bug Pattern AX residual).
+- Default on: this is a detection bug, no new input. A run that cannot prove the target
+  (any write since `d`, reports before `d`, unknown target) falls back to the old
+  suppression — the change can only add detections that contradict the drive.
+
+**Residuals (accepted):** a counter-move reported before the dispatch write (the write
+follows the tilt stage / after-action) or after an unrelated helper write within the
+window (e.g. a pending re-arm) is still swallowed. A live contact/resident change whose
+handler has not written yet (≤ `contact_delay_trigger`) can shift `effective_state` for
+that run. An actuator that stops or overshoots more than `max(position_tolerance, 2)` off
+CCA's target reads as a stop — `position_tolerance` must cover the hardware's
+end-position accuracy (it already must, for `in_*_position`).
+
+**Rule:** A suppression window may only swallow what it is meant to explain. A change that
+contradicts the dispatched movement is evidence against "own feedback" and must not be
+suppressed by a time window alone. Tests:
+`tests/test_manual_detection_drive_window.py::TestCounterMoveInsideDriveWindow`.
+
+---

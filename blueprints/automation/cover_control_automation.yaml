@@ -4,7 +4,7 @@ blueprint:
     # ⭐ Cover Control Automation (CCA) ⭐
     Cover Control Automation is a comprehensive Home Assistant blueprint which automatically manages your window coverings (such as roller shutters and blinds) based on time, the position of the sun, and weather conditions. It adapts intelligently to your preferences, largely eliminating the need for manual adjustments.
 
-    **Version**: 2026.10.23
+    **Version**: 2026.11.17
 
     ### 🔗 Resources & Support
     📢 **Latest Changes**: [Changelog](https://hvorragend.github.io/ha-blueprints/CHANGELOG) | ✨ **Highlights**: [Key Features](https://hvorragend.github.io/ha-blueprints/#key-features)
@@ -433,6 +433,8 @@ blueprint:
             Can be used to recognise manual control. Please round up a little and do not adjust too precisely. Is used to delay the trigger if too much or incorrect position data is sent back.
             <br /><br />
             Within this time, it is assumed that CCA has carried out the last action. Otherwise, CCA would react to its own commands and recognize them as manual intervention.
+            <br /><br />
+            Exception: moving the cover against the direction CCA is driving it, or stopping it clearly before CCA's target position, is recognized as manual intervention even within this time. Set the position tolerance to cover your cover's end-position deviation (at least 2 % is always allowed).
           default: 90
           selector:
             number:
@@ -2745,7 +2747,7 @@ trigger_variables:
 ################################################################################
 
 variables:
-  version: "2026.10.23"
+  version: "2026.11.17"
 
   # Force pause
   is_paused: "{{ force_pause != [] and states(force_pause) in ['on', 'true'] }}"
@@ -5197,6 +5199,31 @@ actions:
         shd: "sun shading position"
         cls: "closed"
         non: "no change"
+
+      # Manual counter-action inside the drive settle window (Bug Pattern BE).
+      # Within drive_time + 60 s of a dispatch a position change counts as
+      # CCA's own feedback - unless it was reported after the dispatch write,
+      # no state write has moved the projected target since (t <= d), and it
+      # moves away from that target or comes to rest short of it. The margin
+      # (at least 2 %) keeps end-position jitter out.
+      drive_contradicted: >-
+        {% set moving = ['opening', 'closing'] %}
+        {% set old_s = (trigger.from_state | default(none)) if trigger is defined else none %}
+        {% set new_s = (trigger.to_state | default(none)) if trigger is defined else none %}
+        {% set attr = 'position' if position_source == 'position_attr' else 'current_position' %}
+        {% set by_state = position_source == 'custom_sensor' %}
+        {% set pos_from = none if old_s is none else old_s.state if by_state else old_s.attributes[attr] | default(none) %}
+        {% set pos_to = none if new_s is none else new_s.state if by_state else new_s.attributes[attr] | default(none) %}
+        {% set target = (state_targets[effective_state] | default({})).target | default(101) | int(101) %}
+        {% set margin = [position_tolerance | int(0), 2] | max %}
+        {% set applies = trigger is defined and trigger.id | default('') == 't_manual_position' and
+             helper_ts_drive > 0 and helper_ts_write <= helper_ts_drive and
+             new_s is not none and as_timestamp(new_s.last_updated | default(0), 0) > helper_ts_drive and
+             0 <= target <= 100 and is_number(pos_from) and is_number(pos_to) %}
+        {% set dist_from = ((pos_from | float(0)) - target) | abs %}
+        {% set dist_to = ((pos_to | float(0)) - target) | abs %}
+        {{ applies and (dist_to - dist_from > margin or
+             (old_s.state in moving and states(blind) not in moving and dist_to > margin)) }}
 
       # Forecast data normalisation.
       # Temperature from sensor (priority) or weather entity
@@ -8468,7 +8495,9 @@ actions:
           - "{{ trigger.id is defined }}"
           - "{{ trigger.id in ['t_manual_position', 't_manual_tilt'] }}"
           - "{{ not (trigger.id == 't_manual_position' and in_reset_override_position and helper_state_manual) }}"
-          - "{{ as_timestamp(now()) > helper_ts_drive + drive_time | default(90) + 60 }}"
+          # Inside the drive settle window only a counter-move or a stop of
+          # CCA's own movement counts (drive_contradicted, Bug Pattern BE)
+          - "{{ as_timestamp(now()) > helper_ts_drive + drive_time | default(90) + 60 or drive_contradicted }}"
           - "{{ trigger.from_state is not none and trigger.to_state is not none }}"
           - "{{ trigger.from_state.state not in invalid_states }}"
           - "{{ trigger.to_state.state not in invalid_states }}"

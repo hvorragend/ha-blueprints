@@ -168,6 +168,8 @@ Tolerance to be applied when comparing the current position with the to be posit
 
 Can be used to recognise manual control. Please round up a little and do not adjust too precisely. Is used to delay the trigger if too much or incorrect position data is sent back. <br /><br /> Within this time, it is assumed that CCA has carried out the last action. Otherwise, CCA would react to its own commands and recognize them as manual intervention.
 
+Exception: moving the cover against the direction CCA is driving it, or stopping it clearly before CCA's target position, is recognized as manual intervention even within this time. Set the [Position Tolerance](#position_tolerance) to cover your cover's end-position deviation (at least 2 % is always allowed).
+
 ---
 
 [⬅️ Handbook index](index) · Previous: [⚙️ Features & Modes](features) · Next: [⏰ Time & Calendar Control](time)
