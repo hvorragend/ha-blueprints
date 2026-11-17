@@ -1023,6 +1023,7 @@ Lockout Protection Options:
 - Position change not caused by CCA
 - Tilt change not caused by CCA
 - Change occurs after "Drive Time" buffer period
+- Within the "Drive Time" buffer period only a move against CCA's own movement, or stopping the cover clearly before CCA's target, counts
 
 **What happens:**
 - Helper status set to "manual"

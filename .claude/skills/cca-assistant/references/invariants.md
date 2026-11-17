@@ -156,7 +156,9 @@ midnight reset, and recovery of an expired override) remain explicit updates.
   enters the same tilt check. Pure state syncs, blocked
   plans and tolerance no-ops never stamp it: the manual-detection settle window
   keys off `d` via `helper_ts_drive`, and a stamp from a non-driving write
-  reopens the #614 blind window (Bug Pattern AP). No branch writes `d` through
+  reopens the #614 blind window (Bug Pattern AP). Inside that window only a
+  change that contradicts the dispatched movement counts as manual
+  (`drive_contradicted`, Bug Pattern BE). No branch writes `d` through
   `update_values` — it is owned entirely by `helper_update`.
 
 ### ⚠️ Invariant 11: Mutual exclusivity of shading-start and shading-end pending

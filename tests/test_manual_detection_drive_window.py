@@ -311,3 +311,226 @@ class TestHelperLengthBudget:
 
     def test_recommended_length_still_sufficient(self):
         assert len(self._max_helper_json()) <= 254
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bug Pattern BE: inside the drive settle window a counter-move or a stop of
+# CCA's own movement still counts as manual
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _drive_contradicted_template() -> str:
+    step = _walk(
+        BP,
+        lambda n: isinstance(n, dict) and "drive_contradicted" in n and "state_targets" in n,
+    )
+    assert step is not None, "drive_contradicted must sit next to state_targets"
+    return step["drive_contradicted"]
+
+
+def _is_number(value) -> bool:
+    """HA's is_number: numeric strings count, bool/None/nan/inf do not."""
+    if isinstance(value, bool) or value is None:
+        return False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return number == number and number not in (float("inf"), float("-inf"))
+
+
+def _as_timestamp(value, default=None):
+    if isinstance(value, datetime.datetime):
+        return value.timestamp()
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+BLIND = "cover.test"
+DRIVE_TS = NOW_TS - 100  # CCA dispatched 100 s ago: inside the default 150 s window
+STATE_TARGETS = {
+    "lock": {"target": 100}, "opn": {"target": 100}, "vnt": {"target": 20},
+    "shd": {"target": 30}, "cls": {"target": 0},
+}
+
+
+def _report(state: str, pos, at: int, source: str = "current_position_attr") -> dict:
+    stamp = datetime.datetime.fromtimestamp(at)
+    if source == "custom_sensor":
+        return {"state": str(pos), "attributes": {}, "last_updated": stamp}
+    attr = "position" if source == "position_attr" else "current_position"
+    return {"state": state, "attributes": {attr: pos}, "last_updated": stamp}
+
+
+def _scenario(from_state, from_pos, to_state, to_pos, *, live="open", target_state="cls",
+              tolerance=0, report_at=DRIVE_TS + 40, drive_ts=DRIVE_TS, write_ts=None,
+              source="current_position_attr", trigger_id="t_manual_position",
+              now_ts=NOW_TS) -> dict:
+    attr = "position" if source == "position_attr" else "current_position"
+    return {
+        "trigger": {
+            "id": trigger_id,
+            "attribute": attr,
+            "from_state": _report(from_state, from_pos, report_at - 5, source),
+            "to_state": _report(to_state, to_pos, report_at, source),
+        },
+        "live": live,
+        "now_ts": now_ts,
+        "blind": BLIND,
+        "position_source": source,
+        "position_tolerance": tolerance,
+        "tilt_position_tolerance": 0,
+        "state_targets": STATE_TARGETS,
+        "effective_state": target_state,
+        "helper_ts_drive": drive_ts,
+        "helper_ts_write": drive_ts if write_ts is None else write_ts,
+        "drive_time": 90,
+        "in_reset_override_position": False,
+        "helper_state_manual": False,
+        "invalid_states": INVALID_STATES,
+    }
+
+
+def _env(scenario: dict) -> jinja2.Environment:
+    env = jinja2.Environment(undefined=jinja2.Undefined)
+    env.globals["states"] = lambda entity_id: scenario["live"] if entity_id == BLIND else "unknown"
+    env.globals["now"] = lambda: datetime.datetime.fromtimestamp(scenario["now_ts"])
+    env.globals["as_timestamp"] = _as_timestamp
+    env.globals["is_number"] = _is_number
+    env.filters["abs"] = abs
+    return env
+
+
+def _contradicted(scenario: dict) -> bool:
+    rendered = _env(scenario).from_string(_drive_contradicted_template()).render(**scenario)
+    return rendered.strip() == "True"
+
+
+def _branch_passes(scenario: dict) -> bool:
+    """All conditions of the real manual-detection branch, with the real
+    drive_contradicted rendered first (as HA does for action variables)."""
+    variables = dict(scenario, drive_contradicted=_contradicted(scenario))
+    env = _env(scenario)
+
+    def evaluate(cond) -> bool:
+        if isinstance(cond, dict):
+            if "or" in cond:
+                return any(evaluate(c) for c in cond["or"])
+            if "and" in cond:
+                return all(evaluate(c) for c in cond["and"])
+            raise AssertionError(f"unsupported condition node: {cond!r}")
+        text = cond.strip()
+        if text.startswith("{{") and text.endswith("}}"):
+            text = text[2:-2]
+        return env.from_string("{{ " + text + " }}").render(**variables).strip() == "True"
+
+    return all(evaluate(c) for c in _find_branch_by_alias(MANUAL_BRANCH_ALIAS)["conditions"])
+
+
+class TestCounterMoveInsideDriveWindow:
+    # The two field reports (KNX, CCA closing to 0)
+
+    def test_raised_by_hand_after_ccas_close_is_manual(self):
+        """Closed by CCA, 17 s later raised by wall button: open 1 -> opening 2
+        -> open 98; the final report is 2 -> 98."""
+        assert _branch_passes(_scenario("opening", 2, "open", 98))
+
+    def test_stopped_then_raised_by_hand_is_manual(self):
+        """CCA's close stopped at 10 %, raised 12 s later: opening 10 -> open 100."""
+        assert _branch_passes(_scenario("opening", 10, "open", 100))
+
+    # Stop short of the target
+
+    def test_stop_short_of_the_close_target_is_manual(self):
+        assert _branch_passes(_scenario("closing", 20, "open", 10))
+
+    def test_stop_with_state_flipping_after_the_last_report_is_manual(self):
+        """KNX: position report still 'closing', state flips to 'open' later."""
+        assert _branch_passes(_scenario("closing", 20, "closing", 10, live="open"))
+
+    def test_stop_while_opening_is_manual(self):
+        assert _branch_passes(_scenario("opening", 40, "open", 55, target_state="opn"))
+
+    def test_counter_move_while_opening_is_manual(self):
+        assert _branch_passes(_scenario("closing", 60, "closed", 0, target_state="opn"))
+
+    def test_continuing_past_the_shading_target_is_manual(self):
+        """Single-report cover: CCA drives to 30, the user keeps it going to 0."""
+        assert _branch_passes(_scenario("closing", 100, "closed", 0, target_state="shd"))
+
+    # CCA's own movement is never manual
+
+    @pytest.mark.parametrize(
+        ("from_state", "from_pos", "to_state", "to_pos", "live", "target_state"),
+        [
+            ("closing", 60, "closing", 40, "closing", "cls"),  # progress, still travelling
+            ("closing", 3, "closed", 0, "closed", "cls"),      # arrival
+            ("closing", 100, "closed", 0, "closed", "cls"),    # single-report arrival
+            ("closed", 0, "open", 1, "open", "cls"),           # end-position jitter
+            ("closed", 0, "open", 2, "open", "cls"),           # jitter at the 2 % floor
+            ("closing", 4, "open", 2, "open", "cls"),          # rests 2 % off the end
+            ("opening", 40, "opening", 60, "opening", "opn"),  # progress, opening
+            ("opening", 97, "open", 100, "open", "opn"),       # arrival, opening
+            ("open", 100, "open", 99, "open", "opn"),          # jitter at the top
+            ("closing", 31, "open", 30, "open", "shd"),        # arrival mid-range
+            ("closing", 31, "open", 29, "open", "shd"),        # 1 % overshoot
+        ],
+    )
+    def test_own_movement_is_not_manual(self, from_state, from_pos, to_state, to_pos,
+                                        live, target_state):
+        assert not _branch_passes(
+            _scenario(from_state, from_pos, to_state, to_pos, live=live, target_state=target_state)
+        )
+
+    def test_position_tolerance_widens_the_margin(self):
+        assert not _branch_passes(_scenario("closing", 20, "open", 4, tolerance=5))
+        assert _branch_passes(_scenario("closing", 20, "open", 10, tolerance=5))
+
+    # Guards that keep the old suppression
+
+    def test_report_before_the_dispatch_write_stays_suppressed(self):
+        """#614 ordering: a manual event that fired before CCA's dispatch but
+        executes after it was physically overridden by that movement."""
+        assert not _branch_passes(_scenario("opening", 2, "open", 98, report_at=DRIVE_TS - 10))
+
+    def test_state_write_since_the_drive_keeps_the_suppression(self):
+        """A non-driving write after the drive may have moved the projected
+        target - CCA's own arrival must not look like a stop short of it."""
+        assert not _branch_passes(
+            _scenario("closing", 40, "open", 30, target_state="cls", write_ts=DRIVE_TS + 20)
+        )
+
+    def test_unknown_target_keeps_the_suppression(self):
+        assert not _branch_passes(_scenario("opening", 2, "open", 98, target_state="non"))
+
+    def test_tilt_changes_keep_the_plain_window(self):
+        scenario = _scenario("opening", 2, "open", 98, trigger_id="t_manual_tilt")
+        scenario["trigger"]["from_state"]["attributes"]["current_tilt_position"] = 0
+        scenario["trigger"]["to_state"]["attributes"]["current_tilt_position"] = 100
+        assert not _branch_passes(scenario)
+
+    def test_position_attr_source(self):
+        assert _branch_passes(_scenario("opening", 10, "open", 100, source="position_attr"))
+        assert not _branch_passes(
+            _scenario("closing", 3, "closed", 0, live="closed", source="position_attr")
+        )
+
+    def test_custom_sensor_counter_move_only(self):
+        assert _branch_passes(_scenario(None, 2, None, 98, source="custom_sensor"))
+        assert not _branch_passes(_scenario(None, 20, None, 10, source="custom_sensor"))
+
+    # Outside the window nothing changes
+
+    def test_outside_the_window_detection_is_unchanged(self):
+        late = NOW_TS - DRIVE_TS + 200
+        assert _branch_passes(_scenario("open", 50, "open", 60, live="open", now_ts=NOW_TS + late))
+        assert _branch_passes(
+            _scenario("closing", 3, "closed", 0, live="closed", now_ts=DRIVE_TS + 151)
+        ), "outside the window even an arrival-shaped change counts, as before"
+
+    def test_variable_is_false_for_non_state_triggers(self):
+        scenario = _scenario("opening", 2, "open", 98)
+        scenario["trigger"] = {"id": "t_open_1"}
+        assert not _contradicted(scenario)
